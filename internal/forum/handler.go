@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -50,7 +51,7 @@ func (h *Handler) attachPastedImage(r *http.Request, userID, body, imageData str
 		return body
 	}
 	url := h.Uploads.SignedURL(u.ID, userID, 24*time.Hour)
-	img := "![](" + url + ")"
+	img := "[![](" + url + ")](" + url + ")"
 	if body == "" {
 		return img
 	}
@@ -376,13 +377,10 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	subject := strings.TrimSpace(firstLine(msg.BodyMarkdown))
+	subject := deriveSubject(msg.BodyMarkdown)
 	if subject == "" {
 		http.Error(w, "empty message", http.StatusBadRequest)
 		return
-	}
-	if len(subject) > 200 {
-		subject = subject[:200]
 	}
 	t, err := h.Svc.CreateThread(r.Context(), CreateThreadInput{
 		CommunityID:  h.CommunityID,
@@ -422,6 +420,26 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// imageMarkdownRE matches a leading markdown image (optionally wrapped in a
+// link): `![alt](src)` or `[![alt](src)](href)`.
+var imageMarkdownRE = regexp.MustCompile(`^\[?!\[[^\]]*\]\([^)]*\)\]?(?:\([^)]*\))?`)
+
+// deriveSubject turns a chat-message body into a human-friendly thread
+// subject. Strips leading markdown image syntax (so an image-only message
+// promotes to "(image)" rather than the literal `![](/uploads/…)` link),
+// otherwise uses the first line trimmed to 200 chars.
+func deriveSubject(body string) string {
+	line := strings.TrimSpace(firstLine(body))
+	stripped := strings.TrimSpace(imageMarkdownRE.ReplaceAllString(line, ""))
+	if stripped == "" && line != "" {
+		return "(image)"
+	}
+	if len(stripped) > 200 {
+		stripped = stripped[:200]
+	}
+	return stripped
 }
 
 func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {

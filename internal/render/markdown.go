@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"sync"
 
 	"github.com/microcosm-cc/bluemonday"
@@ -11,6 +12,11 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
 )
+
+// uploadsAnchorRE matches anchors pointing at our signed-upload URLs so we
+// can force target="_blank" rel="noopener" on them after sanitization. We
+// run this AFTER bluemonday so the added attributes are trusted output.
+var uploadsAnchorRE = regexp.MustCompile(`<a (href="/uploads/)`)
 
 var (
 	mdOnce sync.Once
@@ -38,5 +44,7 @@ func RenderMarkdown(src string) (string, error) {
 	if err := md.Convert([]byte(src), &buf); err != nil {
 		return "", fmt.Errorf("markdown convert: %w", err)
 	}
-	return policy.Sanitize(buf.String()), nil
+	out := policy.Sanitize(buf.String())
+	out = uploadsAnchorRE.ReplaceAllString(out, `<a target="_blank" rel="noopener" $1`)
+	return out, nil
 }
