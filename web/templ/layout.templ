@@ -23,7 +23,15 @@ const InitialSignals = `{
 	"cleanup_chat":false,
 	"cleanup_threads":false,
 	"cleanup_posts":false,
-	"ban_hours":0
+	"ban_hours":0,
+	"bm_open_msg":"",
+	"bm_new_title":"",
+	"bm_new_category":"",
+	"bm_new_note":"",
+	"bm_title":"",
+	"bm_category":"",
+	"bm_from":"",
+	"bm_to":""
 }`
 
 templ Layout(title string, v Viewer) {
@@ -43,6 +51,7 @@ templ Layout(title string, v Viewer) {
 					if v.IsAuthed {
 						<a href="/chat">Chat</a>
 						<a href="/forum">Forum</a>
+						<a href="/bookmarks">Bookmarks</a>
 						<a href="/profile">{ v.DisplayName }</a>
 						<button class="ghost" data-on:click="@post('/logout')">Sign out</button>
 					} else {

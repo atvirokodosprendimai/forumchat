@@ -160,6 +160,22 @@ button.link:hover { text-decoration: underline; }
   background: #2ec27a; display: inline-block;
 }
 
+.bm-filter {
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: .75rem;
+}
+@media (max-width: 760px) { .bm-filter { grid-template-columns: 1fr 1fr; } }
+.bm-composer {
+  display: flex; flex-direction: column; gap: .35rem;
+  background: var(--surface-alt); padding: .5rem; border-radius: var(--radius-sm);
+  margin-top: .5rem;
+}
+.bm-composer input { width: 100%; }
+.badge {
+  display: inline-block; background: var(--accent-soft); color: var(--accent);
+  padding: 0 .4rem; border-radius: var(--radius-sm); font-size: .8em;
+  font-weight: 500; margin-left: .35rem;
+}
+
 .thread-list { list-style: none; padding: 0; margin: 0; }
 .thread-list li {
   padding: .75rem 1rem; background: var(--surface);

@@ -103,6 +103,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID string) {
 				<strong>{ m.AuthorName }</strong>
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
 				<button class="link" data-on:click={ "$reply_to_id = '" + m.ID + "'" }>reply</button>
+				<button class="link" data-on:click={ "$bm_open_msg = '" + m.ID + "'" }>bookmark</button>
 				if isMod || m.AuthorID == currentUserID {
 					<button class="link"
 						data-on:click={ "@post('/forum/promote-chat?id=" + m.ID + "')" }>→ thread</button>
@@ -119,6 +120,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID string) {
 				</blockquote>
 			}
 			<div class="body">@templ.Raw(m.BodyHTML)</div>
+			@BookmarkComposer(m.ID)
 		}
 	</article>
 }

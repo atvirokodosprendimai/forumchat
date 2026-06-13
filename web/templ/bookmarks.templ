@@ -1,0 +1,120 @@
+package templ
+
+import "time"
+
+type BookmarkRow struct {
+	ID                string
+	ChatMessageID     string
+	Title             string
+	Category          string
+	Note              string
+	CreatedAt         time.Time
+	MessageAuthorName string
+	MessageSnippet    string
+	MessageCreatedAt  time.Time
+	MessageDeleted    bool
+}
+
+type BookmarksPageData struct {
+	Viewer      Viewer
+	Rows        []BookmarkRow
+	Categories  []string
+	FilterTitle string
+	FilterCat   string
+	FilterFrom  string // YYYY-MM-DD or ""
+	FilterTo    string
+}
+
+templ BookmarksPage(d BookmarksPageData) {
+	@Layout("Bookmarks", d.Viewer) {
+		<section>
+			<h1>Your bookmarks</h1>
+			<p class="muted">Save chat messages you want to come back to. Filter by title, category, or date.</p>
+
+			<section class="card">
+				<h3>Filter</h3>
+				<div class="bm-filter">
+					<div class="field">
+						<label>Title contains</label>
+						<input type="text" data-bind="bm_title"
+							data-on:input__debounce.300ms="@get('/bookmarks/list')"/>
+					</div>
+					<div class="field">
+						<label>Category</label>
+						<select data-bind="bm_category"
+							data-on:change="@get('/bookmarks/list')">
+							<option value="">— any —</option>
+							for _, c := range d.Categories {
+								<option value={ c }>{ c }</option>
+							}
+						</select>
+					</div>
+					<div class="field">
+						<label>From</label>
+						<input type="date" data-bind="bm_from"
+							data-on:change="@get('/bookmarks/list')"/>
+					</div>
+					<div class="field">
+						<label>To</label>
+						<input type="date" data-bind="bm_to"
+							data-on:change="@get('/bookmarks/list')"/>
+					</div>
+				</div>
+			</section>
+
+			<div id="bookmarks-list">
+				@BookmarksList(d.Rows)
+			</div>
+		</section>
+	}
+}
+
+templ BookmarksList(rows []BookmarkRow) {
+	<div id="bookmarks-list">
+		if len(rows) == 0 {
+			<p class="muted">No bookmarks match.</p>
+		}
+		<ul class="thread-list">
+			for _, b := range rows {
+				<li>
+					<header style="display:flex;justify-content:space-between;align-items:baseline;gap:.5rem">
+						<div>
+							<strong>{ b.Title }</strong>
+							if b.Category != "" {
+								<span class="badge">{ b.Category }</span>
+							}
+						</div>
+						<span class="muted">saved { b.CreatedAt.Local().Format("2006-01-02 15:04") }</span>
+					</header>
+					<div class="muted" style="margin-top:.25rem">
+						from <strong>{ b.MessageAuthorName }</strong> · sent { b.MessageCreatedAt.Local().Format("2006-01-02 15:04") }
+						if b.MessageDeleted {
+							· <span class="error">message deleted</span>
+						}
+					</div>
+					<blockquote class="quote">{ b.MessageSnippet }</blockquote>
+					if b.Note != "" {
+						<div class="muted">note: { b.Note }</div>
+					}
+					<div style="margin-top:.4rem">
+						<button class="ghost"
+							data-on:click={ "@post('/bookmarks/delete?id=" + b.ID + "')" }>delete</button>
+					</div>
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+// BookmarkComposer is the inline form inside a chat bubble. data-show on
+// $bm_open_msg controls visibility — only one is open at a time because
+// the signal holds the message id.
+templ BookmarkComposer(messageID string) {
+	<div class="bm-composer" data-show={ "$bm_open_msg === '" + messageID + "'" }>
+		<input type="text" placeholder="title (optional)" data-bind="bm_new_title"/>
+		<input type="text" placeholder="category (optional)" data-bind="bm_new_category"/>
+		<input type="text" placeholder="note (optional)" data-bind="bm_new_note"/>
+		<button data-on:click={ "@post('/bookmarks?id=" + messageID + "')" }>save</button>
+		<button class="ghost" data-on:click="$bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''">cancel</button>
+	</div>
+}

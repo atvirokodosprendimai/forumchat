@@ -17,6 +17,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/admin"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/bookmarks"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
@@ -211,7 +212,16 @@ func run() error {
 		r.Post("/profile", authHandler.PostProfile)
 	})
 
-	// Approved-members area: chat, forum, uploads, presence.
+	bookmarksRepo := bookmarks.NewRepo(db)
+	bookmarksHandler := &bookmarks.Handler{
+		Repo:          bookmarksRepo,
+		ChatRepo:      chatRepo,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		Log:           log,
+	}
+
+	// Approved-members area: chat, forum, uploads, presence, bookmarks.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireApproved)
@@ -233,6 +243,11 @@ func run() error {
 		r.Post("/forum/{id}/delete", forumHandler.PostDeleteThread)
 		r.Post("/forum/post/{id}/delete", forumHandler.PostDeletePost)
 		r.Post("/forum/promote-chat", forumHandler.PostPromoteChat)
+
+		r.Get("/bookmarks", bookmarksHandler.GetPage)
+		r.Get("/bookmarks/list", bookmarksHandler.GetList)
+		r.Post("/bookmarks", bookmarksHandler.PostCreate)
+		r.Post("/bookmarks/delete", bookmarksHandler.PostDelete)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))

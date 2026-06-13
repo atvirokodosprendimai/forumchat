@@ -14,3 +14,4 @@
 - 2026-06-13 `15dc517` feat: invite queue + ban cleanup + chat replies + chat promote + persistent sessions + delete fan-out fix
 - 2026-06-13 `4c387fb` fix(css): stack reply-hint above composer input row
 - 2026-06-13 `78a22ec` fix(css): composer input expands to fill row width
+- 2026-06-13 `8a51736` feat(cli): approve and approve-all subcommands

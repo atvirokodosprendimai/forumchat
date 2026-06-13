@@ -143,6 +143,14 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 	sse := datastar.NewSSE(w, r)
 
+	// Initial sync: on every (re)connection — including when the browser
+	// re-establishes SSE after tab sleep — push the latest 100 immediately.
+	// Without this, a reconnecting client would see stale messages until the
+	// next chat event fires.
+	if views, err := h.loadRecent(r.Context()); err == nil {
+		_ = fatMorph(sse, views, isMod, id.User.ID)
+	}
+
 	local, unsubscribe := h.Bus.Subscribe()
 	defer unsubscribe()
 
