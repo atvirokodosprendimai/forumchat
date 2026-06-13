@@ -212,7 +212,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_ = sse.Redirect("/forum/" + t.ID)
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)
 }
 
 func (h *Handler) GetThread(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +387,7 @@ func (h *Handler) postResolve(w http.ResponseWriter, r *http.Request, resolved b
 		}
 	}
 	sse := datastar.NewSSE(w, r)
-	_ = sse.Redirect("/forum/" + threadID)
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + threadID)
 }
 
 func (h *Handler) PostResolve(w http.ResponseWriter, r *http.Request)   { h.postResolve(w, r, true) }
@@ -427,7 +427,7 @@ func (h *Handler) PostRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := datastar.NewSSE(w, r)
-	_ = sse.Redirect("/forum/" + threadID)
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + threadID)
 }
 
 // PostHardDeleteThread (admin) wipes the thread + posts + any uploads
@@ -461,7 +461,7 @@ func (h *Handler) PostHardDeleteThread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sse := datastar.NewSSE(w, r)
-	_ = sse.Redirect("/forum")
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum")
 }
 
 func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
@@ -487,7 +487,7 @@ func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := datastar.NewSSE(w, r)
-	_ = sse.Redirect("/forum")
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum")
 }
 
 // PostPromoteChat takes a chat message id and creates a forum thread whose
@@ -521,7 +521,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if msg.PromotedThreadID != nil {
 		sse := datastar.NewSSE(w, r)
-		_ = sse.Redirect("/forum/" + *msg.PromotedThreadID)
+		_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + *msg.PromotedThreadID)
 		return
 	}
 	subject := deriveSubject(msg.BodyMarkdown)
@@ -555,7 +555,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		fresh, err2 := h.ChatRepo.ByID(r.Context(), msg.ID)
 		sse := datastar.NewSSE(w, r)
 		if err2 == nil && fresh.PromotedThreadID != nil {
-			_ = sse.Redirect("/forum/" + *fresh.PromotedThreadID)
+			_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + *fresh.PromotedThreadID)
 		} else {
 			http.Error(w, "promote race", http.StatusConflict)
 		}
@@ -582,7 +582,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
 	}
 	sse := datastar.NewSSE(w, r)
-	_ = sse.Redirect("/forum/" + t.ID)
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)
 }
 
 // buildThreadAnnounce returns the chat fan-out HTML for a new thread. When
