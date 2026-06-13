@@ -22,6 +22,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
+	"github.com/atvirokodosprendimai/forumchat/internal/history"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
@@ -223,6 +224,13 @@ func run() error {
 		Log:           log,
 	}
 
+	historyHandler := &history.Handler{
+		DB:            db,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		Log:           log,
+	}
+
 	// Approved-members area: chat, forum, uploads, presence, bookmarks.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
@@ -251,6 +259,8 @@ func run() error {
 		r.Get("/bookmarks/list", bookmarksHandler.GetList)
 		r.Post("/bookmarks", bookmarksHandler.PostCreate)
 		r.Post("/bookmarks/delete", bookmarksHandler.PostDelete)
+
+		r.Get("/history", historyHandler.GetIndex)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))

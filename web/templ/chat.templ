@@ -43,12 +43,12 @@ templ ChatPage(d ChatPageData) {
 				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID)
 				@ChatComposer()
 			</div>
-			<aside id="presence" class="presence" data-init="@get('/presence/stream')">
+			<aside id="presence" class="presence" data-init="@get('/presence/stream', {openWhenHidden: true})">
 				<h3>Online</h3>
 				<p class="muted">connecting…</p>
 			</aside>
 		</section>
-		<div id="chat-stream-open" data-init="@get('/chat/stream')"></div>
+		<div id="chat-stream-open" data-init="@get('/chat/stream', {openWhenHidden: true})"></div>
 	}
 }
 

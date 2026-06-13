@@ -95,7 +95,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 
 			<h2>Replies</h2>
 			@ThreadPosts(t.ID, posts)
-			<div id={ "thread-stream-open-" + t.ID } data-init={ "@get('/forum/" + t.ID + "/stream')" }></div>
+			<div id={ "thread-stream-open-" + t.ID } data-init={ "@get('/forum/" + t.ID + "/stream', {openWhenHidden: true})" }></div>
 
 			<section class="card">
 				<h3>Reply</h3>
