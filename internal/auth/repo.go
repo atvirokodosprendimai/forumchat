@@ -232,6 +232,13 @@ func (r *Repo) MembershipFor(ctx context.Context, userID, communityID string) (M
 	return m, nil
 }
 
+func (r *Repo) UpdateMembershipProfile(ctx context.Context, membershipID, displayName, avatarURL string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE memberships SET display_name = ?, avatar_url = ? WHERE id = ?`,
+		displayName, avatarURL, membershipID)
+	return err
+}
+
 func (r *Repo) UpdateMembershipRole(ctx context.Context, membershipID string, role Role) error {
 	_, err := r.DB.ExecContext(ctx, `UPDATE memberships SET role = ? WHERE id = ?`, string(role), membershipID)
 	return err

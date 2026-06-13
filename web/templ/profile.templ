@@ -1,0 +1,28 @@
+package templ
+
+type ProfileForm struct {
+	DisplayName string
+	AvatarURL   string
+	Error       string
+	Saved       bool
+}
+
+templ ProfilePage(form ProfileForm) {
+	@Layout("Profile") {
+		<section>
+			<h1>Your profile</h1>
+			if form.Error != "" {
+				<p class="error">{ form.Error }</p>
+			}
+			if form.Saved {
+				<p class="muted">Saved.</p>
+			}
+			<form method="post" action="/profile">
+				<label>Display name <input type="text" name="display_name" value={ form.DisplayName } required maxlength="40"/></label>
+				<label>Avatar URL <input type="url" name="avatar_url" value={ form.AvatarURL } placeholder="https://..."/></label>
+				<button type="submit">Save</button>
+			</form>
+			<p class="muted"><a href="/">Back</a></p>
+		</section>
+	}
+}

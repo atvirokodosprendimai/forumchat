@@ -1,0 +1,91 @@
+package templ
+
+import "time"
+
+type MsgKind string
+
+const (
+	MsgKindUser           MsgKind = "user"
+	MsgKindSystem         MsgKind = "system"
+	MsgKindThreadAnnounce MsgKind = "thread_announce"
+)
+
+type MsgView struct {
+	ID           string
+	AuthorName   string
+	AuthorAvatar string
+	Kind         MsgKind
+	BodyHTML     string
+	CreatedAt    time.Time
+	Deleted      bool
+}
+
+type ChatPageData struct {
+	CommunityName string
+	DisplayName   string
+	IsMod         bool
+	Messages      []MsgView  // newest-first slice; rendered reversed for top-old / bottom-new
+	OldestSeen    *time.Time // for "load older"
+}
+
+templ ChatPage(d ChatPageData) {
+	@Layout("Chat") {
+		<section class="chat">
+			<h1>{ d.CommunityName } — Chat</h1>
+			<p class="muted"><a href="/">Home</a> · <a href="/forum">Forum</a> · signed in as <strong>{ d.DisplayName }</strong></p>
+
+			<div id="messages" class="messages" data-on-load="@get('/chat/stream')">
+				if d.OldestSeen != nil {
+					<form method="get" action="/chat/older" id="load-older">
+						<input type="hidden" name="before" value={ d.OldestSeen.Format(time.RFC3339Nano) }/>
+						<button type="submit">Load older</button>
+					</form>
+				}
+				for i := len(d.Messages) - 1; i >= 0; i-- {
+					@MessageView(d.Messages[i], d.IsMod)
+				}
+			</div>
+
+			<form id="send-form" method="post" action="/chat/send" data-on-submit__prevent="@post('/chat/send'); $body=''">
+				<input type="text" name="body" data-bind-body required maxlength="4000" placeholder="Say something — markdown ok" autocomplete="off"/>
+				<button type="submit">Send</button>
+			</form>
+		</section>
+	}
+}
+
+templ MessageView(m MsgView, isMod bool) {
+	<article class={ msgClass(m) } id={ "msg-" + m.ID } data-id={ m.ID }>
+		if m.Deleted {
+			if isMod {
+				<div class="muted">[deleted by mod] { fmtTime(m.CreatedAt) }</div>
+				<div class="body deleted">@templ.Raw(m.BodyHTML)</div>
+			} else {
+				<div class="muted">[message removed]</div>
+			}
+		} else if m.Kind == MsgKindThreadAnnounce {
+			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
+			@templ.Raw(m.BodyHTML)
+		} else {
+			<header class="meta">
+				<strong>{ m.AuthorName }</strong>
+				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
+				if isMod {
+					<button type="button" data-on-click={ "@post('/chat/delete?id=" + m.ID + "')" } class="link-button">delete</button>
+				}
+			</header>
+			<div class="body">@templ.Raw(m.BodyHTML)</div>
+		}
+	</article>
+}
+
+func msgClass(m MsgView) string {
+	if m.Kind == MsgKindThreadAnnounce || m.Kind == MsgKindSystem {
+		return "bubble system"
+	}
+	return "bubble"
+}
+
+func fmtTime(t time.Time) string {
+	return t.Local().Format("15:04 Jan 2")
+}

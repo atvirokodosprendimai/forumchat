@@ -15,8 +15,10 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
+	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -113,6 +115,54 @@ func run() error {
 	})
 
 	authHandler.Mount(r)
+
+	chatRepo := chat.NewRepo(db)
+	chatSvc := chat.NewService(chatRepo)
+	chatHandler := &chat.Handler{
+		Svc:           chatSvc,
+		Repo:          chatRepo,
+		NATS:          nc,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		Log:           log,
+	}
+
+	forumRepo := forum.NewRepo(db)
+	forumSvc := forum.NewService(forumRepo, cfg.EditGrace)
+	forumHandler := &forum.Handler{
+		Svc:           forumSvc,
+		Repo:          forumRepo,
+		Chat:          chatSvc,
+		NATS:          nc,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		BaseURL:       cfg.BaseURL,
+		Log:           log,
+	}
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Get("/profile", authHandler.GetProfile)
+		r.Post("/profile", authHandler.PostProfile)
+
+		r.Get("/chat", chatHandler.GetPage)
+		r.Post("/chat/send", chatHandler.PostSend)
+		r.Get("/chat/stream", chatHandler.GetStream)
+		r.Get("/chat/older", chatHandler.GetOlder)
+
+		r.Get("/forum", forumHandler.GetIndex)
+		r.Get("/forum/new", forumHandler.GetNew)
+		r.Post("/forum/new", forumHandler.PostNew)
+		r.Get("/forum/{id}", forumHandler.GetThread)
+		r.Post("/forum/{id}/reply", forumHandler.PostReply)
+		r.Post("/forum/{id}/delete", forumHandler.PostDeleteThread)
+		r.Post("/forum/post/{id}/delete", forumHandler.PostDeletePost)
+
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireRole(auth.RoleMod))
+			r.Post("/chat/delete", chatHandler.PostDelete)
+		})
+	})
 
 	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
 		if id, ok := auth.FromContext(req.Context()); ok {

@@ -29,6 +29,46 @@ func (h *Handler) Mount(r chiMux) {
 	r.Post("/logout", h.PostLogout)
 }
 
+func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
+	id, ok := FromContext(r.Context())
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	_ = webtempl.ProfilePage(webtempl.ProfileForm{
+		DisplayName: id.Membership.DisplayName,
+		AvatarURL:   id.Membership.AvatarURL,
+	}).Render(r.Context(), w)
+}
+
+func (h *Handler) PostProfile(w http.ResponseWriter, r *http.Request) {
+	id, ok := FromContext(r.Context())
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	displayName := strings.TrimSpace(r.PostFormValue("display_name"))
+	avatarURL := strings.TrimSpace(r.PostFormValue("avatar_url"))
+	form := webtempl.ProfileForm{DisplayName: displayName, AvatarURL: avatarURL}
+	if displayName == "" || len(displayName) > 40 {
+		form.Error = "Display name must be 1–40 characters"
+		_ = webtempl.ProfilePage(form).Render(r.Context(), w)
+		return
+	}
+	if err := h.Repo.UpdateMembershipProfile(r.Context(), id.Membership.ID, displayName, avatarURL); err != nil {
+		h.Log.Error("update profile", "err", err)
+		form.Error = "Could not save"
+		_ = webtempl.ProfilePage(form).Render(r.Context(), w)
+		return
+	}
+	form.Saved = true
+	_ = webtempl.ProfilePage(form).Render(r.Context(), w)
+}
+
 type chiMux interface {
 	Get(pattern string, h http.HandlerFunc)
 	Post(pattern string, h http.HandlerFunc)

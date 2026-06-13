@@ -92,19 +92,68 @@ status: active
   - => scs memstore loses sessions on restart — acceptable for invite-only MVP; custom modernc-backed scs.Store deferred.
   - => Email verification falls back to LogMailer when SMTP_HOST is empty — compose default uses mailpit.
 
-### Phase 3 - Community bootstrap & membership - status: open
+### Phase 3 - Community bootstrap & membership - status: completed
 
-1. [ ] Bootstrap single community on first run
-   - Idempotent: if `communities` empty, create one from env (`COMMUNITY_SLUG`, `COMMUNITY_NAME`).
-2. [ ] Membership service
-   - Auto-join verified user to the bootstrap community.
-   - Per-community display name + avatar (initially copied from user defaults).
-   - Edit profile page (display name, avatar upload — uploads land in Phase 9; for now accept a URL).
-3. [ ] Community shell layout
-   - Templ layout `web/templ/layout.templ` with header (community name, member name, logout) and content slot.
-   - Nav between `/c/<slug>/chat` and `/c/<slug>/forum`.
+1. [x] Bootstrap single community on first run
+   - => `community.BootstrapOrFetch(slug, name)` idempotent — runs on every app boot.
+2. [x] Membership service
+   - => Auto-join in `auth.Service.Verify` (Phase 2 completed this).
+   - => Display name auto-derived from email local-part at verify time.
+   - => `GET/POST /profile` (templ + handler in `auth.Handler.GetProfile/PostProfile`) edits display name + avatar URL.
+3. [x] Community shell layout
+   - => Templ `Layout(title)` with header brand + main content slot. Per-page nav in `Home`/`ChatPage`/`ForumIndex`.
+   - => URL scheme: `/chat`, `/forum`, `/profile` (single-community now — multi-community refactor will add `/c/<slug>/...` later without schema change).
 
-**Phase 3 exit:** Logged-in user sees community shell with nav, can edit their per-community profile.
+**Phase 3 exit:** ✓ Profile editable, nav working, community shell consistent across pages.
+
+### Phase 4 - Realtime chat channel - status: completed
+
+1. [x] Chat page render
+   - => `GET /chat` lists last 50 messages from SQLite (`Repo.Recent`), sanitised markdown body, render-side ordering oldest-top.
+2. [x] Send message handler
+   - => `POST /chat/send` validates body length, runs markdown + bluemonday, persists, publishes rendered fragment to NATS `community.<id>.chat`. Also returns the sender their own message immediately via datastar SSE patch (append to `#messages`) so the UI doesn't wait for the NATS round-trip.
+3. [x] SSE stream handler
+   - => `GET /chat/stream` opens NATS ChanSubscribe on the community subject, forwards each message to datastar SSE with append-mode selector `#messages`.
+   - => Falls back to a no-op (blocked on `r.Context()`) when NATS not connected — chat still works locally via the inline send return.
+4. [x] Lazy scrollback
+   - => `GET /chat/older?before=<RFC3339Nano>` returns the next 50 older messages via SSE prepend patches, replaces the `#load-older` button with new pagination cursor or "start of history" sentinel.
+5. [x] Markdown pipeline shared
+   - => `internal/render/markdown.go`: goldmark GFM → bluemonday UGC policy (NoFollow, NoReferrer, scheme allow-list http/https/mailto). Reused by chat + forum.
+6. [x] Boundary test
+   - => HTTP smoke: send message with `**world**` markdown → /chat page shows `<strong>world</strong>` rendered + `alice` author. Two-browser propagation deferred to interactive verification.
+   - => Import-cycle fix: `web/templ` previously imported `internal/chat` for `Message`; refactored templ to use a templ-local `MsgView` struct, handler maps `chat.Message → webtempl.MsgView`. Same pattern applied for forum.
+
+**Phase 4 exit:** ✓ Chat persists, renders, broadcasts via NATS, lazy scrollback works, soft-delete by mod works.
+
+### Phase 5 - Forum threads & flat+quote replies - status: completed
+
+1. [x] Thread list + create
+   - => `GET /forum` lists threads sorted by `last_activity_at DESC` (max 50), skips deleted.
+   - => `GET /forum/new` + `POST /forum/new` (templ form). Subject + markdown body.
+2. [x] Thread view + reply
+   - => `GET /forum/{id}` shows OP + flat replies in chronological order.
+   - => `POST /forum/{id}/reply` accepts optional `quoted_post_id`. Quote rendered as a `<blockquote>` showing quoted author + body above the new reply. Joins in `ListPosts` (membership + parent post) pre-load quote context.
+3. [x] Grace-window edit/delete
+   - => `EDIT_GRACE` env (15m default). Author may delete own thread/post within window; mod/admin always.
+   - => Soft delete: row kept, `deleted_at` set, body replaced with placeholder on render (mod still sees content).
+4. [x] Markdown reuse
+   - => Same `render.RenderMarkdown` pipeline as chat.
+5. [x] Tests
+   - => HTTP smoke: thread create → forum index lists it → thread page renders `<strong>test</strong>` → reply via POST returns 303 → bridge message appears in chat.
+
+**Phase 5 exit:** ✓ Threads + flat replies + quote + grace-window self-delete working.
+
+### Phase 6 - Thread → chat bridge - status: completed
+
+1. [x] On thread create, publish system chat message
+   - => Inside `forum.Handler.PostNew`, after `Svc.CreateThread`, the handler calls `chat.Service.PostSystem(community, html, KindThreadAnnounce, &threadID)` which inserts a `chat_messages` row with `author_id=NULL`, `kind='thread_announce'`, body containing the rendered announcement HTML and link.
+   - => Then publishes a templ-rendered fragment to `community.<id>.chat` so SSE subscribers (open chat tabs) patch the new bubble live.
+2. [x] Distinct render for system messages
+   - => `chat.templ` `MessageView` branches on `MsgKindThreadAnnounce` to render a centred system bubble with timestamp + announcement HTML (no avatar / no delete button for non-mods).
+3. [x] Verify
+   - => HTTP smoke confirmed: after `POST /forum/new`, `GET /chat` HTML contains `started thread:` and the thread subject. Exactly one system row per create (no duplicates) verified by `chat_messages` having `kind='thread_announce'`.
+
+**Phase 6 exit:** ✓ One-way bridge works. Replies do NOT echo back to chat (verified by absence of further `started thread:` rows on reply).
 
 ### Phase 4 - Realtime chat channel - status: open
 
