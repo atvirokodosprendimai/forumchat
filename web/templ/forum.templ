@@ -59,9 +59,9 @@ templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
 
 			<div class="forum-toolbar">
 				<nav class="forum-filters">
-					<a class={ filterClass("", status) } href={ templ.URL(forumFilterHref("", q)) }>All</a>
-					<a class={ filterClass("unresolved", status) } href={ templ.URL(forumFilterHref("unresolved", q)) }>Unresolved</a>
+					<a class={ filterClass("unresolved", status) } href={ templ.URL(forumFilterHref("unresolved", q)) }>Open</a>
 					<a class={ filterClass("resolved", status) } href={ templ.URL(forumFilterHref("resolved", q)) }>Resolved</a>
+					<a class={ filterClass("all", status) } href={ templ.URL(forumFilterHref("all", q)) }>All</a>
 				</nav>
 				<form class="forum-search" method="get" action="/forum">
 					<input type="hidden" name="status" value={ status }/>
@@ -96,14 +96,9 @@ func filterClass(self, cur string) string {
 }
 
 func forumFilterHref(status, q string) string {
-	out := "/forum"
-	sep := "?"
-	if status != "" {
-		out += sep + "status=" + status
-		sep = "&"
-	}
+	out := "/forum?status=" + status
 	if q != "" {
-		out += sep + "q=" + queryEscape(q)
+		out += "&q=" + queryEscape(q)
 	}
 	return out
 }
