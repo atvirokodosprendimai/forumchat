@@ -14,7 +14,7 @@ status: active
 
 ## Phases
 
-### Phase 1 — Schema + repo plumbing — status: open
+### Phase 1 — Schema + repo plumbing — status: completed
 
 Goal: DB ready, no UI yet.
 
@@ -30,7 +30,7 @@ Goal: DB ready, no UI yet.
 
 Verification: `go build ./... && go vet ./...` clean. Migration applies cleanly on fresh DB.
 
-### Phase 2 — Admin "Add member by email" handler — status: open
+### Phase 2 — Admin "Add member by email" handler — status: completed
 
 Goal: form posts, server creates membership (and placeholder user if needed), returns either success banner or join URL.
 
@@ -50,7 +50,7 @@ Goal: form posts, server creates membership (and placeholder user if needed), re
 
 Verification: in admin page, type existing email → success banner; type new email → URL appears, copy-able; type already-member email → error.
 
-### Phase 3 — Branded join page (logged-in branches) — status: open
+### Phase 3 — Branded join page (logged-in branches) — status: completed
 
 Goal: `/c/{slug}/join?code=...` renders for the four viewer states.
 
@@ -96,3 +96,4 @@ Verification: open URL → expected branch each of: same user logged in / wrong 
 ## Progress Log
 
 - 2606131953 — plan created from spec.
+- 2606132028 — Phases 1+2+3 completed in one push. Migration 00007, signup_tokens repo, CreateInvitedUser + SetPasswordAndActivate + MintSignupToken + SignupTokenByValue + ConsumeSignupToken. Login rejects StatusInvited explicitly. Admin add-by-email handler PostAddMember handles existing/new email branches with copy-able URL fragment. /c/{slug}/join page + JoinExpired/JoinConfirm/JoinWrongUser/JoinLogin/JoinSetPassword branches. PostJoinConfirm + PostJoinSetPassword complete the round trips. Build+vet clean. Phase 4 (CSS polish + spec status flip) deferred.

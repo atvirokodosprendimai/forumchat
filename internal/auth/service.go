@@ -144,7 +144,7 @@ func (s *Service) Login(ctx context.Context, email, password, communityID string
 	if !CheckPassword(u.PasswordHash, password) {
 		return LoginResult{}, ErrInvalidCredentials
 	}
-	if u.Status == StatusPending {
+	if u.Status == StatusPending || u.Status == StatusInvited {
 		return LoginResult{}, ErrNotVerified
 	}
 	if u.Status == StatusDisabled {

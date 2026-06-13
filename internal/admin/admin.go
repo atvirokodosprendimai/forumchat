@@ -302,6 +302,104 @@ var slugRE = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 func validSlug(s string) bool { return slugRE.MatchString(s) }
 
+type addMemberSignals struct {
+	Email string `json:"am_email"`
+	Role  string `json:"am_role"`
+}
+
+// PostAddMember is the admin "click click edit and done" add-by-email handler.
+// - existing user: insert pre-approved membership.
+// - new email: create placeholder user (status=invited) + pre-approved
+//   membership + signup token; render the copy-able join URL.
+func (h *Handler) PostAddMember(w http.ResponseWriter, r *http.Request) {
+	if h.Communities == nil {
+		http.Error(w, "communities repo not wired", http.StatusInternalServerError)
+		return
+	}
+	var in addMemberSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := datastar.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", "bad signals: "+err.Error()))
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if email == "" || !strings.Contains(email, "@") {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", "Valid email required"))
+		return
+	}
+	role := auth.RoleMember
+	if strings.EqualFold(in.Role, "moderator") {
+		role = auth.RoleMod
+	}
+
+	cid := h.cid(r)
+	cslug := h.cslug(r)
+
+	user, err := h.Repo.UserByEmail(r.Context(), email)
+	now := time.Now()
+	if err == nil {
+		// existing user — check for duplicate membership
+		if _, mErr := h.Repo.MembershipFor(r.Context(), user.ID, cid); mErr == nil {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", "Already a member"))
+			return
+		}
+		display := user.Email
+		if i := strings.IndexByte(display, '@'); i > 0 {
+			display = display[:i]
+		}
+		if err := h.Repo.CreateMembership(r.Context(), nil, auth.Membership{
+			ID:          uuid.NewString(),
+			UserID:      user.ID,
+			CommunityID: cid,
+			DisplayName: display,
+			Role:        role,
+			ApprovedAt:  &now,
+		}); err != nil {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", err.Error()))
+			return
+		}
+		_ = sse.PatchSignals([]byte(`{"am_email":""}`))
+		_ = sse.PatchElementTempl(webtempl.SuccessFragment("am-result", "Added "+email+" — they will see this community on next sign-in."))
+		return
+	}
+	if !errors.Is(err, auth.ErrNotFound) {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", err.Error()))
+		return
+	}
+
+	// new email — placeholder user + membership + signup token
+	newUser, err := h.Repo.CreateInvitedUser(r.Context(), email)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", err.Error()))
+		return
+	}
+	display := newUser.Email
+	if i := strings.IndexByte(display, '@'); i > 0 {
+		display = display[:i]
+	}
+	if err := h.Repo.CreateMembership(r.Context(), nil, auth.Membership{
+		ID:          uuid.NewString(),
+		UserID:      newUser.ID,
+		CommunityID: cid,
+		DisplayName: display,
+		Role:        role,
+		ApprovedAt:  &now,
+	}); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", err.Error()))
+		return
+	}
+	token, err := h.Repo.MintSignupToken(r.Context(), newUser.ID, cid, 7*24*time.Hour)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", err.Error()))
+		return
+	}
+	url := "/c/" + cslug + "/join?code=" + token
+	_ = sse.PatchSignals([]byte(`{"am_email":""}`))
+	_ = sse.PatchElementTempl(webtempl.InviteURLFragment("am-result", email, url))
+}
+
 func memberRowsToAdminMembers(rows []auth.MemberRow, now time.Time) []webtempl.AdminMember {
 	out := make([]webtempl.AdminMember, 0, len(rows))
 	for _, r := range rows {

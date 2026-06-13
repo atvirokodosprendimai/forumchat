@@ -24,6 +24,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/history"
+	"github.com/atvirokodosprendimai/forumchat/internal/invites"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
@@ -214,7 +215,9 @@ func run() error {
 
 	dashboardHandler := &dashboard.Handler{Communities: cRepo, Log: log}
 
-	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), Log: log}
+	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
+
+	invitesHandler := &invites.Handler{AuthRepo: aRepo, Sessions: sessions, Log: log}
 
 	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
 	r.Group(func(r chi.Router) {
@@ -239,6 +242,17 @@ func run() error {
 		CommunityName: bootCommunity.Name,
 		Log:           log,
 	}
+
+	// Per-community JOIN landing — LoadCommunity runs so the templ can render
+	// the community name, but RequireMember does NOT (this is the path that
+	// admits new members). Mounted before the main /c/{slug} group so it
+	// doesn't get caught by RequireMember.
+	r.Route("/c/{slug}/join", func(r chi.Router) {
+		r.Use(community.LoadCommunity(cRepo))
+		r.Get("/", invitesHandler.GetJoin)
+		r.Post("/confirm", invitesHandler.PostJoinConfirm)
+		r.Post("/set-password", invitesHandler.PostJoinSetPassword)
+	})
 
 	// Per-community area: every page, every SSE stream, every POST nests under
 	// /c/{slug}. LoadCommunity resolves the slug; RequireMember rebinds the
@@ -279,6 +293,7 @@ func run() error {
 		r.Get("/history", historyHandler.GetIndex)
 
 		r.Get("/todos", todosHandler.GetIndex)
+		r.Post("/todos", todosHandler.PostCreate)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))
@@ -295,6 +310,7 @@ func run() error {
 			r.Post("/admin/unban", adminHandler.PostUnban)
 			r.Post("/admin/invite", adminHandler.PostInvite)
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
+			r.Post("/admin/add-member", adminHandler.PostAddMember)
 			r.Post("/forum/{id}/hard-delete", forumHandler.PostHardDeleteThread)
 		})
 	})

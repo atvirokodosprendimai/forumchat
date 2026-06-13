@@ -7,6 +7,7 @@ type UserStatus string
 const (
 	StatusPending  UserStatus = "pending"
 	StatusActive   UserStatus = "active"
+	StatusInvited  UserStatus = "invited" // admin-added, awaiting set-password via signup token
 	StatusDisabled UserStatus = "disabled"
 )
 

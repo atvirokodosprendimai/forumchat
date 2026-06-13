@@ -75,3 +75,13 @@ templ ErrorFragment(id, msg string) {
 templ SuccessFragment(id, msg string) {
 	<div id={ id } class="success">{ msg }</div>
 }
+
+// InviteURLFragment renders the copy-able join URL returned by
+// PostAddMember when a brand-new email is invited. JS-free copy via the
+// readonly input + select-all on focus pattern.
+templ InviteURLFragment(id, email, url string) {
+	<div id={ id } class="success">
+		Added <strong>{ email }</strong> — share this URL to set their password:
+		<input type="text" readonly value={ url } onfocus="this.select()" style="width:100%;margin-top:.35rem"/>
+	</div>
+}

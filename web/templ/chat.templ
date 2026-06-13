@@ -27,6 +27,7 @@ type MsgView struct {
 	Deleted          bool
 	ReplyTo          *ReplySnippet
 	PromotedThreadID string
+	TitleSnippet     string // single-line title derived from body for todo/bookmark dialogs
 }
 
 type ChatPageData struct {
@@ -51,6 +52,7 @@ templ ChatPage(d ChatPageData) {
 		</section>
 		<div id="chat-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/chat/stream', {openWhenHidden: true})" }></div>
 		@BookmarkDialog(d.Viewer.CommunitySlug)
+		@TodoDialog(d.Viewer.CommunitySlug)
 	}
 }
 
@@ -111,6 +113,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
 				<button class="link" data-on:click={ "$reply_to_id = '" + m.ID + "'" }>reply</button>
 				<button class="link" data-on:click={ "$bm_open_msg = '" + m.ID + "'" }>bookmark</button>
+				<button class="link" data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) }>add to todos</button>
 				if m.PromotedThreadID != "" {
 					<a class="link" href={ templ.URL("/c/" + slug + "/forum/" + m.PromotedThreadID) }>→ thread</a>
 				} else if isMod || m.AuthorID == currentUserID {

@@ -40,7 +40,8 @@ Goal: `/c/{slug}/todos` renders an empty list (no add buttons yet). DB ready.
 
 Verification: hard-reload `/c/{slug}/todos`, page renders with filter UI and "no todos yet" message. Build clean.
 
-### Phase 2 — Add to todos from chat — status: open
+### Phase 2 — Add to todos from chat — status: completed
+   - => Done in same commit as Phase 3 (forum) since the dialog is shared.
 
 Goal: clicking "Add to todos" on a chat bubble creates a row that appears on the page.
 
@@ -60,7 +61,11 @@ Goal: clicking "Add to todos" on a chat bubble creates a row that appears on the
 
 Verification: open chat, click "Add to todos" on a bubble, fill title, save, navigate to `/c/{slug}/todos`, row appears with chat-source label.
 
-### Phase 3 — Add to todos from forum posts — status: open
+### Phase 3 — Add to todos from forum posts — status: completed
+   - => internal/render.AutoTitle extracted (shared with bookmarks helper).
+   - => MsgView.TitleSnippet + PostView.TitleSnippet populated by handlers.
+   - => TodoDialog(slug) rendered once on ChatPage and ThreadPage.
+   - => todos.PostCreate handles chat: + forum_post: sources; cleans dialog signals on success.
 
 Goal: same loop from forum thread posts.
 
@@ -140,3 +145,4 @@ Verification: flip flag in admin, every surface drops the feature; flip back, ev
 
 - 2606131944 — plan created from spec.
 - 2606131958 — Phase 1 completed. Migration 00006, todos package, GetIndex, TodosPage templ, route + nav. Build+vet clean.
+- 2606132025 — Phases 2+3 completed in one commit. Add-to-todos buttons live on chat bubbles AND forum posts. TodoDialog modal. PostCreate handles both source kinds.

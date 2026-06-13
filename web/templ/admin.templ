@@ -35,6 +35,24 @@ templ AdminPage(d AdminPageData) {
 			<h1>Admin — { d.Viewer.CommunityName }</h1>
 			<p class="muted"><a href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin") }>refresh</a></p>
 
+			<section class="card narrow">
+				<h2>Add member by email</h2>
+				<p class="muted">Existing accounts get pre-approved instantly. New emails get a join URL you can share.</p>
+				<div id="am-result"></div>
+				<div class="field">
+					<label>Email</label>
+					<input type="email" data-bind="am_email" placeholder="alice@acme.com"/>
+				</div>
+				<div class="field">
+					<label>Role</label>
+					<select data-bind="am_role">
+						<option value="member">member</option>
+						<option value="moderator">moderator</option>
+					</select>
+				</div>
+				<button data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/admin/add-member')" }>Add</button>
+			</section>
+
 			<h2>Pending join requests ({ itoa(len(d.Pending)) })</h2>
 			<div id="admin-pending">
 				@AdminPending(d.Viewer.CommunitySlug, d.Pending)
