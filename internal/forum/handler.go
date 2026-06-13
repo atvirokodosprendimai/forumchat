@@ -436,6 +436,11 @@ func (h *Handler) PostHardDeleteThread(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if h.ChatRepo != nil {
+		if err := h.ChatRepo.ClearPromoted(r.Context(), threadID); err != nil {
+			h.Log.Warn("clear promoted_thread_id", "thread", threadID, "err", err)
+		}
+	}
 	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/forum")
 }
@@ -495,13 +500,16 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if msg.PromotedThreadID != nil {
+		sse := datastar.NewSSE(w, r)
+		_ = sse.Redirect("/forum/" + *msg.PromotedThreadID)
+		return
+	}
 	subject := deriveSubject(msg.BodyMarkdown)
 	if subject == "" {
 		http.Error(w, "empty message", http.StatusBadRequest)
 		return
 	}
-	// Thread author follows the original message author so promoted threads
-	// surface under the right name even when an admin/mod did the promotion.
 	threadAuthorID := id.User.ID
 	if msg.AuthorID != nil {
 		threadAuthorID = *msg.AuthorID
@@ -514,6 +522,24 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Claim the chat message for this thread atomically. If somebody else won
+	// the race, drop our thread and redirect to theirs.
+	claimed, err := h.ChatRepo.MarkPromoted(r.Context(), msg.ID, t.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !claimed {
+		_, _ = h.Repo.HardDeleteThread(r.Context(), t.ID)
+		fresh, err2 := h.ChatRepo.ByID(r.Context(), msg.ID)
+		sse := datastar.NewSSE(w, r)
+		if err2 == nil && fresh.PromotedThreadID != nil {
+			_ = sse.Redirect("/forum/" + *fresh.PromotedThreadID)
+		} else {
+			http.Error(w, "promote race", http.StatusConflict)
+		}
 		return
 	}
 	if h.Chat != nil {

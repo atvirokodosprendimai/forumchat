@@ -239,14 +239,15 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 
 func toMsgView(m Message) webtempl.MsgView {
 	v := webtempl.MsgView{
-		ID:           m.ID,
-		AuthorID:     valueOrEmpty(m.AuthorID),
-		AuthorName:   m.AuthorName,
-		AuthorAvatar: m.AuthorAvatar,
-		Kind:         webtempl.MsgKind(m.Kind),
-		BodyHTML:     m.BodyHTML,
-		CreatedAt:    m.CreatedAt,
-		Deleted:      m.IsDeleted(),
+		ID:               m.ID,
+		AuthorID:         valueOrEmpty(m.AuthorID),
+		AuthorName:       m.AuthorName,
+		AuthorAvatar:     m.AuthorAvatar,
+		Kind:             webtempl.MsgKind(m.Kind),
+		BodyHTML:         m.BodyHTML,
+		CreatedAt:        m.CreatedAt,
+		Deleted:          m.IsDeleted(),
+		PromotedThreadID: valueOrEmpty(m.PromotedThreadID),
 	}
 	if m.ReplyTo != nil {
 		v.ReplyTo = &webtempl.ReplySnippet{
