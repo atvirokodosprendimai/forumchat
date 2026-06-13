@@ -170,6 +170,20 @@ button.link:hover { text-decoration: underline; }
   margin-top: .5rem;
 }
 .bm-composer input { width: 100%; }
+
+.bm-dialog-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 49;
+}
+.bm-dialog {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 2rem)); z-index: 50;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1rem; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: .5rem;
+}
+.bm-dialog h3 { margin: 0 0 .25rem 0; }
+.bm-dialog input { width: 100%; padding: .35rem .55rem; }
+.bm-dialog-actions { display: flex; gap: .5rem; justify-content: flex-end; }
 .badge {
   display: inline-block; background: var(--accent-soft); color: var(--accent);
   padding: 0 .4rem; border-radius: var(--radius-sm); font-size: .8em;

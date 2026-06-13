@@ -49,6 +49,7 @@ templ ChatPage(d ChatPageData) {
 			</aside>
 		</section>
 		<div id="chat-stream-open" data-init="@get('/chat/stream', {openWhenHidden: true})"></div>
+		@BookmarkDialog()
 	}
 }
 
@@ -128,7 +129,6 @@ templ MessageView(m MsgView, isMod bool, currentUserID string) {
 				</blockquote>
 			}
 			<div class="body">@templ.Raw(m.BodyHTML)</div>
-			@BookmarkComposer(m.ID)
 		}
 	</article>
 }

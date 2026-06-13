@@ -106,15 +106,21 @@ templ BookmarksList(rows []BookmarkRow) {
 	</div>
 }
 
-// BookmarkComposer is the inline form inside a chat bubble. data-show on
-// $bm_open_msg controls visibility — only one is open at a time because
-// the signal holds the message id.
-templ BookmarkComposer(messageID string) {
-	<div class="bm-composer" data-show={ "$bm_open_msg === '" + messageID + "'" }>
+// BookmarkDialog is a single page-level modal driven by $bm_open_msg.
+// Per-bubble "bookmark" buttons just set the signal; one dialog renders
+// the form fields and posts to /bookmarks?id=<signal value>. Placing it
+// outside the scrolling #messages container fixes the prior bug where
+// the inline form opened inside an overflow:auto box and was invisible.
+templ BookmarkDialog() {
+	<div class="bm-dialog-backdrop" data-show="$bm_open_msg !== ''" data-on:click="$bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''"></div>
+	<div class="bm-dialog" data-show="$bm_open_msg !== ''">
+		<h3>Bookmark message</h3>
 		<input type="text" placeholder="title (optional)" data-bind="bm_new_title"/>
 		<input type="text" placeholder="category (optional)" data-bind="bm_new_category"/>
 		<input type="text" placeholder="note (optional)" data-bind="bm_new_note"/>
-		<button data-on:click={ "@post('/bookmarks?id=" + messageID + "')" }>save</button>
-		<button class="ghost" data-on:click="$bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''">cancel</button>
+		<div class="bm-dialog-actions">
+			<button data-on:click="@post('/bookmarks?id=' + $bm_open_msg)">save</button>
+			<button class="ghost" data-on:click="$bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''">cancel</button>
+		</div>
 	</div>
 }
