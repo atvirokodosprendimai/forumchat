@@ -37,12 +37,12 @@ templ BookmarksPage(d BookmarksPageData) {
 					<div class="field">
 						<label>Title contains</label>
 						<input type="text" data-bind="bm_title"
-							data-on:input__debounce.300ms="@get('/bookmarks/list')"/>
+							data-on:input__debounce.300ms={ "@get('/c/" + d.Viewer.CommunitySlug + "/bookmarks/list')" }/>
 					</div>
 					<div class="field">
 						<label>Category</label>
 						<select data-bind="bm_category"
-							data-on:change="@get('/bookmarks/list')">
+							data-on:change={ "@get('/c/" + d.Viewer.CommunitySlug + "/bookmarks/list')" }>
 							<option value="">— any —</option>
 							for _, c := range d.Categories {
 								<option value={ c }>{ c }</option>
@@ -52,24 +52,24 @@ templ BookmarksPage(d BookmarksPageData) {
 					<div class="field">
 						<label>From</label>
 						<input type="date" data-bind="bm_from"
-							data-on:change="@get('/bookmarks/list')"/>
+							data-on:change={ "@get('/c/" + d.Viewer.CommunitySlug + "/bookmarks/list')" }/>
 					</div>
 					<div class="field">
 						<label>To</label>
 						<input type="date" data-bind="bm_to"
-							data-on:change="@get('/bookmarks/list')"/>
+							data-on:change={ "@get('/c/" + d.Viewer.CommunitySlug + "/bookmarks/list')" }/>
 					</div>
 				</div>
 			</section>
 
 			<div id="bookmarks-list">
-				@BookmarksList(d.Rows)
+				@BookmarksList(d.Rows, d.Viewer.CommunitySlug)
 			</div>
 		</section>
 	}
 }
 
-templ BookmarksList(rows []BookmarkRow) {
+templ BookmarksList(rows []BookmarkRow, slug string) {
 	<div id="bookmarks-list">
 		if len(rows) == 0 {
 			<p class="muted">No bookmarks match.</p>
@@ -98,7 +98,7 @@ templ BookmarksList(rows []BookmarkRow) {
 					}
 					<div style="margin-top:.4rem">
 						<button class="ghost"
-							data-on:click={ "@post('/bookmarks/delete?id=" + b.ID + "')" }>delete</button>
+							data-on:click={ "@post('/c/" + slug + "/bookmarks/delete?id=" + b.ID + "')" }>delete</button>
 					</div>
 				</li>
 			}
@@ -111,7 +111,7 @@ templ BookmarksList(rows []BookmarkRow) {
 // the form fields and posts to /bookmarks?id=<signal value>. Placing it
 // outside the scrolling #messages container fixes the prior bug where
 // the inline form opened inside an overflow:auto box and was invisible.
-templ BookmarkDialog() {
+templ BookmarkDialog(slug string) {
 	<div class="bm-dialog-backdrop" data-show="$bm_open_msg !== ''" data-on:click="$bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''"></div>
 	<div class="bm-dialog" data-show="$bm_open_msg !== ''">
 		<h3>Bookmark message</h3>
@@ -119,7 +119,7 @@ templ BookmarkDialog() {
 		<input type="text" placeholder="category (optional)" data-bind="bm_new_category"/>
 		<input type="text" placeholder="note (optional)" data-bind="bm_new_note"/>
 		<div class="bm-dialog-actions">
-			<button data-on:click="@post('/bookmarks?id=' + $bm_open_msg)">save</button>
+			<button data-on:click={ "@post('/c/" + slug + "/bookmarks?id=' + $bm_open_msg)" }>save</button>
 			<button class="ghost" data-on:click="$bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''">cancel</button>
 		</div>
 	</div>

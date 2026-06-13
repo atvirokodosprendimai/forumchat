@@ -41,23 +41,20 @@ templ ChatPage(d ChatPageData) {
 		<section class="chat-layout">
 			<div>
 				<h1>{ d.Viewer.CommunityName }</h1>
-				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID)
-				@ChatComposer()
+				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID, d.Viewer.CommunitySlug)
+				@ChatComposer(d.Viewer.CommunitySlug)
 			</div>
-			<aside id="presence" class="presence" data-init="@get('/presence/stream', {openWhenHidden: true})">
+			<aside id="presence" class="presence" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/presence/stream', {openWhenHidden: true})" }>
 				<h3>Online</h3>
 				<div id="presence-list"><p class="muted">connecting…</p></div>
 			</aside>
 		</section>
-		<div id="chat-stream-open" data-init="@get('/chat/stream', {openWhenHidden: true})"></div>
-		@BookmarkDialog()
+		<div id="chat-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/chat/stream', {openWhenHidden: true})" }></div>
+		@BookmarkDialog(d.Viewer.CommunitySlug)
 	}
 }
 
-// ChatComposer is split out so PostSend can patch it back when needed.
-// `$reply_to_id` is set by per-bubble "reply" buttons; the indicator is
-// driven by the signal value via data-show.
-templ ChatComposer() {
+templ ChatComposer(slug string) {
 	<div id="composer" class="composer"
 		data-on:dragover="evt.preventDefault()"
 		data-on:drop="window.fcDropImage(evt,'image_data')">
@@ -76,8 +73,8 @@ templ ChatComposer() {
 				placeholder="Say something — markdown ok (paste or drop an image)"
 				autocomplete="off"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
-				data-on:keydown="evt.key === 'Enter' && @post('/chat/send')"/>
-			<button data-on:click="@post('/chat/send')">Send</button>
+				data-on:keydown={ "evt.key === 'Enter' && @post('/c/" + slug + "/chat/send')" }/>
+			<button data-on:click={ "@post('/c/" + slug + "/chat/send')" }>Send</button>
 		</div>
 	</div>
 }
@@ -87,16 +84,16 @@ templ ChatComposer() {
 // sse.ExecuteScript from the handler. currentUserID lets us show the
 // "promote to thread" button only on the viewer's own messages (mods get it
 // regardless via isMod).
-templ MessagesContainer(messages []MsgView, isMod bool, currentUserID string) {
+templ MessagesContainer(messages []MsgView, isMod bool, currentUserID string, slug string) {
 	<div id="messages" class="messages"
 		data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
 		for i := len(messages) - 1; i >= 0; i-- {
-			@MessageView(messages[i], isMod, currentUserID)
+			@MessageView(messages[i], isMod, currentUserID, slug)
 		}
 	</div>
 }
 
-templ MessageView(m MsgView, isMod bool, currentUserID string) {
+templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 	<article class={ msgClass(m) } id={ "msg-" + m.ID } data-id={ m.ID }>
 		if m.Deleted {
 			if isMod {
@@ -115,14 +112,14 @@ templ MessageView(m MsgView, isMod bool, currentUserID string) {
 				<button class="link" data-on:click={ "$reply_to_id = '" + m.ID + "'" }>reply</button>
 				<button class="link" data-on:click={ "$bm_open_msg = '" + m.ID + "'" }>bookmark</button>
 				if m.PromotedThreadID != "" {
-					<a class="link" href={ templ.URL("/forum/" + m.PromotedThreadID) }>→ thread</a>
+					<a class="link" href={ templ.URL("/c/" + slug + "/forum/" + m.PromotedThreadID) }>→ thread</a>
 				} else if isMod || m.AuthorID == currentUserID {
 					<button class="link"
-						data-on:click={ "@post('/forum/promote-chat?id=" + m.ID + "')" }>→ thread</button>
+						data-on:click={ "@post('/c/" + slug + "/forum/promote-chat?id=" + m.ID + "')" }>→ thread</button>
 				}
 				if isMod {
 					<button class="link"
-						data-on:click={ "@post('/chat/delete?id=" + m.ID + "')" }>delete</button>
+						data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>delete</button>
 				}
 			</header>
 			if m.ReplyTo != nil {

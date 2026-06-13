@@ -55,15 +55,15 @@ templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
 	@Layout("Forum", v) {
 		<section>
 			<h1>{ v.CommunityName } — Forum</h1>
-			<p><a class="btn" href="/forum/new">+ New thread</a></p>
+			<p><a class="btn" href={ templ.URL("/c/" + v.CommunitySlug + "/forum/new") }>+ New thread</a></p>
 
 			<div class="forum-toolbar">
 				<nav class="forum-filters">
-					<a class={ filterClass("unresolved", status) } href={ templ.URL(forumFilterHref("unresolved", q)) }>Open</a>
-					<a class={ filterClass("resolved", status) } href={ templ.URL(forumFilterHref("resolved", q)) }>Resolved</a>
-					<a class={ filterClass("all", status) } href={ templ.URL(forumFilterHref("all", q)) }>All</a>
+					<a class={ filterClass("unresolved", status) } href={ templ.URL(forumFilterHref(v.CommunitySlug, "unresolved", q)) }>Open</a>
+					<a class={ filterClass("resolved", status) } href={ templ.URL(forumFilterHref(v.CommunitySlug, "resolved", q)) }>Resolved</a>
+					<a class={ filterClass("all", status) } href={ templ.URL(forumFilterHref(v.CommunitySlug, "all", q)) }>All</a>
 				</nav>
-				<form class="forum-search" method="get" action="/forum">
+				<form class="forum-search" method="get" action={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>
 					<input type="hidden" name="status" value={ status }/>
 					<input type="search" name="q" value={ q } placeholder="search…"/>
 					<button class="btn ghost" type="submit">Search</button>
@@ -79,7 +79,7 @@ templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
 						if t.IsResolved {
 							<span class="resolved-badge">✓ resolved</span>
 						}
-						<a href={ templ.URL("/forum/" + t.ID) }>{ t.Subject }</a>
+						<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum/" + t.ID) }>{ t.Subject }</a>
 						<div class="muted">{ t.AuthorName } · { fmtTime(t.LastActivityAt) }</div>
 					</li>
 				}
@@ -95,8 +95,8 @@ func filterClass(self, cur string) string {
 	return "filter"
 }
 
-func forumFilterHref(status, q string) string {
-	out := "/forum?status=" + status
+func forumFilterHref(slug, status, q string) string {
+	out := "/c/" + slug + "/forum?status=" + status
 	if q != "" {
 		out += "&q=" + queryEscape(q)
 	}
@@ -144,8 +144,8 @@ templ NewThreadPage(v Viewer) {
 				<img alt="pasted image preview" data-attr:src="$image_data"/>
 				<button class="link" data-on:click="$image_data=''">remove image</button>
 			</div>
-			<button data-on:click="@post('/forum/new')">Post thread</button>
-			<a class="btn ghost" href="/forum">Cancel</a>
+			<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/new')" }>Post thread</button>
+			<a class="btn ghost" href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>Cancel</a>
 		</section>
 	}
 }
@@ -163,11 +163,11 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 				<div class="rename-row" data-show="$rename_open">
 					<input type="text" data-bind="new_subject" maxlength="200"/>
 					<button class="btn"
-						data-on:click={ "@post('/forum/" + t.ID + "/rename')" }>save</button>
+						data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/rename')" }>save</button>
 					<button class="btn ghost" data-on:click="$rename_open=false">cancel</button>
 				</div>
 			}
-			<p class="muted"><a href="/forum">← Forum</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
+			<p class="muted"><a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>← Forum</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
 
 			<article class="bubble">
 				<div class="body">@templ.Raw(t.BodyHTML)</div>
@@ -175,10 +175,10 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 					if t.CanResolve {
 						if t.IsResolved {
 							<button class="link"
-								data-on:click={ "@post('/forum/" + t.ID + "/unresolve')" }>mark unresolved</button>
+								data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/unresolve')" }>mark unresolved</button>
 						} else {
 							<button class="link"
-								data-on:click={ "@post('/forum/" + t.ID + "/resolve')" }>mark resolved</button>
+								data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/resolve')" }>mark resolved</button>
 						}
 					}
 					if t.IsMod {
@@ -187,18 +187,18 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 					}
 					if t.CanEdit || t.IsMod {
 						<button class="link"
-							data-on:click={ "@post('/forum/" + t.ID + "/delete')" }>delete thread</button>
+							data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/delete')" }>delete thread</button>
 					}
 					if t.IsAdmin {
 						<button class="link danger"
-							data-on:click={ "if (confirm('Hard-delete: this wipes the thread, every reply, and any uploaded images. Continue?')) @post('/forum/" + t.ID + "/hard-delete')" }>hard delete (admin)</button>
+							data-on:click={ "if (confirm('Hard-delete: this wipes the thread, every reply, and any uploaded images. Continue?')) @post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/hard-delete')" }>hard delete (admin)</button>
 					}
 				</div>
 			</article>
 
 			<h2>Replies</h2>
-			@ThreadPosts(t.ID, posts)
-			<div id={ "thread-stream-open-" + t.ID } data-init={ "@get('/forum/" + t.ID + "/stream', {openWhenHidden: true})" }></div>
+			@ThreadPosts(v.CommunitySlug, t.ID, posts)
+			<div id={ "thread-stream-open-" + t.ID } data-init={ "@get('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/stream', {openWhenHidden: true})" }></div>
 
 			<section class="card"
 				data-on:dragover="evt.preventDefault()"
@@ -220,7 +220,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 					<img alt="pasted image preview" data-attr:src="$image_data"/>
 					<button class="link" data-on:click="$image_data=''">remove image</button>
 				</div>
-				<button data-on:click={ "@post('/forum/" + t.ID + "/reply')" }>Reply</button>
+				<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/reply')" }>Reply</button>
 			</section>
 			@ThreadScrollAnchor()
 		</section>
@@ -234,18 +234,18 @@ templ ThreadScrollAnchor() {
 	<div id="thread-scroll-anchor" data-init="el.scrollIntoView({behavior:'smooth',block:'end'})"></div>
 }
 
-templ ThreadPosts(threadID string, posts []PostView) {
+templ ThreadPosts(slug, threadID string, posts []PostView) {
 	<div id="posts">
 		if len(posts) == 0 {
 			<p class="muted">No replies yet.</p>
 		}
 		for _, p := range posts {
-			@ForumPost(threadID, p)
+			@ForumPost(slug, threadID, p)
 		}
 	</div>
 }
 
-templ ForumPost(threadID string, p PostView) {
+templ ForumPost(slug, threadID string, p PostView) {
 	<article class="bubble" id={ "post-" + p.ID }>
 		if p.Deleted {
 			<div class="muted">[deleted]</div>
@@ -257,7 +257,7 @@ templ ForumPost(threadID string, p PostView) {
 					data-on:click={ quoteClickJS(p.ID, p.AuthorName) }>quote</button>
 				if p.CanEdit {
 					<button class="link"
-						data-on:click={ "@post('/forum/post/" + p.ID + "/delete')" }>delete</button>
+						data-on:click={ "@post('/c/" + slug + "/forum/post/" + p.ID + "/delete')" }>delete</button>
 				}
 			</header>
 			if p.QuotedAuthor != "" {
