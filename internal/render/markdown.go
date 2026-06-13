@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/microcosm-cc/bluemonday"
@@ -17,6 +18,30 @@ import (
 // can force target="_blank" rel="noopener" on them after sanitization. We
 // run this AFTER bluemonday so the added attributes are trusted output.
 var uploadsAnchorRE = regexp.MustCompile(`<a (href="/uploads/)`)
+
+// userMarkdownLinkRE matches `[label](href)` — the first capture avoids the
+// image form `![…](…)` (Go regex has no lookbehind).
+var userMarkdownLinkRE = regexp.MustCompile(`(^|[^!\\])\[([^\]]+)\]\(([^)]+)\)`)
+
+// sanitizeUserMarkdown enforces "no hidden URLs" Discord-style: every
+// `[label](href)` whose label is not the href is rewritten so the visible
+// text equals the destination. Images stay as images (Discord allows
+// inline embeds from any host). Image-wrapped-in-link `[![..](..)](..)`
+// from the paste pipeline is preserved by skipping any link whose label
+// starts with `!` (markdown image).
+func sanitizeUserMarkdown(s string) string {
+	return userMarkdownLinkRE.ReplaceAllStringFunc(s, func(m string) string {
+		sub := userMarkdownLinkRE.FindStringSubmatch(m)
+		prefix, label, href := sub[1], sub[2], sub[3]
+		if strings.HasPrefix(label, "!") {
+			return m
+		}
+		if strings.TrimSpace(label) == strings.TrimSpace(href) {
+			return m
+		}
+		return prefix + " " + href + " "
+	})
+}
 
 var (
 	mdOnce sync.Once
@@ -40,6 +65,7 @@ func initMarkdown() {
 
 func RenderMarkdown(src string) (string, error) {
 	mdOnce.Do(initMarkdown)
+	src = sanitizeUserMarkdown(src)
 	var buf bytes.Buffer
 	if err := md.Convert([]byte(src), &buf); err != nil {
 		return "", fmt.Errorf("markdown convert: %w", err)

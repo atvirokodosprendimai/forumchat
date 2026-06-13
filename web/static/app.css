@@ -257,6 +257,12 @@ button:focus-visible, .btn:focus-visible {
 }
 .message .body img { max-height: 220px; }
 
+img.thread-announce-img {
+  max-height: 64px; max-width: 200px; vertical-align: middle;
+  border-radius: var(--radius-sm); margin-left: .35rem;
+  object-fit: cover;
+}
+
 /* --- History --- */
 .history-grid {
   display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem; margin-top: 1rem;
