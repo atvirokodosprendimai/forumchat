@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
@@ -104,6 +105,72 @@ func splitSource(s string) (kind, id string, ok bool) {
 		return "", "", false
 	}
 	return s[:i], s[i+1:], true
+}
+
+// PostStatus cycles a todo to the requested status. Path /c/{slug}/todos/{id}/status?next=<status>
+// Accepts open/doing/done. The list is patched in-place via outer-morph so
+// the row order updates without a full reload.
+func (h *Handler) PostStatus(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	c := community.MustFromContext(r.Context())
+	todoID := chi.URLParam(r, "id")
+	next := Status(strings.TrimSpace(r.URL.Query().Get("next")))
+	switch next {
+	case StatusOpen, StatusDoing, StatusDone:
+	default:
+		http.Error(w, "bad status", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.UpdateStatus(r.Context(), id.User.ID, todoID, next); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.patchList(w, r, id.User.ID, c.ID)
+}
+
+// PostDelete removes the todo and patches the list. Path /c/{slug}/todos/{id}/delete.
+func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	c := community.MustFromContext(r.Context())
+	todoID := chi.URLParam(r, "id")
+	if err := h.Repo.Delete(r.Context(), id.User.ID, todoID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.patchList(w, r, id.User.ID, c.ID)
+}
+
+// patchList re-renders #todos-list using the current ?status & ?category
+// filter (or the defaults), then outer-morphs. Caller already wrote nothing
+// to w.
+func (h *Handler) patchList(w http.ResponseWriter, r *http.Request, userID, communityID string) {
+	status := r.URL.Query().Get("status")
+	switch status {
+	case "open", "doing", "done", "all", "active":
+	default:
+		status = "active"
+	}
+	category := strings.TrimSpace(r.URL.Query().Get("category"))
+	rows, err := h.Repo.ListForUser(r.Context(), userID, communityID, Filter{Status: status, Category: category})
+	if err != nil {
+		h.Log.Error("todo list", "err", err)
+		return
+	}
+	views := make([]webtempl.TodoRow, 0, len(rows))
+	for _, t := range rows {
+		views = append(views, todoToView(t))
+	}
+	sse := datastar.NewSSE(w, r)
+	c, _ := community.FromContext(r.Context())
+	_ = sse.PatchElementTempl(webtempl.TodosList(c.Slug, views), datastar.WithModeOuter())
 }
 
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {

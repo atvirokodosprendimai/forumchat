@@ -215,6 +215,9 @@ button.link:hover { text-decoration: underline; }
 .pill-open  { background: #4a90d9; }
 .pill-doing { background: #c47914; }
 .pill-done  { background: #2ec27a; }
+.todo-row input[type="checkbox"] { width: 1.1rem; height: 1.1rem; cursor: pointer; }
+.todo-row .link { font-size: .85rem; }
+.todo-row .link.danger { color: #c4341c; margin-left: auto; }
 
 .community-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .community-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
