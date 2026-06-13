@@ -26,10 +26,19 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	return s.ResponseWriter.Write(b)
 }
 
+// Flush walks the wrapped writer chain via http.ResponseController so SSE
+// flushes survive intermediate wrappers (scs sessionResponseWriter only
+// implements Unwrap, not Flush; a direct type assertion would miss it and
+// keep events buffered until the connection looked dead to the client).
 func (s *statusRecorder) Flush() {
-	if f, ok := s.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+	_ = http.NewResponseController(s.ResponseWriter).Flush()
+}
+
+// Unwrap exposes the underlying writer for http.ResponseController so callers
+// using SetReadDeadline / SetWriteDeadline / Hijack can also reach the real
+// writer through this wrapper.
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
 }
 
 func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
