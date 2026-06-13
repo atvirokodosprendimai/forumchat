@@ -21,37 +21,46 @@ type MsgView struct {
 }
 
 type ChatPageData struct {
-	CommunityName string
-	DisplayName   string
-	IsMod         bool
-	Messages      []MsgView  // newest-first slice; rendered reversed for top-old / bottom-new
-	OldestSeen    *time.Time // for "load older"
+	Viewer     Viewer
+	IsMod      bool
+	Messages   []MsgView  // newest-first; rendered reversed so oldest-top, newest-bottom
+	OldestSeen *time.Time
 }
 
 templ ChatPage(d ChatPageData) {
-	@Layout("Chat") {
-		<section class="chat">
-			<h1>{ d.CommunityName } — Chat</h1>
-			<p class="muted"><a href="/">Home</a> · <a href="/forum">Forum</a> · signed in as <strong>{ d.DisplayName }</strong></p>
-
-			<aside id="presence" class="presence" data-on-load="@get('/presence/stream')"><span class="muted">— online list loading —</span></aside>
-
-			<div id="messages" class="messages" data-on-load="@get('/chat/stream')">
-				if d.OldestSeen != nil {
-					<form method="get" action="/chat/older" id="load-older">
-						<input type="hidden" name="before" value={ d.OldestSeen.Format(time.RFC3339Nano) }/>
-						<button type="submit">Load older</button>
-					</form>
-				}
-				for i := len(d.Messages) - 1; i >= 0; i-- {
-					@MessageView(d.Messages[i], d.IsMod)
-				}
+	@Layout("Chat", d.Viewer) {
+		<section class="chat-layout">
+			<div>
+				<h1>{ d.Viewer.CommunityName }</h1>
+				<div id="messages" class="messages" data-on-load="@get('/chat/stream')">
+					if d.OldestSeen != nil {
+						<div id="load-older">
+							<button class="ghost"
+								data-on-click={ "@get('/chat/older?before=" + d.OldestSeen.Format(time.RFC3339Nano) + "')" }>
+								Load older
+							</button>
+						</div>
+					} else {
+						<div id="load-older" class="muted">— start of history —</div>
+					}
+					for i := len(d.Messages) - 1; i >= 0; i-- {
+						@MessageView(d.Messages[i], d.IsMod)
+					}
+					@ScrollAnchor()
+				</div>
+				<div class="composer">
+					<input type="text"
+						data-bind-body
+						placeholder="Say something — markdown ok"
+						autocomplete="off"
+						data-on-keydown="evt.key === 'Enter' && @post('/chat/send')"/>
+					<button data-on-click="@post('/chat/send')">Send</button>
+				</div>
 			</div>
-
-			<form id="send-form" method="post" action="/chat/send" data-on-submit__prevent="@post('/chat/send'); $body=''">
-				<input type="text" name="body" data-bind-body required maxlength="4000" placeholder="Say something — markdown ok" autocomplete="off"/>
-				<button type="submit">Send</button>
-			</form>
+			<aside id="presence" class="presence" data-on-load="@get('/presence/stream')">
+				<h3>Online</h3>
+				<p class="muted">connecting…</p>
+			</aside>
 		</section>
 	}
 }
@@ -60,7 +69,7 @@ templ MessageView(m MsgView, isMod bool) {
 	<article class={ msgClass(m) } id={ "msg-" + m.ID } data-id={ m.ID }>
 		if m.Deleted {
 			if isMod {
-				<div class="muted">[deleted by mod] { fmtTime(m.CreatedAt) }</div>
+				<div class="muted">[deleted by mod] · { fmtTime(m.CreatedAt) }</div>
 				<div class="body deleted">@templ.Raw(m.BodyHTML)</div>
 			} else {
 				<div class="muted">[message removed]</div>
@@ -73,12 +82,20 @@ templ MessageView(m MsgView, isMod bool) {
 				<strong>{ m.AuthorName }</strong>
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
 				if isMod {
-					<button type="button" data-on-click={ "@post('/chat/delete?id=" + m.ID + "')" } class="link-button">delete</button>
+					<button class="link"
+						data-on-click={ "@post('/chat/delete?id=" + m.ID + "')" }>delete</button>
 				}
 			</header>
 			<div class="body">@templ.Raw(m.BodyHTML)</div>
 		}
 	</article>
+}
+
+// ScrollAnchor lives at the bottom of #messages. data-on-load fires whenever
+// datastar morphs it into the DOM — so re-patching the anchor after each new
+// message scrolls into view automatically. No JS needed.
+templ ScrollAnchor() {
+	<div id="scroll-anchor" data-on-load="el.scrollIntoView({block:'end',behavior:'smooth'})"></div>
 }
 
 func msgClass(m MsgView) string {
@@ -90,4 +107,17 @@ func msgClass(m MsgView) string {
 
 func fmtTime(t time.Time) string {
 	return t.Local().Format("15:04 Jan 2")
+}
+
+templ LoadOlderButton(before string) {
+	<div id="load-older">
+		<button class="ghost"
+			data-on-click={ "@get('/chat/older?before=" + before + "')" }>
+			Load older
+		</button>
+	</div>
+}
+
+templ NoOlder() {
+	<div id="load-older" class="muted">— start of history —</div>
 }

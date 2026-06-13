@@ -1,6 +1,26 @@
 package templ
 
-templ Layout(title string) {
+type Viewer struct {
+	IsAuthed      bool
+	DisplayName   string
+	Role          string // member|moderator|admin
+	CommunityName string
+}
+
+// InitialSignals — global signal bag rendered on every page.
+// Every data-bind / data-on-click POST sees these as their starting state.
+const InitialSignals = `{
+	"email":"",
+	"password":"",
+	"invite_code":"",
+	"display_name":"",
+	"avatar_url":"",
+	"subject":"",
+	"body":"",
+	"quoted_post_id":""
+}`
+
+templ Layout(title string, v Viewer) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -10,9 +30,20 @@ templ Layout(title string) {
 			<link rel="stylesheet" href="/static/app.css"/>
 			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
 		</head>
-		<body>
+		<body data-signals={ InitialSignals }>
 			<header class="topbar">
 				<a href="/" class="brand">forumchat</a>
+				<nav>
+					if v.IsAuthed {
+						<a href="/chat">Chat</a>
+						<a href="/forum">Forum</a>
+						<a href="/profile">{ v.DisplayName }</a>
+						<button class="ghost" data-on-click="@post('/logout')">Sign out</button>
+					} else {
+						<a href="/login">Sign in</a>
+						<a href="/register">Register</a>
+					}
+				</nav>
 			</header>
 			<main>
 				{ children... }
@@ -21,29 +52,45 @@ templ Layout(title string) {
 	</html>
 }
 
-templ Hello(name string) {
-	@Layout("Hello") {
-		<section>
-			<h1>Hello, { name }</h1>
-			<p>forumchat is alive.</p>
+templ Hello(communityName string) {
+	@Layout("Welcome", Viewer{}) {
+		<section class="card narrow">
+			<h1>Welcome to { communityName }</h1>
+			<p class="muted">A community space — one realtime chat channel and a forum, in one place.</p>
 			<p>
-				<a href="/_debug/clock">datastar clock smoke</a> ·
-				<a href="/healthz">health</a>
+				<a class="btn" href="/register">Get started</a>
+				&nbsp;
+				<a class="btn ghost" href="/login">Sign in</a>
 			</p>
+			<p class="muted">Sign-up is invite-only. Ask an admin for an invite code.</p>
 		</section>
 	}
 }
 
-templ DebugClock() {
-	@Layout("Clock") {
-		<section>
-			<h1>datastar SSE clock</h1>
-			<p>Ticks every second via NATS round-trip.</p>
-			<div id="clock" data-on-load="@get('/_debug/clock/stream')">— waiting —</div>
+templ Home(v Viewer) {
+	@Layout("Home", v) {
+		<section class="card">
+			<h1>Welcome back, { v.DisplayName }</h1>
+			<p class="muted">You're signed in to <strong>{ v.CommunityName }</strong>.</p>
+			<p class="primary-nav">
+				<a class="btn" href="/chat">Open chat</a>
+				<a class="btn ghost" href="/forum">Open forum</a>
+				<a class="btn ghost" href="/profile">Profile</a>
+			</p>
 		</section>
 	}
 }
 
 templ ClockFragment(now string) {
 	<div id="clock">{ now }</div>
+}
+
+templ DebugClock() {
+	@Layout("Clock", Viewer{}) {
+		<section class="card">
+			<h1>datastar SSE clock</h1>
+			<p class="muted">Ticks every second via NATS round-trip.</p>
+			<div id="clock" data-on-load="@get('/_debug/clock/stream')">— waiting —</div>
+		</section>
+	}
 }

@@ -10,13 +10,13 @@ type ThreadRow struct {
 }
 
 type ThreadView struct {
-	ID           string
-	Subject      string
-	AuthorName   string
-	BodyHTML     string
-	CreatedAt    time.Time
-	CanEdit      bool
-	IsMod        bool
+	ID         string
+	Subject    string
+	AuthorName string
+	BodyHTML   string
+	CreatedAt  time.Time
+	CanEdit    bool
+	IsMod      bool
 }
 
 type PostView struct {
@@ -30,79 +30,80 @@ type PostView struct {
 	CanEdit      bool
 }
 
-templ ForumIndex(communityName, displayName string, threads []ThreadRow) {
-	@Layout("Forum") {
+templ ForumIndex(v Viewer, threads []ThreadRow) {
+	@Layout("Forum", v) {
 		<section>
-			<h1>{ communityName } — Forum</h1>
-			<p class="muted"><a href="/">Home</a> · <a href="/chat">Chat</a> · signed in as <strong>{ displayName }</strong></p>
-			<p><a href="/forum/new">+ New thread</a></p>
+			<h1>{ v.CommunityName } — Forum</h1>
+			<p><a class="btn" href="/forum/new">+ New thread</a></p>
 			if len(threads) == 0 {
 				<p class="muted">No threads yet. Start one.</p>
 			}
 			<ul class="thread-list">
 				for _, t := range threads {
-					<li><a href={ templ.URL("/forum/" + t.ID) }>{ t.Subject }</a> — <span class="muted">{ t.AuthorName } · { fmtTime(t.LastActivityAt) }</span></li>
+					<li>
+						<a href={ templ.URL("/forum/" + t.ID) }>{ t.Subject }</a>
+						<div class="muted">{ t.AuthorName } · { fmtTime(t.LastActivityAt) }</div>
+					</li>
 				}
 			</ul>
 		</section>
 	}
 }
 
-templ NewThreadPage(errMsg string) {
-	@Layout("New thread") {
-		<section>
+templ NewThreadPage(v Viewer) {
+	@Layout("New thread", v) {
+		<section class="card">
 			<h1>New thread</h1>
-			if errMsg != "" {
-				<p class="error">{ errMsg }</p>
-			}
-			<form method="post" action="/forum/new">
-				<label>Subject <input type="text" name="subject" required maxlength="200"/></label>
-				<label>Body (markdown)
-					<textarea name="body" rows="8" required maxlength="20000"></textarea>
-				</label>
-				<button type="submit">Post thread</button>
-			</form>
-			<p class="muted"><a href="/forum">Back</a></p>
+			<div id="thread-error" class="error"></div>
+			<div class="field">
+				<label>Subject</label>
+				<input type="text" data-bind-subject maxlength="200" autofocus/>
+			</div>
+			<div class="field">
+				<label>Body (markdown)</label>
+				<textarea data-bind-body rows="8" maxlength="20000"></textarea>
+			</div>
+			<button data-on-click="@post('/forum/new')">Post thread</button>
+			<a class="btn ghost" href="/forum">Cancel</a>
 		</section>
 	}
 }
 
-templ ThreadPage(t ThreadView, posts []PostView, errMsg string, quoteID string) {
-	@Layout(t.Subject) {
+templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
+	@Layout(t.Subject, v) {
 		<section>
 			<h1>{ t.Subject }</h1>
-			<p class="muted"><a href="/forum">Back to forum</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
+			<p class="muted"><a href="/forum">← Forum</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
 
-			<article class="bubble thread-op">
+			<article class="bubble">
 				<div class="body">@templ.Raw(t.BodyHTML)</div>
 				if t.CanEdit || t.IsMod {
-					<form method="post" action={ templ.URL("/forum/" + t.ID + "/delete") } style="display:inline">
-						<button type="submit" class="link-button">delete thread</button>
-					</form>
+					<button class="link"
+						data-on-click={ "@post('/forum/" + t.ID + "/delete')" }>delete thread</button>
 				}
 			</article>
 
 			<h2>Replies</h2>
-			if len(posts) == 0 {
-				<p class="muted">No replies yet.</p>
-			}
-			for _, p := range posts {
-				@ForumPost(t.ID, p)
-			}
-
-			if errMsg != "" {
-				<p class="error">{ errMsg }</p>
-			}
-			<form method="post" action={ templ.URL("/forum/" + t.ID + "/reply") } class="reply-form">
-				if quoteID != "" {
-					<input type="hidden" name="quoted_post_id" value={ quoteID }/>
-					<p class="muted">Replying with quote of post { quoteID }.</p>
+			<div id="posts">
+				if len(posts) == 0 {
+					<p class="muted">No replies yet.</p>
 				}
-				<label>Reply (markdown)
-					<textarea name="body" rows="4" required maxlength="10000"></textarea>
-				</label>
-				<button type="submit">Reply</button>
-			</form>
+				for _, p := range posts {
+					@ForumPost(t.ID, p)
+				}
+			</div>
+
+			<section class="card">
+				<h3>Reply</h3>
+				<div id="reply-error" class="error"></div>
+				<input type="hidden" data-bind-quoted_post_id/>
+				<div id="reply-quote-hint" class="muted"></div>
+				<div class="field">
+					<label>Markdown body</label>
+					<textarea data-bind-body rows="4" maxlength="10000"></textarea>
+				</div>
+				<button data-on-click={ "@post('/forum/" + t.ID + "/reply')" }>Reply</button>
+			</section>
 		</section>
 	}
 }
@@ -115,16 +116,16 @@ templ ForumPost(threadID string, p PostView) {
 			<header class="meta">
 				<strong>{ p.AuthorName }</strong>
 				<span class="muted">{ fmtTime(p.CreatedAt) }</span>
-				<a href={ templ.URL("/forum/" + threadID + "?quote=" + p.ID + "#reply") }>quote</a>
+				<button class="link"
+					data-on-click={ "$quoted_post_id='" + p.ID + "'" }>quote</button>
 				if p.CanEdit {
-					<form method="post" action={ templ.URL("/forum/post/" + p.ID + "/delete") } style="display:inline">
-						<button type="submit" class="link-button">delete</button>
-					</form>
+					<button class="link"
+						data-on-click={ "@post('/forum/post/" + p.ID + "/delete')" }>delete</button>
 				}
 			</header>
 			if p.QuotedAuthor != "" {
 				<blockquote class="quote">
-					<span class="muted">{ p.QuotedAuthor } wrote:</span>
+					<div class="muted">{ p.QuotedAuthor } wrote:</div>
 					<div>@templ.Raw(p.QuotedBody)</div>
 				</blockquote>
 			}

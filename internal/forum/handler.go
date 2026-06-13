@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nats-io/nats.go"
+	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
@@ -30,10 +31,19 @@ type Handler struct {
 
 const ThreadLimit = 50
 
+func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
+	v := webtempl.Viewer{CommunityName: h.CommunityName}
+	if id, ok := auth.FromContext(r.Context()); ok {
+		v.IsAuthed = true
+		v.DisplayName = id.Membership.DisplayName
+		v.Role = string(id.Membership.Role)
+	}
+	return v
+}
+
 func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
-	if !ok {
-		http.Redirect(w, r, "/login?next=/forum", http.StatusSeeOther)
+	if _, ok := auth.FromContext(r.Context()); !ok {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 	ts, err := h.Repo.ListThreads(r.Context(), h.CommunityID, ThreadLimit)
@@ -50,27 +60,34 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 			ID: t.ID, Subject: t.Subject, AuthorName: t.AuthorName, LastActivityAt: t.LastActivityAt,
 		})
 	}
-	_ = webtempl.ForumIndex(h.CommunityName, id.Membership.DisplayName, rows).Render(r.Context(), w)
+	_ = webtempl.ForumIndex(h.viewer(r), rows).Render(r.Context(), w)
 }
 
 func (h *Handler) GetNew(w http.ResponseWriter, r *http.Request) {
-	_ = webtempl.NewThreadPage("").Render(r.Context(), w)
+	_ = webtempl.NewThreadPage(h.viewer(r)).Render(r.Context(), w)
+}
+
+type newThreadSignals struct {
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
 }
 
 func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+	var in newThreadSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	subject := strings.TrimSpace(r.PostFormValue("subject"))
-	body := strings.TrimSpace(r.PostFormValue("body"))
+	sse := datastar.NewSSE(w, r)
+	subject := strings.TrimSpace(in.Subject)
+	body := strings.TrimSpace(in.Body)
 	if subject == "" || body == "" {
-		_ = webtempl.NewThreadPage("Subject and body required").Render(r.Context(), w)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("thread-error", "Subject and body required"))
 		return
 	}
 	t, err := h.Svc.CreateThread(r.Context(), CreateThreadInput{
@@ -80,11 +97,10 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		BodyMarkdown: body,
 	})
 	if err != nil {
-		_ = webtempl.NewThreadPage(err.Error()).Render(r.Context(), w)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("thread-error", err.Error()))
 		return
 	}
 
-	// Phase 6 bridge: post a thread_announce system message to chat.
 	if h.Chat != nil {
 		link := fmt.Sprintf(`%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), t.ID)
 		announceHTML := fmt.Sprintf(
@@ -96,13 +112,12 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.Log.Error("post thread-announce", "err", err)
 		} else if h.NATS != nil && h.NATS.IsConnected() {
-			// Publish the rendered fragment to the chat channel so SSE subscribers patch it in.
 			fragment := renderSystemFragment(sysMsg.ID, sysMsg.CreatedAt, announceHTML)
 			_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte(fragment))
 		}
 	}
 
-	http.Redirect(w, r, "/forum/"+t.ID, http.StatusSeeOther)
+	_ = sse.Redirect("/forum/" + t.ID)
 }
 
 func (h *Handler) GetThread(w http.ResponseWriter, r *http.Request) {
@@ -147,44 +162,50 @@ func (h *Handler) GetThread(w http.ResponseWriter, r *http.Request) {
 			CanEdit:      (p.AuthorID == id.User.ID && now.Sub(p.CreatedAt) <= h.Svc.EditGrace) || isMod,
 		})
 	}
-	quote := r.URL.Query().Get("quote")
-	_ = webtempl.ThreadPage(view, pv, "", quote).Render(r.Context(), w)
+	_ = webtempl.ThreadPage(h.viewer(r), view, pv).Render(r.Context(), w)
+}
+
+type replySignals struct {
+	Body         string `json:"body"`
+	QuotedPostID string `json:"quoted_post_id"`
 }
 
 func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
 	threadID := chi.URLParam(r, "id")
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+	var in replySignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	body := strings.TrimSpace(r.PostFormValue("body"))
+	sse := datastar.NewSSE(w, r)
+	body := strings.TrimSpace(in.Body)
 	if body == "" {
-		http.Redirect(w, r, "/forum/"+threadID, http.StatusSeeOther)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("reply-error", "Reply cannot be empty"))
 		return
 	}
 	var quoted *string
-	if q := r.PostFormValue("quoted_post_id"); q != "" {
+	if q := strings.TrimSpace(in.QuotedPostID); q != "" {
 		quoted = &q
 	}
 	if _, err := h.Svc.CreatePost(r.Context(), CreatePostInput{
 		ThreadID: threadID, AuthorID: id.User.ID,
 		QuotedPostID: quoted, BodyMarkdown: body,
 	}); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("reply-error", err.Error()))
 		return
 	}
-	http.Redirect(w, r, "/forum/"+threadID+"#post-bottom", http.StatusSeeOther)
+	_ = sse.Redirect("/forum/" + threadID)
 }
 
 func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
 	threadID := chi.URLParam(r, "id")
@@ -203,13 +224,14 @@ func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/forum", http.StatusSeeOther)
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/forum")
 }
 
 func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
 	postID := chi.URLParam(r, "id")
@@ -228,7 +250,8 @@ func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/forum/"+p.ThreadID, http.StatusSeeOther)
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/forum/" + p.ThreadID)
 }
 
 func renderSystemFragment(id string, ts time.Time, html string) string {

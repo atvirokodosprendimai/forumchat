@@ -1,21 +1,21 @@
 package templ
 
-templ NotFoundPage() {
-	@Layout("Not found") {
-		<section>
+templ NotFoundPage(v Viewer) {
+	@Layout("Not found", v) {
+		<section class="card narrow">
 			<h1>404 — not found</h1>
 			<p class="muted">The page you tried to reach doesn't exist.</p>
-			<p><a href="/">Back to home</a></p>
+			<p><a class="btn ghost" href="/">Back to home</a></p>
 		</section>
 	}
 }
 
-templ ForbiddenPage() {
-	@Layout("Forbidden") {
-		<section>
+templ ForbiddenPage(v Viewer) {
+	@Layout("Forbidden", v) {
+		<section class="card narrow">
 			<h1>403 — forbidden</h1>
 			<p class="muted">You don't have permission to view this.</p>
-			<p><a href="/">Back to home</a></p>
+			<p><a class="btn ghost" href="/">Back to home</a></p>
 		</section>
 	}
 }

@@ -112,7 +112,13 @@ func run() error {
 
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		_ = webtempl.NotFoundPage().Render(req.Context(), w)
+		v := webtempl.Viewer{CommunityName: bootCommunity.Name}
+		if id, ok := auth.FromContext(req.Context()); ok {
+			v.IsAuthed = true
+			v.DisplayName = id.Membership.DisplayName
+			v.Role = string(id.Membership.Role)
+		}
+		_ = webtempl.NotFoundPage(v).Render(req.Context(), w)
 	})
 	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -212,7 +218,13 @@ func run() error {
 
 	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
 		if id, ok := auth.FromContext(req.Context()); ok {
-			_ = webtempl.Home(id.Membership.DisplayName, bootCommunity.Name).Render(req.Context(), w)
+			v := webtempl.Viewer{
+				IsAuthed:      true,
+				DisplayName:   id.Membership.DisplayName,
+				Role:          string(id.Membership.Role),
+				CommunityName: bootCommunity.Name,
+			}
+			_ = webtempl.Home(v).Render(req.Context(), w)
 			return
 		}
 		_ = webtempl.Hello(bootCommunity.Name).Render(req.Context(), w)

@@ -1,28 +1,28 @@
 package templ
 
-type ProfileForm struct {
-	DisplayName string
-	AvatarURL   string
-	Error       string
-	Saved       bool
+templ ProfilePage(v Viewer, displayName, avatarURL string) {
+	@Layout("Profile", v) {
+		<section class="card narrow">
+			<h1>Your profile</h1>
+			<div id="profile-status" class="muted"></div>
+			<div class="field">
+				<label>Display name</label>
+				<input type="text" data-bind-display_name value={ displayName } maxlength="40"/>
+			</div>
+			<div class="field">
+				<label>Avatar URL</label>
+				<input type="url" data-bind-avatar_url value={ avatarURL } placeholder="https://..."/>
+			</div>
+			<button data-on-click="@post('/profile')">Save</button>
+			<a class="btn ghost" href="/">Back</a>
+		</section>
+	}
 }
 
-templ ProfilePage(form ProfileForm) {
-	@Layout("Profile") {
-		<section>
-			<h1>Your profile</h1>
-			if form.Error != "" {
-				<p class="error">{ form.Error }</p>
-			}
-			if form.Saved {
-				<p class="muted">Saved.</p>
-			}
-			<form method="post" action="/profile">
-				<label>Display name <input type="text" name="display_name" value={ form.DisplayName } required maxlength="40"/></label>
-				<label>Avatar URL <input type="url" name="avatar_url" value={ form.AvatarURL } placeholder="https://..."/></label>
-				<button type="submit">Save</button>
-			</form>
-			<p class="muted"><a href="/">Back</a></p>
-		</section>
+templ ProfileStatusFragment(msg string, ok bool) {
+	if ok {
+		<div id="profile-status" class="success">{ msg }</div>
+	} else {
+		<div id="profile-status" class="error">{ msg }</div>
 	}
 }

@@ -1,23 +1,20 @@
 package chat
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
-	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
-
-	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
-const RecentLimit = 50
+const RecentLimit = 100
 
 type Handler struct {
 	Svc           *Service
@@ -28,10 +25,20 @@ type Handler struct {
 	Log           *slog.Logger
 }
 
+func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
+	v := webtempl.Viewer{CommunityName: h.CommunityName}
+	if id, ok := auth.FromContext(r.Context()); ok {
+		v.IsAuthed = true
+		v.DisplayName = id.Membership.DisplayName
+		v.Role = string(id.Membership.Role)
+	}
+	return v
+}
+
 func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
-		http.Redirect(w, r, "/login?next=/chat", http.StatusSeeOther)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 	msgs, err := h.Repo.Recent(r.Context(), h.CommunityID, RecentLimit)
@@ -45,12 +52,15 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		oldest = &t
 	}
 	_ = webtempl.ChatPage(webtempl.ChatPageData{
-		CommunityName: h.CommunityName,
-		DisplayName:   id.Membership.DisplayName,
-		IsMod:         id.Membership.Role.AtLeast(auth.RoleMod),
-		Messages:      toMsgViews(msgs),
-		OldestSeen:    oldest,
+		Viewer:     h.viewer(r),
+		IsMod:      id.Membership.Role.AtLeast(auth.RoleMod),
+		Messages:   toMsgViews(msgs),
+		OldestSeen: oldest,
 	}).Render(r.Context(), w)
+}
+
+type sendSignals struct {
+	Body string `json:"body"`
 }
 
 func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
@@ -59,13 +69,14 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+	var in sendSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	body := strings.TrimSpace(r.PostFormValue("body"))
+	body := strings.TrimSpace(in.Body)
+	sse := datastar.NewSSE(w, r)
 	if body == "" || len(body) > 4000 {
-		http.Error(w, "invalid body length", http.StatusBadRequest)
 		return
 	}
 	msg, err := h.Svc.Send(r.Context(), SendInput{
@@ -74,44 +85,43 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		BodyMarkdown: body,
 	})
 	if err != nil {
-		http.Error(w, "send: "+err.Error(), http.StatusInternalServerError)
+		h.Log.Error("send", "err", err)
 		return
 	}
 	msg.AuthorName = id.Membership.DisplayName
 	msg.AuthorAvatar = id.Membership.AvatarURL
 
+	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+	view := toMsgView(msg)
+
+	// Append the message bubble immediately above the scroll anchor in this
+	// sender's tab so they don't wait for the NATS round-trip.
+	_ = sse.PatchElementTempl(
+		webtempl.MessageView(view, isMod),
+		datastar.WithSelector("#scroll-anchor"),
+		datastar.WithModeBefore(),
+	)
+	// Re-patch the scroll anchor; its data-on-load fires again and scrolls to bottom.
+	_ = sse.PatchElementTempl(webtempl.ScrollAnchor())
+	// Clear the composer signal.
+	_ = sse.PatchSignals([]byte(`{"body":""}`))
+
+	// Fan-out to other tabs via NATS.
 	if h.NATS != nil && h.NATS.IsConnected() {
-		buf, err := renderMessageFragment(r, msg, false)
-		if err != nil {
-			h.Log.Error("render fragment", "err", err)
-		} else {
+		if buf, err := renderMessageFragment(r, msg, false); err == nil {
 			_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), buf)
 		}
 	}
-
-	// Reply to sender with their own message appended via SSE-style response
-	// so submitting via fetch updates immediately even before NATS round-trip.
-	w.Header().Set("Content-Type", "text/event-stream")
-	sse := render.NewSSE(w, r)
-	_ = sse.PatchElementTempl(
-		webtempl.MessageView(toMsgView(msg), id.Membership.Role.AtLeast(auth.RoleMod)),
-		datastar.WithSelector("#messages"),
-		datastar.WithModeAppend(),
-	)
 }
 
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
-	if !ok {
+	if _, ok := auth.FromContext(r.Context()); !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
-
-	sse := render.NewSSE(w, r)
+	sse := datastar.NewSSE(w, r)
 
 	if h.NATS == nil || !h.NATS.IsConnected() {
-		// keep connection open without messages; will be closed on cancel
 		<-r.Context().Done()
 		return
 	}
@@ -123,8 +133,6 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sub.Unsubscribe()
 
-	_ = isMod // used by template; mod-specific delete buttons are pre-rendered at send time
-
 	for {
 		select {
 		case <-r.Context().Done():
@@ -134,11 +142,11 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := sse.PatchElements(string(m.Data),
-				datastar.WithSelector("#messages"),
-				datastar.WithModeAppend()); err != nil {
-				if errors.Is(err, http.ErrHandlerTimeout) {
-					return
-				}
+				datastar.WithSelector("#scroll-anchor"),
+				datastar.WithModeBefore()); err != nil {
+				return
+			}
+			if err := sse.PatchElementTempl(webtempl.ScrollAnchor()); err != nil {
 				return
 			}
 		}
@@ -163,27 +171,19 @@ func (h *Handler) GetOlder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
-	w.Header().Set("Content-Type", "text/event-stream")
-	sse := render.NewSSE(w, r)
-	// Patch each older message prepended (in chronological order so visually they appear above).
+	sse := datastar.NewSSE(w, r)
 	for _, m := range msgs {
 		_ = sse.PatchElementTempl(
 			webtempl.MessageView(toMsgView(m), isMod),
-			datastar.WithSelector("#messages"),
-			datastar.WithModePrepend(),
+			datastar.WithSelector("#load-older"),
+			datastar.WithModeAfter(),
 		)
 	}
 	if len(msgs) == RecentLimit {
 		t := msgs[len(msgs)-1].CreatedAt
-		_ = sse.PatchElements(
-			`<form method="get" action="/chat/older" id="load-older"><input type="hidden" name="before" value="`+t.Format(time.RFC3339Nano)+`"/><button type="submit">Load older</button></form>`,
-			datastar.WithSelector("#load-older"),
-			datastar.WithModeReplace(),
-		)
+		_ = sse.PatchElementTempl(webtempl.LoadOlderButton(t.Format(time.RFC3339Nano)))
 	} else {
-		_ = sse.PatchElements(`<div id="load-older" class="muted">— start of history —</div>`,
-			datastar.WithSelector("#load-older"),
-			datastar.WithModeReplace())
+		_ = sse.PatchElementTempl(webtempl.NoOlder())
 	}
 }
 
@@ -205,8 +205,6 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// renderMessageFragment renders a message bubble suitable for publishing
-// over NATS for fan-out via the chat SSE stream.
 func renderMessageFragment(r *http.Request, m Message, isMod bool) ([]byte, error) {
 	var sb strings.Builder
 	if err := webtempl.MessageView(toMsgView(m), isMod).Render(r.Context(), &sb); err != nil {
@@ -216,7 +214,7 @@ func renderMessageFragment(r *http.Request, m Message, isMod bool) ([]byte, erro
 }
 
 func toMsgView(m Message) webtempl.MsgView {
-	v := webtempl.MsgView{
+	return webtempl.MsgView{
 		ID:           m.ID,
 		AuthorName:   m.AuthorName,
 		AuthorAvatar: m.AuthorAvatar,
@@ -225,7 +223,6 @@ func toMsgView(m Message) webtempl.MsgView {
 		CreatedAt:    m.CreatedAt,
 		Deleted:      m.IsDeleted(),
 	}
-	return v
 }
 
 func toMsgViews(ms []Message) []webtempl.MsgView {
