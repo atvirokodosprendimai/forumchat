@@ -255,20 +255,27 @@ templ ForumPost(slug, threadID string, p PostView) {
 			<header class="meta">
 				<strong>{ p.AuthorName }</strong>
 				<span class="muted">{ fmtTime(p.CreatedAt) }</span>
-				<details class="msg-menu">
-					<summary aria-label="Actions">⋯</summary>
-					<div class="msg-menu-list">
-						<button class="msg-menu-item"
-							data-on:click={ quoteClickJS(p.ID, p.AuthorName) + "; el.closest('details').open=false" }>↩ Quote</button>
-						<button class="msg-menu-item"
-							data-on:click={ todoClickJS("forum_post:"+p.ID, p.TitleSnippet) + "; el.closest('details').open=false" }>☑ Add to todos</button>
-						if p.CanEdit {
-							<button class="msg-menu-item danger"
-								data-on:click={ "@post('/c/" + slug + "/forum/post/" + p.ID + "/delete')" }>✕ Delete</button>
-						}
-					</div>
-				</details>
 			</header>
+			<details class="msg-menu">
+				<summary aria-label="Actions"><span class="msg-menu-dot"></span></summary>
+				<div class="msg-menu-list" role="menu">
+					<div class="msg-menu-handle" aria-hidden="true"></div>
+					<button class="msg-menu-item" role="menuitem"
+						data-on:click={ quoteClickJS(p.ID, p.AuthorName) + "; el.closest('details').open=false" }>
+						<span class="mi-icon">↩</span><span class="mi-label">Quote</span>
+					</button>
+					<button class="msg-menu-item" role="menuitem"
+						data-on:click={ todoClickJS("forum_post:"+p.ID, p.TitleSnippet) + "; el.closest('details').open=false" }>
+						<span class="mi-icon">☑</span><span class="mi-label">To-do</span>
+					</button>
+					if p.CanEdit {
+						<button class="msg-menu-item danger" role="menuitem"
+							data-on:click={ "@post('/c/" + slug + "/forum/post/" + p.ID + "/delete')" }>
+							<span class="mi-icon">✕</span><span class="mi-label">Delete</span>
+						</button>
+					}
+				</div>
+			</details>
 			if p.QuotedAuthor != "" {
 				<blockquote class="quote">
 					<div class="muted">{ p.QuotedAuthor } wrote:</div>
