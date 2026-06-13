@@ -255,14 +255,19 @@ templ ForumPost(slug, threadID string, p PostView) {
 			<header class="meta">
 				<strong>{ p.AuthorName }</strong>
 				<span class="muted">{ fmtTime(p.CreatedAt) }</span>
-				<button class="link"
-					data-on:click={ quoteClickJS(p.ID, p.AuthorName) }>quote</button>
-				<button class="link"
-					data-on:click={ todoClickJS("forum_post:"+p.ID, p.TitleSnippet) }>add to todos</button>
-				if p.CanEdit {
-					<button class="link"
-						data-on:click={ "@post('/c/" + slug + "/forum/post/" + p.ID + "/delete')" }>delete</button>
-				}
+				<details class="msg-menu">
+					<summary aria-label="Actions">⋯</summary>
+					<div class="msg-menu-list">
+						<button class="msg-menu-item"
+							data-on:click={ quoteClickJS(p.ID, p.AuthorName) + "; el.closest('details').open=false" }>↩ Quote</button>
+						<button class="msg-menu-item"
+							data-on:click={ todoClickJS("forum_post:"+p.ID, p.TitleSnippet) + "; el.closest('details').open=false" }>☑ Add to todos</button>
+						if p.CanEdit {
+							<button class="msg-menu-item danger"
+								data-on:click={ "@post('/c/" + slug + "/forum/post/" + p.ID + "/delete')" }>✕ Delete</button>
+						}
+					</div>
+				</details>
 			</header>
 			if p.QuotedAuthor != "" {
 				<blockquote class="quote">

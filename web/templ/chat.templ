@@ -111,19 +111,24 @@ templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 			<header class="meta">
 				<strong>{ m.AuthorName }</strong>
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
-				<button class="link" data-on:click={ "$reply_to_id = '" + m.ID + "'" }>reply</button>
-				<button class="link" data-on:click={ "$bm_open_msg = '" + m.ID + "'" }>bookmark</button>
-				<button class="link" data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) }>add to todos</button>
-				if m.PromotedThreadID != "" {
-					<a class="link" href={ templ.URL("/c/" + slug + "/forum/" + m.PromotedThreadID) }>→ thread</a>
-				} else if isMod || m.AuthorID == currentUserID {
-					<button class="link"
-						data-on:click={ "@post('/c/" + slug + "/forum/promote-chat?id=" + m.ID + "')" }>→ thread</button>
-				}
-				if isMod {
-					<button class="link"
-						data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>delete</button>
-				}
+				<details class="msg-menu">
+					<summary aria-label="Actions">⋯</summary>
+					<div class="msg-menu-list">
+						<button class="msg-menu-item" data-on:click={ "$reply_to_id = '" + m.ID + "'; el.closest('details').open=false" }>↩ Reply</button>
+						<button class="msg-menu-item" data-on:click={ "$bm_open_msg = '" + m.ID + "'; el.closest('details').open=false" }>★ Bookmark</button>
+						<button class="msg-menu-item" data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false" }>☑ Add to todos</button>
+						if m.PromotedThreadID != "" {
+							<a class="msg-menu-item" href={ templ.URL("/c/" + slug + "/forum/" + m.PromotedThreadID) }>→ Open thread</a>
+						} else if isMod || m.AuthorID == currentUserID {
+							<button class="msg-menu-item"
+								data-on:click={ "@post('/c/" + slug + "/forum/promote-chat?id=" + m.ID + "')" }>→ Promote to thread</button>
+						}
+						if isMod {
+							<button class="msg-menu-item danger"
+								data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>✕ Delete</button>
+						}
+					</div>
+				</details>
 			</header>
 			if m.ReplyTo != nil {
 				<blockquote class="quote">
