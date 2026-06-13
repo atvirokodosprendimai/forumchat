@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -135,6 +136,7 @@ func run() error {
 		_, _ = w.Write([]byte("method not allowed"))
 	})
 
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static"))))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
