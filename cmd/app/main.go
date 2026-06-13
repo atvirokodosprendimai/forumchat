@@ -88,7 +88,9 @@ func run() error {
 		mailer = &auth.SMTPMailer{
 			Host: cfg.SMTPHost, Port: cfg.SMTPPort,
 			User: cfg.SMTPUser, Pass: cfg.SMTPPass,
-			From: cfg.SMTPFrom, Log: log,
+			From: cfg.SMTPFrom,
+			TLSMode: cfg.SMTPTLS, TLSSkip: cfg.SMTPTLSSkip,
+			Log: log,
 		}
 	} else {
 		mailer = &auth.LogMailer{Log: log}

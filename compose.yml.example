@@ -21,6 +21,8 @@ services:
       SMTP_USER: ""
       SMTP_PASS: ""
       SMTP_FROM: "forumchat@localhost"
+      SMTP_TLS: "auto"            # auto|starttls|tls|none — auto upgrades via STARTTLS when offered
+      SMTP_TLS_INSECURE: "false"  # set true only for self-signed certs in test envs
       COMMUNITY_SLUG: "main"
       COMMUNITY_NAME: "The Community"
       PRESENCE_TTL: "30s"
