@@ -5,12 +5,35 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/alexedwards/scs/v2"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
+
+// commitSession flushes the scs session cookie to w *before* datastar.NewSSE
+// flushes the response.
+//
+// scs's LoadAndSave middleware wraps w in a sessionResponseWriter that commits
+// the session and writes Set-Cookie on the first WriteHeader/Write call. But
+// datastar.NewSSE calls http.NewResponseController(w).Flush() — which unwraps
+// past scs via sessionResponseWriter.Unwrap() and flushes the *underlying*
+// http.ResponseWriter directly. The scs wrapper never sees the write so
+// Set-Cookie is never sent. Callers must commit explicitly before NewSSE.
+func commitSession(sm *scs.SessionManager, w http.ResponseWriter, r *http.Request) {
+	switch sm.Status(r.Context()) {
+	case scs.Modified:
+		token, expiry, err := sm.Commit(r.Context())
+		if err != nil {
+			return
+		}
+		sm.WriteSessionCookie(r.Context(), w, token, expiry)
+	case scs.Destroyed:
+		sm.WriteSessionCookie(r.Context(), w, "", time.Time{})
+	}
+}
 
 type Handler struct {
 	Svc           *Service
@@ -133,9 +156,9 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
 	email := strings.TrimSpace(in.Email)
 	if email == "" || in.Password == "" {
+		sse := datastar.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Email and password required"))
 		return
 	}
@@ -150,10 +173,15 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrBanned):
 			msg = "Your account is banned"
 		}
+		sse := datastar.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment(msg))
 		return
 	}
+	// Mutate session and flush Set-Cookie BEFORE NewSSE — NewSSE.Flush() unwraps
+	// past scs's writer, so any cookie write after it is dropped.
 	PutLogin(r.Context(), h.Sessions, res.User.ID, res.Membership.CommunityID)
+	commitSession(h.Sessions, w, r)
+	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/")
 }
 
@@ -161,6 +189,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PostLogout(w http.ResponseWriter, r *http.Request) {
 	_ = Logout(r.Context(), h.Sessions)
+	commitSession(h.Sessions, w, r)
 	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/login")
 }
