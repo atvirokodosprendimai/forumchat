@@ -11,3 +11,4 @@
 - 2026-06-13 `711f77a` fix(auth): commit scs session cookie before datastar.NewSSE
 - 2026-06-13 `18660df` feat(chat): fat-morph last 100 + separate scroll-anchor patch on every change
 - 2026-06-13 `9a99013` docs(agents): comprehensive AGENTS.md + switch scroll to sse.ExecuteScript
+- 2026-06-13 `15dc517` feat: invite queue + ban cleanup + chat replies + chat promote + persistent sessions + delete fan-out fix

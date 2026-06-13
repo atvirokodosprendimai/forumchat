@@ -121,8 +121,16 @@ button.link:hover { text-decoration: underline; }
   min-height: 50vh; max-height: 65vh; overflow-y: auto;
   box-shadow: var(--shadow);
 }
-.composer { display: flex; gap: .5rem; margin-top: .75rem; }
-.composer input { flex: 1; }
+/* Composer is a vertical stack: optional reply hint, then the input row. */
+.composer { display: flex; flex-direction: column; gap: .5rem; margin-top: .75rem; }
+.composer-row { display: flex; gap: .5rem; }
+.composer-row input { flex: 1; }
+.reply-hint {
+  background: var(--surface-alt);
+  padding: .35rem .55rem;
+  border-radius: var(--radius-sm);
+  display: flex; justify-content: space-between; align-items: center;
+}
 
 .presence {
   background: var(--surface); border: 1px solid var(--border);

@@ -57,18 +57,18 @@ templ ChatPage(d ChatPageData) {
 // driven by the signal value via data-show.
 templ ChatComposer() {
 	<div id="composer" class="composer">
-		<div id="reply-indicator"
-			data-show="$reply_to_id !== ''"
-			style="background:var(--surface-alt);padding:.35rem .55rem;border-radius:var(--radius-sm);margin-bottom:.4rem;display:flex;justify-content:space-between;align-items:center;width:100%">
+		<div id="reply-indicator" class="reply-hint" data-show="$reply_to_id !== ''">
 			<span class="muted">Replying — <span data-text="'…' + ($reply_to_id || '').slice(0,8)"></span></span>
 			<button class="link" data-on:click="$reply_to_id = ''">cancel</button>
 		</div>
-		<input type="text"
-			data-bind="body"
-			placeholder="Say something — markdown ok"
-			autocomplete="off"
-			data-on:keydown="evt.key === 'Enter' && @post('/chat/send')"/>
-		<button data-on:click="@post('/chat/send')">Send</button>
+		<div class="composer-row">
+			<input type="text"
+				data-bind="body"
+				placeholder="Say something — markdown ok"
+				autocomplete="off"
+				data-on:keydown="evt.key === 'Enter' && @post('/chat/send')"/>
+			<button data-on:click="@post('/chat/send')">Send</button>
+		</div>
 	</div>
 }
 
