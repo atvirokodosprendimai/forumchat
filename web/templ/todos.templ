@@ -84,9 +84,6 @@ templ TodosList(slug string, rows []TodoRow) {
 
 templ TodoRowView(slug string, t TodoRow) {
 	<li class={ "todo-row todo-" + t.Status } id={ "todo-" + t.ID }>
-		<input type="checkbox"
-			checked?={ t.Status == "done" }
-			data-on:change={ todoNextStatusJS(slug, t.ID, t.Status, "done") }/>
 		<span class={ "todo-pill pill-" + t.Status }>{ todoStatusLabel(t.Status) }</span>
 		<span class="todo-title">{ t.Title }</span>
 		if t.Category != "" {
@@ -100,21 +97,18 @@ templ TodoRowView(slug string, t TodoRow) {
 			<button class="link"
 				data-on:click={ "@post('/c/" + slug + "/todos/" + t.ID + "/status?next=open')" }>stop</button>
 		}
+		if t.Status != "done" {
+			<button class="link"
+				data-on:click={ "@post('/c/" + slug + "/todos/" + t.ID + "/status?next=done')" }>done</button>
+		} else {
+			<button class="link"
+				data-on:click={ "@post('/c/" + slug + "/todos/" + t.ID + "/status?next=open')" }>reopen</button>
+		}
 		<button class="link danger"
 			data-on:click={ "@post('/c/" + slug + "/todos/" + t.ID + "/delete')" }>delete</button>
 	</li>
 }
 
-// todoNextStatusJS emits the click handler for the checkbox — toggles
-// between current status and the target ("done" by default). Clicking when
-// already done sends "open" to un-complete.
-func todoNextStatusJS(slug, id, current, target string) string {
-	next := target
-	if current == target {
-		next = "open"
-	}
-	return "@post('/c/" + slug + "/todos/" + id + "/status?next=" + next + "')"
-}
 
 func todosFilterClass(self, cur string) string {
 	if self == cur {
