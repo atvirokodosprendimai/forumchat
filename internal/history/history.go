@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -18,8 +19,29 @@ type Handler struct {
 	Log           *slog.Logger
 }
 
+func (h *Handler) cid(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.ID
+	}
+	return h.cid(ctx)
+}
+
+func (h *Handler) cname(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.Name
+	}
+	return h.CommunityName
+}
+
+func (h *Handler) cslug(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.Slug
+	}
+	return ""
+}
+
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
-	v := webtempl.Viewer{CommunityName: h.CommunityName}
+	v := webtempl.Viewer{CommunityName: h.cname(r.Context()), CommunitySlug: h.cslug(r.Context())}
 	if id, ok := auth.FromContext(r.Context()); ok {
 		v.IsAuthed = true
 		v.DisplayName = id.Membership.DisplayName
@@ -116,7 +138,7 @@ func (h *Handler) daysWithActivity(ctx context.Context, monthStart, monthEnd tim
 
 	if err := q(`SELECT created_at FROM chat_messages
 		WHERE community_id = ? AND deleted_at IS NULL AND created_at >= ? AND created_at < ?`,
-		h.CommunityID, from, to); err != nil {
+		h.cid(ctx), from, to); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -135,7 +157,7 @@ func (h *Handler) eventsBetween(ctx context.Context, from, to time.Time) ([]webt
 		WHERE m.community_id = ? AND m.deleted_at IS NULL
 		  AND m.created_at >= ? AND m.created_at < ?
 		ORDER BY m.created_at ASC`,
-		h.CommunityID, from.Unix(), to.Unix())
+		h.cid(ctx), from.Unix(), to.Unix())
 	if err != nil {
 		return nil, err
 	}

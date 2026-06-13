@@ -1,6 +1,7 @@
 package bookmarks
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -22,8 +24,29 @@ type Handler struct {
 	Log           *slog.Logger
 }
 
+func (h *Handler) cid(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.ID
+	}
+	return h.CommunityID
+}
+
+func (h *Handler) cname(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.Name
+	}
+	return h.CommunityName
+}
+
+func (h *Handler) cslug(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.Slug
+	}
+	return ""
+}
+
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
-	v := webtempl.Viewer{CommunityName: h.CommunityName}
+	v := webtempl.Viewer{CommunityName: h.cname(r.Context()), CommunitySlug: h.cslug(r.Context())}
 	if id, ok := auth.FromContext(r.Context()); ok {
 		v.IsAuthed = true
 		v.DisplayName = id.Membership.DisplayName
@@ -38,8 +61,8 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	cats, _ := h.Repo.DistinctCategories(r.Context(), id.User.ID, h.CommunityID)
-	rows, _ := h.Repo.List(r.Context(), id.User.ID, h.CommunityID, Filter{})
+	cats, _ := h.Repo.DistinctCategories(r.Context(), id.User.ID, h.cid(r.Context()))
+	rows, _ := h.Repo.List(r.Context(), id.User.ID, h.cid(r.Context()), Filter{})
 	_ = webtempl.BookmarksPage(webtempl.BookmarksPageData{
 		Viewer:     h.viewer(r),
 		Rows:       toViewRows(rows),
@@ -75,7 +98,7 @@ func (h *Handler) GetList(w http.ResponseWriter, r *http.Request) {
 	if t, err := time.Parse("2006-01-02", strings.TrimSpace(in.BMTo)); err == nil {
 		filter.To = t.Add(24 * time.Hour) // inclusive day
 	}
-	rows, err := h.Repo.List(r.Context(), id.User.ID, h.CommunityID, filter)
+	rows, err := h.Repo.List(r.Context(), id.User.ID, h.cid(r.Context()), filter)
 	if err != nil {
 		h.Log.Error("list bookmarks", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -110,7 +133,7 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if msg.CommunityID != h.CommunityID {
+	if msg.CommunityID != h.cid(r.Context()) {
 		http.Error(w, "cross-community", http.StatusForbidden)
 		return
 	}
@@ -123,7 +146,7 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	b := Bookmark{
 		UserID:        id.User.ID,
-		CommunityID:   h.CommunityID,
+		CommunityID:   h.cid(r.Context()),
 		ChatMessageID: msgID,
 		Title:         title,
 		Category:      strings.TrimSpace(in.Category),
@@ -163,7 +186,7 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	if t, err := time.Parse("2006-01-02", in.BMTo); err == nil {
 		filter.To = t.Add(24 * time.Hour)
 	}
-	rows, _ := h.Repo.List(r.Context(), id.User.ID, h.CommunityID, filter)
+	rows, _ := h.Repo.List(r.Context(), id.User.ID, h.cid(r.Context()), filter)
 	sse := datastar.NewSSE(w, r)
 	_ = sse.PatchElementTempl(
 		webtempl.BookmarksList(toViewRows(rows)),

@@ -4,14 +4,17 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -19,13 +22,35 @@ type Handler struct {
 	Repo          *auth.Repo
 	Svc           *auth.Service
 	Chat          *chat.Handler
+	Communities   *community.Repo
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
 }
 
+func (h *Handler) cid(r *http.Request) string {
+	if c, ok := community.FromContext(r.Context()); ok {
+		return c.ID
+	}
+	return h.CommunityID
+}
+
+func (h *Handler) cname(r *http.Request) string {
+	if c, ok := community.FromContext(r.Context()); ok {
+		return c.Name
+	}
+	return h.CommunityName
+}
+
+func (h *Handler) cslug(r *http.Request) string {
+	if c, ok := community.FromContext(r.Context()); ok {
+		return c.Slug
+	}
+	return ""
+}
+
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
-	v := webtempl.Viewer{CommunityName: h.CommunityName}
+	v := webtempl.Viewer{CommunityName: h.cname(r), CommunitySlug: h.cslug(r)}
 	if id, ok := auth.FromContext(r.Context()); ok {
 		v.IsAuthed = true
 		v.DisplayName = id.Membership.DisplayName
@@ -36,17 +61,17 @@ func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 
 // GetIndex renders the admin dashboard with pending requests, members, invites.
 func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
-	pending, err := h.Repo.ListPendingMemberships(r.Context(), h.CommunityID)
+	pending, err := h.Repo.ListPendingMemberships(r.Context(), h.cid(r))
 	if err != nil {
 		http.Error(w, "load pending: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	members, err := h.Repo.ListMembers(r.Context(), h.CommunityID)
+	members, err := h.Repo.ListMembers(r.Context(), h.cid(r))
 	if err != nil {
 		http.Error(w, "load members: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	invites, err := h.Repo.ListInvites(r.Context(), h.CommunityID)
+	invites, err := h.Repo.ListInvites(r.Context(), h.cid(r))
 	if err != nil {
 		http.Error(w, "load invites: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -123,7 +148,7 @@ func (h *Handler) PostBan(w http.ResponseWriter, r *http.Request) {
 	}
 	opts := auth.CleanupOptions{Chat: in.CleanupChat, Threads: in.CleanupThreads, Posts: in.CleanupPosts}
 	if opts.Chat || opts.Threads || opts.Posts {
-		if err := h.Repo.CleanupUserContent(r.Context(), m.UserID, h.CommunityID, opts); err != nil {
+		if err := h.Repo.CleanupUserContent(r.Context(), m.UserID, h.cid(r), opts); err != nil {
 			h.Log.Error("cleanup on ban", "err", err)
 		}
 	}
@@ -169,14 +194,14 @@ func (h *Handler) PostInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := auth.FromContext(r.Context())
 	creator := id.User.ID
-	code, err := h.Svc.IssueInvite(r.Context(), h.CommunityID, &creator, maxUses)
+	code, err := h.Svc.IssueInvite(r.Context(), h.cid(r), &creator, maxUses)
 	if err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("admin-invite-error", err.Error()))
 		return
 	}
 	_ = sse.PatchElementTempl(webtempl.AdminInviteCreated(code))
 	// Re-render the invite list.
-	if list, err := h.Repo.ListInvites(r.Context(), h.CommunityID); err == nil {
+	if list, err := h.Repo.ListInvites(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminInvites(invitesToAdminInvites(list)))
 	}
 }
@@ -192,7 +217,7 @@ func (h *Handler) PostInviteRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := datastar.NewSSE(w, r)
-	if list, err := h.Repo.ListInvites(r.Context(), h.CommunityID); err == nil {
+	if list, err := h.Repo.ListInvites(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminInvites(invitesToAdminInvites(list)))
 	}
 }
@@ -202,13 +227,74 @@ func (h *Handler) PostInviteRevoke(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) refreshAdminLists(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	now := time.Now()
-	if pending, err := h.Repo.ListPendingMemberships(r.Context(), h.CommunityID); err == nil {
+	if pending, err := h.Repo.ListPendingMemberships(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminPending(memberRowsToAdminMembers(pending, now)))
 	}
-	if members, err := h.Repo.ListMembers(r.Context(), h.CommunityID); err == nil {
+	if members, err := h.Repo.ListMembers(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminMembers(memberRowsToAdminMembers(members, now)))
 	}
 }
+
+type createCommunitySignals struct {
+	Name        string `json:"cc_name"`
+	Slug        string `json:"cc_slug"`
+	MemberEmail string `json:"cc_member_email"`
+}
+
+// PostCreateCommunity is the global-admin-only handler for spinning up a new
+// community. The slug must be unique; the named user becomes the community's
+// first member with role=admin.
+func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
+	sse := datastar.NewSSE(w, r)
+	var in createCommunitySignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "bad signals"))
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	slug := strings.ToLower(strings.TrimSpace(in.Slug))
+	email := strings.TrimSpace(in.MemberEmail)
+	if name == "" || slug == "" || email == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Name, slug and first-member email are required"))
+		return
+	}
+	if !validSlug(slug) {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Slug must contain only a-z, 0-9, '-'"))
+		return
+	}
+	user, err := h.Repo.UserByEmail(r.Context(), email)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "No user with that email"))
+		return
+	}
+	c, err := h.Communities.Create(r.Context(), slug, name)
+	if err != nil {
+		if errors.Is(err, community.ErrSlugTaken) {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Slug already in use"))
+			return
+		}
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", err.Error()))
+		return
+	}
+	now := time.Now()
+	m := auth.Membership{
+		ID:          uuid.NewString(),
+		UserID:      user.ID,
+		CommunityID: c.ID,
+		DisplayName: user.Email,
+		Role:        auth.RoleAdmin,
+		ApprovedAt:  &now,
+	}
+	if err := h.Repo.CreateMembership(r.Context(), nil, m); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Could not add first member: "+err.Error()))
+		return
+	}
+	_ = sse.Redirect("/c/" + c.Slug + "/chat")
+}
+
+var slugRE = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+func validSlug(s string) bool { return slugRE.MatchString(s) }
 
 func memberRowsToAdminMembers(rows []auth.MemberRow, now time.Time) []webtempl.AdminMember {
 	out := make([]webtempl.AdminMember, 0, len(rows))

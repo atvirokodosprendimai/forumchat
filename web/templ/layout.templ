@@ -5,6 +5,7 @@ type Viewer struct {
 	DisplayName   string
 	Role          string // member|moderator|admin
 	CommunityName string
+	CommunitySlug string // empty when no community is in scope (dashboard, login pages)
 }
 
 // InitialSignals — global signal bag rendered on every page.
@@ -35,7 +36,10 @@ const InitialSignals = `{
 	"bm_to":"",
 	"image_data":"",
 	"rename_open":false,
-	"new_subject":""
+	"new_subject":"",
+	"cc_name":"",
+	"cc_slug":"",
+	"cc_member_email":""
 }`
 
 templ Layout(title string, v Viewer) {
@@ -54,13 +58,16 @@ templ Layout(title string, v Viewer) {
 				<a href="/" class="brand">forumchat</a>
 				<nav>
 					if v.IsAuthed {
-						<a href="/chat">Chat</a>
-						<a href="/forum">Forum</a>
-						<a href="/bookmarks">Bookmarks</a>
-						<a href="/history">History</a>
-						if v.Role == "admin" {
-							<a href="/admin">Admin</a>
+						if v.CommunitySlug != "" {
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") }>Chat</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>Forum</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") }>Bookmarks</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") }>History</a>
+							if v.Role == "admin" {
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") }>Admin</a>
+							}
 						}
+						<a href="/">Communities</a>
 						<a href="/profile">{ v.DisplayName }</a>
 						<button class="ghost" data-on:click="@post('/logout')">Sign out</button>
 					} else {

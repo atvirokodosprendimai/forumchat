@@ -21,6 +21,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
+	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/history"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
@@ -204,10 +205,13 @@ func run() error {
 		Repo:          aRepo,
 		Svc:           svc,
 		Chat:          chatHandler,
+		Communities:   cRepo,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
 	}
+
+	dashboardHandler := &dashboard.Handler{Communities: cRepo, Log: log}
 
 	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
 	r.Group(func(r chi.Router) {
@@ -233,9 +237,13 @@ func run() error {
 		Log:           log,
 	}
 
-	// Approved-members area: chat, forum, uploads, presence, bookmarks.
-	r.Group(func(r chi.Router) {
+	// Per-community area: every page, every SSE stream, every POST nests under
+	// /c/{slug}. LoadCommunity resolves the slug; RequireMember rebinds the
+	// viewer's identity to that community's membership row.
+	r.Route("/c/{slug}", func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Use(community.LoadCommunity(cRepo))
+		r.Use(community.RequireMember(aRepo))
 		r.Use(auth.RequireApproved)
 
 		r.Get("/chat", chatHandler.GetPage)
@@ -271,35 +279,31 @@ func run() error {
 			r.Use(auth.RequireRole(auth.RoleMod))
 			r.Post("/chat/delete", chatHandler.PostDelete)
 		})
+
+		// Per-community admin area.
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireRole(auth.RoleAdmin))
+			r.Get("/admin", adminHandler.GetIndex)
+			r.Post("/admin/approve", adminHandler.PostApprove)
+			r.Post("/admin/reject", adminHandler.PostReject)
+			r.Post("/admin/ban", adminHandler.PostBan)
+			r.Post("/admin/unban", adminHandler.PostUnban)
+			r.Post("/admin/invite", adminHandler.PostInvite)
+			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
+			r.Post("/forum/{id}/hard-delete", forumHandler.PostHardDeleteThread)
+		})
 	})
 
-	// Admin area.
+	// Global admin (uses session's CurrentCommunity membership for the role
+	// check) — community creation lives here so it isn't gated by being a
+	// member of the new community itself.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRole(auth.RoleAdmin))
-		r.Get("/admin", adminHandler.GetIndex)
-		r.Post("/admin/approve", adminHandler.PostApprove)
-		r.Post("/admin/reject", adminHandler.PostReject)
-		r.Post("/admin/ban", adminHandler.PostBan)
-		r.Post("/admin/unban", adminHandler.PostUnban)
-		r.Post("/admin/invite", adminHandler.PostInvite)
-		r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
-		r.Post("/forum/{id}/hard-delete", forumHandler.PostHardDeleteThread)
+		r.Post("/admin/create-community", adminHandler.PostCreateCommunity)
 	})
 
-	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
-		if id, ok := auth.FromContext(req.Context()); ok {
-			v := webtempl.Viewer{
-				IsAuthed:      true,
-				DisplayName:   id.Membership.DisplayName,
-				Role:          string(id.Membership.Role),
-				CommunityName: bootCommunity.Name,
-			}
-			_ = webtempl.Home(v).Render(req.Context(), w)
-			return
-		}
-		_ = webtempl.Hello(bootCommunity.Name).Render(req.Context(), w)
-	})
+	r.Get("/", dashboardHandler.GetIndex)
 
 	r.Get("/_debug/clock", func(w http.ResponseWriter, req *http.Request) {
 		_ = webtempl.DebugClock().Render(req.Context(), w)
