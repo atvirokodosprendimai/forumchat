@@ -77,7 +77,7 @@ templ BookmarksList(rows []BookmarkRow, slug string) {
 		<ul class="thread-list">
 			for _, b := range rows {
 				<li>
-					<header style="display:flex;justify-content:space-between;align-items:baseline;gap:.5rem">
+					<header style="display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;flex-wrap:wrap">
 						<div>
 							<strong>{ b.Title }</strong>
 							if b.Category != "" {

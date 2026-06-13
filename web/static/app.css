@@ -22,7 +22,10 @@ html, body {
   background: var(--bg); color: var(--fg);
   font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
 }
+img, video { max-width: 100%; height: auto; }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -31,9 +34,11 @@ a:hover { text-decoration: underline; }
   display: flex; gap: 1rem; align-items: center; justify-content: space-between;
   padding: .8rem 1.2rem;
   background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 30;
 }
 .brand { font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }
-.topbar nav { display: flex; gap: .9rem; align-items: center; }
+.topbar nav { display: flex; gap: .9rem; align-items: center; flex-wrap: wrap; }
 .topbar nav a, .topbar nav .ghost { color: var(--fg-muted); font-weight: 500; }
 .topbar nav a:hover { color: var(--fg); text-decoration: none; }
 
@@ -87,7 +92,7 @@ button.link:hover { text-decoration: underline; }
   border-radius: var(--radius); padding: .65rem .9rem; margin: .4rem 0;
   box-shadow: var(--shadow);
 }
-.bubble .meta { display: flex; gap: .55rem; align-items: baseline; margin-bottom: .25rem; }
+.bubble .meta { display: flex; gap: .55rem; align-items: baseline; margin-bottom: .25rem; flex-wrap: wrap; row-gap: .25rem; }
 .bubble .meta strong { color: var(--fg); }
 .bubble .body p:first-child { margin-top: 0; }
 .bubble .body p:last-child { margin-bottom: 0; }
@@ -250,10 +255,11 @@ button.link:hover { text-decoration: underline; }
 }
 .forum-filters .filter:hover { background: var(--surface-alt); }
 .forum-filters .filter.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-.forum-search { display: flex; gap: .35rem; margin-left: auto; }
+.forum-search { display: flex; gap: .35rem; margin-left: auto; flex: 1 1 200px; }
 .forum-search input[type="search"] {
   padding: .25rem .55rem; border: 1px solid var(--border);
   border-radius: var(--radius-sm); background: var(--bg);
+  flex: 1 1 auto; min-width: 0;
 }
 
 .rename-row { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
@@ -329,7 +335,7 @@ img.thread-announce-img {
 
 .day-head {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 1rem; margin-bottom: 1rem;
+  gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
 }
 .day-head h2 { margin: 0; font-size: 1.1rem; }
 .history-events { list-style: none; padding: 0; margin: 0; }
@@ -359,3 +365,80 @@ img.thread-announce-img {
 .ev-body { grid-column: 1 / -1; margin-top: .25rem; }
 .ev-body p:first-child { margin-top: 0; }
 .ev-body p:last-child { margin-bottom: 0; }
+
+/* --- Tables overflow safety --- */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll table th, .table-scroll table td { white-space: nowrap; padding: .35rem .5rem; }
+
+/* --- Mobile (<= 720px): single-column, tap-friendly --- */
+@media (max-width: 720px) {
+  html, body { font-size: 16px; }
+  main { padding: .85rem; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1.05rem; }
+
+  .topbar { padding: .55rem .8rem; gap: .5rem; }
+  .topbar nav { gap: .55rem .9rem; width: 100%; justify-content: flex-start; row-gap: .35rem; }
+  .topbar nav a, .topbar nav button { padding: .15rem 0; }
+
+  .card { padding: 1rem; }
+  .card.narrow { max-width: none; margin: .75rem 0; }
+
+  /* iOS zoom prevention: form fields need >= 16px */
+  input, textarea, select { font-size: 16px; padding: .65rem .75rem; }
+  /* keep links/buttons in toolbars compact even when text scales */
+  .topbar button, .topbar .link, .forum-filters .filter { font-size: .9rem; }
+
+  button, .btn { padding: .65rem .9rem; min-height: 40px; }
+  button.link, .link-button { padding: 0; min-height: 0; }
+
+  .messages { max-height: 58vh; min-height: 40vh; padding: .5rem; }
+  .bubble { padding: .55rem .7rem; }
+  .bubble .body img { max-height: 180px; }
+
+  .composer-row { flex-wrap: wrap; }
+  .composer-row input { flex: 1 1 100%; }
+  .composer-row button { width: 100%; }
+
+  .forum-toolbar { gap: .5rem; }
+  .forum-filters { flex-wrap: wrap; }
+  .forum-search { margin-left: 0; width: 100%; }
+
+  .bm-filter { grid-template-columns: 1fr; }
+  .bm-dialog { width: calc(100vw - 1rem); padding: .85rem; }
+
+  .thread-list li { padding: .65rem .75rem; }
+  .thread-actions { gap: .5rem 1rem; }
+
+  .todos-list { margin: .5rem 0; }
+  .todo-row { padding: .5rem .65rem; gap: .5rem; }
+  .todo-title { flex-basis: 100%; min-width: 0; }
+
+  .community-list { grid-template-columns: 1fr; gap: .5rem; }
+
+  .history-grid { gap: .75rem; margin-top: .5rem; }
+  .history-cal { padding: .5rem; }
+  .cal-grid td.cal-day { height: 2.2rem; }
+  .cal-grid td.cal-day a, .cal-grid td.cal-day span { width: 2rem; height: 2rem; }
+  .history-event { padding: .55rem .65rem; column-gap: .5rem; }
+
+  .primary-nav { flex-direction: column; align-items: stretch; gap: .5rem; }
+  .primary-nav .btn, .primary-nav button { width: 100%; }
+
+  .rename-row { flex-wrap: wrap; }
+  .rename-row input { flex: 1 1 100%; }
+}
+
+/* --- Small phones (<= 380px): tighter padding --- */
+@media (max-width: 380px) {
+  main { padding: .6rem; }
+  .topbar { padding: .5rem .6rem; }
+  .card { padding: .8rem; }
+  .bubble { padding: .5rem .6rem; }
+}
+
+/* --- Safe-area insets for notched devices --- */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body { padding-bottom: env(safe-area-inset-bottom); }
+  .topbar { padding-left: max(1.2rem, env(safe-area-inset-left)); padding-right: max(1.2rem, env(safe-area-inset-right)); }
+}
