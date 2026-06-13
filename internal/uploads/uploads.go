@@ -165,6 +165,28 @@ func ExtForMIME(mime string) string {
 	return allowedMIME[strings.ToLower(mime)]
 }
 
+// Delete removes the upload row and, if no other row still references the
+// underlying file (same content hash → same rel_path), deletes the file too.
+// Missing rows / missing files are not an error.
+func (s *Store) Delete(ctx context.Context, id string) error {
+	u, err := s.Get(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := s.DB.ExecContext(ctx, `DELETE FROM uploads WHERE id = ?`, id); err != nil {
+		return err
+	}
+	var cnt int
+	_ = s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM uploads WHERE rel_path = ?`, u.RelPath).Scan(&cnt)
+	if cnt == 0 {
+		_ = os.Remove(filepath.Join(s.Dir, u.RelPath))
+	}
+	return nil
+}
+
 // SaveDataURL decodes a "data:<mime>;base64,XXXX" string, enforces maxBytes
 // on the decoded payload, and persists it via Save. Used by the paste-image
 // path on chat and forum forms.

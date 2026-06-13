@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,12 +23,15 @@ type Thread struct {
 	BodyMarkdown   string
 	BodyHTML       string
 	DeletedAt      *time.Time
+	ResolvedAt     *time.Time
+	ResolvedBy     *string
 	LastActivityAt time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }
 
-func (t Thread) IsDeleted() bool { return t.DeletedAt != nil }
+func (t Thread) IsDeleted() bool  { return t.DeletedAt != nil }
+func (t Thread) IsResolved() bool { return t.ResolvedAt != nil }
 
 type Post struct {
 	ID            string
@@ -60,9 +65,51 @@ func (r *Repo) CreateThread(ctx context.Context, t Thread) error {
 	return err
 }
 
+// ListThreadsFiltered returns threads matching the optional status and
+// case-insensitive subject/body substring search. status is "", "resolved",
+// or "unresolved"; any other value behaves as "".
+func (r *Repo) ListThreadsFiltered(ctx context.Context, communityID, status, q string, limit int) ([]Thread, error) {
+	args := []any{communityID}
+	where := []string{"t.community_id = ?", "t.deleted_at IS NULL"}
+	switch status {
+	case "resolved":
+		where = append(where, "t.resolved_at IS NOT NULL")
+	case "unresolved":
+		where = append(where, "t.resolved_at IS NULL")
+	}
+	if q = strings.TrimSpace(q); q != "" {
+		like := "%" + strings.ToLower(q) + "%"
+		where = append(where, "(LOWER(t.subject) LIKE ? OR LOWER(t.body_md) LIKE ?)")
+		args = append(args, like, like)
+	}
+	args = append(args, limit)
+	query := `
+		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
+		       COALESCE(mb.display_name, '')
+		FROM threads t
+		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
+		WHERE ` + strings.Join(where, " AND ") + `
+		ORDER BY t.last_activity_at DESC
+		LIMIT ?`
+	rows, err := r.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Thread
+	for rows.Next() {
+		t, err := scanThread(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repo) ListThreads(ctx context.Context, communityID string, limit int) ([]Thread, error) {
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.last_activity_at, t.created_at, t.updated_at,
+		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
 		       COALESCE(mb.display_name, '')
 		FROM threads t
 		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
@@ -75,44 +122,38 @@ func (r *Repo) ListThreads(ctx context.Context, communityID string, limit int) (
 	defer rows.Close()
 	var out []Thread
 	for rows.Next() {
-		var t Thread
-		var del sql.NullInt64
-		var act, created, updated int64
-		if err := rows.Scan(&t.ID, &t.CommunityID, &t.AuthorID, &t.Subject, &t.BodyMarkdown, &t.BodyHTML, &del, &act, &created, &updated, &t.AuthorName); err != nil {
+		t, err := scanThread(rows)
+		if err != nil {
 			return nil, err
 		}
-		if del.Valid {
-			tt := time.Unix(del.Int64, 0)
-			t.DeletedAt = &tt
-		}
-		t.LastActivityAt = time.Unix(act, 0)
-		t.CreatedAt = time.Unix(created, 0)
-		t.UpdatedAt = time.Unix(updated, 0)
 		out = append(out, t)
 	}
 	return out, rows.Err()
 }
 
-func (r *Repo) GetThread(ctx context.Context, id string) (Thread, error) {
+type scannable interface {
+	Scan(dest ...any) error
+}
+
+func scanThread(s scannable) (Thread, error) {
 	var t Thread
-	var del sql.NullInt64
+	var del, res sql.NullInt64
+	var resBy sql.NullString
 	var act, created, updated int64
-	err := r.DB.QueryRowContext(ctx, `
-		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.last_activity_at, t.created_at, t.updated_at,
-		       COALESCE(mb.display_name, '')
-		FROM threads t
-		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
-		WHERE t.id = ?`, id).
-		Scan(&t.ID, &t.CommunityID, &t.AuthorID, &t.Subject, &t.BodyMarkdown, &t.BodyHTML, &del, &act, &created, &updated, &t.AuthorName)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Thread{}, ErrNotFound
-	}
-	if err != nil {
+	if err := s.Scan(&t.ID, &t.CommunityID, &t.AuthorID, &t.Subject, &t.BodyMarkdown, &t.BodyHTML, &del, &res, &resBy, &act, &created, &updated, &t.AuthorName); err != nil {
 		return Thread{}, err
 	}
 	if del.Valid {
 		tt := time.Unix(del.Int64, 0)
 		t.DeletedAt = &tt
+	}
+	if res.Valid {
+		tt := time.Unix(res.Int64, 0)
+		t.ResolvedAt = &tt
+	}
+	if resBy.Valid {
+		s := resBy.String
+		t.ResolvedBy = &s
 	}
 	t.LastActivityAt = time.Unix(act, 0)
 	t.CreatedAt = time.Unix(created, 0)
@@ -120,10 +161,90 @@ func (r *Repo) GetThread(ctx context.Context, id string) (Thread, error) {
 	return t, nil
 }
 
+func (r *Repo) GetThread(ctx context.Context, id string) (Thread, error) {
+	row := r.DB.QueryRowContext(ctx, `
+		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
+		       COALESCE(mb.display_name, '')
+		FROM threads t
+		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
+		WHERE t.id = ?`, id)
+	t, err := scanThread(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Thread{}, ErrNotFound
+	}
+	if err != nil {
+		return Thread{}, err
+	}
+	return t, nil
+}
+
+func (r *Repo) MarkResolved(ctx context.Context, threadID, byUserID string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE threads SET resolved_at = ?, resolved_by = ?, updated_at = ? WHERE id = ?`,
+		time.Now().Unix(), byUserID, time.Now().Unix(), threadID)
+	return err
+}
+
+func (r *Repo) MarkUnresolved(ctx context.Context, threadID string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE threads SET resolved_at = NULL, resolved_by = NULL, updated_at = ? WHERE id = ?`,
+		time.Now().Unix(), threadID)
+	return err
+}
+
 func (r *Repo) TouchThread(ctx context.Context, id string, when time.Time) error {
 	_, err := r.DB.ExecContext(ctx, `UPDATE threads SET last_activity_at = ?, updated_at = ? WHERE id = ?`,
 		when.Unix(), when.Unix(), id)
 	return err
+}
+
+// UpdateSubject renames a thread.
+func (r *Repo) UpdateSubject(ctx context.Context, id, subject string) error {
+	now := time.Now().Unix()
+	_, err := r.DB.ExecContext(ctx, `UPDATE threads SET subject = ?, updated_at = ? WHERE id = ?`, subject, now, id)
+	return err
+}
+
+// HardDeleteThread removes the thread row and all of its posts, returning the
+// set of upload IDs referenced anywhere in those bodies so the caller can
+// purge the underlying files.
+func (r *Repo) HardDeleteThread(ctx context.Context, threadID string) ([]string, error) {
+	bodies := []string{}
+	var tb string
+	if err := r.DB.QueryRowContext(ctx, `SELECT body_md FROM threads WHERE id = ?`, threadID).Scan(&tb); err == nil {
+		bodies = append(bodies, tb)
+	}
+	rows, err := r.DB.QueryContext(ctx, `SELECT body_md FROM posts WHERE thread_id = ?`, threadID)
+	if err == nil {
+		for rows.Next() {
+			var b string
+			if rows.Scan(&b) == nil {
+				bodies = append(bodies, b)
+			}
+		}
+		rows.Close()
+	}
+	if _, err := r.DB.ExecContext(ctx, `DELETE FROM posts WHERE thread_id = ?`, threadID); err != nil {
+		return nil, err
+	}
+	if _, err := r.DB.ExecContext(ctx, `DELETE FROM threads WHERE id = ?`, threadID); err != nil {
+		return nil, err
+	}
+	return extractUploadIDs(bodies), nil
+}
+
+var uploadIDRE = regexp.MustCompile(`/uploads/([0-9a-fA-F-]{36})`)
+
+func extractUploadIDs(bodies []string) []string {
+	seen := map[string]struct{}{}
+	for _, b := range bodies {
+		for _, m := range uploadIDRE.FindAllStringSubmatch(b, -1) {
+			seen[m[1]] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	return out
 }
 
 func (r *Repo) SoftDeleteThread(ctx context.Context, id string) error {

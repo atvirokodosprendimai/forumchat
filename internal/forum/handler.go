@@ -106,21 +106,24 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	ts, err := h.Repo.ListThreads(r.Context(), h.CommunityID, ThreadLimit)
+	status := r.URL.Query().Get("status")
+	if status != "resolved" && status != "unresolved" {
+		status = ""
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	ts, err := h.Repo.ListThreadsFiltered(r.Context(), h.CommunityID, status, q, ThreadLimit)
 	if err != nil {
 		http.Error(w, "load threads: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	rows := make([]webtempl.ThreadRow, 0, len(ts))
 	for _, t := range ts {
-		if t.IsDeleted() {
-			continue
-		}
 		rows = append(rows, webtempl.ThreadRow{
-			ID: t.ID, Subject: t.Subject, AuthorName: t.AuthorName, LastActivityAt: t.LastActivityAt,
+			ID: t.ID, Subject: t.Subject, AuthorName: t.AuthorName,
+			LastActivityAt: t.LastActivityAt, IsResolved: t.IsResolved(),
 		})
 	}
-	_ = webtempl.ForumIndex(h.viewer(r), rows).Render(r.Context(), w)
+	_ = webtempl.ForumIndex(h.viewer(r), rows, status, q).Render(r.Context(), w)
 }
 
 func (h *Handler) GetNew(w http.ResponseWriter, r *http.Request) {
@@ -205,8 +208,11 @@ func (h *Handler) GetThread(w http.ResponseWriter, r *http.Request) {
 	view := webtempl.ThreadView{
 		ID: t.ID, Subject: t.Subject, AuthorName: t.AuthorName,
 		BodyHTML: t.BodyHTML, CreatedAt: t.CreatedAt,
-		CanEdit: t.AuthorID == id.User.ID && now.Sub(t.CreatedAt) <= h.Svc.EditGrace,
-		IsMod:   isMod,
+		CanEdit:    t.AuthorID == id.User.ID && now.Sub(t.CreatedAt) <= h.Svc.EditGrace,
+		IsMod:      isMod,
+		IsAdmin:    id.Membership.Role.AtLeast(auth.RoleAdmin),
+		IsResolved: t.IsResolved(),
+		CanResolve: t.AuthorID == id.User.ID || isMod,
 	}
 	pv, err := h.loadPostViews(r.Context(), t.ID, id.User.ID, isMod)
 	if err != nil {
@@ -322,6 +328,109 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	h.broadcastThread(threadID)
 }
 
+// PostResolve / PostUnresolve toggle the resolved marker. Author of the
+// thread or any moderator/admin may flip it.
+func (h *Handler) postResolve(w http.ResponseWriter, r *http.Request, resolved bool) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	threadID := chi.URLParam(r, "id")
+	t, err := h.Repo.GetThread(r.Context(), threadID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+	if t.AuthorID != id.User.ID && !isMod {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if resolved {
+		if err := h.Repo.MarkResolved(r.Context(), threadID, id.User.ID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		if err := h.Repo.MarkUnresolved(r.Context(), threadID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/forum/" + threadID)
+}
+
+func (h *Handler) PostResolve(w http.ResponseWriter, r *http.Request)   { h.postResolve(w, r, true) }
+func (h *Handler) PostUnresolve(w http.ResponseWriter, r *http.Request) { h.postResolve(w, r, false) }
+
+type renameSignals struct {
+	NewSubject string `json:"new_subject"`
+}
+
+// PostRename lets a moderator or admin rename a thread.
+func (h *Handler) PostRename(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	if !id.Membership.Role.AtLeast(auth.RoleMod) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	threadID := chi.URLParam(r, "id")
+	var in renameSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	subject := strings.TrimSpace(in.NewSubject)
+	if subject == "" {
+		http.Error(w, "subject required", http.StatusBadRequest)
+		return
+	}
+	if len(subject) > 200 {
+		subject = subject[:200]
+	}
+	if err := h.Repo.UpdateSubject(r.Context(), threadID, subject); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/forum/" + threadID)
+}
+
+// PostHardDeleteThread (admin) wipes the thread + posts + any uploads
+// referenced in their bodies.
+func (h *Handler) PostHardDeleteThread(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	if !id.Membership.Role.AtLeast(auth.RoleAdmin) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	threadID := chi.URLParam(r, "id")
+	uploadIDs, err := h.Repo.HardDeleteThread(r.Context(), threadID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if h.Uploads != nil {
+		for _, uid := range uploadIDs {
+			if err := h.Uploads.Delete(r.Context(), uid); err != nil {
+				h.Log.Warn("hard-delete upload", "id", uid, "err", err)
+			}
+		}
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/forum")
+}
+
 func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -382,9 +491,15 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty message", http.StatusBadRequest)
 		return
 	}
+	// Thread author follows the original message author so promoted threads
+	// surface under the right name even when an admin/mod did the promotion.
+	threadAuthorID := id.User.ID
+	if msg.AuthorID != nil {
+		threadAuthorID = *msg.AuthorID
+	}
 	t, err := h.Svc.CreateThread(r.Context(), CreateThreadInput{
 		CommunityID:  h.CommunityID,
-		AuthorID:     id.User.ID,
+		AuthorID:     threadAuthorID,
 		Subject:      subject,
 		BodyMarkdown: msg.BodyMarkdown,
 	})
@@ -394,9 +509,13 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.Chat != nil {
 		link := fmt.Sprintf(`%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), t.ID)
+		announceName := msg.AuthorName
+		if announceName == "" {
+			announceName = id.Membership.DisplayName
+		}
 		announceHTML := fmt.Sprintf(
 			`<strong>%s</strong> started thread: <a href="%s">%s</a>`,
-			htmlEscape(id.Membership.DisplayName), htmlEscape(link), htmlEscape(t.Subject),
+			htmlEscape(announceName), htmlEscape(link), htmlEscape(t.Subject),
 		)
 		threadID := t.ID
 		_, err := h.Chat.PostSystem(r.Context(), h.CommunityID, announceHTML, chat.KindThreadAnnounce, &threadID)

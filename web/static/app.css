@@ -185,6 +185,36 @@ button.link:hover { text-decoration: underline; }
 .thread-list li a { font-weight: 600; color: var(--fg); }
 .thread-list li a:hover { color: var(--accent); }
 
+.resolved-badge {
+  display: inline-block; font-size: .7rem; font-weight: 600;
+  padding: .1rem .45rem; border-radius: 999px;
+  background: #2ec27a; color: #fff;
+  margin-right: .35rem; vertical-align: middle;
+}
+.thread-actions { display: flex; gap: .75rem; margin-top: .35rem; flex-wrap: wrap; }
+.thread-actions .link.danger { color: #c4341c; }
+
+.forum-toolbar {
+  display: flex; gap: .75rem; align-items: center; flex-wrap: wrap;
+  margin: .75rem 0;
+}
+.forum-filters { display: flex; gap: .25rem; }
+.forum-filters .filter {
+  padding: .25rem .65rem; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--fg); text-decoration: none; font-size: .85rem;
+}
+.forum-filters .filter:hover { background: var(--surface-alt); }
+.forum-filters .filter.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.forum-search { display: flex; gap: .35rem; margin-left: auto; }
+.forum-search input[type="search"] {
+  padding: .25rem .55rem; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--bg);
+}
+
+.rename-row { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+.rename-row input { flex: 1; }
+
 .primary-nav { display: flex; gap: 1rem; align-items: center; }
 .primary-nav button { padding: .4rem .8rem; }
 

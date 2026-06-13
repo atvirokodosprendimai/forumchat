@@ -12,11 +12,19 @@ func quoteClickJS(postID, authorName string) string {
 	return "$quoted_post_id=" + strconv.Quote(postID) + "; $reply_quote_label=" + strconv.Quote(authorName)
 }
 
+// jsString returns a JS-safe string body — without quotes — for inline
+// data-on:click expressions. Caller wraps it in '' (or "").
+func jsString(s string) string {
+	q := strconv.Quote(s)
+	return q[1 : len(q)-1]
+}
+
 type ThreadRow struct {
 	ID             string
 	Subject        string
 	AuthorName     string
 	LastActivityAt time.Time
+	IsResolved     bool
 }
 
 type ThreadView struct {
@@ -27,6 +35,9 @@ type ThreadView struct {
 	CreatedAt  time.Time
 	CanEdit    bool
 	IsMod      bool
+	IsAdmin    bool
+	IsResolved bool
+	CanResolve bool
 }
 
 type PostView struct {
@@ -40,17 +51,34 @@ type PostView struct {
 	CanEdit      bool
 }
 
-templ ForumIndex(v Viewer, threads []ThreadRow) {
+templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
 	@Layout("Forum", v) {
 		<section>
 			<h1>{ v.CommunityName } — Forum</h1>
 			<p><a class="btn" href="/forum/new">+ New thread</a></p>
+
+			<div class="forum-toolbar">
+				<nav class="forum-filters">
+					<a class={ filterClass("", status) } href={ templ.URL(forumFilterHref("", q)) }>All</a>
+					<a class={ filterClass("unresolved", status) } href={ templ.URL(forumFilterHref("unresolved", q)) }>Unresolved</a>
+					<a class={ filterClass("resolved", status) } href={ templ.URL(forumFilterHref("resolved", q)) }>Resolved</a>
+				</nav>
+				<form class="forum-search" method="get" action="/forum">
+					<input type="hidden" name="status" value={ status }/>
+					<input type="search" name="q" value={ q } placeholder="search…"/>
+					<button class="btn ghost" type="submit">Search</button>
+				</form>
+			</div>
+
 			if len(threads) == 0 {
-				<p class="muted">No threads yet. Start one.</p>
+				<p class="muted">No threads match.</p>
 			}
 			<ul class="thread-list">
 				for _, t := range threads {
 					<li>
+						if t.IsResolved {
+							<span class="resolved-badge">✓ resolved</span>
+						}
 						<a href={ templ.URL("/forum/" + t.ID) }>{ t.Subject }</a>
 						<div class="muted">{ t.AuthorName } · { fmtTime(t.LastActivityAt) }</div>
 					</li>
@@ -58,6 +86,46 @@ templ ForumIndex(v Viewer, threads []ThreadRow) {
 			</ul>
 		</section>
 	}
+}
+
+func filterClass(self, cur string) string {
+	if self == cur {
+		return "filter active"
+	}
+	return "filter"
+}
+
+func forumFilterHref(status, q string) string {
+	out := "/forum"
+	sep := "?"
+	if status != "" {
+		out += sep + "status=" + status
+		sep = "&"
+	}
+	if q != "" {
+		out += sep + "q=" + queryEscape(q)
+	}
+	return out
+}
+
+func queryEscape(s string) string {
+	// minimal escape — '&' and '#' are the only chars that would break the URL
+	// parsing on the receiving end; everything else is fine inside the value.
+	r := []rune(s)
+	out := make([]rune, 0, len(r))
+	for _, c := range r {
+		switch c {
+		case '&':
+			out = append(out, '%', '2', '6')
+		case '#':
+			out = append(out, '%', '2', '3')
+		case ' ':
+			out = append(out, '+')
+		default:
+			out = append(out, c)
+		}
+	}
+	return string(out)
 }
 
 templ NewThreadPage(v Viewer) {
@@ -90,15 +158,47 @@ templ NewThreadPage(v Viewer) {
 templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 	@Layout(t.Subject, v) {
 		<section>
-			<h1>{ t.Subject }</h1>
+			<h1 data-show="!$rename_open">
+				if t.IsResolved {
+					<span class="resolved-badge">✓ resolved</span>
+				}
+				{ t.Subject }
+			</h1>
+			if t.IsMod {
+				<div class="rename-row" data-show="$rename_open">
+					<input type="text" data-bind="new_subject" maxlength="200"/>
+					<button class="btn"
+						data-on:click={ "@post('/forum/" + t.ID + "/rename')" }>save</button>
+					<button class="btn ghost" data-on:click="$rename_open=false">cancel</button>
+				</div>
+			}
 			<p class="muted"><a href="/forum">← Forum</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
 
 			<article class="bubble">
 				<div class="body">@templ.Raw(t.BodyHTML)</div>
-				if t.CanEdit || t.IsMod {
-					<button class="link"
-						data-on:click={ "@post('/forum/" + t.ID + "/delete')" }>delete thread</button>
-				}
+				<div class="thread-actions">
+					if t.CanResolve {
+						if t.IsResolved {
+							<button class="link"
+								data-on:click={ "@post('/forum/" + t.ID + "/unresolve')" }>mark unresolved</button>
+						} else {
+							<button class="link"
+								data-on:click={ "@post('/forum/" + t.ID + "/resolve')" }>mark resolved</button>
+						}
+					}
+					if t.IsMod {
+						<button class="link"
+							data-on:click={ "$rename_open=true; $new_subject='" + jsString(t.Subject) + "'" }>rename</button>
+					}
+					if t.CanEdit || t.IsMod {
+						<button class="link"
+							data-on:click={ "@post('/forum/" + t.ID + "/delete')" }>delete thread</button>
+					}
+					if t.IsAdmin {
+						<button class="link danger"
+							data-on:click={ "if (confirm('Hard-delete: this wipes the thread, every reply, and any uploaded images. Continue?')) @post('/forum/" + t.ID + "/hard-delete')" }>hard delete (admin)</button>
+					}
+				</div>
 			</article>
 
 			<h2>Replies</h2>
