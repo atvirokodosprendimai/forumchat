@@ -57,13 +57,13 @@ templ NewThreadPage(v Viewer) {
 			<div id="thread-error" class="error"></div>
 			<div class="field">
 				<label>Subject</label>
-				<input type="text" data-bind-subject maxlength="200" autofocus/>
+				<input type="text" data-bind="subject" maxlength="200" autofocus/>
 			</div>
 			<div class="field">
 				<label>Body (markdown)</label>
-				<textarea data-bind-body rows="8" maxlength="20000"></textarea>
+				<textarea data-bind="body" rows="8" maxlength="20000"></textarea>
 			</div>
-			<button data-on-click="@post('/forum/new')">Post thread</button>
+			<button data-on:click="@post('/forum/new')">Post thread</button>
 			<a class="btn ghost" href="/forum">Cancel</a>
 		</section>
 	}
@@ -79,7 +79,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 				<div class="body">@templ.Raw(t.BodyHTML)</div>
 				if t.CanEdit || t.IsMod {
 					<button class="link"
-						data-on-click={ "@post('/forum/" + t.ID + "/delete')" }>delete thread</button>
+						data-on:click={ "@post('/forum/" + t.ID + "/delete')" }>delete thread</button>
 				}
 			</article>
 
@@ -96,13 +96,13 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 			<section class="card">
 				<h3>Reply</h3>
 				<div id="reply-error" class="error"></div>
-				<input type="hidden" data-bind-quoted_post_id/>
+				<input type="hidden" data-bind="quoted_post_id"/>
 				<div id="reply-quote-hint" class="muted"></div>
 				<div class="field">
 					<label>Markdown body</label>
-					<textarea data-bind-body rows="4" maxlength="10000"></textarea>
+					<textarea data-bind="body" rows="4" maxlength="10000"></textarea>
 				</div>
-				<button data-on-click={ "@post('/forum/" + t.ID + "/reply')" }>Reply</button>
+				<button data-on:click={ "@post('/forum/" + t.ID + "/reply')" }>Reply</button>
 			</section>
 		</section>
 	}
@@ -117,10 +117,10 @@ templ ForumPost(threadID string, p PostView) {
 				<strong>{ p.AuthorName }</strong>
 				<span class="muted">{ fmtTime(p.CreatedAt) }</span>
 				<button class="link"
-					data-on-click={ "$quoted_post_id='" + p.ID + "'" }>quote</button>
+					data-on:click={ "$quoted_post_id='" + p.ID + "'" }>quote</button>
 				if p.CanEdit {
 					<button class="link"
-						data-on-click={ "@post('/forum/post/" + p.ID + "/delete')" }>delete</button>
+						data-on:click={ "@post('/forum/post/" + p.ID + "/delete')" }>delete</button>
 				}
 			</header>
 			if p.QuotedAuthor != "" {

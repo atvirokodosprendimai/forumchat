@@ -7,17 +7,17 @@ templ RegisterPage() {
 			<div id="auth-error" class="error"></div>
 			<div class="field">
 				<label>Email</label>
-				<input type="email" data-bind-email autocomplete="email" autofocus/>
+				<input type="email" data-bind="email" autocomplete="email" autofocus/>
 			</div>
 			<div class="field">
 				<label>Password</label>
-				<input type="password" data-bind-password autocomplete="new-password"/>
+				<input type="password" data-bind="password" autocomplete="new-password"/>
 			</div>
 			<div class="field">
 				<label>Invite code</label>
-				<input type="text" data-bind-invite_code autocomplete="off"/>
+				<input type="text" data-bind="invite_code" autocomplete="off"/>
 			</div>
-			<button data-on-click="@post('/register')">Register</button>
+			<button data-on:click="@post('/register')">Register</button>
 			<p class="muted">Have an account? <a href="/login">Sign in</a>.</p>
 		</section>
 	}
@@ -42,13 +42,13 @@ templ LoginPage() {
 			<div id="auth-error" class="error"></div>
 			<div class="field">
 				<label>Email</label>
-				<input type="email" data-bind-email autocomplete="email" autofocus/>
+				<input type="email" data-bind="email" autocomplete="email" autofocus/>
 			</div>
 			<div class="field">
 				<label>Password</label>
-				<input type="password" data-bind-password autocomplete="current-password"/>
+				<input type="password" data-bind="password" autocomplete="current-password"/>
 			</div>
-			<button data-on-click="@post('/login')">Sign in</button>
+			<button data-on:click="@post('/login')">Sign in</button>
 			<p class="muted">No account? <a href="/register">Register with invite code</a>.</p>
 		</section>
 	}

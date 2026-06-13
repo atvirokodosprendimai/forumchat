@@ -7,13 +7,13 @@ templ ProfilePage(v Viewer, displayName, avatarURL string) {
 			<div id="profile-status" class="muted"></div>
 			<div class="field">
 				<label>Display name</label>
-				<input type="text" data-bind-display_name value={ displayName } maxlength="40"/>
+				<input type="text" data-bind="display_name" value={ displayName } maxlength="40"/>
 			</div>
 			<div class="field">
 				<label>Avatar URL</label>
-				<input type="url" data-bind-avatar_url value={ avatarURL } placeholder="https://..."/>
+				<input type="url" data-bind="avatar_url" value={ avatarURL } placeholder="https://..."/>
 			</div>
-			<button data-on-click="@post('/profile')">Save</button>
+			<button data-on:click="@post('/profile')">Save</button>
 			<a class="btn ghost" href="/">Back</a>
 		</section>
 	}

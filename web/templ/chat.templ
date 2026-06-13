@@ -32,11 +32,11 @@ templ ChatPage(d ChatPageData) {
 		<section class="chat-layout">
 			<div>
 				<h1>{ d.Viewer.CommunityName }</h1>
-				<div id="messages" class="messages" data-on-load="@get('/chat/stream')">
+				<div id="messages" class="messages" data-init="@get('/chat/stream')">
 					if d.OldestSeen != nil {
 						<div id="load-older">
 							<button class="ghost"
-								data-on-click={ "@get('/chat/older?before=" + d.OldestSeen.Format(time.RFC3339Nano) + "')" }>
+								data-on:click={ "@get('/chat/older?before=" + d.OldestSeen.Format(time.RFC3339Nano) + "')" }>
 								Load older
 							</button>
 						</div>
@@ -50,14 +50,14 @@ templ ChatPage(d ChatPageData) {
 				</div>
 				<div class="composer">
 					<input type="text"
-						data-bind-body
+						data-bind="body"
 						placeholder="Say something — markdown ok"
 						autocomplete="off"
-						data-on-keydown="evt.key === 'Enter' && @post('/chat/send')"/>
-					<button data-on-click="@post('/chat/send')">Send</button>
+						data-on:keydown="evt.key === 'Enter' && @post('/chat/send')"/>
+					<button data-on:click="@post('/chat/send')">Send</button>
 				</div>
 			</div>
-			<aside id="presence" class="presence" data-on-load="@get('/presence/stream')">
+			<aside id="presence" class="presence" data-init="@get('/presence/stream')">
 				<h3>Online</h3>
 				<p class="muted">connecting…</p>
 			</aside>
@@ -83,7 +83,7 @@ templ MessageView(m MsgView, isMod bool) {
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
 				if isMod {
 					<button class="link"
-						data-on-click={ "@post('/chat/delete?id=" + m.ID + "')" }>delete</button>
+						data-on:click={ "@post('/chat/delete?id=" + m.ID + "')" }>delete</button>
 				}
 			</header>
 			<div class="body">@templ.Raw(m.BodyHTML)</div>
@@ -95,7 +95,7 @@ templ MessageView(m MsgView, isMod bool) {
 // datastar morphs it into the DOM — so re-patching the anchor after each new
 // message scrolls into view automatically. No JS needed.
 templ ScrollAnchor() {
-	<div id="scroll-anchor" data-on-load="el.scrollIntoView({block:'end',behavior:'smooth'})"></div>
+	<div id="scroll-anchor" data-init="el.scrollIntoView({block:'end',behavior:'smooth'})"></div>
 }
 
 func msgClass(m MsgView) string {
@@ -112,7 +112,7 @@ func fmtTime(t time.Time) string {
 templ LoadOlderButton(before string) {
 	<div id="load-older">
 		<button class="ghost"
-			data-on-click={ "@get('/chat/older?before=" + before + "')" }>
+			data-on:click={ "@get('/chat/older?before=" + before + "')" }>
 			Load older
 		</button>
 	</div>

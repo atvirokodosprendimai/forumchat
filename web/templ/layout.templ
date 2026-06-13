@@ -38,7 +38,7 @@ templ Layout(title string, v Viewer) {
 						<a href="/chat">Chat</a>
 						<a href="/forum">Forum</a>
 						<a href="/profile">{ v.DisplayName }</a>
-						<button class="ghost" data-on-click="@post('/logout')">Sign out</button>
+						<button class="ghost" data-on:click="@post('/logout')">Sign out</button>
 					} else {
 						<a href="/login">Sign in</a>
 						<a href="/register">Register</a>
@@ -90,7 +90,7 @@ templ DebugClock() {
 		<section class="card">
 			<h1>datastar SSE clock</h1>
 			<p class="muted">Ticks every second via NATS round-trip.</p>
-			<div id="clock" data-on-load="@get('/_debug/clock/stream')">— waiting —</div>
+			<div id="clock" data-init="@get('/_debug/clock/stream')">— waiting —</div>
 		</section>
 	}
 }
