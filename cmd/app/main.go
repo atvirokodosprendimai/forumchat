@@ -14,6 +14,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/nats-io/nats.go"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
@@ -53,6 +55,13 @@ func run() error {
 		}
 	}
 
+	cRepo := community.NewRepo(db)
+	bootCommunity, err := cRepo.BootstrapOrFetch(ctx, cfg.CommunitySlug, cfg.CommunityName)
+	if err != nil {
+		return fmt.Errorf("bootstrap community: %w", err)
+	}
+	log.Info("community ready", "slug", bootCommunity.Slug, "id", bootCommunity.ID)
+
 	nc, err := natsx.Connect(cfg.NATSURL, log)
 	if err != nil {
 		log.Warn("nats connect failed, continuing without nats", "err", err)
@@ -61,9 +70,40 @@ func run() error {
 		defer nc.Drain()
 	}
 
+	// Auth wiring.
+	aRepo := auth.NewRepo(db)
+	var mailer auth.Mailer
+	if cfg.SMTPHost != "" && cfg.SMTPPort > 0 {
+		mailer = &auth.SMTPMailer{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort,
+			User: cfg.SMTPUser, Pass: cfg.SMTPPass,
+			From: cfg.SMTPFrom, Log: log,
+		}
+	} else {
+		mailer = &auth.LogMailer{Log: log}
+	}
+	svc := &auth.Service{
+		Repo:      aRepo,
+		Mailer:    mailer,
+		BaseURL:   cfg.BaseURL,
+		VerifyTTL: 48 * time.Hour,
+		InviteTTL: 30 * 24 * time.Hour,
+	}
+	sessions := auth.NewSessionManager(cfg.SessionMaxAge, cfg.IsProd())
+	authHandler := &auth.Handler{
+		Svc:           svc,
+		Repo:          aRepo,
+		Sessions:      sessions,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		Log:           log,
+	}
+
 	r := chi.NewRouter()
 	r.Use(httpx.Recover(log))
 	r.Use(httpx.RequestLogger(log))
+	r.Use(sessions.LoadAndSave)
+	r.Use(auth.Loader(sessions, aRepo))
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static"))))
 
@@ -72,8 +112,14 @@ func run() error {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	authHandler.Mount(r)
+
 	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
-		_ = webtempl.Hello("world").Render(req.Context(), w)
+		if id, ok := auth.FromContext(req.Context()); ok {
+			_ = webtempl.Home(id.Membership.DisplayName, bootCommunity.Name).Render(req.Context(), w)
+			return
+		}
+		_ = webtempl.Hello(bootCommunity.Name).Render(req.Context(), w)
 	})
 
 	r.Get("/_debug/clock", func(w http.ResponseWriter, req *http.Request) {

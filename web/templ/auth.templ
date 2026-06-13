@@ -1,0 +1,71 @@
+package templ
+
+type RegisterForm struct {
+	Email      string
+	InviteCode string
+	Error      string
+}
+
+type LoginForm struct {
+	Email string
+	Error string
+}
+
+templ RegisterPage(form RegisterForm) {
+	@Layout("Register") {
+		<section>
+			<h1>Create your forumchat account</h1>
+			if form.Error != "" {
+				<p class="error">{ form.Error }</p>
+			}
+			<form method="post" action="/register">
+				<label>Email <input type="email" name="email" value={ form.Email } required/></label>
+				<label>Password <input type="password" name="password" minlength="8" required/></label>
+				<label>Invite code <input type="text" name="invite_code" value={ form.InviteCode } required/></label>
+				<button type="submit">Register</button>
+			</form>
+			<p class="muted">Already have an account? <a href="/login">Sign in</a>.</p>
+		</section>
+	}
+}
+
+templ RegisterDonePage(email string) {
+	@Layout("Check your email") {
+		<section>
+			<h1>Almost there</h1>
+			<p>We sent a verification link to <strong>{ email }</strong>.</p>
+			<p class="muted">In dev, check the mailpit UI at <a href="http://localhost:8025">localhost:8025</a>.</p>
+		</section>
+	}
+}
+
+templ VerifyPage(message string, ok bool) {
+	@Layout("Verify") {
+		<section>
+			<h1>Verification</h1>
+			<p>{ message }</p>
+			if ok {
+				<p><a href="/">Continue to the community</a></p>
+			} else {
+				<p><a href="/register">Try registering again</a></p>
+			}
+		</section>
+	}
+}
+
+templ LoginPage(form LoginForm) {
+	@Layout("Sign in") {
+		<section>
+			<h1>Sign in</h1>
+			if form.Error != "" {
+				<p class="error">{ form.Error }</p>
+			}
+			<form method="post" action="/login">
+				<label>Email <input type="email" name="email" value={ form.Email } required/></label>
+				<label>Password <input type="password" name="password" required/></label>
+				<button type="submit">Sign in</button>
+			</form>
+			<p class="muted">No account? <a href="/register">Register with invite code</a>.</p>
+		</section>
+	}
+}

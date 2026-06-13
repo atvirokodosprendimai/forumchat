@@ -1,0 +1,17 @@
+package templ
+
+templ Home(displayName, communityName string) {
+	@Layout("Home") {
+		<section>
+			<h1>Welcome back, { displayName }</h1>
+			<p>You're signed in to <strong>{ communityName }</strong>.</p>
+			<nav>
+				<a href="/chat">Chat</a> ·
+				<a href="/forum">Forum</a> ·
+				<form method="post" action="/logout" style="display:inline">
+					<button type="submit">Sign out</button>
+				</form>
+			</nav>
+		</section>
+	}
+}

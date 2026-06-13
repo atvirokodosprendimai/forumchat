@@ -60,30 +60,37 @@ status: active
 
 **Phase 1 exit:** ✓ `go build ./...` clean, `go vet ./...` clean, app boots, migrations apply, `/healthz` and `/` return 200, NATS-down graceful fallback works.
 
-### Phase 2 - Auth & invite registration - status: open
+### Phase 2 - Auth & invite registration - status: completed
 
-1. [ ] Auth domain shape
-   - `internal/auth/` with `Service`, `User`, `Session` types, repository over SQLite.
-   - Password hashing: `bcrypt` (cost 12).
-2. [ ] Invite code lifecycle
-   - Admin-only command (CLI subcommand `app invite create`) generates code into `invite_codes`.
-   - Codes have `expires_at`, `used_by`, `used_at`.
-3. [ ] Registration flow
-   - GET `/register` (templ form: email, password, invite code).
-   - POST `/register` validates invite, creates user `status=pending`, generates verification token (separate `verification_tokens` table — add migration).
-   - Sends email via SMTP to mailpit; verify visible in mailpit UI.
-4. [ ] Email verification
-   - GET `/verify?token=…` activates user, auto-joins single community (`memberships` row with `role=member`).
-5. [ ] Login + sessions
-   - GET `/login`, POST `/login`, POST `/logout`.
-   - Session cookie via chosen lib; banned users blocked at login + on every request (middleware checks `banned_until`).
-6. [ ] Auth middleware + context
-   - `RequireAuth`, `RequireRole(role)`, attaches user + active membership to request context.
-7. [ ] Tests (boundary)
-   - Unit: password hash, invite consume idempotency.
-   - Integration: httptest of full register→verify→login→logout cycle, mailpit SMTP optional via testcontainers or a local fake.
+1. [x] Auth domain shape
+   - => `internal/auth/{user,errors,password,tokens,repo,service,session,middleware,handlers,mailer}.go`.
+   - => bcrypt cost 12. UUIDv4 IDs via google/uuid. Times stored as int64 unix-seconds.
+2. [x] Invite code lifecycle
+   - => `cmd/cli` subcommand `forumchat-cli invite [count]` generates codes for the bootstrap community.
+   - => Codes 16-char base32 uppercase. `expires_at` default 30 days. `used_by` + `used_at` set on consume.
+   - => Single-use enforced in `Repo.ConsumeInvite` (sets used_by + used_at atomically inside register tx).
+3. [x] Registration flow
+   - => GET/POST `/register` with templ form (email, password, invite_code).
+   - => Service.Register orders: insert user (status=pending) → consume invite → create verification token (24-byte base32, 48h TTL). FK-safe ordering: user inserted before invite consume to satisfy `used_by` FK.
+   - => Mailer interface with `SMTPMailer` (mailpit/smtp) and `LogMailer` (fallback when SMTP_HOST is empty). Verify URL logged in dev for easy CLI smoke.
+4. [x] Email verification
+   - => GET `/verify?token=…` consumes token, activates user, derives display name from email local-part, creates membership with role=member, signs the user in via session cookie.
+5. [x] Login + sessions
+   - => alexedwards/scs/v2 with memstore (in-process). Cookie name `forumchat_session`, HttpOnly, SameSite=Lax, Secure in prod.
+   - => GET/POST `/login`, POST `/logout`. Bad password / unverified / banned all surface specific errors on form.
+6. [x] Auth middleware + context
+   - => `Loader` middleware reads session, loads user + membership into request context. Auto-logs-out on missing user/membership or ban (with `/login?banned=1` redirect).
+   - => `RequireAuth` redirects to login with `?next=`. `RequireRole(min)` returns 403.
+   - => `FromContext(ctx)` returns `Identity{User, Membership}`.
+7. [x] Tests (boundary)
+   - => `password_test.go`: bcrypt round-trip + short-password rejection.
+   - => `service_test.go`: register→verify→login happy path, invalid invite, reused invite, login-when-unverified, login with bad password. SQLite tmpdir per test.
+   - => HTTP smoke (manual via curl): /register, /verify, /, /logout, /login, bad-login form error, CLI ban → ban login error. All green.
 
-**Phase 2 exit:** Can register with invite, verify via mailpit, log in, log out, banned user is blocked.
+**Phase 2 exit:** ✓ Tests pass. End-to-end auth smoke green. CLI manages invites + bans.
+- => Known carry-overs:
+  - => scs memstore loses sessions on restart — acceptable for invite-only MVP; custom modernc-backed scs.Store deferred.
+  - => Email verification falls back to LogMailer when SMTP_HOST is empty — compose default uses mailpit.
 
 ### Phase 3 - Community bootstrap & membership - status: open
 
@@ -235,3 +242,4 @@ status: active
 
 - 2606131456 — Plan created from spec via `/eidos:plan`. Phasing: domain-by-domain. Testing: light at boundaries. Deploy: dockerfile + compose from Phase 1.
 - 2606131510 — Phase 1 completed on branch `task/phase-1-scaffold`. Scaffold + Dockerfile/compose + migrations + NATS wiring + datastar SSE helper + boot smoke (healthz 200, root templ 200, NATS-down graceful). Module path was already correct (false-positive typo report). Session lib: scs/v2 with memstore for MVP; custom modernc store deferred.
+- 2606131520 — Phase 2 completed on same branch. Auth domain + handlers + middleware + CLI (`invite`, `role`, `ban`, `unban`). Unit + integration tests pass. End-to-end HTTP smoke confirms register→verify→login→home→logout→login→bad-login flow. Templ Layout had a `{ children... }` double-render bug (nav + main slots both rendered children) — fixed to single main slot. Service.Register reorders user-insert before invite-consume to satisfy FK on `invite_codes.used_by`.
