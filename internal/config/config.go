@@ -28,6 +28,8 @@ type Config struct {
 	SMTPUser       string        `env:"SMTP_USER" envDefault:""`
 	SMTPPass       string        `env:"SMTP_PASS" envDefault:""`
 	SMTPFrom       string        `env:"SMTP_FROM" envDefault:"forumchat@localhost"`
+	SMTPTLS        string        `env:"SMTP_TLS" envDefault:"auto"` // auto|starttls|tls|none
+	SMTPTLSSkip    bool          `env:"SMTP_TLS_INSECURE" envDefault:"false"`
 	CommunitySlug  string        `env:"COMMUNITY_SLUG" envDefault:"main"`
 	CommunityName  string        `env:"COMMUNITY_NAME" envDefault:"The Community"`
 	PresenceTTL    time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`
