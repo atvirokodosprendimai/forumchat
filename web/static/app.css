@@ -104,6 +104,9 @@ button.link:hover { text-decoration: underline; }
 }
 
 .muted { color: var(--fg-muted); font-size: .88em; }
+.site-footer { text-align: center; padding: 1.25rem 1rem; margin-top: 2rem; border-top: 1px solid var(--surface-alt); }
+.site-footer a { color: var(--accent); text-decoration: none; }
+.site-footer a:hover { text-decoration: underline; }
 .error { color: var(--danger); font-size: .92em; min-height: 1.2em; }
 .success { color: #228b3d; font-size: .92em; min-height: 1.2em; }
 
