@@ -13,3 +13,4 @@
 - 2026-06-13 `9a99013` docs(agents): comprehensive AGENTS.md + switch scroll to sse.ExecuteScript
 - 2026-06-13 `15dc517` feat: invite queue + ban cleanup + chat replies + chat promote + persistent sessions + delete fan-out fix
 - 2026-06-13 `4c387fb` fix(css): stack reply-hint above composer input row
+- 2026-06-13 `78a22ec` fix(css): composer input expands to fill row width

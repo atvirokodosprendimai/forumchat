@@ -31,6 +31,8 @@ usage:
         cleanup: comma-separated subset of chat,threads,posts or "all"
         e.g. forumchat-cli ban abuser@example.com - all
   forumchat-cli unban <email>
+  forumchat-cli approve <email>             approve a single pending membership
+  forumchat-cli approve-all                 approve every pending join request in the bootstrap community
 `)
 }
 
@@ -203,6 +205,49 @@ func run() error {
 			return err
 		}
 		fmt.Printf("unbanned %s\n", email)
+	case "approve":
+		if len(os.Args) < 3 {
+			return errors.New("usage: approve <email>")
+		}
+		email := os.Args[2]
+		u, err := aRepo.UserByEmail(ctx, email)
+		if err != nil {
+			return err
+		}
+		m, err := aRepo.MembershipFor(ctx, u.ID, c.ID)
+		if err != nil {
+			return err
+		}
+		if err := aRepo.ApproveMembership(ctx, m.ID); err != nil {
+			if errors.Is(err, auth.ErrNotFound) {
+				fmt.Printf("%s already approved\n", email)
+				return nil
+			}
+			return err
+		}
+		fmt.Printf("approved %s\n", email)
+	case "approve-all":
+		pending, err := aRepo.ListPendingMemberships(ctx, c.ID)
+		if err != nil {
+			return err
+		}
+		if len(pending) == 0 {
+			fmt.Println("no pending requests")
+			return nil
+		}
+		n := 0
+		for _, m := range pending {
+			if err := aRepo.ApproveMembership(ctx, m.ID); err != nil {
+				if errors.Is(err, auth.ErrNotFound) {
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "approve %s: %v\n", m.Email, err)
+				continue
+			}
+			fmt.Printf("approved %s\n", m.Email)
+			n++
+		}
+		fmt.Printf("done — approved %d of %d\n", n, len(pending))
 	default:
 		usage()
 		return fmt.Errorf("unknown command: %s", os.Args[1])
