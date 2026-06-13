@@ -14,6 +14,7 @@ const (
 )
 
 type HistoryEvent struct {
+	ID            string // source message ID — used as <li id="msg-{ID}"> so todo backlinks land here
 	Source        HistorySource
 	CreatedAt     time.Time
 	AuthorName    string
@@ -145,7 +146,7 @@ templ HistoryPage(d HistoryPageData) {
 					} else {
 						<ol class="history-events">
 							for _, e := range d.Events {
-								<li class="history-event">
+								<li class="history-event" id={ "msg-" + e.ID }>
 									<span class="ev-time">{ histTimeOfDay(e.CreatedAt) }</span>
 									<span class="ev-author">{ e.AuthorName }</span>
 									<div class="ev-body">@templ.Raw(e.BodyHTML)</div>

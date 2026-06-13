@@ -171,6 +171,7 @@ func (h *Handler) eventsBetween(ctx context.Context, from, to time.Time) ([]webt
 			return nil, err
 		}
 		events = append(events, webtempl.HistoryEvent{
+			ID:         id,
 			Source:     webtempl.HistorySourceChat,
 			CreatedAt:  time.Unix(ts, 0),
 			AuthorName: author,
