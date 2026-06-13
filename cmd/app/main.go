@@ -30,6 +30,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
+	"github.com/atvirokodosprendimai/forumchat/internal/todos"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -213,6 +214,8 @@ func run() error {
 
 	dashboardHandler := &dashboard.Handler{Communities: cRepo, Log: log}
 
+	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), Log: log}
+
 	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
@@ -274,6 +277,8 @@ func run() error {
 		r.Post("/bookmarks/delete", bookmarksHandler.PostDelete)
 
 		r.Get("/history", historyHandler.GetIndex)
+
+		r.Get("/todos", todosHandler.GetIndex)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))

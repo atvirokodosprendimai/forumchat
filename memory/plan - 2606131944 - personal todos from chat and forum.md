@@ -20,30 +20,23 @@ status: active
 
 ## Phases
 
-### Phase 1 — Schema + repo + minimal page — status: open
+### Phase 1 — Schema + repo + minimal page — status: completed
 
 Goal: `/c/{slug}/todos` renders an empty list (no add buttons yet). DB ready.
 
-1. [ ] Migration 00006 — communities.todos_enabled flag + todos table + indexes
-   - Reference spec section "Schema" verbatim.
-   - communities.todos_enabled default 0 (off by default).
-   - Verify with `sqlite3 data/forumchat.db .schema` after `go run ./cmd/app` boot.
-2. [ ] `internal/todos/` package — `Todo` struct + `Repo` with `Create`, `ListForUser(filter)`, `ByID`, `UpdateStatus`, `UpdateTitle`, `Delete`, `DistinctCategories`
-   - Mirror `bookmarks.Repo` shape for filter struct.
-   - Status enum constants: `StatusOpen`, `StatusDoing`, `StatusDone`.
-3. [ ] `internal/todos/handler.go` — `GetIndex` only for now
-   - Reads `?status=` (`active` default; covers `open`+`doing`), `?category=`.
-   - Reads `community.MustFromContext` + `auth.FromContext`.
-   - Renders `webtempl.TodosPage(...)` with empty filter UI.
-4. [ ] `web/templ/todos.templ` — `TodosPage`, `TodosList`, `TodoRow` partials
-   - Layout matches existing forum/bookmark style.
-   - Status tabs: `[Active] [Doing] [Done] [All]` as filter pills (reuse `.forum-filters` CSS class).
-   - Category filter dropdown.
-   - Row: checkbox, status pill, title, category chip, backlink button (stubbed `#`), delete button (no-op).
-5. [ ] Wire route `/c/{slug}/todos` in `cmd/app/main.go` under the existing community group
-   - Same middleware stack as forum.
-6. [ ] Add `Todos` link to topbar nav in `layout.templ`
-   - Always visible for now; will gate on feature flag in Phase 4.
+1. [x] Migration 00006 — communities.todos_enabled flag + todos table + indexes
+   - => `internal/storage/sqlite/migrations/00006_todos.sql`. Toggle defaults to 0 (off).
+2. [x] `internal/todos/todos.go` — `Todo` struct + `Repo` with `Create`, `ListForUser`, `ByID`, `UpdateStatus`, `UpdateTitle`, `Delete`, `DistinctCategories`
+   - => `scanTodo` helper; status enum constants `StatusOpen`/`StatusDoing`/`StatusDone`.
+   - => ListForUser status semantics: `""` and `"active"` both → `open`+`doing`; `"all"` → no filter.
+3. [x] `internal/todos/handler.go` — `GetIndex`
+   - => `MustFromContext` for community (page is mounted under `/c/{slug}` group).
+4. [x] `web/templ/todos.templ` — `TodosPage`, `TodosList`, `TodoRowView` partials
+   - => Filter pills reuse `.forum-filters` CSS class.
+   - => Backlink href builder `todoBacklinkHref` already does the chat-history + forum-thread shapes ready for Phase 4 — just needs `id="msg-..."` on history rows.
+5. [x] Wire route `r.Get("/todos", todosHandler.GetIndex)` in `cmd/app/main.go` community group.
+6. [x] Add `Todos` link to topbar nav in `layout.templ` (always visible for now).
+7. [x] CSS for `.todo-row`, `.todo-pill`, status pill colors in `app.css`.
 
 Verification: hard-reload `/c/{slug}/todos`, page renders with filter UI and "no todos yet" message. Build clean.
 
@@ -146,3 +139,4 @@ Verification: flip flag in admin, every surface drops the feature; flip back, ev
 ## Progress Log
 
 - 2606131944 — plan created from spec.
+- 2606131958 — Phase 1 completed. Migration 00006, todos package, GetIndex, TodosPage templ, route + nav. Build+vet clean.

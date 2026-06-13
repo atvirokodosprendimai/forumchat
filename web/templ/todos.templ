@@ -1,0 +1,128 @@
+package templ
+
+import "time"
+
+type TodoRow struct {
+	ID             string
+	Title          string
+	Category       string
+	Note           string
+	Status         string // open|doing|done
+	SourceKind     string // chat|forum_post
+	SourceID       string
+	SourceThreadID string
+	SourceDay      string
+	CreatedAt      time.Time
+}
+
+type TodosPageData struct {
+	Viewer     Viewer
+	Rows       []TodoRow
+	Categories []string
+	Status     string // active|open|doing|done|all
+	Category   string
+}
+
+templ TodosPage(d TodosPageData) {
+	@Layout("Todos", d.Viewer) {
+		<section>
+			<h1>Todos</h1>
+			<p class="muted">Items you saved from chat or forum, scoped to { d.Viewer.CommunityName }.</p>
+
+			<div class="forum-toolbar">
+				<nav class="forum-filters">
+					<a class={ todosFilterClass("active", d.Status) } href={ templ.URL(todosFilterHref(d.Viewer.CommunitySlug, "active", d.Category)) }>Active</a>
+					<a class={ todosFilterClass("doing", d.Status) } href={ templ.URL(todosFilterHref(d.Viewer.CommunitySlug, "doing", d.Category)) }>Doing</a>
+					<a class={ todosFilterClass("done", d.Status) } href={ templ.URL(todosFilterHref(d.Viewer.CommunitySlug, "done", d.Category)) }>Done</a>
+					<a class={ todosFilterClass("all", d.Status) } href={ templ.URL(todosFilterHref(d.Viewer.CommunitySlug, "all", d.Category)) }>All</a>
+				</nav>
+				<form class="forum-search" method="get" action={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/todos") }>
+					<input type="hidden" name="status" value={ d.Status }/>
+					<select name="category" onchange="this.form.submit()">
+						<option value="">— any category —</option>
+						for _, c := range d.Categories {
+							if c == d.Category {
+								<option value={ c } selected>{ c }</option>
+							} else {
+								<option value={ c }>{ c }</option>
+							}
+						}
+					</select>
+				</form>
+			</div>
+
+			@TodosList(d.Viewer.CommunitySlug, d.Rows)
+		</section>
+	}
+}
+
+templ TodosList(slug string, rows []TodoRow) {
+	<div id="todos-list">
+		if len(rows) == 0 {
+			<p class="muted">No todos here yet. Add one from a chat message or forum post.</p>
+		}
+		<ul class="todos-list">
+			for _, t := range rows {
+				@TodoRowView(slug, t)
+			}
+		</ul>
+	</div>
+}
+
+templ TodoRowView(slug string, t TodoRow) {
+	<li class={ "todo-row todo-" + t.Status } id={ "todo-" + t.ID }>
+		<span class={ "todo-pill pill-" + t.Status }>{ todoStatusLabel(t.Status) }</span>
+		<span class="todo-title">{ t.Title }</span>
+		if t.Category != "" {
+			<span class="badge">{ t.Category }</span>
+		}
+		<a class="link" href={ templ.URL(todoBacklinkHref(slug, t)) }>{ todoBacklinkLabel(t) }</a>
+	</li>
+}
+
+func todosFilterClass(self, cur string) string {
+	if self == cur {
+		return "filter active"
+	}
+	return "filter"
+}
+
+func todosFilterHref(slug, status, category string) string {
+	out := "/c/" + slug + "/todos?status=" + status
+	if category != "" {
+		out += "&category=" + queryEscape(category)
+	}
+	return out
+}
+
+func todoStatusLabel(s string) string {
+	switch s {
+	case "open":
+		return "Open"
+	case "doing":
+		return "Doing"
+	case "done":
+		return "Done"
+	}
+	return s
+}
+
+func todoBacklinkHref(slug string, t TodoRow) string {
+	switch t.SourceKind {
+	case "chat":
+		return "/c/" + slug + "/history?d=" + t.SourceDay + "#msg-" + t.SourceID
+	case "forum_post":
+		return "/c/" + slug + "/forum/" + t.SourceThreadID + "#post-" + t.SourceID
+	}
+	return "#"
+}
+
+func todoBacklinkLabel(t TodoRow) string {
+	switch t.SourceKind {
+	case "chat":
+		return "open in history"
+	case "forum_post":
+		return "open in thread"
+	}
+	return "open"
+}
