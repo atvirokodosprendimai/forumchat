@@ -178,11 +178,8 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 
 	if h.Chat != nil {
 		link := fmt.Sprintf(`%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), t.ID)
-		announceHTML := fmt.Sprintf(
-			`<strong>%s</strong> started thread: <a href="%s">%s</a>`,
-			htmlEscape(id.Membership.DisplayName), htmlEscape(link), htmlEscape(t.Subject),
-		)
 		threadID := t.ID
+		announceHTML := buildThreadAnnounce(id.Membership.DisplayName, link, t.Subject, t.BodyMarkdown)
 		_, err := h.Chat.PostSystem(r.Context(), h.CommunityID, announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("post thread-announce", "err", err)
@@ -548,11 +545,8 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		if announceName == "" {
 			announceName = id.Membership.DisplayName
 		}
-		announceHTML := fmt.Sprintf(
-			`<strong>%s</strong> started thread: <a href="%s">%s</a>`,
-			htmlEscape(announceName), htmlEscape(link), htmlEscape(t.Subject),
-		)
 		threadID := t.ID
+		announceHTML := buildThreadAnnounce(announceName, link, t.Subject, msg.BodyMarkdown)
 		_, err := h.Chat.PostSystem(r.Context(), h.CommunityID, announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("promote thread-announce", "err", err)
@@ -569,6 +563,24 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	_ = sse.Redirect("/forum/" + t.ID)
 }
 
+// buildThreadAnnounce returns the chat fan-out HTML for a new thread. When
+// the source body starts with an image (so the subject collapsed to
+// "(image)"), we render a thumbnail link instead of the literal label.
+func buildThreadAnnounce(authorName, link, subject, body string) string {
+	if subject == "(image)" {
+		if src := extractFirstImageURL(body); src != "" {
+			return fmt.Sprintf(
+				`<strong>%s</strong> started thread <a href="%s"><img class="thread-announce-img" src="%s" alt="thread image"></a>`,
+				htmlEscape(authorName), htmlEscape(link), htmlEscape(src),
+			)
+		}
+	}
+	return fmt.Sprintf(
+		`<strong>%s</strong> started thread: <a href="%s">%s</a>`,
+		htmlEscape(authorName), htmlEscape(link), htmlEscape(subject),
+	)
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
 		return s[:i]
@@ -579,6 +591,19 @@ func firstLine(s string) string {
 // imageMarkdownRE matches a leading markdown image (optionally wrapped in a
 // link): `![alt](src)` or `[![alt](src)](href)`.
 var imageMarkdownRE = regexp.MustCompile(`^\[?!\[[^\]]*\]\([^)]*\)\]?(?:\([^)]*\))?`)
+
+// imageSrcRE captures the src URL of the leading markdown image (whether
+// wrapped in a link or not). Used by the chat-promote announce so an
+// image-only thread shows a thumbnail instead of the literal "(image)" label.
+var imageSrcRE = regexp.MustCompile(`^\[?!\[[^\]]*\]\(([^)]+)\)`)
+
+func extractFirstImageURL(body string) string {
+	m := imageSrcRE.FindStringSubmatch(strings.TrimSpace(body))
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
 
 // deriveSubject turns a chat-message body into a human-friendly thread
 // subject. Strips leading markdown image syntax (so an image-only message
