@@ -100,10 +100,10 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if u.CommunityID != h.cid(r) {
-		http.Error(w, "cross-community", http.StatusForbidden)
-		return
-	}
+	// No cross-community check — the signed URL is already viewer-scoped
+	// (HMAC includes user_id + exp) so unauthorised users can't forge it.
+	// Serving at root lets stored URLs survive the multi-community route
+	// restructure.
 	w.Header().Set("Content-Type", u.MIME)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	http.ServeFile(w, r, h.Store.PathFor(u))

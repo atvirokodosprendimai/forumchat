@@ -270,7 +270,6 @@ func run() error {
 		r.Get("/presence/stream", presenceHandler.GetStream)
 
 		r.Post("/uploads", uploadHandler.PostUpload)
-		r.Get("/uploads/{id}", uploadHandler.GetFile)
 
 		r.Get("/forum", forumHandler.GetIndex)
 		r.Get("/forum/new", forumHandler.GetNew)
@@ -322,6 +321,15 @@ func run() error {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRole(auth.RoleAdmin))
 		r.Post("/admin/create-community", adminHandler.PostCreateCommunity)
+	})
+
+	// Uploads GET lives at root so stored /uploads/{id}?sig=... URLs survive
+	// the multi-community route restructure. The HMAC signature already
+	// scopes access (binds upload id + viewer id + exp), so no
+	// community-scoped middleware is needed.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Get("/uploads/{id}", uploadHandler.GetFile)
 	})
 
 	r.Get("/", dashboardHandler.GetIndex)
