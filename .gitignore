@@ -1,0 +1,43 @@
+# binaries
+/bin/
+/dist/
+/forumchat
+/app
+
+# go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# generated code
+*_templ.go
+*_templ.txt
+
+# data
+/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+
+# uploads
+/uploads/
+
+# tmp
+/tmp/
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
