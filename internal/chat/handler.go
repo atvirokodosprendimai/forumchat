@@ -13,6 +13,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -273,6 +274,7 @@ func toMsgView(m Message) webtempl.MsgView {
 		CreatedAt:        m.CreatedAt,
 		Deleted:          m.IsDeleted(),
 		PromotedThreadID: valueOrEmpty(m.PromotedThreadID),
+		TitleSnippet:     render.AutoTitle(m.BodyMarkdown),
 	}
 	if m.ReplyTo != nil {
 		v.ReplyTo = &webtempl.ReplySnippet{

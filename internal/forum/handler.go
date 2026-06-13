@@ -18,6 +18,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -106,6 +107,7 @@ func (h *Handler) loadPostViews(ctx context.Context, threadID, currentUserID str
 			CreatedAt:    p.CreatedAt,
 			Deleted:      p.IsDeleted(),
 			CanEdit:      (p.AuthorID == currentUserID && now.Sub(p.CreatedAt) <= h.Svc.EditGrace) || isMod,
+			TitleSnippet: render.AutoTitle(p.BodyMarkdown),
 		})
 	}
 	return pv, nil

@@ -49,6 +49,7 @@ type PostView struct {
 	CreatedAt    time.Time
 	Deleted      bool
 	CanEdit      bool
+	TitleSnippet string
 }
 
 templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
@@ -223,6 +224,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 				<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/reply')" }>Reply</button>
 			</section>
 			@ThreadScrollAnchor()
+			@TodoDialog(v.CommunitySlug)
 		</section>
 	}
 }
@@ -255,6 +257,8 @@ templ ForumPost(slug, threadID string, p PostView) {
 				<span class="muted">{ fmtTime(p.CreatedAt) }</span>
 				<button class="link"
 					data-on:click={ quoteClickJS(p.ID, p.AuthorName) }>quote</button>
+				<button class="link"
+					data-on:click={ todoClickJS("forum_post:"+p.ID, p.TitleSnippet) }>add to todos</button>
 				if p.CanEdit {
 					<button class="link"
 						data-on:click={ "@post('/c/" + slug + "/forum/post/" + p.ID + "/delete')" }>delete</button>

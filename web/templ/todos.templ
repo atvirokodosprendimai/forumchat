@@ -1,6 +1,19 @@
 package templ
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
+
+// todoClickJS builds the data-on:click expression for "add to todos"
+// buttons. source is "chat:<id>" or "forum_post:<id>"; titleSnippet is the
+// auto-derived title that prefills the dialog input. Both get strconv.Quote
+// so embedded apostrophes/backslashes survive.
+func todoClickJS(source, titleSnippet string) string {
+	return "$todo_open_source=" + strconv.Quote(source) +
+		"; $todo_title=" + strconv.Quote(titleSnippet) +
+		"; $todo_category=''; $todo_note=''"
+}
 
 type TodoRow struct {
 	ID             string
@@ -125,4 +138,23 @@ func todoBacklinkLabel(t TodoRow) string {
 		return "open in thread"
 	}
 	return "open"
+}
+
+// TodoDialog is the single page-level modal driven by $todo_open_source.
+// `slug` lets the save button post to the community-scoped endpoint.
+// Per-bubble / per-post buttons set $todo_open_source = '<kind>:<id>' and
+// optionally prefill $todo_title from the source body.
+templ TodoDialog(slug string) {
+	<div class="bm-dialog-backdrop" data-show="$todo_open_source !== ''"
+		data-on:click="$todo_open_source=''; $todo_title=''; $todo_category=''; $todo_note=''"></div>
+	<div class="bm-dialog" data-show="$todo_open_source !== ''">
+		<h3>Add to todos</h3>
+		<input type="text" placeholder="title" data-bind="todo_title"/>
+		<input type="text" placeholder="category (optional)" data-bind="todo_category"/>
+		<input type="text" placeholder="note (optional)" data-bind="todo_note"/>
+		<div class="bm-dialog-actions">
+			<button data-on:click={ "@post('/c/" + slug + "/todos')" }>save</button>
+			<button class="ghost" data-on:click="$todo_open_source=''; $todo_title=''; $todo_category=''; $todo_note=''">cancel</button>
+		</div>
+	</div>
 }

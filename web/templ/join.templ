@@ -1,0 +1,57 @@
+package templ
+
+templ JoinExpired(v Viewer, communityName string) {
+	@Layout("Invite expired", v) {
+		<section class="card narrow">
+			<h1>This invite has expired</h1>
+			<p class="muted">The link to join { communityName } is no longer valid. Ask an admin for a fresh one.</p>
+			<p><a class="btn ghost" href="/">Home</a></p>
+		</section>
+	}
+}
+
+templ JoinConfirm(v Viewer, communityName, slug, code string) {
+	@Layout("Join "+communityName, v) {
+		<section class="card narrow">
+			<h1>Welcome back to { communityName }</h1>
+			<p class="muted">You're already signed in. Click below to accept the invite and open the community.</p>
+			<button data-on:click={ "@post('/c/" + slug + "/join/confirm?code=" + code + "')" }>Join { communityName }</button>
+		</section>
+	}
+}
+
+templ JoinWrongUser(v Viewer, communityName, targetEmail string) {
+	@Layout("Wrong account", v) {
+		<section class="card narrow">
+			<h1>This invite is for someone else</h1>
+			<p>You're signed in as <strong>{ v.DisplayName }</strong>, but this invite was sent to <strong>{ targetEmail }</strong>.</p>
+			<p>Sign out and reopen the link to accept it.</p>
+			<button class="ghost" data-on:click="@post('/logout')">Sign out</button>
+		</section>
+	}
+}
+
+templ JoinLogin(v Viewer, communityName, targetEmail, code string) {
+	@Layout("Join "+communityName, v) {
+		<section class="card narrow">
+			<h1>Sign in to join { communityName }</h1>
+			<p class="muted">This invite is linked to <strong>{ targetEmail }</strong>. Sign in to claim it.</p>
+			<p><a class="btn" href={ templ.URL("/login?next=" + "/c/" + v.CommunitySlug + "/join?code=" + code) }>Go to sign in</a></p>
+		</section>
+	}
+}
+
+templ JoinSetPassword(v Viewer, communityName, slug, targetEmail, code string) {
+	@Layout("Set password and join "+communityName, v) {
+		<section class="card narrow">
+			<h1>Set your password and join { communityName }</h1>
+			<p class="muted">You were invited as <strong>{ targetEmail }</strong>. Set a password to activate your account.</p>
+			<div id="join-error" class="error"></div>
+			<div class="field">
+				<label>Password (min 8 characters)</label>
+				<input type="password" data-bind="join_password" autofocus/>
+			</div>
+			<button data-on:click={ "@post('/c/" + slug + "/join/set-password?code=" + code + "')" }>Set password and join</button>
+		</section>
+	}
+}
