@@ -5,3 +5,4 @@
 - 2026-06-13 `d9a76b1` feat(phase-1): scaffold, deps, migrations, datastar SSE clock smoke
 - 2026-06-13 `68e6242` feat(phase-2): auth — invite-gated register, email verify, login, sessions, ban
 - 2026-06-13 `3cfa13b` feat(phase-3-6): profile edit, realtime chat, forum threads + flat-quote, thread->chat bridge
+- 2026-06-13 `2e0439e` feat(phase-7-10): presence, uploads, 404, rate limit; spec mapping
