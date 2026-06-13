@@ -62,6 +62,7 @@ templ Layout(title string, v Viewer) {
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") }>Chat</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>Forum</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") }>Bookmarks</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") }>Todos</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") }>History</a>
 							if v.Role == "admin" {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") }>Admin</a>

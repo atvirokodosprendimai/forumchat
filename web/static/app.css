@@ -199,6 +199,23 @@ button.link:hover { text-decoration: underline; }
 .thread-list li a { font-weight: 600; color: var(--fg); }
 .thread-list li a:hover { color: var(--accent); }
 
+.todos-list { list-style: none; padding: 0; margin: 1rem 0; display: flex; flex-direction: column; gap: .35rem; }
+.todo-row {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: .55rem .75rem;
+  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+}
+.todo-row.todo-done { opacity: .55; }
+.todo-row.todo-done .todo-title { text-decoration: line-through; }
+.todo-title { flex: 1 1 auto; min-width: 12rem; }
+.todo-pill {
+  font-size: .7rem; text-transform: uppercase; letter-spacing: .04em;
+  padding: .1rem .55rem; border-radius: 999px; color: #fff; font-weight: 600;
+}
+.pill-open  { background: #4a90d9; }
+.pill-doing { background: #c47914; }
+.pill-done  { background: #2ec27a; }
+
 .community-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .community-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .community-link { display: flex; flex-direction: column; gap: .35rem; padding: 1rem; color: var(--fg); text-decoration: none; }
