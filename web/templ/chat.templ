@@ -17,15 +17,16 @@ type ReplySnippet struct {
 }
 
 type MsgView struct {
-	ID           string
-	AuthorID     string
-	AuthorName   string
-	AuthorAvatar string
-	Kind         MsgKind
-	BodyHTML     string
-	CreatedAt    time.Time
-	Deleted      bool
-	ReplyTo      *ReplySnippet
+	ID               string
+	AuthorID         string
+	AuthorName       string
+	AuthorAvatar     string
+	Kind             MsgKind
+	BodyHTML         string
+	CreatedAt        time.Time
+	Deleted          bool
+	ReplyTo          *ReplySnippet
+	PromotedThreadID string
 }
 
 type ChatPageData struct {
@@ -113,7 +114,9 @@ templ MessageView(m MsgView, isMod bool, currentUserID string) {
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
 				<button class="link" data-on:click={ "$reply_to_id = '" + m.ID + "'" }>reply</button>
 				<button class="link" data-on:click={ "$bm_open_msg = '" + m.ID + "'" }>bookmark</button>
-				if isMod || m.AuthorID == currentUserID {
+				if m.PromotedThreadID != "" {
+					<a class="link" href={ templ.URL("/forum/" + m.PromotedThreadID) }>→ thread</a>
+				} else if isMod || m.AuthorID == currentUserID {
 					<button class="link"
 						data-on:click={ "@post('/forum/promote-chat?id=" + m.ID + "')" }>→ thread</button>
 				}

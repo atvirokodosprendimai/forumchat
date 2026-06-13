@@ -21,19 +21,20 @@ const (
 )
 
 type Message struct {
-	ID           string
-	CommunityID  string
-	AuthorID     *string
-	AuthorName   string
-	AuthorAvatar string
-	Kind         Kind
-	BodyMarkdown string
-	BodyHTML     string
-	RefThreadID  *string
-	ReplyToID    *string // chat-level reply parent (nullable)
-	ReplyTo      *ReplyContext
-	DeletedAt    *time.Time
-	CreatedAt    time.Time
+	ID               string
+	CommunityID      string
+	AuthorID         *string
+	AuthorName       string
+	AuthorAvatar     string
+	Kind             Kind
+	BodyMarkdown     string
+	BodyHTML         string
+	RefThreadID      *string
+	PromotedThreadID *string // thread that was created from this message via promote-chat
+	ReplyToID        *string
+	ReplyTo          *ReplyContext
+	DeletedAt        *time.Time
+	CreatedAt        time.Time
 }
 
 // ReplyContext is a denormalised snippet of the message being replied to,
@@ -79,7 +80,7 @@ func (r *Repo) Before(ctx context.Context, communityID string, before time.Time,
 func (r *Repo) listBefore(ctx context.Context, communityID string, before time.Time, limit int) ([]Message, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.community_id, m.author_id, m.kind, m.body_md, m.body_html,
-		       m.ref_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
+		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
 		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, '')
 		FROM chat_messages m
@@ -96,13 +97,13 @@ func (r *Repo) listBefore(ctx context.Context, communityID string, before time.T
 	var msgs []Message
 	for rows.Next() {
 		var m Message
-		var aid, ref, reply sql.NullString
+		var aid, ref, promoted, reply sql.NullString
 		var del sql.NullInt64
 		var created int64
 		var kind string
 		var pID, pAuthor, pBody string
 		if err := rows.Scan(&m.ID, &m.CommunityID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
-			&ref, &reply, &del, &created,
+			&ref, &promoted, &reply, &del, &created,
 			&m.AuthorName, &m.AuthorAvatar,
 			&pID, &pAuthor, &pBody); err != nil {
 			return nil, err
@@ -113,6 +114,9 @@ func (r *Repo) listBefore(ctx context.Context, communityID string, before time.T
 		}
 		if ref.Valid {
 			m.RefThreadID = &ref.String
+		}
+		if promoted.Valid {
+			m.PromotedThreadID = &promoted.String
 		}
 		if reply.Valid {
 			m.ReplyToID = &reply.String
@@ -133,7 +137,7 @@ func (r *Repo) listBefore(ctx context.Context, communityID string, before time.T
 func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.community_id, m.author_id, m.kind, m.body_md, m.body_html,
-		       m.ref_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
+		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
 		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, '')
 		FROM chat_messages m
@@ -179,6 +183,27 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	}
 	m.CreatedAt = time.Unix(created, 0)
 	return m, nil
+}
+
+// MarkPromoted records the thread that was created from this chat message.
+// Returns false (without error) if the message already has a promoted thread
+// — callers should treat that as "someone else got here first".
+func (r *Repo) MarkPromoted(ctx context.Context, msgID, threadID string) (bool, error) {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE chat_messages SET promoted_thread_id = ?
+		WHERE id = ? AND promoted_thread_id IS NULL`, threadID, msgID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// ClearPromoted releases the promoted_thread_id link (used when the resulting
+// thread is hard-deleted so the chat message can be promoted again).
+func (r *Repo) ClearPromoted(ctx context.Context, threadID string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE chat_messages SET promoted_thread_id = NULL WHERE promoted_thread_id = ?`, threadID)
+	return err
 }
 
 func (r *Repo) SoftDelete(ctx context.Context, id string) error {
