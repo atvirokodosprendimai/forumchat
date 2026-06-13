@@ -254,6 +254,9 @@ func run() error {
 		r.Get("/forum/{id}/stream", forumHandler.GetThreadStream)
 		r.Post("/forum/{id}/reply", forumHandler.PostReply)
 		r.Post("/forum/{id}/delete", forumHandler.PostDeleteThread)
+		r.Post("/forum/{id}/resolve", forumHandler.PostResolve)
+		r.Post("/forum/{id}/unresolve", forumHandler.PostUnresolve)
+		r.Post("/forum/{id}/rename", forumHandler.PostRename)
 		r.Post("/forum/post/{id}/delete", forumHandler.PostDeletePost)
 		r.Post("/forum/promote-chat", forumHandler.PostPromoteChat)
 
@@ -281,6 +284,7 @@ func run() error {
 		r.Post("/admin/unban", adminHandler.PostUnban)
 		r.Post("/admin/invite", adminHandler.PostInvite)
 		r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
+		r.Post("/forum/{id}/hard-delete", forumHandler.PostHardDeleteThread)
 	})
 
 	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
