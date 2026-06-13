@@ -106,12 +106,21 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
+	// Default view hides resolved threads. Explicit ?status=all shows every
+	// thread; ?status=resolved shows only resolved.
 	status := r.URL.Query().Get("status")
-	if status != "resolved" && status != "unresolved" {
-		status = ""
+	switch status {
+	case "resolved", "unresolved", "all":
+		// keep as-is
+	default:
+		status = "unresolved"
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	ts, err := h.Repo.ListThreadsFiltered(r.Context(), h.CommunityID, status, q, ThreadLimit)
+	repoStatus := status
+	if repoStatus == "all" {
+		repoStatus = ""
+	}
+	ts, err := h.Repo.ListThreadsFiltered(r.Context(), h.CommunityID, repoStatus, q, ThreadLimit)
 	if err != nil {
 		http.Error(w, "load threads: "+err.Error(), http.StatusInternalServerError)
 		return
