@@ -268,7 +268,7 @@ func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		if err := sse.PatchElementTempl(
-			webtempl.ThreadPosts(threadID, pv),
+			webtempl.ThreadPosts(h.cslug(r.Context()), threadID, pv),
 			datastar.WithModeOuter(),
 		); err != nil {
 			return err
@@ -349,7 +349,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	// Patch posts immediately for this client; broadcast for everyone else.
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 	if pv, err := h.loadPostViews(r.Context(), threadID, id.User.ID, isMod); err == nil {
-		_ = sse.PatchElementTempl(webtempl.ThreadPosts(threadID, pv), datastar.WithModeOuter())
+		_ = sse.PatchElementTempl(webtempl.ThreadPosts(h.cslug(r.Context()), threadID, pv), datastar.WithModeOuter())
 	}
 	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
 	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","reply_quote_label":"","image_data":""}`))
@@ -667,7 +667,7 @@ func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := datastar.NewSSE(w, r)
 	if pv, err := h.loadPostViews(r.Context(), p.ThreadID, id.User.ID, isMod); err == nil {
-		_ = sse.PatchElementTempl(webtempl.ThreadPosts(p.ThreadID, pv), datastar.WithModeOuter())
+		_ = sse.PatchElementTempl(webtempl.ThreadPosts(h.cslug(r.Context()), p.ThreadID, pv), datastar.WithModeOuter())
 	}
 	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
 	h.broadcastThread(r.Context(), p.ThreadID)

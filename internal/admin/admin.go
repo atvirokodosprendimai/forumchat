@@ -202,7 +202,7 @@ func (h *Handler) PostInvite(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchElementTempl(webtempl.AdminInviteCreated(code))
 	// Re-render the invite list.
 	if list, err := h.Repo.ListInvites(r.Context(), h.cid(r)); err == nil {
-		_ = sse.PatchElementTempl(webtempl.AdminInvites(invitesToAdminInvites(list)))
+		_ = sse.PatchElementTempl(webtempl.AdminInvites(h.cslug(r), invitesToAdminInvites(list)))
 	}
 }
 
@@ -218,7 +218,7 @@ func (h *Handler) PostInviteRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := datastar.NewSSE(w, r)
 	if list, err := h.Repo.ListInvites(r.Context(), h.cid(r)); err == nil {
-		_ = sse.PatchElementTempl(webtempl.AdminInvites(invitesToAdminInvites(list)))
+		_ = sse.PatchElementTempl(webtempl.AdminInvites(h.cslug(r), invitesToAdminInvites(list)))
 	}
 }
 
@@ -228,10 +228,10 @@ func (h *Handler) refreshAdminLists(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	now := time.Now()
 	if pending, err := h.Repo.ListPendingMemberships(r.Context(), h.cid(r)); err == nil {
-		_ = sse.PatchElementTempl(webtempl.AdminPending(memberRowsToAdminMembers(pending, now)))
+		_ = sse.PatchElementTempl(webtempl.AdminPending(h.cslug(r), memberRowsToAdminMembers(pending, now)))
 	}
 	if members, err := h.Repo.ListMembers(r.Context(), h.cid(r)); err == nil {
-		_ = sse.PatchElementTempl(webtempl.AdminMembers(memberRowsToAdminMembers(members, now)))
+		_ = sse.PatchElementTempl(webtempl.AdminMembers(h.cslug(r), memberRowsToAdminMembers(members, now)))
 	}
 }
 

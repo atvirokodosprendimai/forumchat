@@ -106,7 +106,7 @@ func (h *Handler) GetList(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := datastar.NewSSE(w, r)
 	_ = sse.PatchElementTempl(
-		webtempl.BookmarksList(toViewRows(rows)),
+		webtempl.BookmarksList(toViewRows(rows), h.cslug(r.Context())),
 		datastar.WithModeOuter(),
 	)
 }
@@ -189,7 +189,7 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	rows, _ := h.Repo.List(r.Context(), id.User.ID, h.cid(r.Context()), filter)
 	sse := datastar.NewSSE(w, r)
 	_ = sse.PatchElementTempl(
-		webtempl.BookmarksList(toViewRows(rows)),
+		webtempl.BookmarksList(toViewRows(rows), h.cslug(r.Context())),
 		datastar.WithModeOuter(),
 	)
 }
