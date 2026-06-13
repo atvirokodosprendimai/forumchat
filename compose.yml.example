@@ -1,0 +1,55 @@
+services:
+  app:
+    image: ghcr.io/atvirokodosprendimai/forumchat:latest
+    depends_on:
+      - nats
+      - mailpit
+    environment:
+      ENV: "prod"
+      HTTP_ADDR: ":8080"
+      BASE_URL: "http://localhost:8080"
+      DB_PATH: "/data/forumchat.db"
+      MIGRATE_ON_BOOT: "true"
+      NATS_URL: "nats://nats:4222"
+      SESSION_KEY: "change-me-to-a-random-32-bytes-min-secret"
+      SESSION_MAX_AGE: "720h"
+      UPLOADS_DIR: "/uploads"
+      UPLOADS_MAX_BYTES: "5242880"
+      UPLOADS_SIGN_KEY: "change-me-to-a-random-uploads-sign-key"
+      SMTP_HOST: "mailpit"
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: "forumchat@localhost"
+      COMMUNITY_SLUG: "main"
+      COMMUNITY_NAME: "The Community"
+      PRESENCE_TTL: "30s"
+      EDIT_GRACE: "15m"
+    volumes:
+      - app-data:/data
+      - app-uploads:/uploads
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data"]
+    volumes:
+      - nats-data:/data
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  app-uploads:
+  nats-data:
