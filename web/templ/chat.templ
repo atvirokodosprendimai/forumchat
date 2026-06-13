@@ -61,11 +61,17 @@ templ ChatComposer() {
 			<span class="muted">Replying — <span data-text="'…' + ($reply_to_id || '').slice(0,8)"></span></span>
 			<button class="link" data-on:click="$reply_to_id = ''">cancel</button>
 		</div>
+		<input type="hidden" data-bind="image_data"/>
+		<div class="paste-preview" data-show="$image_data">
+			<img alt="pasted image preview" data-attr:src="$image_data"/>
+			<button class="link" data-on:click="$image_data=''">remove image</button>
+		</div>
 		<div class="composer-row">
 			<input type="text"
 				data-bind="body"
-				placeholder="Say something — markdown ok"
+				placeholder="Say something — markdown ok (paste an image to attach)"
 				autocomplete="off"
+				data-on:paste="window.fcPasteImage(evt,'image_data')"
 				data-on:keydown="evt.key === 'Enter' && @post('/chat/send')"/>
 			<button data-on:click="@post('/chat/send')">Send</button>
 		</div>

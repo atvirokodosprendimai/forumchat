@@ -148,6 +148,9 @@ func run() error {
 	r.Get("/verify", authHandler.GetVerify)
 	r.Post("/logout", authHandler.PostLogout)
 
+	uploadStore := uploads.NewStore(db, cfg.UploadsDir, cfg.UploadsMaxSize, cfg.UploadsSignKey)
+	uploadHandler := &uploads.Handler{Store: uploadStore, CommunityID: bootCommunity.ID, Log: log}
+
 	chatRepo := chat.NewRepo(db)
 	chatSvc := chat.NewService(chatRepo)
 	chatBus := chat.NewBus()
@@ -156,13 +159,11 @@ func run() error {
 		Repo:          chatRepo,
 		NATS:          nc,
 		Bus:           chatBus,
+		Uploads:       uploadStore,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
 	}
-
-	uploadStore := uploads.NewStore(db, cfg.UploadsDir, cfg.UploadsMaxSize, cfg.UploadsSignKey)
-	uploadHandler := &uploads.Handler{Store: uploadStore, CommunityID: bootCommunity.ID, Log: log}
 
 	presenceTracker := presence.New(cfg.PresenceTTL)
 	go func() {
@@ -192,6 +193,7 @@ func run() error {
 		ChatBus:       chatBus,
 		Bus:           forumBus,
 		NATS:          nc,
+		Uploads:       uploadStore,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		BaseURL:       cfg.BaseURL,
