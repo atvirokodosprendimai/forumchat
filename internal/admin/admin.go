@@ -245,12 +245,14 @@ type createCommunitySignals struct {
 // community. The slug must be unique; the named user becomes the community's
 // first member with role=admin.
 func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
+	// ReadSignals MUST come before NewSSE — NewSSE closes the request body.
 	var in createCommunitySignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "bad signals"))
+		sse := datastar.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "bad signals: "+err.Error()))
 		return
 	}
+	sse := datastar.NewSSE(w, r)
 	name := strings.TrimSpace(in.Name)
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	email := strings.TrimSpace(in.MemberEmail)
