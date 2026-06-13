@@ -17,7 +17,13 @@ const InitialSignals = `{
 	"avatar_url":"",
 	"subject":"",
 	"body":"",
-	"quoted_post_id":""
+	"quoted_post_id":"",
+	"reply_to_id":"",
+	"max_uses":"",
+	"cleanup_chat":false,
+	"cleanup_threads":false,
+	"cleanup_posts":false,
+	"ban_hours":0
 }`
 
 templ Layout(title string, v Viewer) {

@@ -160,12 +160,14 @@ func (s *Service) Login(ctx context.Context, email, password, communityID string
 	return LoginResult{User: u, Membership: m}, nil
 }
 
-func (s *Service) IssueInvite(ctx context.Context, communityID string, createdBy *string) (string, error) {
+// IssueInvite creates a new invite. maxUses=nil → unlimited (Discord-style);
+// a value of N caps the invite after that many consumers.
+func (s *Service) IssueInvite(ctx context.Context, communityID string, createdBy *string, maxUses *int) (string, error) {
 	code, err := InviteCodeText()
 	if err != nil {
 		return "", err
 	}
-	if err := s.Repo.CreateInvite(ctx, code, communityID, createdBy, time.Now().Add(s.InviteTTL)); err != nil {
+	if err := s.Repo.CreateInvite(ctx, code, communityID, createdBy, maxUses, time.Now().Add(s.InviteTTL)); err != nil {
 		return "", err
 	}
 	return code, nil

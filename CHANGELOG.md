@@ -10,3 +10,4 @@
 - 2026-06-13 `b29557c` chore: changelog autoappend
 - 2026-06-13 `711f77a` fix(auth): commit scs session cookie before datastar.NewSSE
 - 2026-06-13 `18660df` feat(chat): fat-morph last 100 + separate scroll-anchor patch on every change
+- 2026-06-13 `9a99013` docs(agents): comprehensive AGENTS.md + switch scroll to sse.ExecuteScript

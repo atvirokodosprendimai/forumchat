@@ -46,7 +46,7 @@ func TestRegisterVerifyLogin_Happy(t *testing.T) {
 	ctx := context.Background()
 	svc, _, communityID := setupSvc(t)
 
-	code, err := svc.IssueInvite(ctx, communityID, nil)
+	code, err := svc.IssueInvite(ctx, communityID, nil, nil)
 	if err != nil {
 		t.Fatalf("issue invite: %v", err)
 	}
@@ -90,21 +90,38 @@ func TestRegister_InvalidInvite(t *testing.T) {
 	}
 }
 
-func TestRegister_ReuseInvite(t *testing.T) {
+// Unlimited invites (max_uses=nil) accept multiple registrants. Capped
+// invites reject once uses_count == max_uses.
+func TestInviteCaps(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc, _, communityID := setupSvc(t)
 
-	code, _ := svc.IssueInvite(ctx, communityID, nil)
+	// Unlimited: two registrations on the same code both succeed.
+	unlimited, _ := svc.IssueInvite(ctx, communityID, nil, nil)
 	if _, err := svc.Register(ctx, auth.RegisterInput{
-		Email: "first@example.com", Password: "supersecret123", InviteCode: code,
+		Email: "u1@example.com", Password: "supersecret123", InviteCode: unlimited,
 	}); err != nil {
-		t.Fatalf("first register: %v", err)
+		t.Fatalf("first unlimited register: %v", err)
 	}
 	if _, err := svc.Register(ctx, auth.RegisterInput{
-		Email: "second@example.com", Password: "supersecret123", InviteCode: code,
+		Email: "u2@example.com", Password: "supersecret123", InviteCode: unlimited,
+	}); err != nil {
+		t.Fatalf("second unlimited register: %v", err)
+	}
+
+	// max_uses=1 behaves like the old single-use code.
+	one := 1
+	capped, _ := svc.IssueInvite(ctx, communityID, nil, &one)
+	if _, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "c1@example.com", Password: "supersecret123", InviteCode: capped,
+	}); err != nil {
+		t.Fatalf("first capped register: %v", err)
+	}
+	if _, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "c2@example.com", Password: "supersecret123", InviteCode: capped,
 	}); err == nil {
-		t.Fatal("expected error for reused invite")
+		t.Fatal("expected error for exhausted invite")
 	}
 }
 
@@ -113,7 +130,7 @@ func TestLogin_NotVerified(t *testing.T) {
 	ctx := context.Background()
 	svc, _, communityID := setupSvc(t)
 
-	code, _ := svc.IssueInvite(ctx, communityID, nil)
+	code, _ := svc.IssueInvite(ctx, communityID, nil, nil)
 	if _, err := svc.Register(ctx, auth.RegisterInput{
 		Email: "pending@example.com", Password: "supersecret123", InviteCode: code,
 	}); err != nil {
@@ -129,7 +146,7 @@ func TestLogin_BadPassword(t *testing.T) {
 	ctx := context.Background()
 	svc, _, communityID := setupSvc(t)
 
-	code, _ := svc.IssueInvite(ctx, communityID, nil)
+	code, _ := svc.IssueInvite(ctx, communityID, nil, nil)
 	reg, _ := svc.Register(ctx, auth.RegisterInput{
 		Email: "p@example.com", Password: "supersecret123", InviteCode: code,
 	})

@@ -194,6 +194,14 @@ func (h *Handler) PostLogout(w http.ResponseWriter, r *http.Request) {
 	_ = sse.Redirect("/login")
 }
 
+// --- pending ---
+
+// GetPending renders the "your join request is in the queue" page. Mounted on
+// /pending; the RequireApproved middleware redirects unapproved members here.
+func (h *Handler) GetPending(w http.ResponseWriter, r *http.Request) {
+	_ = webtempl.PendingPage(h.Viewer(r)).Render(r.Context(), w)
+}
+
 // --- profile ---
 
 func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {

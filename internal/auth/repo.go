@@ -144,27 +144,44 @@ type InviteCode struct {
 	CreatedBy   *string
 	UsedBy      *string
 	UsedAt      *time.Time
+	MaxUses     *int
+	UsesCount   int
 	ExpiresAt   time.Time
 	CreatedAt   time.Time
 }
 
-func (r *Repo) CreateInvite(ctx context.Context, code, communityID string, createdBy *string, expiresAt time.Time) error {
+// Exhausted reports whether the invite has hit its uses cap.
+func (i InviteCode) Exhausted() bool {
+	return i.MaxUses != nil && i.UsesCount >= *i.MaxUses
+}
+
+// CreateInvite creates a new invite code. maxUses=nil means unlimited reuses
+// (Discord-style), otherwise the code will be rejected once uses_count hits
+// that ceiling.
+func (r *Repo) CreateInvite(ctx context.Context, code, communityID string, createdBy *string, maxUses *int, expiresAt time.Time) error {
+	var mu sql.NullInt64
+	if maxUses != nil {
+		mu = sql.NullInt64{Int64: int64(*maxUses), Valid: true}
+	}
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO invite_codes (code, community_id, created_by, expires_at, created_at)
-		VALUES (?, ?, ?, ?, ?)`,
-		code, communityID, createdBy, expiresAt.Unix(), time.Now().Unix())
+		INSERT INTO invite_codes (code, community_id, created_by, max_uses, uses_count, expires_at, created_at)
+		VALUES (?, ?, ?, ?, 0, ?, ?)`,
+		code, communityID, createdBy, mu, expiresAt.Unix(), time.Now().Unix())
 	return err
 }
 
+// ConsumeInvite validates and increments uses_count for the invite within a
+// transaction. The first consumer also populates used_by / used_at for
+// backwards-compat with legacy single-use codes.
 func (r *Repo) ConsumeInvite(ctx context.Context, tx *sql.Tx, code, userID string) (InviteCode, error) {
 	var ic InviteCode
 	var createdBy, usedBy sql.NullString
-	var usedAt sql.NullInt64
+	var usedAt, maxUses sql.NullInt64
 	var exp, created int64
 	err := tx.QueryRowContext(ctx, `
-		SELECT code, community_id, created_by, used_by, used_at, expires_at, created_at
+		SELECT code, community_id, created_by, used_by, used_at, max_uses, uses_count, expires_at, created_at
 		FROM invite_codes WHERE code = ?`, code).
-		Scan(&ic.Code, &ic.CommunityID, &createdBy, &usedBy, &usedAt, &exp, &created)
+		Scan(&ic.Code, &ic.CommunityID, &createdBy, &usedBy, &usedAt, &maxUses, &ic.UsesCount, &exp, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return InviteCode{}, ErrInviteInvalid
 	}
@@ -174,20 +191,76 @@ func (r *Repo) ConsumeInvite(ctx context.Context, tx *sql.Tx, code, userID strin
 	if createdBy.Valid {
 		ic.CreatedBy = &createdBy.String
 	}
+	if maxUses.Valid {
+		mu := int(maxUses.Int64)
+		ic.MaxUses = &mu
+	}
 	ic.ExpiresAt = time.Unix(exp, 0)
 	ic.CreatedAt = time.Unix(created, 0)
-	if usedBy.Valid {
-		return InviteCode{}, ErrInviteUsed
-	}
 	if time.Now().After(ic.ExpiresAt) {
 		return InviteCode{}, ErrInviteInvalid
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE invite_codes SET used_by = ?, used_at = ? WHERE code = ?`,
-		userID, time.Now().Unix(), code)
+	if ic.Exhausted() {
+		return InviteCode{}, ErrInviteExhausted
+	}
+	// First use also stamps used_by / used_at; subsequent uses just bump count.
+	if !usedBy.Valid {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE invite_codes SET used_by = ?, used_at = ?, uses_count = uses_count + 1 WHERE code = ?`,
+			userID, time.Now().Unix(), code)
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE invite_codes SET uses_count = uses_count + 1 WHERE code = ?`, code)
+	}
 	if err != nil {
 		return InviteCode{}, err
 	}
+	ic.UsesCount++
 	return ic, nil
+}
+
+// ListInvites returns every invite code for the community, newest first.
+func (r *Repo) ListInvites(ctx context.Context, communityID string) ([]InviteCode, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT code, community_id, created_by, used_by, used_at, max_uses, uses_count, expires_at, created_at
+		FROM invite_codes WHERE community_id = ?
+		ORDER BY created_at DESC`, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []InviteCode
+	for rows.Next() {
+		var ic InviteCode
+		var createdBy, usedBy sql.NullString
+		var usedAt, maxUses sql.NullInt64
+		var exp, created int64
+		if err := rows.Scan(&ic.Code, &ic.CommunityID, &createdBy, &usedBy, &usedAt, &maxUses, &ic.UsesCount, &exp, &created); err != nil {
+			return nil, err
+		}
+		if createdBy.Valid {
+			ic.CreatedBy = &createdBy.String
+		}
+		if usedBy.Valid {
+			ic.UsedBy = &usedBy.String
+		}
+		if usedAt.Valid {
+			t := time.Unix(usedAt.Int64, 0)
+			ic.UsedAt = &t
+		}
+		if maxUses.Valid {
+			mu := int(maxUses.Int64)
+			ic.MaxUses = &mu
+		}
+		ic.ExpiresAt = time.Unix(exp, 0)
+		ic.CreatedAt = time.Unix(created, 0)
+		out = append(out, ic)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) RevokeInvite(ctx context.Context, code string) error {
+	_, err := r.DB.ExecContext(ctx, `DELETE FROM invite_codes WHERE code = ?`, code)
+	return err
 }
 
 // --- memberships ---
@@ -197,26 +270,29 @@ func (r *Repo) CreateMembership(ctx context.Context, tx *sql.Tx, m Membership) e
 	if tx != nil {
 		exec = tx.ExecContext
 	}
-	var banned sql.NullInt64
+	var banned, approved sql.NullInt64
 	if m.BannedUntil != nil {
 		banned = sql.NullInt64{Int64: m.BannedUntil.Unix(), Valid: true}
 	}
+	if m.ApprovedAt != nil {
+		approved = sql.NullInt64{Int64: m.ApprovedAt.Unix(), Valid: true}
+	}
 	_, err := exec(ctx, `
-		INSERT INTO memberships (id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.UserID, m.CommunityID, m.DisplayName, m.AvatarURL, string(m.Role), m.TrustLevel, banned, time.Now().Unix())
+		INSERT INTO memberships (id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.UserID, m.CommunityID, m.DisplayName, m.AvatarURL, string(m.Role), m.TrustLevel, banned, approved, time.Now().Unix())
 	return err
 }
 
 func (r *Repo) MembershipFor(ctx context.Context, userID, communityID string) (Membership, error) {
 	var m Membership
 	var role string
-	var banned sql.NullInt64
+	var banned, approved sql.NullInt64
 	var created int64
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, created_at
+		SELECT id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at
 		FROM memberships WHERE user_id = ? AND community_id = ?`, userID, communityID).
-		Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL, &role, &m.TrustLevel, &banned, &created)
+		Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL, &role, &m.TrustLevel, &banned, &approved, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Membership{}, ErrNotFound
 	}
@@ -227,6 +303,10 @@ func (r *Repo) MembershipFor(ctx context.Context, userID, communityID string) (M
 	if banned.Valid {
 		t := time.Unix(banned.Int64, 0)
 		m.BannedUntil = &t
+	}
+	if approved.Valid {
+		t := time.Unix(approved.Int64, 0)
+		m.ApprovedAt = &t
 	}
 	m.CreatedAt = time.Unix(created, 0)
 	return m, nil
@@ -251,4 +331,161 @@ func (r *Repo) UpdateBan(ctx context.Context, membershipID string, until *time.T
 	}
 	_, err := r.DB.ExecContext(ctx, `UPDATE memberships SET banned_until = ? WHERE id = ?`, v, membershipID)
 	return err
+}
+
+// ApproveMembership stamps approved_at = NOW, letting the user past the
+// /pending gate.
+func (r *Repo) ApproveMembership(ctx context.Context, membershipID string) error {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE memberships SET approved_at = ? WHERE id = ? AND approved_at IS NULL`,
+		time.Now().Unix(), membershipID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RejectMembership deletes the membership row outright. The user account
+// stays around but they're no longer a member of the community. They can
+// re-register with a fresh invite if they want.
+func (r *Repo) RejectMembership(ctx context.Context, membershipID string) error {
+	_, err := r.DB.ExecContext(ctx, `DELETE FROM memberships WHERE id = ?`, membershipID)
+	return err
+}
+
+// MemberRow joins memberships with users so the admin UI can show emails.
+type MemberRow struct {
+	Membership
+	Email string
+}
+
+// ListPendingMemberships returns memberships with approved_at IS NULL —
+// these are the join requests awaiting admin review.
+func (r *Repo) ListPendingMemberships(ctx context.Context, communityID string) ([]MemberRow, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT m.id, m.user_id, m.community_id, m.display_name, m.avatar_url, m.role,
+		       m.trust_level, m.banned_until, m.approved_at, m.created_at, u.email
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.community_id = ? AND m.approved_at IS NULL
+		ORDER BY m.created_at ASC`, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMemberRows(rows)
+}
+
+// ListMembers returns approved memberships for the admin UI.
+func (r *Repo) ListMembers(ctx context.Context, communityID string) ([]MemberRow, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT m.id, m.user_id, m.community_id, m.display_name, m.avatar_url, m.role,
+		       m.trust_level, m.banned_until, m.approved_at, m.created_at, u.email
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.community_id = ? AND m.approved_at IS NOT NULL
+		ORDER BY m.display_name ASC`, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMemberRows(rows)
+}
+
+func scanMemberRows(rows *sql.Rows) ([]MemberRow, error) {
+	var out []MemberRow
+	for rows.Next() {
+		var m Membership
+		var role string
+		var banned, approved sql.NullInt64
+		var created int64
+		var email string
+		if err := rows.Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL,
+			&role, &m.TrustLevel, &banned, &approved, &created, &email); err != nil {
+			return nil, err
+		}
+		m.Role = Role(role)
+		if banned.Valid {
+			t := time.Unix(banned.Int64, 0)
+			m.BannedUntil = &t
+		}
+		if approved.Valid {
+			t := time.Unix(approved.Int64, 0)
+			m.ApprovedAt = &t
+		}
+		m.CreatedAt = time.Unix(created, 0)
+		out = append(out, MemberRow{Membership: m, Email: email})
+	}
+	return out, rows.Err()
+}
+
+// CleanupOptions toggles which content a ban should wipe.
+type CleanupOptions struct {
+	Chat    bool
+	Threads bool
+	Posts   bool
+}
+
+// CleanupUserContent soft-deletes the user's content per the supplied
+// options. Soft-delete preserves audit trail (mod-visible content stays).
+func (r *Repo) CleanupUserContent(ctx context.Context, userID, communityID string, opts CleanupOptions) error {
+	now := time.Now().Unix()
+	if opts.Chat {
+		if _, err := r.DB.ExecContext(ctx, `
+			UPDATE chat_messages SET deleted_at = ?
+			WHERE author_id = ? AND community_id = ? AND deleted_at IS NULL`,
+			now, userID, communityID); err != nil {
+			return fmt.Errorf("cleanup chat: %w", err)
+		}
+	}
+	if opts.Threads {
+		if _, err := r.DB.ExecContext(ctx, `
+			UPDATE threads SET deleted_at = ?
+			WHERE author_id = ? AND community_id = ? AND deleted_at IS NULL`,
+			now, userID, communityID); err != nil {
+			return fmt.Errorf("cleanup threads: %w", err)
+		}
+	}
+	if opts.Posts {
+		if _, err := r.DB.ExecContext(ctx, `
+			UPDATE posts SET deleted_at = ?
+			WHERE author_id = ? AND deleted_at IS NULL
+			AND thread_id IN (SELECT id FROM threads WHERE community_id = ?)`,
+			now, userID, communityID); err != nil {
+			return fmt.Errorf("cleanup posts: %w", err)
+		}
+	}
+	return nil
+}
+
+// MembershipByID is needed by admin operations that come in via signal/ID.
+func (r *Repo) MembershipByID(ctx context.Context, id string) (Membership, error) {
+	var m Membership
+	var role string
+	var banned, approved sql.NullInt64
+	var created int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at
+		FROM memberships WHERE id = ?`, id).
+		Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL, &role, &m.TrustLevel, &banned, &approved, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Membership{}, ErrNotFound
+	}
+	if err != nil {
+		return Membership{}, err
+	}
+	m.Role = Role(role)
+	if banned.Valid {
+		t := time.Unix(banned.Int64, 0)
+		m.BannedUntil = &t
+	}
+	if approved.Valid {
+		t := time.Unix(approved.Int64, 0)
+		m.ApprovedAt = &t
+	}
+	m.CreatedAt = time.Unix(created, 0)
+	return m, nil
 }

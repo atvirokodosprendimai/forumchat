@@ -22,6 +22,8 @@ type Handler struct {
 	Svc           *Service
 	Repo          *Repo
 	Chat          *chat.Service
+	ChatRepo      *chat.Repo
+	ChatBus       *chat.Bus
 	NATS          *nats.Conn
 	CommunityID   string
 	CommunityName string
@@ -227,6 +229,83 @@ func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/forum")
+}
+
+// PostPromoteChat takes a chat message id and creates a forum thread whose
+// subject + body come from that message. Author of the chat message OR
+// mod/admin may promote. The original chat message stays put; the new
+// thread fires the usual chat thread_announce via h.Chat.PostSystem.
+func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	msgID := r.URL.Query().Get("id")
+	if msgID == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if h.ChatRepo == nil {
+		http.Error(w, "promotion not wired", http.StatusInternalServerError)
+		return
+	}
+	msg, err := h.ChatRepo.ByID(r.Context(), msgID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	authorMatch := msg.AuthorID != nil && *msg.AuthorID == id.User.ID
+	if !authorMatch && !id.Membership.Role.AtLeast(auth.RoleMod) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	subject := strings.TrimSpace(firstLine(msg.BodyMarkdown))
+	if subject == "" {
+		http.Error(w, "empty message", http.StatusBadRequest)
+		return
+	}
+	if len(subject) > 200 {
+		subject = subject[:200]
+	}
+	t, err := h.Svc.CreateThread(r.Context(), CreateThreadInput{
+		CommunityID:  h.CommunityID,
+		AuthorID:     id.User.ID,
+		Subject:      subject,
+		BodyMarkdown: msg.BodyMarkdown,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if h.Chat != nil {
+		link := fmt.Sprintf(`%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), t.ID)
+		announceHTML := fmt.Sprintf(
+			`<strong>%s</strong> started thread: <a href="%s">%s</a>`,
+			htmlEscape(id.Membership.DisplayName), htmlEscape(link), htmlEscape(t.Subject),
+		)
+		threadID := t.ID
+		_, err := h.Chat.PostSystem(r.Context(), h.CommunityID, announceHTML, chat.KindThreadAnnounce, &threadID)
+		if err != nil {
+			h.Log.Error("promote thread-announce", "err", err)
+		}
+	}
+	// Refresh open chat tabs so the thread_announce shows up live.
+	if h.ChatBus != nil {
+		h.ChatBus.Broadcast()
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/forum/" + t.ID)
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {

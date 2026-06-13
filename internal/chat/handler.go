@@ -20,6 +20,7 @@ type Handler struct {
 	Svc           *Service
 	Repo          *Repo
 	NATS          *nats.Conn
+	Bus           *Bus
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
@@ -35,8 +36,6 @@ func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 	return v
 }
 
-// loadRecent pulls the latest N messages and returns them as MsgView in
-// newest-first order (the template renders them reversed).
 func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
 	msgs, err := h.Repo.Recent(ctx, h.CommunityID, RecentLimit)
 	if err != nil {
@@ -46,17 +45,11 @@ func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
 }
 
 // fatMorph emits the chat patches the UI expects:
-//   1. #messages outer-morph → full latest-N list (idiomorph diffs children).
+//   1. #messages outer-morph → full latest-N list.
 //   2. ExecuteScript → scroll #messages to its own bottom.
-//
-// Why not a separate scroll-anchor div with data-init? Outer-morph with the
-// same id doesn't re-mount the element so data-init never re-fires. Also
-// #messages has its own overflow-y: auto — scrolling a sibling into view
-// scrolls the page, not the chat container. ExecuteScript on the container
-// itself is unambiguous and reliable.
-func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool) error {
+func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool, currentUserID string) error {
 	if err := sse.PatchElementTempl(
-		webtempl.MessagesContainer(views, isMod),
+		webtempl.MessagesContainer(views, isMod, currentUserID),
 		datastar.WithModeOuter(),
 	); err != nil {
 		return err
@@ -64,6 +57,17 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 	return sse.ExecuteScript(
 		`document.querySelector('#messages')?.scrollTo({top: 1e9, behavior: 'smooth'})`,
 	)
+}
+
+// broadcast fans out a chat-changed signal locally (this process) AND over
+// NATS (other processes). Either may be down; the other still works.
+func (h *Handler) broadcast() {
+	if h.Bus != nil {
+		h.Bus.Broadcast()
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
+	}
 }
 
 func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
@@ -78,14 +82,16 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = webtempl.ChatPage(webtempl.ChatPageData{
-		Viewer:   h.viewer(r),
-		IsMod:    id.Membership.Role.AtLeast(auth.RoleMod),
-		Messages: views,
+		Viewer:        h.viewer(r),
+		IsMod:         id.Membership.Role.AtLeast(auth.RoleMod),
+		CurrentUserID: id.User.ID,
+		Messages:      views,
 	}).Render(r.Context(), w)
 }
 
 type sendSignals struct {
-	Body string `json:"body"`
+	Body       string `json:"body"`
+	ReplyToID  string `json:"reply_to_id"`
 }
 
 func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
@@ -104,27 +110,28 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	if body == "" || len(body) > 4000 {
 		return
 	}
+	var replyTo *string
+	if rid := strings.TrimSpace(in.ReplyToID); rid != "" {
+		replyTo = &rid
+	}
 	if _, err := h.Svc.Send(r.Context(), SendInput{
 		CommunityID:  h.CommunityID,
 		AuthorID:     id.User.ID,
 		BodyMarkdown: body,
+		ReplyToID:    replyTo,
 	}); err != nil {
 		h.Log.Error("send", "err", err)
 		return
 	}
 
-	// 1. Fat-morph the latest 100 to the sender.
 	views, err := h.loadRecent(r.Context())
 	if err == nil {
-		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod))
+		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID)
 	}
-	// 2. Clear composer signal.
-	_ = sse.PatchSignals([]byte(`{"body":""}`))
+	// Clear composer signals.
+	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":""}`))
 
-	// 3. Ping NATS so other open tabs refetch + fat-morph too.
-	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
-	}
+	h.broadcast()
 }
 
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
@@ -136,33 +143,39 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 	sse := datastar.NewSSE(w, r)
 
-	if h.NATS == nil || !h.NATS.IsConnected() {
-		<-r.Context().Done()
-		return
+	local, unsubscribe := h.Bus.Subscribe()
+	defer unsubscribe()
+
+	var natsCh chan *nats.Msg
+	if h.NATS != nil && h.NATS.IsConnected() {
+		natsCh = make(chan *nats.Msg, 32)
+		sub, err := h.NATS.ChanSubscribe(natsx.ChatSubject(h.CommunityID), natsCh)
+		if err == nil {
+			defer sub.Unsubscribe()
+		} else {
+			h.Log.Warn("nats subscribe", "err", err)
+			natsCh = nil
+		}
 	}
-	ch := make(chan *nats.Msg, 32)
-	sub, err := h.NATS.ChanSubscribe(natsx.ChatSubject(h.CommunityID), ch)
-	if err != nil {
-		h.Log.Error("nats subscribe", "err", err)
-		return
-	}
-	defer sub.Unsubscribe()
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case _, ok := <-ch:
+		case <-local:
+			// fall through to refresh
+		case _, ok := <-natsCh:
 			if !ok {
-				return
-			}
-			views, err := h.loadRecent(r.Context())
-			if err != nil {
+				natsCh = nil
 				continue
 			}
-			if err := fatMorph(sse, views, isMod); err != nil {
-				return
-			}
+		}
+		views, err := h.loadRecent(r.Context())
+		if err != nil {
+			continue
+		}
+		if err := fatMorph(sse, views, isMod, id.User.ID); err != nil {
+			return
 		}
 	}
 }
@@ -186,16 +199,15 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	views, err := h.loadRecent(r.Context())
 	if err == nil {
-		_ = fatMorph(sse, views, true)
+		_ = fatMorph(sse, views, true, id.User.ID)
 	}
-	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
-	}
+	h.broadcast()
 }
 
 func toMsgView(m Message) webtempl.MsgView {
-	return webtempl.MsgView{
+	v := webtempl.MsgView{
 		ID:           m.ID,
+		AuthorID:     valueOrEmpty(m.AuthorID),
 		AuthorName:   m.AuthorName,
 		AuthorAvatar: m.AuthorAvatar,
 		Kind:         webtempl.MsgKind(m.Kind),
@@ -203,6 +215,14 @@ func toMsgView(m Message) webtempl.MsgView {
 		CreatedAt:    m.CreatedAt,
 		Deleted:      m.IsDeleted(),
 	}
+	if m.ReplyTo != nil {
+		v.ReplyTo = &webtempl.ReplySnippet{
+			ID:         m.ReplyTo.ID,
+			AuthorName: m.ReplyTo.AuthorName,
+			Snippet:    m.ReplyTo.Snippet,
+		}
+	}
+	return v
 }
 
 func toMsgViews(ms []Message) []webtempl.MsgView {
@@ -211,4 +231,11 @@ func toMsgViews(ms []Message) []webtempl.MsgView {
 		out = append(out, toMsgView(m))
 	}
 	return out
+}
+
+func valueOrEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }

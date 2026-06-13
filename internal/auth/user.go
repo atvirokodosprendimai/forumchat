@@ -33,17 +33,25 @@ type User struct {
 }
 
 type Membership struct {
-	ID           string
-	UserID       string
-	CommunityID  string
-	DisplayName  string
-	AvatarURL    string
-	Role         Role
-	TrustLevel   int
-	BannedUntil  *time.Time
-	CreatedAt    time.Time
+	ID          string
+	UserID      string
+	CommunityID string
+	DisplayName string
+	AvatarURL   string
+	Role        Role
+	TrustLevel  int
+	BannedUntil *time.Time
+	ApprovedAt  *time.Time
+	CreatedAt   time.Time
 }
 
 func (m Membership) IsBanned(now time.Time) bool {
 	return m.BannedUntil != nil && m.BannedUntil.After(now)
+}
+
+// IsApproved reports whether an admin has approved this membership. New
+// memberships start with approved_at = NULL and stay there until /admin
+// approves the join request.
+func (m Membership) IsApproved() bool {
+	return m.ApprovedAt != nil
 }

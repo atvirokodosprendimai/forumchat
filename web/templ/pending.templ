@@ -1,0 +1,14 @@
+package templ
+
+templ PendingPage(v Viewer) {
+	@Layout("Awaiting review", v) {
+		<section class="card narrow">
+			<h1>Your request is in the queue</h1>
+			<p>An admin will review your join request shortly. You'll be able to
+			access chat and forum as soon as you're approved.</p>
+			<p class="muted">Hello, <strong>{ v.DisplayName }</strong>. This page
+			auto-refreshes every 30 seconds.</p>
+			<meta http-equiv="refresh" content="30"/>
+		</section>
+	}
+}

@@ -221,6 +221,45 @@ When you add a new page handler, **always** thread a `Viewer` through to
 
 ---
 
+## 5b. Membership approval queue (Discord-style)
+
+`memberships.approved_at` (added in migration 00002) gates access. Verified
+users get a row with `approved_at = NULL` and are bounced to `/pending` by
+the `auth.RequireApproved` middleware until an admin clicks Approve in
+`/admin`. Admins bypass the check (so they can reach `/admin` to approve
+the queue in the first place).
+
+Bootstrap rules:
+- The CLI `forumchat-cli role <email> admin` makes a user an admin
+  regardless of `approved_at`. Use it once to seed the first admin.
+- The admin can then self-approve via the UI.
+
+Invite codes (also migration 00002) gained `max_uses` and `uses_count`:
+- `max_uses = NULL` → unlimited reuses (Discord-style).
+- `max_uses = N`   → rejected after N consumers (still useful for one-off
+  invites).
+- `uses_count` increments on every consume; `used_by` / `used_at` stamp the
+  first consumer for legacy lookup.
+
+Use `auth.Service.IssueInvite(ctx, communityID, createdBy, maxUses)` —
+`maxUses` is `*int`, pass `nil` for unlimited.
+
+## 5c. Ban + content cleanup
+
+`POST /admin/ban?id=<membership_id>` reads four boolean signals
+(`cleanup_chat`, `cleanup_threads`, `cleanup_posts`, `ban_hours`) and:
+
+1. Stamps `memberships.banned_until` with `now + ban_hours` (or year 9999 if
+   `ban_hours = 0`).
+2. Calls `auth.Repo.CleanupUserContent(userID, communityID, opts)` which
+   soft-deletes the banned user's chat messages / threads / posts per the
+   options.
+3. If any chat was wiped, pings `chat.Bus.Broadcast()` so every open chat
+   tab fat-morphs.
+
+The CLI mirrors this: `forumchat-cli ban <email> [duration] [cleanup]`
+where `cleanup` is `chat,threads,posts` or `all`.
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing
@@ -259,6 +298,48 @@ is the unambiguous and reliable form. It runs every time the patch lands and
 addresses the scroll container directly. For the INITIAL page load (no SSE,
 just rendered HTML), the `data-init` on the messages container itself handles
 the first scroll.
+
+### 6.3a In-process Bus + NATS
+
+A subtle bug: when NATS is unreachable, `Publish` silently no-ops, so
+multi-tab updates within the same process never fire. Fix: every chat
+write path calls **both**:
+
+- `chat.Bus.Broadcast()`  — fans out to every open SSE stream in *this*
+  process via an in-memory channel map.
+- `nats.Conn.Publish(subject, []byte("changed"))` — fans out across
+  processes when NATS is up.
+
+`chat.Handler.GetStream` subscribes to **both** the local Bus and the NATS
+channel and calls `loadRecent` + `fatMorph` on any signal from either.
+Same-process realtime works without NATS; cross-process realtime works
+when NATS is up.
+
+This is also why `chat.Handler.PostDelete` works for non-mod viewers in
+the same process — the mod's delete triggers the Bus, every chat SSE
+stream refetches, and the non-mod sees the `[message removed]` placeholder
+that `MessageView` renders when `m.Deleted && !isMod`.
+
+### 6.3b Chat replies + promote-to-thread
+
+`chat_messages.reply_to_id` (migration 00002) lets a message reference an
+earlier message in the same channel. The signal `$reply_to_id` is set by
+the per-bubble `reply` button (`data-on:click="$reply_to_id = '<msg-id>'"`)
+and read by `PostSend` from the request body. The composer shows a small
+"Replying — …id" hint via `data-show="$reply_to_id !== ''"` and a cancel
+button that clears the signal back to `''`. The `Send` handler clears
+both `body` and `reply_to_id` via `PatchSignals`.
+
+Rendered replies show a small `<blockquote>` snippet (≤ 80 chars of the
+parent's body_md, eagerly JOINed in `Repo.listBefore`).
+
+Chat → forum promotion: each non-system bubble carries a `→ thread`
+button visible when the viewer is the author OR mod/admin. It posts to
+`/forum/promote-chat?id=<msg-id>`, which loads the message via
+`chat.Repo.ByID`, builds a thread (subject = first line, body = full
+markdown), and rides the normal forum→chat bridge to publish a
+`thread_announce` back into the channel. `chat.Bus.Broadcast()` plus the
+NATS publish ensure open tabs refresh.
 
 ### 6.4 NATS as a signal, not a payload
 
@@ -330,10 +411,14 @@ one writer at a time. Don't bump this without understanding WAL contention.
 
 ## 9. scs sessions — in summary
 
-- Using `scs/v2` with **memstore** in MVP. Sessions don't survive restart.
-  For multi-instance / persistence, write a custom `scs.Store` against the
-  modernc driver. `scs/sqlite3store` is **incompatible** because it uses
-  CGO `mattn/go-sqlite3`.
+- `scs/v2` with a **SQLite-backed store** (`internal/auth/sqlstore.go`) so
+  sessions survive process restart. `scs/sqlite3store` is incompatible
+  because it depends on CGO `mattn/go-sqlite3`; ours uses the project's
+  modernc handle directly.
+- `NewSQLStore` self-heals: it runs `CREATE TABLE IF NOT EXISTS sessions`
+  in its constructor so the store works even when migration 00002 hasn't
+  been applied yet. Migration 00002 still creates the table + index, the
+  self-heal is the belt-and-braces.
 - Cookie name: `forumchat_session`. HttpOnly, SameSite=Lax. `Secure` flag
   set automatically when `ENV=prod`.
 - Identity is loaded in `auth.Loader` middleware, surfaced via

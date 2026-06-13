@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pkill -9 -f bin/forumchat)",
+      "Bash(rm -f tmp/* tmp/smoke.db*)",
+      "Bash(./bin/forumchat)",
+      "Bash(./bin/forumchat-cli invite *)",
+      "Bash(rm -f tmp/* tmp/smoke.db* tmp/data/* tmp/uploads/*)",
+      "Bash(export ENV=dev HTTP_ADDR=:29494 DB_PATH=./tmp/smoke.db NATS_URL=nats://127.0.0.1:65000 \\\\ *)"
+    ]
+  }
+}

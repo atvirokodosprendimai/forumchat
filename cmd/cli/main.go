@@ -24,11 +24,33 @@ func usage() {
 	fmt.Fprint(os.Stderr, `forumchat-cli — administrative commands
 
 usage:
-  forumchat-cli invite [count]                  create N invite codes for bootstrap community (default 1)
+  forumchat-cli invite [count] [max-uses]       create N invite codes (default 1); max-uses optional, omit for unlimited
   forumchat-cli role <email> <member|moderator|admin>
-  forumchat-cli ban <email> [duration]          ban member; duration like 24h, omit for permanent
+  forumchat-cli ban <email> [duration] [cleanup]
+        ban member; duration like 24h or "-" for permanent
+        cleanup: comma-separated subset of chat,threads,posts or "all"
+        e.g. forumchat-cli ban abuser@example.com - all
   forumchat-cli unban <email>
 `)
+}
+
+func parseCleanup(s string) []string {
+	var out []string
+	cur := ""
+	for _, ch := range s {
+		if ch == ',' {
+			if cur != "" {
+				out = append(out, cur)
+			}
+			cur = ""
+			continue
+		}
+		cur += string(ch)
+	}
+	if cur != "" {
+		out = append(out, cur)
+	}
+	return out
 }
 
 func run() error {
@@ -69,14 +91,22 @@ func run() error {
 	switch os.Args[1] {
 	case "invite":
 		n := 1
+		var maxUses *int
 		if len(os.Args) >= 3 {
 			fmt.Sscanf(os.Args[2], "%d", &n)
 			if n < 1 {
 				n = 1
 			}
 		}
+		// Optional third arg = max-uses per code. Default unlimited (Discord-style).
+		if len(os.Args) >= 4 {
+			v := 0
+			if _, err := fmt.Sscanf(os.Args[3], "%d", &v); err == nil && v > 0 {
+				maxUses = &v
+			}
+		}
 		for i := 0; i < n; i++ {
-			code, err := svc.IssueInvite(ctx, c.ID, nil)
+			code, err := svc.IssueInvite(ctx, c.ID, nil, maxUses)
 			if err != nil {
 				return err
 			}
@@ -106,11 +136,11 @@ func run() error {
 	case "ban":
 		if len(os.Args) < 3 {
 			usage()
-			return errors.New("usage: ban <email> [duration]")
+			return errors.New("usage: ban <email> [duration] [cleanup]")
 		}
 		email := os.Args[2]
 		var until *time.Time
-		if len(os.Args) >= 4 {
+		if len(os.Args) >= 4 && os.Args[3] != "" && os.Args[3] != "-" {
 			d, err := time.ParseDuration(os.Args[3])
 			if err != nil {
 				return err
@@ -120,6 +150,23 @@ func run() error {
 		} else {
 			t := time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 			until = &t
+		}
+		// Optional fourth arg: comma-separated cleanup list.
+		// e.g. "chat,threads,posts" or "all" to wipe everything.
+		var opts auth.CleanupOptions
+		if len(os.Args) >= 5 {
+			for _, k := range parseCleanup(os.Args[4]) {
+				switch k {
+				case "chat":
+					opts.Chat = true
+				case "threads":
+					opts.Threads = true
+				case "posts":
+					opts.Posts = true
+				case "all":
+					opts.Chat, opts.Threads, opts.Posts = true, true, true
+				}
+			}
 		}
 		u, err := aRepo.UserByEmail(ctx, email)
 		if err != nil {
@@ -132,7 +179,13 @@ func run() error {
 		if err := aRepo.UpdateBan(ctx, m.ID, until); err != nil {
 			return err
 		}
-		fmt.Printf("banned %s until %s\n", email, until.Format(time.RFC3339))
+		if opts.Chat || opts.Threads || opts.Posts {
+			if err := aRepo.CleanupUserContent(ctx, u.ID, c.ID, opts); err != nil {
+				return fmt.Errorf("cleanup: %w", err)
+			}
+		}
+		fmt.Printf("banned %s until %s (cleanup: chat=%v threads=%v posts=%v)\n",
+			email, until.Format(time.RFC3339), opts.Chat, opts.Threads, opts.Posts)
 	case "unban":
 		if len(os.Args) < 3 {
 			return errors.New("usage: unban <email>")

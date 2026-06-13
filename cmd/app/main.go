@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/httprate"
 	"github.com/nats-io/nats.go"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/admin"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
@@ -95,6 +96,8 @@ func run() error {
 		InviteTTL: 30 * 24 * time.Hour,
 	}
 	sessions := auth.NewSessionManager(cfg.SessionMaxAge, cfg.IsProd())
+	// Persistent sessions in SQLite so users stay signed in across restarts.
+	sessions.Store = auth.NewSQLStore(ctx, db)
 	authHandler := &auth.Handler{
 		Svc:           svc,
 		Repo:          aRepo,
@@ -145,10 +148,12 @@ func run() error {
 
 	chatRepo := chat.NewRepo(db)
 	chatSvc := chat.NewService(chatRepo)
+	chatBus := chat.NewBus()
 	chatHandler := &chat.Handler{
 		Svc:           chatSvc,
 		Repo:          chatRepo,
 		NATS:          nc,
+		Bus:           chatBus,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
@@ -180,6 +185,8 @@ func run() error {
 		Svc:           forumSvc,
 		Repo:          forumRepo,
 		Chat:          chatSvc,
+		ChatRepo:      chatRepo,
+		ChatBus:       chatBus,
 		NATS:          nc,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
@@ -187,10 +194,27 @@ func run() error {
 		Log:           log,
 	}
 
+	adminHandler := &admin.Handler{
+		Repo:          aRepo,
+		Svc:           svc,
+		Chat:          chatHandler,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		Log:           log,
+	}
+
+	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
+		r.Get("/pending", authHandler.GetPending)
 		r.Get("/profile", authHandler.GetProfile)
 		r.Post("/profile", authHandler.PostProfile)
+	})
+
+	// Approved-members area: chat, forum, uploads, presence.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireApproved)
 
 		r.Get("/chat", chatHandler.GetPage)
 		r.Post("/chat/send", chatHandler.PostSend)
@@ -208,11 +232,25 @@ func run() error {
 		r.Post("/forum/{id}/reply", forumHandler.PostReply)
 		r.Post("/forum/{id}/delete", forumHandler.PostDeleteThread)
 		r.Post("/forum/post/{id}/delete", forumHandler.PostDeletePost)
+		r.Post("/forum/promote-chat", forumHandler.PostPromoteChat)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))
 			r.Post("/chat/delete", chatHandler.PostDelete)
 		})
+	})
+
+	// Admin area.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireRole(auth.RoleAdmin))
+		r.Get("/admin", adminHandler.GetIndex)
+		r.Post("/admin/approve", adminHandler.PostApprove)
+		r.Post("/admin/reject", adminHandler.PostReject)
+		r.Post("/admin/ban", adminHandler.PostBan)
+		r.Post("/admin/unban", adminHandler.PostUnban)
+		r.Post("/admin/invite", adminHandler.PostInvite)
+		r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
 	})
 
 	r.Get("/", func(w http.ResponseWriter, req *http.Request) {

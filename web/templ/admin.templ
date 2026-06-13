@@ -1,0 +1,171 @@
+package templ
+
+import "time"
+
+type AdminInvite struct {
+	Code       string
+	MaxUsesStr string // "unlimited" or "3"
+	UsesCount  int
+	ExpiresAt  time.Time
+	CreatedAt  time.Time
+}
+
+type AdminMember struct {
+	MembershipID string
+	UserID       string
+	Email        string
+	DisplayName  string
+	Role         string
+	IsBanned     bool
+	BannedUntil  *time.Time
+	IsApproved   bool
+	CreatedAt    time.Time
+}
+
+type AdminPageData struct {
+	Viewer  Viewer
+	Pending []AdminMember
+	Members []AdminMember
+	Invites []AdminInvite
+}
+
+templ AdminPage(d AdminPageData) {
+	@Layout("Admin", d.Viewer) {
+		<section>
+			<h1>Admin — { d.Viewer.CommunityName }</h1>
+			<p class="muted"><a href="/admin">refresh</a></p>
+
+			<h2>Pending join requests ({ itoa(len(d.Pending)) })</h2>
+			<div id="admin-pending">
+				@AdminPending(d.Pending)
+			</div>
+
+			<h2>Members ({ itoa(len(d.Members)) })</h2>
+			<div id="admin-members">
+				@AdminMembers(d.Members)
+			</div>
+
+			<h2>Invite codes</h2>
+			<div id="admin-invite-new" class="card narrow">
+				<h3>New invite</h3>
+				<div id="admin-invite-error" class="error"></div>
+				<div class="field">
+					<label>Max uses (blank = unlimited)</label>
+					<input type="number" data-bind="max_uses" min="1" placeholder="e.g. 5 — leave blank for Discord-style unlimited"/>
+				</div>
+				<button data-on:click="@post('/admin/invite')">Create code</button>
+			</div>
+			<div id="admin-invites">
+				@AdminInvites(d.Invites)
+			</div>
+		</section>
+	}
+}
+
+templ AdminPending(rows []AdminMember) {
+	<div id="admin-pending">
+		if len(rows) == 0 {
+			<p class="muted">No pending requests.</p>
+		}
+		<ul class="thread-list">
+			for _, m := range rows {
+				<li>
+					<strong>{ m.DisplayName }</strong> ({ m.Email }) · <span class="muted">{ fmtTime(m.CreatedAt) }</span>
+					<div style="margin-top:.4rem">
+						<button data-on:click={ "@post('/admin/approve?id=" + m.MembershipID + "')" }>Approve</button>
+						<button class="ghost"
+							data-on:click={ "@post('/admin/reject?id=" + m.MembershipID + "')" }>Reject</button>
+					</div>
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+templ AdminMembers(rows []AdminMember) {
+	<div id="admin-members">
+		<ul class="thread-list">
+			for _, m := range rows {
+				<li>
+					<strong>{ m.DisplayName }</strong> ({ m.Email }) ·
+					<span class="muted">{ m.Role } · joined { fmtTime(m.CreatedAt) }</span>
+					if m.IsBanned {
+						<span class="error"> · BANNED</span>
+					}
+					<div style="margin-top:.4rem" class="primary-nav">
+						if !m.IsBanned {
+							@BanForm(m.MembershipID)
+						} else {
+							<button data-on:click={ "@post('/admin/unban?id=" + m.MembershipID + "')" }>Unban</button>
+						}
+					</div>
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+// BanForm is the inline checkbox form on the admin member list. Each member
+// gets its own copy with the membership_id baked into the click expression
+// (no per-row signal hassle).
+templ BanForm(membershipID string) {
+	<details>
+		<summary class="link-button" style="cursor:pointer">Ban…</summary>
+		<div style="margin-top:.5rem" data-signals={ "{cleanup_chat:false,cleanup_threads:false,cleanup_posts:false,ban_hours:0}" }>
+			<label><input type="checkbox" data-bind="cleanup_chat"/> delete chat messages</label><br/>
+			<label><input type="checkbox" data-bind="cleanup_threads"/> delete forum threads</label><br/>
+			<label><input type="checkbox" data-bind="cleanup_posts"/> delete forum replies</label><br/>
+			<label>Duration (hours, 0 = permanent): <input type="number" data-bind="ban_hours" min="0" style="width:6em"/></label><br/>
+			<button class="ghost" style="margin-top:.4rem"
+				data-on:click={ "@post('/admin/ban?id=" + membershipID + "')" }>Confirm ban</button>
+		</div>
+	</details>
+}
+
+templ AdminInvites(rows []AdminInvite) {
+	<div id="admin-invites">
+		<table style="width:100%;border-collapse:collapse">
+			<thead>
+				<tr><th align="left">Code</th><th>Used</th><th>Cap</th><th>Expires</th><th></th></tr>
+			</thead>
+			<tbody>
+				for _, ic := range rows {
+					<tr>
+						<td><code>{ ic.Code }</code></td>
+						<td align="center">{ itoa(ic.UsesCount) }</td>
+						<td align="center">{ ic.MaxUsesStr }</td>
+						<td align="center" class="muted">{ fmtTime(ic.ExpiresAt) }</td>
+						<td><button class="ghost"
+							data-on:click={ "@post('/admin/invite/revoke?code=" + ic.Code + "')" }>revoke</button></td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+templ AdminInviteCreated(code string) {
+	<div id="admin-invite-error" class="success">Created: <code>{ code }</code></div>
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	negative := n < 0
+	if negative {
+		n = -n
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if negative {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
+}

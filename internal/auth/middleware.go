@@ -101,3 +101,22 @@ func RequireRole(min Role) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// RequireApproved bounces signed-in but unapproved members to /pending.
+// Mount this middleware in front of routes that require a fully-active
+// member (chat, forum, uploads, profile). Login + /pending itself bypass it.
+// Admins always pass — they need to reach /admin to approve queued joins.
+func RequireApproved(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := FromContext(r.Context())
+		if !ok {
+			http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
+			return
+		}
+		if id.Membership.IsApproved() || id.Membership.Role.AtLeast(RoleAdmin) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.Redirect(w, r, "/pending", http.StatusSeeOther)
+	})
+}
