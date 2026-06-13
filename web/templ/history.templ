@@ -1,0 +1,168 @@
+package templ
+
+import (
+	"fmt"
+	"time"
+)
+
+type HistorySource string
+
+const (
+	HistorySourceChat   HistorySource = "chat"
+	HistorySourceThread HistorySource = "thread"
+	HistorySourceReply  HistorySource = "reply"
+)
+
+type HistoryEvent struct {
+	Source        HistorySource
+	CreatedAt     time.Time
+	AuthorName    string
+	Title         string
+	BodyHTML      string
+	Link          string
+	Kind          string // chat kind (user|system|thread_announce)
+	ThreadSubject string
+}
+
+type HistoryDay struct {
+	Date       time.Time
+	DateKey    string // YYYY-MM-DD
+	InMonth    bool
+	HasActive  bool
+	IsSelected bool
+}
+
+type HistoryWeek struct {
+	Days [7]HistoryDay
+}
+
+type HistoryPageData struct {
+	Viewer       Viewer
+	SelectedDay  time.Time
+	CalendarBase time.Time // first of month being viewed
+	Calendar     []HistoryWeek
+	PrevMonth    time.Time
+	NextMonth    time.Time
+	PrevDay      time.Time
+	NextDay      time.Time
+	Today        time.Time
+	Events       []HistoryEvent
+}
+
+func histDayHref(day time.Time, calendarBase time.Time) string {
+	return fmt.Sprintf("/history?d=%s&m=%s", day.Format("2006-01-02"), calendarBase.Format("2006-01"))
+}
+
+func histMonthHref(month time.Time, selected time.Time) string {
+	return fmt.Sprintf("/history?d=%s&m=%s", selected.Format("2006-01-02"), month.Format("2006-01"))
+}
+
+func histDayCellClass(d HistoryDay) string {
+	parts := []string{"cal-day"}
+	if !d.InMonth {
+		parts = append(parts, "cal-out")
+	}
+	if d.HasActive {
+		parts = append(parts, "cal-active")
+	}
+	if d.IsSelected {
+		parts = append(parts, "cal-selected")
+	}
+	return joinClasses(parts)
+}
+
+func joinClasses(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += " "
+		}
+		out += p
+	}
+	return out
+}
+
+func histSourceLabel(s HistorySource) string {
+	switch s {
+	case HistorySourceChat:
+		return "chat"
+	case HistorySourceThread:
+		return "new thread"
+	case HistorySourceReply:
+		return "reply"
+	}
+	return string(s)
+}
+
+func histTimeOfDay(t time.Time) string {
+	return t.Format("15:04")
+}
+
+templ HistoryPage(d HistoryPageData) {
+	@Layout("History", d.Viewer) {
+		<section>
+			<h1>{ d.Viewer.CommunityName } — History</h1>
+			<div class="history-grid">
+				<aside class="history-cal">
+					<header class="cal-head">
+						<a class="btn ghost" href={ templ.URL(histMonthHref(d.PrevMonth, d.SelectedDay)) }>‹</a>
+						<strong>{ d.CalendarBase.Format("January 2006") }</strong>
+						<a class="btn ghost" href={ templ.URL(histMonthHref(d.NextMonth, d.SelectedDay)) }>›</a>
+					</header>
+					<table class="cal-grid">
+						<thead>
+							<tr>
+								<th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, w := range d.Calendar {
+								<tr>
+									for _, day := range w.Days {
+										<td class={ histDayCellClass(day) }>
+											if day.HasActive {
+												<a href={ templ.URL(histDayHref(day.Date, d.CalendarBase)) }>{ fmt.Sprintf("%d", day.Date.Day()) }</a>
+											} else {
+												<span>{ fmt.Sprintf("%d", day.Date.Day()) }</span>
+											}
+										</td>
+									}
+								</tr>
+							}
+						</tbody>
+					</table>
+					<p class="muted cal-legend">Highlighted days have activity.</p>
+				</aside>
+
+				<section class="history-day">
+					<header class="day-head">
+						<a class="btn ghost" href={ templ.URL(histDayHref(d.PrevDay, d.CalendarBase)) }>← Prev day</a>
+						<h2>{ d.SelectedDay.Format("Monday, Jan 2, 2006") }</h2>
+						<a class="btn ghost" href={ templ.URL(histDayHref(d.NextDay, d.CalendarBase)) }>Next day →</a>
+					</header>
+					if len(d.Events) == 0 {
+						<p class="muted">No activity on this day.</p>
+					} else {
+						<ol class="history-events">
+							for _, e := range d.Events {
+								<li class={ "history-event ev-" + string(e.Source) }>
+									<span class="ev-time">{ histTimeOfDay(e.CreatedAt) }</span>
+									<span class={ "ev-source ev-source-" + string(e.Source) }>{ histSourceLabel(e.Source) }</span>
+									<span class="ev-author">{ e.AuthorName }</span>
+									if e.Source == HistorySourceThread {
+										<a class="ev-title" href={ templ.URL(e.Link) }>{ e.Title }</a>
+									} else if e.Source == HistorySourceReply {
+										<span class="ev-context">in <a href={ templ.URL(e.Link) }>{ e.ThreadSubject }</a></span>
+										<div class="ev-body">@templ.Raw(e.BodyHTML)</div>
+									} else {
+										<div class="ev-body">@templ.Raw(e.BodyHTML)</div>
+									}
+								</li>
+							}
+						</ol>
+					}
+				</section>
+			</div>
+		</section>
+	}
+}
