@@ -123,7 +123,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 			h.Log.Warn("paste image", "err", err)
 		} else {
 			url := h.Uploads.SignedURL(u.ID, id.User.ID, 24*time.Hour)
-			imgMD := "![](" + url + ")"
+			imgMD := "[![](" + url + ")](" + url + ")"
 			if body == "" {
 				body = imgMD
 			} else {
