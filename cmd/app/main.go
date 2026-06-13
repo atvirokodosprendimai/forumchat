@@ -293,6 +293,8 @@ func run() error {
 
 		r.Get("/todos", todosHandler.GetIndex)
 		r.Post("/todos", todosHandler.PostCreate)
+		r.Post("/todos/{id}/status", todosHandler.PostStatus)
+		r.Post("/todos/{id}/delete", todosHandler.PostDelete)
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))
