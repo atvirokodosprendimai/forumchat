@@ -1,0 +1,465 @@
+# AGENTS.md — forumchat
+
+Onboarding for AI agents working on this codebase. Read this in full before
+making changes. The lessons here cost real time; please don't re-discover them.
+
+---
+
+## 1. What this is
+
+A small Go web app — a community space that combines a single realtime chat
+channel with a forum. Single-binary, SQLite, NATS for pub/sub fan-out, datastar
+for realtime UI, templ for HTML.
+
+Full feature description: `README.md` and `eidos/spec - forumchat - community web app with realtime chat and forum threads.md`.
+Implementation plan + progress log: `memory/plan - 2606131456 - implement forumchat MVP per spec.md`.
+
+Status: **MVP complete and deployed**. All 10 phases of the plan are marked
+`completed`. Tests pass; an end-to-end HTTP smoke is green. The chat UI uses
+a "fat-morph" pattern (see §6).
+
+Repo: `github.com/atvirokodosprendimai/forumchat`.
+
+---
+
+## 2. Quick orientation (read this first)
+
+```
+cmd/
+  app/main.go     entry point — wires everything together
+  cli/main.go     admin CLI (invite / role / ban / unban)
+internal/
+  config/         env-driven config (caarlos0/env + godotenv) + slog setup
+  storage/sqlite/ DB open (modernc, WAL) + embedded goose migrations
+  natsx/          NATS connect + subject helpers
+  render/         markdown pipeline + datastar SSE helper (thin)
+  httpx/          request logger + recover middleware
+  auth/           users, sessions, register/verify/login, ban, profile
+  community/      bootstrap single community + membership lookup
+  chat/           chat domain + handlers (NATS + SSE + fat-morph)
+  forum/          threads + posts + handlers (+ bridge to chat)
+  presence/       in-process tracker + SSE handler
+  uploads/        sha256 store + HMAC signed-URL handler
+web/
+  templ/*.templ   source templates — NEVER edit *_templ.go
+  static/app.css  light theme
+migrations/       UNUSED (real migrations live under internal/storage/sqlite/migrations)
+```
+
+Stack: Go 1.25+ / chi v5 / templ / **datastar v1** (Go SDK +
+`github.com/starfederation/datastar-go/datastar`) / NATS core pub/sub /
+modernc.org/sqlite / goose / goldmark+bluemonday / alexedwards/scs/v2 with
+**memstore** / httprate / bcrypt.
+
+---
+
+## 3. Build, run, test
+
+```sh
+make tidy                  # go mod tidy
+make gen                   # templ generate — runs *.templ → *_templ.go
+make build                 # CGO_ENABLED=0 go build ./cmd/app
+make run                   # gen + go run ./cmd/app   (env from .env if present)
+make test                  # go test ./...
+make up                    # docker compose up -d --build (app + nats + mailpit)
+```
+
+**You must `templ generate` after editing any `.templ` file.** The generated
+`*_templ.go` files are committed but never hand-edited.
+
+The full env-var reference is in `README.md`. Defaults Just Work in dev; the
+two prod-critical secrets that boot rejects if left at dev values are
+`SESSION_KEY` and `UPLOADS_SIGN_KEY`.
+
+---
+
+## 4. Datastar — read this whole section before touching any handler or templ file
+
+We use Datastar v1 (CDN at
+`https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js`).
+**Check `https://data-star.dev/guide/getting_started` for the current latest version
+before bumping.**
+
+### 4.1 v1 attribute syntax — this is where most mistakes happen
+
+| Use                     | Don't use                |
+|-------------------------|--------------------------|
+| `data-signals="{...}"`  | n/a (unchanged)          |
+| `data-bind="email"`     | `data-bind-email`        |
+| `data-on:click="…"`     | `data-on-click="…"`      |
+| `data-on:keydown="…"`   | `data-on-keydown="…"`    |
+| `data-init="…"`         | `data-on:load`, `data-on-load` *(load isn't a DOM event in v1)* |
+
+The mount hook is `data-init` — fires once when the element enters the DOM
+and re-fires every time it's morphed back in. We exploit this for the
+scroll anchor (§6).
+
+### 4.2 The signal bag
+
+`web/templ/layout.templ` declares the global signal bag on `<body>` via the
+`InitialSignals` const. Every input that needs to be read by a handler must
+bind into one of those keys:
+
+```templ
+<input type="email" data-bind="email"/>
+<input type="password" data-bind="password"/>
+<button data-on:click="@post('/login')">Sign in</button>
+```
+
+When you add a new signal, add it to `InitialSignals` so the bag is
+declared up-front. Datastar sends the **entire** bag on every `@post` /
+`@get` (you can see them all in the request payload — `email`, `password`,
+`subject`, `body`, `invite_code`, `display_name`, `avatar_url`,
+`quoted_post_id`). Handlers read only the fields they need via a struct
+with `json:"…"` tags.
+
+### 4.3 SSE response pattern (`datastar-go` SDK)
+
+Every action endpoint follows the same shape:
+
+```go
+func (h *Handler) PostSomething(w http.ResponseWriter, r *http.Request) {
+    // 1. Read signals BEFORE NewSSE. NewSSE flushes the response body and
+    //    the SDK panics if you try to read the body after.
+    var in mySignals
+    if err := datastar.ReadSignals(r, &in); err != nil { ... }
+
+    // 2. Do the work (validate, persist, etc.)
+    if err := doStuff(in); err != nil { /* render error fragment */ return }
+
+    // 3. Open the SSE response.
+    sse := datastar.NewSSE(w, r)
+
+    // 4. Patch elements / signals; optionally Redirect.
+    sse.PatchElementTempl(comp, datastar.WithSelector("#id"), datastar.WithModeOuter())
+    sse.PatchSignals([]byte(`{"body":""}`))
+    sse.Redirect("/somewhere")  // client-side navigation
+}
+```
+
+**Never use `r.ParseForm()` in signal-driven handlers** — request bodies are
+JSON, not form-urlencoded.
+
+### 4.4 ⚠️ The scs session cookie + NewSSE bug — read in full
+
+This bit me hard. If you mutate `scs` session state (login, logout, anything
+calling `sm.Put` / `sm.Destroy`) inside a handler that uses `datastar.NewSSE`,
+the cookie will **not** reach the client unless you commit it explicitly.
+
+Why:
+
+- `scs.SessionManager.LoadAndSave` wraps `w` in a `sessionResponseWriter`
+  that writes `Set-Cookie` on the first `Write`/`WriteHeader` call. It also
+  has an `Unwrap()` method.
+- `datastar.NewSSE` calls `http.NewResponseController(w).Flush()`.
+  `ResponseController` walks the writer chain via `Unwrap()` until it finds an
+  `http.Flusher` and calls `Flush` on it — flushing the **underlying** writer
+  directly, **bypassing** scs's wrapper. scs's `commitAndWriteSessionCookie`
+  hook never fires, so `Set-Cookie` is never sent.
+
+Fix — call `commitSession` (defined in `internal/auth/handlers.go`) **before**
+`datastar.NewSSE`:
+
+```go
+PutLogin(r.Context(), h.Sessions, res.User.ID, res.Membership.CommunityID)
+commitSession(h.Sessions, w, r)  // ← THIS
+sse := datastar.NewSSE(w, r)
+_ = sse.Redirect("/")
+```
+
+The required order for any future handler that touches session state:
+
+```
+ReadSignals → mutate session → commitSession → NewSSE → patches/Redirect
+```
+
+Regular HTML handlers (`GetVerify`, anything that calls `.Render(ctx, w)`) are
+**not** affected — `Render` calls `Write` on the wrapped writer, which fires
+scs's commit hook normally.
+
+### 4.5 The chat fat-morph pattern (§6 below)
+
+Chat updates are **never** "append a bubble." The whole `#messages` container is
+fat-morphed on every event, plus a separate `#scroll-anchor` outer-morph that
+re-triggers `data-init` and scrolls to the bottom. See §6.
+
+### 4.6 templ ↔ domain import cycle
+
+`web/templ` is a leaf package — it **must not** import any `internal/<domain>`
+package. Domain handlers import `web/templ`, never the other way around.
+
+We hit a cycle when `chat.templ` imported `internal/chat.Message`. Fix:
+`web/templ` defines its own view-model structs (`MsgView`, `ThreadView`,
+`PostView`, `ChatPageData`, etc.) and each handler maps `domain → view` via
+small adapter funcs (e.g. `toMsgView`).
+
+When you add a new domain, follow the same pattern: define a local
+`SomethingView` struct in `web/templ`, map in the handler.
+
+---
+
+## 5. The `Viewer` struct & layout
+
+Every page-rendering handler must pass a `webtempl.Viewer` to `Layout`. The
+layout decides the topbar nav (Sign in / Register vs Chat / Forum / Profile /
+Sign out) from it:
+
+```go
+type Viewer struct {
+    IsAuthed      bool
+    DisplayName   string
+    Role          string   // member|moderator|admin
+    CommunityName string
+}
+```
+
+Each handler package defines its own tiny `viewer(r)` helper that builds this
+from `auth.FromContext(r.Context())` + the bootstrap community name.
+
+When you add a new page handler, **always** thread a `Viewer` through to
+`Layout` — there's no global state on the client to fall back on.
+
+---
+
+## 6. Chat — the fat-morph pattern
+
+The chat UI is the most subtle piece. Read this before editing
+`internal/chat/handler.go` or `web/templ/chat.templ`.
+
+### 6.1 What the FE sees
+
+`#messages` is a fixed-height (`overflow-y: auto`) bubble container. It carries
+a `data-init` that scrolls itself to its own bottom on the FIRST mount (initial
+page load).
+
+### 6.2 What happens on send (or any chat event)
+
+```
+PostSend → persist → load latest 100 → emit:
+
+  event: datastar-patch-elements              ← #messages (outer-morph) full latest-100
+  event: datastar-execute-script              ← scroll #messages to its own bottom
+  event: datastar-patch-signals               ← {"body":""}  clears composer
+```
+
+### 6.3 Why `ExecuteScript` and not a "scroll-anchor div with data-init"
+
+We tried the anchor-div approach and it does NOT work:
+
+- `#messages` has its own `overflow-y: auto`. The scrollable region is
+  `#messages` itself, not the page. A sibling `<div>` calling
+  `el.scrollIntoView()` scrolls the document — the chat stays put.
+- Even if the anchor were INSIDE `#messages`, outer-morphing an element with
+  the same id does NOT re-mount it. idiomorph treats it as the same element
+  and patches in place. `data-init` only fires on first mount, so the second
+  patch is a no-op.
+
+`sse.ExecuteScript(\`document.querySelector('#messages')?.scrollTo({top: 1e9, behavior: 'smooth'})\`)`
+is the unambiguous and reliable form. It runs every time the patch lands and
+addresses the scroll container directly. For the INITIAL page load (no SSE,
+just rendered HTML), the `data-init` on the messages container itself handles
+the first scroll.
+
+### 6.4 NATS as a signal, not a payload
+
+We do **not** publish rendered HTML over NATS anymore. Publishers send a
+single byte string `"changed"` to `community.<id>.chat`. Each subscriber
+SSE handler refetches the latest 100 from SQLite and emits its own
+`fatMorph`. This decouples wire format from rendering and means the
+publisher doesn't need to know per-viewer state (e.g. whether the viewer is
+a mod, which changes the bubble HTML).
+
+Same pattern applies to the forum → chat bridge: thread insert writes the
+`thread_announce` `chat_messages` row, then pings the same NATS subject.
+
+### 6.5 What this means in code
+
+```go
+const RecentLimit = 100   // FE never holds more than this in the DOM
+
+func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool) error {
+    if err := sse.PatchElementTempl(
+        webtempl.MessagesContainer(views, isMod),
+        datastar.WithModeOuter(),
+    ); err != nil { return err }
+    return sse.ExecuteScript(
+        `document.querySelector('#messages')?.scrollTo({top: 1e9, behavior: 'smooth'})`,
+    )
+}
+```
+
+### 6.6 Removed flows
+
+- `GetOlder` / `/chat/older` — gone. The FE intentionally doesn't keep older messages.
+- Per-bubble NATS publish payloads — gone.
+- `renderSystemFragment` in `internal/forum/handler.go` — gone.
+
+Don't bring them back without rethinking the whole pattern.
+
+---
+
+## 7. NATS subjects
+
+```
+community.<id>.chat       chat fan-out  (payload: "changed", subscribers refetch)
+community.<id>.forum      forum events  (reserved; not actively used by chat fat-morph)
+community.<id>.presence   presence updates (reserved; presence currently uses in-process Tracker)
+```
+
+Connection is best-effort: if NATS is unreachable the app boots fine, chat
+works locally for the sender only, and presence falls back to whatever this
+single process knows. **Don't add code that errors out on NATS being down.**
+
+---
+
+## 8. SQLite (modernc) — the FK ordering trap
+
+`modernc.org/sqlite` is opened with `foreign_keys=ON`. Some FK constraints
+imply a specific insert order across rows; check the schema before writing
+multi-row transactions.
+
+Example I hit: `invite_codes.used_by` FK references `users(id)`. The original
+register transaction consumed the invite first, then inserted the user. The
+invite-consume `UPDATE` set `used_by=newUserID` to a row that didn't exist
+yet → FK failure (787). Reorder: insert user → consume invite.
+
+Single-writer pattern: we set `MaxOpenConns=1` because WAL + modernc means
+one writer at a time. Don't bump this without understanding WAL contention.
+
+---
+
+## 9. scs sessions — in summary
+
+- Using `scs/v2` with **memstore** in MVP. Sessions don't survive restart.
+  For multi-instance / persistence, write a custom `scs.Store` against the
+  modernc driver. `scs/sqlite3store` is **incompatible** because it uses
+  CGO `mattn/go-sqlite3`.
+- Cookie name: `forumchat_session`. HttpOnly, SameSite=Lax. `Secure` flag
+  set automatically when `ENV=prod`.
+- Identity is loaded in `auth.Loader` middleware, surfaced via
+  `auth.FromContext(ctx) → (Identity, ok)`.
+- Bans destroy the active session at next request (`Loader` checks
+  `Membership.IsBanned(now)`).
+
+---
+
+## 10. Conventions and Effective Go
+
+We follow the project-wide skill rules (chi v5, templ, goose, NATS, DataStar
+Go SDK, DDD-ish layout) with these deliberate deviations / nuances:
+
+- **No gorm.** Plain `database/sql` with hand-written queries against modernc.
+  Each domain has its own `Repo` struct (`internal/auth/repo.go`,
+  `internal/forum/forum.go`, etc.). Reason: small surface, easy to reason
+  about, no abstraction tax. If you add gorm, you change the project shape.
+- **No urfave/cli yet.** `cmd/cli/main.go` parses `os.Args` directly. Fine
+  for the 4 subcommands today; if commands grow past ~6, refactor to urfave.
+- **No gomarkdown.** We use `yuin/goldmark` + `microcosm-cc/bluemonday`. Don't
+  swap unless you have a reason — goldmark has GFM extensions and our
+  bluemonday policy is dialled in.
+- **No ollama integration.** Reserve `github.com/eslider/go-ollama` for
+  features that haven't been requested yet.
+- **CQRS** in the loose sense: single SQLite writer, many readers via the
+  SSE streams. Not a formal CQRS pipeline; treat the SSE fan-out as the
+  "read model" side.
+
+Standard Effective Go applies otherwise: `gofmt`, MixedCaps, return errors
+(never panic — except where datastar SDK itself panics on flush failure,
+which is by design), small interfaces, document exported symbols starting
+with the symbol name.
+
+---
+
+## 11. Testing
+
+`go test ./...` runs everything. Coverage today:
+
+- `internal/auth/password_test.go` — bcrypt round-trip, short-password rejection.
+- `internal/auth/service_test.go` — full register → verify → login flow with
+  invite invalid / reuse / unverified / bad-password edge cases. SQLite
+  tmpdir per test (`t.TempDir()`).
+- `internal/uploads/uploads_test.go` — save+sign+verify round-trip, bad MIME,
+  oversize. **Note**: when adding an upload test, you must first insert a
+  `users` row to satisfy the `owner_id` FK (see existing setup helper).
+
+When you add a new domain handler, write at minimum a happy-path service
+test that uses `sqlite.Open` + `sqlite.Migrate` against a `t.TempDir()` DB.
+Don't reach for httptest for everything — the service layer is where the
+interesting logic lives.
+
+---
+
+## 12. Branch & commit workflow
+
+This repo has a pre-tool hook that **blocks edits on main**. Always:
+
+```sh
+git checkout -b task/<short-description>
+# edit, build, test
+git add -A
+git commit -m "..."
+git checkout main
+git merge --ff-only task/<short-description>
+git push origin main
+```
+
+A `claude-mem` plugin auto-appends to `CHANGELOG.md` after every commit. To
+avoid merge thrash, `git checkout -- CHANGELOG.md` before `git checkout main`
+when the change is irrelevant.
+
+Commit messages: keep `feat(scope):`, `fix(scope):`, `chore(scope):`,
+`docs(scope):` style. Co-author line for AI-assisted commits if applicable.
+
+---
+
+## 13. Common errors I made — don't repeat them
+
+| Error                                                          | What actually happened                                                                       | Fix                                                                                                             |
+|----------------------------------------------------------------|----------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `data-on-click=`, `data-on-load=`, `data-bind-foo`             | Looks fine, datastar quietly ignores them                                                    | v1 syntax: `data-on:click`, `data-init`, `data-bind="foo"`                                                       |
+| `r.ParseForm()` in a `@post` handler                           | Body is JSON, not form-urlencoded                                                            | `datastar.ReadSignals(r, &struct{…}{})` BEFORE `NewSSE`                                                          |
+| Login "works" but next request shows logged out                | scs's `Set-Cookie` hook bypassed by datastar's `Flush` via `Unwrap`                          | `commitSession(sm, w, r)` BEFORE `datastar.NewSSE`                                                              |
+| Templ import cycle (`web/templ ↔ internal/chat`)               | Compile error                                                                                | Define `MsgView`-style structs in `web/templ`; map in the handler                                                |
+| FK constraint failed (787) when registering                    | invite consume `used_by` references not-yet-inserted user                                    | Insert user first, then consume invite, inside the same tx                                                       |
+| Forgetting `templ generate` after editing `.templ`             | Compile error about undefined identifiers in `web/templ`                                     | `make gen` or `go tool templ generate`                                                                          |
+| `Home` defined in both `home.templ` and `layout.templ`         | "redeclared in this block" after I moved `Home` but didn't delete the original               | When moving templ defs across files, delete BOTH the old `.templ` and the matching generated `_templ.go`         |
+| Pushed `data-on:load`                                          | datastar v1 has no `load` DOM event                                                          | Use `data-init` for mount; `data-on:click`/`keydown`/`submit`/etc. for real DOM events                          |
+| Using `datastar.WithModeAppend()` to build up a chat history    | DOM grows unbounded, scroll position becomes annoying                                        | Fat-morph the whole `#messages` + `sse.ExecuteScript` to scroll the container (§6)                              |
+| Adding a separate `<div data-init="el.scrollIntoView()">` to trigger scroll | `data-init` doesn't re-fire on outer-morph of the same id; and the anchor is outside the scrollable container | Use `sse.ExecuteScript("document.querySelector('#messages')?.scrollTo(...)")` after every fat-morph |
+| NATS publish payload = rendered HTML                            | Per-viewer state (e.g. mod buttons) baked into the wire payload, can't be right for everyone | Publish a tiny "changed" string; each subscriber refetches and renders for its own viewer                       |
+| Smoke-testing on a busy port without checking                  | `bind: address already in use`, app dies during the test                                     | Use a fresh high port + `pkill -9 -f bin/forumchat` before each test cycle                                      |
+| Trying to commit-amend after a pre-commit hook failed          | The commit didn't happen — amending modifies the PREVIOUS commit                             | Fix and create a NEW commit                                                                                     |
+| Editing on `main`                                              | Pre-tool branch-check hook blocks                                                            | `git checkout -b task/<desc>` first                                                                             |
+
+---
+
+## 14. Things still on the roadmap
+
+See `## Future` in
+`eidos/spec - forumchat - community web app with realtime chat and forum threads.md`.
+Highlights for whoever picks this up next:
+
+- OAuth (Google → Facebook), linked to the existing global user.
+- Multi-community UI (data model is already prepared).
+- JetStream-backed chat with replay on reconnect (drops the "if NATS dies you
+  miss messages until refresh" weakness).
+- Custom modernc-backed `scs.Store` so sessions survive restart.
+- Drag-drop upload UI (today's `POST /uploads` returns markdown text, manual
+  paste).
+- Search (SQLite FTS5).
+- Trust levels (column already in `memberships`).
+- Prometheus metrics endpoint.
+
+---
+
+## 15. Where to look for more
+
+- `README.md` — user-facing project overview, env vars, routes, deploy.
+- `eidos/spec - forumchat - ….md` — the spec; behaviour + design.
+- `memory/plan - 2606131456 - ….md` — the implementation plan with a
+  detailed progress log per phase. Read this for the "why we chose X" trail.
+- `internal/auth/handlers.go` — reference implementation of the
+  signals-driven SSE pattern (`PostLogin` shows the `commitSession` order).
+- `internal/chat/handler.go` — reference for the fat-morph pattern.
+
+If you're touching anything realtime — read §4 and §6 again before you type.

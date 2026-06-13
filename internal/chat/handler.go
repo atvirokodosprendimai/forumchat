@@ -45,11 +45,15 @@ func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
 	return toMsgViews(msgs), nil
 }
 
-// fatMorph emits the two SSE patches the chat UI expects:
-//   1. #messages outer → full latest-N list (idiomorph diff handles existing DOM)
-//   2. #scroll-anchor outer → fresh anchor whose data-init scrolls to bottom
+// fatMorph emits the chat patches the UI expects:
+//   1. #messages outer-morph → full latest-N list (idiomorph diffs children).
+//   2. ExecuteScript → scroll #messages to its own bottom.
 //
-// Sender's own tab and every other open tab on the channel see the same morph.
+// Why not a separate scroll-anchor div with data-init? Outer-morph with the
+// same id doesn't re-mount the element so data-init never re-fires. Also
+// #messages has its own overflow-y: auto — scrolling a sibling into view
+// scrolls the page, not the chat container. ExecuteScript on the container
+// itself is unambiguous and reliable.
 func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool) error {
 	if err := sse.PatchElementTempl(
 		webtempl.MessagesContainer(views, isMod),
@@ -57,9 +61,8 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 	); err != nil {
 		return err
 	}
-	return sse.PatchElementTempl(
-		webtempl.ScrollAnchor(),
-		datastar.WithModeOuter(),
+	return sse.ExecuteScript(
+		`document.querySelector('#messages')?.scrollTo({top: 1e9, behavior: 'smooth'})`,
 	)
 }
 

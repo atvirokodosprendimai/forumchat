@@ -32,7 +32,6 @@ templ ChatPage(d ChatPageData) {
 			<div>
 				<h1>{ d.Viewer.CommunityName }</h1>
 				@MessagesContainer(d.Messages, d.IsMod)
-				@ScrollAnchor()
 				<div class="composer">
 					<input type="text"
 						data-bind="body"
@@ -55,8 +54,12 @@ templ ChatPage(d ChatPageData) {
 // fat morph on every send / incoming chat event — datastar's idiomorph diffs
 // the children efficiently, but the FE never accumulates more than the last
 // N messages in the DOM.
+// MessagesContainer carries data-init that scrolls itself to the bottom on
+// first mount. For subsequent fat-morphs the SSE response calls
+// sse.ExecuteScript() — outer-morphing the same id does NOT re-fire data-init.
 templ MessagesContainer(messages []MsgView, isMod bool) {
-	<div id="messages" class="messages">
+	<div id="messages" class="messages"
+		data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
 		for i := len(messages) - 1; i >= 0; i-- {
 			@MessageView(messages[i], isMod)
 		}
@@ -87,14 +90,6 @@ templ MessageView(m MsgView, isMod bool) {
 			<div class="body">@templ.Raw(m.BodyHTML)</div>
 		}
 	</article>
-}
-
-// ScrollAnchor is sent as a SEPARATE second patch after MessagesContainer.
-// data-init fires when datastar morphs it back into the DOM, scrolling to
-// the bottom of the chat. Sent every time #messages is fat-morphed so the
-// FE always sees the newest message after a refresh.
-templ ScrollAnchor() {
-	<div id="scroll-anchor" data-init="el.scrollIntoView({block:'end',behavior:'smooth'})"></div>
 }
 
 func msgClass(m MsgView) string {
