@@ -153,13 +153,13 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 		return Message{}, sql.ErrNoRows
 	}
 	var m Message
-	var aid, ref, reply sql.NullString
+	var aid, ref, promoted, reply sql.NullString
 	var del sql.NullInt64
 	var created int64
 	var kind string
 	var pID, pAuthor, pBody string
 	if err := rows.Scan(&m.ID, &m.CommunityID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
-		&ref, &reply, &del, &created,
+		&ref, &promoted, &reply, &del, &created,
 		&m.AuthorName, &m.AuthorAvatar,
 		&pID, &pAuthor, &pBody); err != nil {
 		return Message{}, err
@@ -170,6 +170,9 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	}
 	if ref.Valid {
 		m.RefThreadID = &ref.String
+	}
+	if promoted.Valid {
+		m.PromotedThreadID = &promoted.String
 	}
 	if reply.Valid {
 		m.ReplyToID = &reply.String
