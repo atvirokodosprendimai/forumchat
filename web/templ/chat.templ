@@ -21,10 +21,9 @@ type MsgView struct {
 }
 
 type ChatPageData struct {
-	Viewer     Viewer
-	IsMod      bool
-	Messages   []MsgView  // newest-first; rendered reversed so oldest-top, newest-bottom
-	OldestSeen *time.Time
+	Viewer   Viewer
+	IsMod    bool
+	Messages []MsgView // newest-first; rendered oldest-top, newest-bottom
 }
 
 templ ChatPage(d ChatPageData) {
@@ -32,22 +31,8 @@ templ ChatPage(d ChatPageData) {
 		<section class="chat-layout">
 			<div>
 				<h1>{ d.Viewer.CommunityName }</h1>
-				<div id="messages" class="messages" data-init="@get('/chat/stream')">
-					if d.OldestSeen != nil {
-						<div id="load-older">
-							<button class="ghost"
-								data-on:click={ "@get('/chat/older?before=" + d.OldestSeen.Format(time.RFC3339Nano) + "')" }>
-								Load older
-							</button>
-						</div>
-					} else {
-						<div id="load-older" class="muted">— start of history —</div>
-					}
-					for i := len(d.Messages) - 1; i >= 0; i-- {
-						@MessageView(d.Messages[i], d.IsMod)
-					}
-					@ScrollAnchor()
-				</div>
+				@MessagesContainer(d.Messages, d.IsMod)
+				@ScrollAnchor()
 				<div class="composer">
 					<input type="text"
 						data-bind="body"
@@ -62,7 +47,20 @@ templ ChatPage(d ChatPageData) {
 				<p class="muted">connecting…</p>
 			</aside>
 		</section>
+		<div id="chat-stream-open" data-init="@get('/chat/stream')"></div>
 	}
+}
+
+// MessagesContainer renders the full #messages list. It is re-emitted as a
+// fat morph on every send / incoming chat event — datastar's idiomorph diffs
+// the children efficiently, but the FE never accumulates more than the last
+// N messages in the DOM.
+templ MessagesContainer(messages []MsgView, isMod bool) {
+	<div id="messages" class="messages">
+		for i := len(messages) - 1; i >= 0; i-- {
+			@MessageView(messages[i], isMod)
+		}
+	</div>
 }
 
 templ MessageView(m MsgView, isMod bool) {
@@ -91,9 +89,10 @@ templ MessageView(m MsgView, isMod bool) {
 	</article>
 }
 
-// ScrollAnchor lives at the bottom of #messages. data-on-load fires whenever
-// datastar morphs it into the DOM — so re-patching the anchor after each new
-// message scrolls into view automatically. No JS needed.
+// ScrollAnchor is sent as a SEPARATE second patch after MessagesContainer.
+// data-init fires when datastar morphs it back into the DOM, scrolling to
+// the bottom of the chat. Sent every time #messages is fat-morphed so the
+// FE always sees the newest message after a refresh.
 templ ScrollAnchor() {
 	<div id="scroll-anchor" data-init="el.scrollIntoView({block:'end',behavior:'smooth'})"></div>
 }
@@ -107,17 +106,4 @@ func msgClass(m MsgView) string {
 
 func fmtTime(t time.Time) string {
 	return t.Local().Format("15:04 Jan 2")
-}
-
-templ LoadOlderButton(before string) {
-	<div id="load-older">
-		<button class="ghost"
-			data-on:click={ "@get('/chat/older?before=" + before + "')" }>
-			Load older
-		</button>
-	</div>
-}
-
-templ NoOlder() {
-	<div id="load-older" class="muted">— start of history —</div>
 }

@@ -195,7 +195,6 @@ func run() error {
 		r.Get("/chat", chatHandler.GetPage)
 		r.Post("/chat/send", chatHandler.PostSend)
 		r.Get("/chat/stream", chatHandler.GetStream)
-		r.Get("/chat/older", chatHandler.GetOlder)
 
 		r.Get("/presence/stream", presenceHandler.GetStream)
 

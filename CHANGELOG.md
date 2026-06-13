@@ -8,3 +8,4 @@
 - 2026-06-13 `2e0439e` feat(phase-7-10): presence, uploads, 404, rate limit; spec mapping
 - 2026-06-13 `898da7d` chore: update changelog for phase 7-10 commit
 - 2026-06-13 `b29557c` chore: changelog autoappend
+- 2026-06-13 `711f77a` fix(auth): commit scs session cookie before datastar.NewSSE

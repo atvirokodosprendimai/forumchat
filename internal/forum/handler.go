@@ -108,12 +108,13 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 			htmlEscape(id.Membership.DisplayName), htmlEscape(link), htmlEscape(t.Subject),
 		)
 		threadID := t.ID
-		sysMsg, err := h.Chat.PostSystem(r.Context(), h.CommunityID, announceHTML, chat.KindThreadAnnounce, &threadID)
+		_, err := h.Chat.PostSystem(r.Context(), h.CommunityID, announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("post thread-announce", "err", err)
 		} else if h.NATS != nil && h.NATS.IsConnected() {
-			fragment := renderSystemFragment(sysMsg.ID, sysMsg.CreatedAt, announceHTML)
-			_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte(fragment))
+			// Just ping the chat channel; subscribers refetch the latest 100
+			// from the DB (which now includes the thread_announce row).
+			_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
 		}
 	}
 
@@ -252,11 +253,6 @@ func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/forum/" + p.ThreadID)
-}
-
-func renderSystemFragment(id string, ts time.Time, html string) string {
-	return fmt.Sprintf(`<article class="bubble system" id="msg-%s" data-id="%s"><div class="muted">%s</div>%s</article>`,
-		htmlEscape(id), htmlEscape(id), ts.Local().Format("15:04 Jan 2"), html)
 }
 
 func htmlEscape(s string) string {

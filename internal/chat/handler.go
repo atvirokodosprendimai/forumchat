@@ -1,10 +1,10 @@
 package chat
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
@@ -35,27 +35,49 @@ func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 	return v
 }
 
+// loadRecent pulls the latest N messages and returns them as MsgView in
+// newest-first order (the template renders them reversed).
+func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
+	msgs, err := h.Repo.Recent(ctx, h.CommunityID, RecentLimit)
+	if err != nil {
+		return nil, err
+	}
+	return toMsgViews(msgs), nil
+}
+
+// fatMorph emits the two SSE patches the chat UI expects:
+//   1. #messages outer → full latest-N list (idiomorph diff handles existing DOM)
+//   2. #scroll-anchor outer → fresh anchor whose data-init scrolls to bottom
+//
+// Sender's own tab and every other open tab on the channel see the same morph.
+func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool) error {
+	if err := sse.PatchElementTempl(
+		webtempl.MessagesContainer(views, isMod),
+		datastar.WithModeOuter(),
+	); err != nil {
+		return err
+	}
+	return sse.PatchElementTempl(
+		webtempl.ScrollAnchor(),
+		datastar.WithModeOuter(),
+	)
+}
+
 func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	msgs, err := h.Repo.Recent(r.Context(), h.CommunityID, RecentLimit)
+	views, err := h.loadRecent(r.Context())
 	if err != nil {
 		http.Error(w, "load chat: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var oldest *time.Time
-	if len(msgs) == RecentLimit {
-		t := msgs[len(msgs)-1].CreatedAt
-		oldest = &t
-	}
 	_ = webtempl.ChatPage(webtempl.ChatPageData{
-		Viewer:     h.viewer(r),
-		IsMod:      id.Membership.Role.AtLeast(auth.RoleMod),
-		Messages:   toMsgViews(msgs),
-		OldestSeen: oldest,
+		Viewer:   h.viewer(r),
+		IsMod:    id.Membership.Role.AtLeast(auth.RoleMod),
+		Messages: views,
 	}).Render(r.Context(), w)
 }
 
@@ -79,46 +101,36 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	if body == "" || len(body) > 4000 {
 		return
 	}
-	msg, err := h.Svc.Send(r.Context(), SendInput{
+	if _, err := h.Svc.Send(r.Context(), SendInput{
 		CommunityID:  h.CommunityID,
 		AuthorID:     id.User.ID,
 		BodyMarkdown: body,
-	})
-	if err != nil {
+	}); err != nil {
 		h.Log.Error("send", "err", err)
 		return
 	}
-	msg.AuthorName = id.Membership.DisplayName
-	msg.AuthorAvatar = id.Membership.AvatarURL
 
-	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
-	view := toMsgView(msg)
-
-	// Append the message bubble immediately above the scroll anchor in this
-	// sender's tab so they don't wait for the NATS round-trip.
-	_ = sse.PatchElementTempl(
-		webtempl.MessageView(view, isMod),
-		datastar.WithSelector("#scroll-anchor"),
-		datastar.WithModeBefore(),
-	)
-	// Re-patch the scroll anchor; its data-on-load fires again and scrolls to bottom.
-	_ = sse.PatchElementTempl(webtempl.ScrollAnchor())
-	// Clear the composer signal.
+	// 1. Fat-morph the latest 100 to the sender.
+	views, err := h.loadRecent(r.Context())
+	if err == nil {
+		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod))
+	}
+	// 2. Clear composer signal.
 	_ = sse.PatchSignals([]byte(`{"body":""}`))
 
-	// Fan-out to other tabs via NATS.
+	// 3. Ping NATS so other open tabs refetch + fat-morph too.
 	if h.NATS != nil && h.NATS.IsConnected() {
-		if buf, err := renderMessageFragment(r, msg, false); err == nil {
-			_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), buf)
-		}
+		_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
 	}
 }
 
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
-	if _, ok := auth.FromContext(r.Context()); !ok {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 	sse := datastar.NewSSE(w, r)
 
 	if h.NATS == nil || !h.NATS.IsConnected() {
@@ -137,53 +149,18 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case m, ok := <-ch:
+		case _, ok := <-ch:
 			if !ok {
 				return
 			}
-			if err := sse.PatchElements(string(m.Data),
-				datastar.WithSelector("#scroll-anchor"),
-				datastar.WithModeBefore()); err != nil {
-				return
+			views, err := h.loadRecent(r.Context())
+			if err != nil {
+				continue
 			}
-			if err := sse.PatchElementTempl(webtempl.ScrollAnchor()); err != nil {
+			if err := fatMorph(sse, views, isMod); err != nil {
 				return
 			}
 		}
-	}
-}
-
-func (h *Handler) GetOlder(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
-	if !ok {
-		http.Error(w, "auth required", http.StatusUnauthorized)
-		return
-	}
-	beforeStr := r.URL.Query().Get("before")
-	before, err := time.Parse(time.RFC3339Nano, beforeStr)
-	if err != nil {
-		http.Error(w, "bad before", http.StatusBadRequest)
-		return
-	}
-	msgs, err := h.Repo.Before(r.Context(), h.CommunityID, before, RecentLimit)
-	if err != nil {
-		http.Error(w, "load: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
-	sse := datastar.NewSSE(w, r)
-	for _, m := range msgs {
-		_ = sse.PatchElementTempl(
-			webtempl.MessageView(toMsgView(m), isMod),
-			datastar.WithSelector("#load-older"),
-			datastar.WithModeAfter(),
-		)
-	}
-	if len(msgs) == RecentLimit {
-		t := msgs[len(msgs)-1].CreatedAt
-		_ = sse.PatchElementTempl(webtempl.LoadOlderButton(t.Format(time.RFC3339Nano)))
-	} else {
-		_ = sse.PatchElementTempl(webtempl.NoOlder())
 	}
 }
 
@@ -202,15 +179,15 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-}
 
-func renderMessageFragment(r *http.Request, m Message, isMod bool) ([]byte, error) {
-	var sb strings.Builder
-	if err := webtempl.MessageView(toMsgView(m), isMod).Render(r.Context(), &sb); err != nil {
-		return nil, err
+	sse := datastar.NewSSE(w, r)
+	views, err := h.loadRecent(r.Context())
+	if err == nil {
+		_ = fatMorph(sse, views, true)
 	}
-	return []byte(sb.String()), nil
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
+	}
 }
 
 func toMsgView(m Message) webtempl.MsgView {
