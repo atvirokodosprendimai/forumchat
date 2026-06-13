@@ -279,11 +279,15 @@ func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
+	display := user.Email
+	if i := strings.IndexByte(display, '@'); i > 0 {
+		display = display[:i]
+	}
 	m := auth.Membership{
 		ID:          uuid.NewString(),
 		UserID:      user.ID,
 		CommunityID: c.ID,
-		DisplayName: user.Email,
+		DisplayName: display,
 		Role:        auth.RoleAdmin,
 		ApprovedAt:  &now,
 	}
