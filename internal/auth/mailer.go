@@ -2,11 +2,15 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/smtp"
 	"strings"
+	"time"
 )
 
 type Mailer interface {
@@ -107,13 +111,63 @@ func (m *SMTPMailer) fail(to, stage string, err error) error {
 
 func buildMessage(from, to, subject, body string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "From: %s\r\n", from)
-	fmt.Fprintf(&b, "To: %s\r\n", to)
-	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
+	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
+	fmt.Fprintf(&b, "Message-ID: <%s@%s>\r\n", randomID(), hostFromAddr(from))
+	fmt.Fprintf(&b, "From: %s\r\n", encodeAddr(from))
+	fmt.Fprintf(&b, "To: %s\r\n", encodeAddr(to))
+	fmt.Fprintf(&b, "Subject: %s\r\n", mime.QEncoding.Encode("UTF-8", subject))
+	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: 8bit\r\n")
 	b.WriteString("\r\n")
-	b.WriteString(body)
+	b.WriteString(normalizeCRLF(body))
 	return b.String()
+}
+
+func randomID() string {
+	var buf [12]byte
+	_, _ = rand.Read(buf[:])
+	return hex.EncodeToString(buf[:])
+}
+
+func hostFromAddr(addr string) string {
+	if i := strings.LastIndex(addr, "@"); i >= 0 {
+		h := addr[i+1:]
+		h = strings.TrimRight(h, ">")
+		if h != "" {
+			return h
+		}
+	}
+	return "localhost"
+}
+
+// encodeAddr Q-encodes a display name when it contains non-ASCII, leaving the
+// "<email>" portion untouched. Plain addresses pass through.
+func encodeAddr(a string) string {
+	lt := strings.LastIndex(a, "<")
+	if lt <= 0 {
+		return a
+	}
+	name := strings.TrimSpace(a[:lt])
+	addr := a[lt:]
+	if isASCII(name) {
+		return a
+	}
+	return mime.QEncoding.Encode("UTF-8", name) + " " + addr
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeCRLF(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\n", "\r\n")
 }
 
 type LogMailer struct{ Log *slog.Logger }
