@@ -180,6 +180,45 @@ web/                          -- templ files, static assets
 - **No edit history** in MVP — a moderation surprise if abused.
 - **Markdown sanitisation** is conservative; some users will want richer formatting (tables, images-by-url) and complain.
 
+## Mapping
+
+> [[cmd/app/main.go]]
+> [[cmd/cli/main.go]]
+> [[internal/config/config.go]]
+> [[internal/storage/sqlite/db.go]]
+> [[internal/storage/sqlite/migrate.go]]
+> [[internal/storage/sqlite/migrations/00001_init.sql]]
+> [[internal/natsx/natsx.go]]
+> [[internal/render/markdown.go]]
+> [[internal/render/sse.go]]
+> [[internal/httpx/middleware.go]]
+> [[internal/auth/service.go]]
+> [[internal/auth/repo.go]]
+> [[internal/auth/handlers.go]]
+> [[internal/auth/middleware.go]]
+> [[internal/auth/session.go]]
+> [[internal/auth/mailer.go]]
+> [[internal/community/community.go]]
+> [[internal/chat/chat.go]]
+> [[internal/chat/handler.go]]
+> [[internal/forum/forum.go]]
+> [[internal/forum/handler.go]]
+> [[internal/presence/presence.go]]
+> [[internal/presence/handler.go]]
+> [[internal/uploads/uploads.go]]
+> [[internal/uploads/handler.go]]
+> [[web/templ/layout.templ]]
+> [[web/templ/auth.templ]]
+> [[web/templ/profile.templ]]
+> [[web/templ/home.templ]]
+> [[web/templ/chat.templ]]
+> [[web/templ/forum.templ]]
+> [[web/templ/error.templ]]
+> [[Dockerfile]]
+> [[docker-compose.yml]]
+> [[Makefile]]
+> [[.env.example]]
+
 ## Future
 
 - {[!] OAuth: Google then Facebook, linked to existing global user.}

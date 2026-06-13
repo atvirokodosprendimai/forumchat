@@ -34,6 +34,8 @@ templ ChatPage(d ChatPageData) {
 			<h1>{ d.CommunityName } — Chat</h1>
 			<p class="muted"><a href="/">Home</a> · <a href="/forum">Forum</a> · signed in as <strong>{ d.DisplayName }</strong></p>
 
+			<aside id="presence" class="presence" data-on-load="@get('/presence/stream')"><span class="muted">— online list loading —</span></aside>
+
 			<div id="messages" class="messages" data-on-load="@get('/chat/stream')">
 				if d.OldestSeen != nil {
 					<form method="get" action="/chat/older" id="load-older">

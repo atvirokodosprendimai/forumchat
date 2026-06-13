@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httprate"
 	"github.com/nats-io/nats.go"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
@@ -20,6 +21,8 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
+	"github.com/atvirokodosprendimai/forumchat/internal/presence"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
@@ -107,6 +110,15 @@ func run() error {
 	r.Use(sessions.LoadAndSave)
 	r.Use(auth.Loader(sessions, aRepo))
 
+	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_ = webtempl.NotFoundPage().Render(req.Context(), w)
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = w.Write([]byte("method not allowed"))
+	})
+
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static"))))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -114,7 +126,16 @@ func run() error {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	authHandler.Mount(r)
+	// Rate-limit auth endpoints (10 req/min/IP) and chat send (30 req/min/user).
+	r.Group(func(r chi.Router) {
+		r.Use(httprate.LimitByIP(10, time.Minute))
+		r.Post("/login", authHandler.PostLogin)
+		r.Post("/register", authHandler.PostRegister)
+	})
+	r.Get("/register", authHandler.GetRegister)
+	r.Get("/login", authHandler.GetLogin)
+	r.Get("/verify", authHandler.GetVerify)
+	r.Post("/logout", authHandler.PostLogout)
 
 	chatRepo := chat.NewRepo(db)
 	chatSvc := chat.NewService(chatRepo)
@@ -125,6 +146,26 @@ func run() error {
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
+	}
+
+	uploadStore := uploads.NewStore(db, cfg.UploadsDir, cfg.UploadsMaxSize, cfg.UploadsSignKey)
+	uploadHandler := &uploads.Handler{Store: uploadStore, CommunityID: bootCommunity.ID, Log: log}
+
+	presenceTracker := presence.New(cfg.PresenceTTL)
+	go func() {
+		t := time.NewTicker(cfg.PresenceTTL / 2)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				presenceTracker.Sweep()
+			}
+		}
+	}()
+	presenceHandler := &presence.Handler{
+		Tracker: presenceTracker, CommunityID: bootCommunity.ID, Log: log,
 	}
 
 	forumRepo := forum.NewRepo(db)
@@ -149,6 +190,11 @@ func run() error {
 		r.Post("/chat/send", chatHandler.PostSend)
 		r.Get("/chat/stream", chatHandler.GetStream)
 		r.Get("/chat/older", chatHandler.GetOlder)
+
+		r.Get("/presence/stream", presenceHandler.GetStream)
+
+		r.Post("/uploads", uploadHandler.PostUpload)
+		r.Get("/uploads/{id}", uploadHandler.GetFile)
 
 		r.Get("/forum", forumHandler.GetIndex)
 		r.Get("/forum/new", forumHandler.GetNew)
