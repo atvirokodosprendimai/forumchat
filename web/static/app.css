@@ -121,15 +121,31 @@ button.link:hover { text-decoration: underline; }
   min-height: 50vh; max-height: 65vh; overflow-y: auto;
   box-shadow: var(--shadow);
 }
-/* Composer is a vertical stack: optional reply hint, then the input row. */
-.composer { display: flex; flex-direction: column; gap: .5rem; margin-top: .75rem; }
-.composer-row { display: flex; gap: .5rem; }
-.composer-row input { flex: 1; }
+/* Composer is a vertical stack: optional reply hint, then the input row.
+   width:100% + min-width:0 on the input combat the default min-width:auto
+   on flex children that otherwise prevents the input from filling the row. */
+.composer {
+  display: flex; flex-direction: column;
+  gap: .5rem; margin-top: .75rem;
+  width: 100%;
+}
+.composer-row {
+  display: flex; gap: .5rem;
+  width: 100%;
+  align-items: stretch;
+}
+.composer-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+.composer-row button { flex: 0 0 auto; }
 .reply-hint {
   background: var(--surface-alt);
   padding: .35rem .55rem;
   border-radius: var(--radius-sm);
   display: flex; justify-content: space-between; align-items: center;
+  width: 100%;
 }
 
 .presence {
