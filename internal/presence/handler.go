@@ -55,17 +55,17 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) push(sse *datastar.ServerSentEventGenerator) {
 	members := h.Tracker.Members(h.CommunityID)
 	var sb strings.Builder
-	sb.WriteString(`<aside id="presence" class="presence"><h3>Online · `)
+	sb.WriteString(`<div id="presence-list"><p class="muted">Online · `)
 	sb.WriteString(itoa(len(members)))
-	sb.WriteString(`</h3><ul>`)
+	sb.WriteString(`</p><ul>`)
 	for _, m := range members {
 		sb.WriteString(`<li>`)
 		sb.WriteString(escape(m.DisplayName))
 		sb.WriteString(`</li>`)
 	}
-	sb.WriteString(`</ul></aside>`)
+	sb.WriteString(`</ul></div>`)
 	_ = sse.PatchElements(sb.String(),
-		datastar.WithSelector("#presence"),
+		datastar.WithSelector("#presence-list"),
 		datastar.WithModeReplace())
 }
 

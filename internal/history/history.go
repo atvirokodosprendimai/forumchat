@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
@@ -120,131 +119,45 @@ func (h *Handler) daysWithActivity(ctx context.Context, monthStart, monthEnd tim
 		h.CommunityID, from, to); err != nil {
 		return nil, err
 	}
-	if err := q(`SELECT created_at FROM threads
-		WHERE community_id = ? AND deleted_at IS NULL AND created_at >= ? AND created_at < ?`,
-		h.CommunityID, from, to); err != nil {
-		return nil, err
-	}
-	if err := q(`SELECT p.created_at FROM posts p
-		JOIN threads t ON t.id = p.thread_id
-		WHERE t.community_id = ? AND p.deleted_at IS NULL AND p.created_at >= ? AND p.created_at < ?`,
-		h.CommunityID, from, to); err != nil {
-		return nil, err
-	}
 	return out, nil
 }
 
-// eventsBetween returns chat messages, new threads, and forum replies created
-// in [from, to), merged and sorted ascending by created_at.
+// eventsBetween returns chat messages in [from, to), ascending by created_at.
+// Forum threads/replies are intentionally excluded — /history is a chat log.
 func (h *Handler) eventsBetween(ctx context.Context, from, to time.Time) ([]webtempl.HistoryEvent, error) {
 	var events []webtempl.HistoryEvent
 
-	// Chat messages.
-	{
-		rows, err := h.DB.QueryContext(ctx, `
-			SELECT m.id, m.body_html, m.kind, m.created_at,
-			       COALESCE(mb.display_name, '(unknown)')
-			FROM chat_messages m
-			LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
-			WHERE m.community_id = ? AND m.deleted_at IS NULL
-			  AND m.created_at >= ? AND m.created_at < ?`,
-			h.CommunityID, from.Unix(), to.Unix())
-		if err != nil {
+	rows, err := h.DB.QueryContext(ctx, `
+		SELECT m.id, m.body_html, m.kind, m.created_at,
+		       COALESCE(mb.display_name, '(unknown)')
+		FROM chat_messages m
+		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
+		WHERE m.community_id = ? AND m.deleted_at IS NULL
+		  AND m.created_at >= ? AND m.created_at < ?
+		ORDER BY m.created_at ASC`,
+		h.CommunityID, from.Unix(), to.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			id, bodyHTML, kind, author string
+			ts                         int64
+		)
+		if err := rows.Scan(&id, &bodyHTML, &kind, &ts, &author); err != nil {
 			return nil, err
 		}
-		for rows.Next() {
-			var (
-				id, bodyHTML, kind, author string
-				ts                         int64
-			)
-			if err := rows.Scan(&id, &bodyHTML, &kind, &ts, &author); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			events = append(events, webtempl.HistoryEvent{
-				Source:     webtempl.HistorySourceChat,
-				CreatedAt:  time.Unix(ts, 0),
-				AuthorName: author,
-				BodyHTML:   bodyHTML,
-				Link:       "/chat",
-				Kind:       kind,
-			})
-		}
-		rows.Close()
+		events = append(events, webtempl.HistoryEvent{
+			Source:     webtempl.HistorySourceChat,
+			CreatedAt:  time.Unix(ts, 0),
+			AuthorName: author,
+			BodyHTML:   bodyHTML,
+			Link:       "/chat",
+			Kind:       kind,
+		})
 	}
-
-	// New threads.
-	{
-		rows, err := h.DB.QueryContext(ctx, `
-			SELECT t.id, t.subject, t.body_html, t.created_at,
-			       COALESCE(mb.display_name, '(unknown)')
-			FROM threads t
-			LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
-			WHERE t.community_id = ? AND t.deleted_at IS NULL
-			  AND t.created_at >= ? AND t.created_at < ?`,
-			h.CommunityID, from.Unix(), to.Unix())
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var (
-				id, subject, bodyHTML, author string
-				ts                            int64
-			)
-			if err := rows.Scan(&id, &subject, &bodyHTML, &ts, &author); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			events = append(events, webtempl.HistoryEvent{
-				Source:        webtempl.HistorySourceThread,
-				CreatedAt:     time.Unix(ts, 0),
-				AuthorName:    author,
-				Title:         subject,
-				BodyHTML:      bodyHTML,
-				Link:          "/forum/" + id,
-				ThreadSubject: subject,
-			})
-		}
-		rows.Close()
-	}
-
-	// Forum replies.
-	{
-		rows, err := h.DB.QueryContext(ctx, `
-			SELECT p.id, p.thread_id, p.body_html, p.created_at,
-			       COALESCE(mb.display_name, '(unknown)'), t.subject
-			FROM posts p
-			JOIN threads t ON t.id = p.thread_id
-			LEFT JOIN memberships mb ON mb.user_id = p.author_id AND mb.community_id = t.community_id
-			WHERE t.community_id = ? AND p.deleted_at IS NULL
-			  AND p.created_at >= ? AND p.created_at < ?`,
-			h.CommunityID, from.Unix(), to.Unix())
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var (
-				id, threadID, bodyHTML, author, subject string
-				ts                                      int64
-			)
-			if err := rows.Scan(&id, &threadID, &bodyHTML, &ts, &author, &subject); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			events = append(events, webtempl.HistoryEvent{
-				Source:        webtempl.HistorySourceReply,
-				CreatedAt:     time.Unix(ts, 0),
-				AuthorName:    author,
-				BodyHTML:      bodyHTML,
-				Link:          "/forum/" + threadID + "#post-" + id,
-				ThreadSubject: subject,
-			})
-		}
-		rows.Close()
-	}
-
-	sort.Slice(events, func(i, j int) bool { return events[i].CreatedAt.Before(events[j].CreatedAt) })
-	return events, nil
+	return events, rows.Err()
 }
 
 // buildCalendar lays out a month-grid starting from the Monday of the week

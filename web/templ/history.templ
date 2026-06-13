@@ -101,7 +101,7 @@ func histTimeOfDay(t time.Time) string {
 templ HistoryPage(d HistoryPageData) {
 	@Layout("History", d.Viewer) {
 		<section>
-			<h1>{ d.Viewer.CommunityName } — History</h1>
+			<h1>{ d.Viewer.CommunityName } — Chat history</h1>
 			<div class="history-grid">
 				<aside class="history-cal">
 					<header class="cal-head">
@@ -141,22 +141,14 @@ templ HistoryPage(d HistoryPageData) {
 						<a class="btn ghost" href={ templ.URL(histDayHref(d.NextDay, d.CalendarBase)) }>Next day →</a>
 					</header>
 					if len(d.Events) == 0 {
-						<p class="muted">No activity on this day.</p>
+						<p class="muted">No chat on this day.</p>
 					} else {
 						<ol class="history-events">
 							for _, e := range d.Events {
-								<li class={ "history-event ev-" + string(e.Source) }>
+								<li class="history-event">
 									<span class="ev-time">{ histTimeOfDay(e.CreatedAt) }</span>
-									<span class={ "ev-source ev-source-" + string(e.Source) }>{ histSourceLabel(e.Source) }</span>
 									<span class="ev-author">{ e.AuthorName }</span>
-									if e.Source == HistorySourceThread {
-										<a class="ev-title" href={ templ.URL(e.Link) }>{ e.Title }</a>
-									} else if e.Source == HistorySourceReply {
-										<span class="ev-context">in <a href={ templ.URL(e.Link) }>{ e.ThreadSubject }</a></span>
-										<div class="ev-body">@templ.Raw(e.BodyHTML)</div>
-									} else {
-										<div class="ev-body">@templ.Raw(e.BodyHTML)</div>
-									}
+									<div class="ev-body">@templ.Raw(e.BodyHTML)</div>
 								</li>
 							}
 						</ol>
