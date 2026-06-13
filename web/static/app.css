@@ -194,6 +194,16 @@ button:focus-visible, .btn:focus-visible {
 
 #scroll-anchor { display: block; height: 1px; }
 
+.paste-preview {
+  display: flex; align-items: flex-start; gap: .5rem;
+  padding: .35rem; background: var(--surface-alt);
+  border-radius: var(--radius-sm); margin: .35rem 0;
+}
+.paste-preview img {
+  max-width: 200px; max-height: 120px; border-radius: var(--radius-sm);
+  display: block;
+}
+
 /* --- History --- */
 .history-grid {
   display: grid; grid-template-columns: 260px 1fr; gap: 1.5rem; margin-top: 1rem;

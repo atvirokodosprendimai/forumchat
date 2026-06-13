@@ -16,6 +16,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -27,10 +28,33 @@ type Handler struct {
 	ChatBus       *chat.Bus
 	Bus           *Bus
 	NATS          *nats.Conn
+	Uploads       *uploads.Store
 	CommunityID   string
 	CommunityName string
 	BaseURL       string
 	Log           *slog.Logger
+}
+
+const PasteImageMaxBytes = 1 << 20
+
+// attachPastedImage prepends a markdown image link to body if an image data
+// URL was pasted. Returns the new body; image errors are logged and ignored
+// so the textual content still posts.
+func (h *Handler) attachPastedImage(r *http.Request, userID, body, imageData string) string {
+	if imageData == "" || h.Uploads == nil {
+		return body
+	}
+	u, err := h.Uploads.SaveDataURL(r.Context(), userID, h.CommunityID, imageData, PasteImageMaxBytes)
+	if err != nil {
+		h.Log.Warn("paste image", "err", err)
+		return body
+	}
+	url := h.Uploads.SignedURL(u.ID, userID, 24*time.Hour)
+	img := "![](" + url + ")"
+	if body == "" {
+		return img
+	}
+	return img + "\n\n" + body
 }
 
 func (h *Handler) broadcastThread(threadID string) {
@@ -103,8 +127,9 @@ func (h *Handler) GetNew(w http.ResponseWriter, r *http.Request) {
 }
 
 type newThreadSignals struct {
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
+	Subject   string `json:"subject"`
+	Body      string `json:"body"`
+	ImageData string `json:"image_data"`
 }
 
 func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +138,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in newThreadSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -121,6 +147,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	subject := strings.TrimSpace(in.Subject)
 	body := strings.TrimSpace(in.Body)
+	body = h.attachPastedImage(r, id.User.ID, body, in.ImageData)
 	if subject == "" || body == "" {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("thread-error", "Subject and body required"))
 		return
@@ -250,6 +277,7 @@ func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
 type replySignals struct {
 	Body         string `json:"body"`
 	QuotedPostID string `json:"quoted_post_id"`
+	ImageData    string `json:"image_data"`
 }
 
 func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +287,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := chi.URLParam(r, "id")
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in replySignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -266,6 +295,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := datastar.NewSSE(w, r)
 	body := strings.TrimSpace(in.Body)
+	body = h.attachPastedImage(r, id.User.ID, body, in.ImageData)
 	if body == "" {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("reply-error", "Reply cannot be empty"))
 		return
@@ -287,7 +317,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ThreadPosts(threadID, pv), datastar.WithModeOuter())
 	}
 	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
-	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","reply_quote_label":""}`))
+	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","reply_quote_label":"","image_data":""}`))
 	h.broadcastThread(threadID)
 }
 

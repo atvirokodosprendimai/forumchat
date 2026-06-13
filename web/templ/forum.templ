@@ -71,7 +71,13 @@ templ NewThreadPage(v Viewer) {
 			</div>
 			<div class="field">
 				<label>Body (markdown)</label>
-				<textarea data-bind="body" rows="8" maxlength="20000"></textarea>
+				<textarea data-bind="body" rows="8" maxlength="20000"
+					data-on:paste="window.fcPasteImage(evt,'image_data')"></textarea>
+			</div>
+			<input type="hidden" data-bind="image_data"/>
+			<div class="paste-preview" data-show="$image_data">
+				<img alt="pasted image preview" data-attr:src="$image_data"/>
+				<button class="link" data-on:click="$image_data=''">remove image</button>
 			</div>
 			<button data-on:click="@post('/forum/new')">Post thread</button>
 			<a class="btn ghost" href="/forum">Cancel</a>
@@ -107,7 +113,13 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 				</div>
 				<div class="field">
 					<label>Markdown body</label>
-					<textarea data-bind="body" rows="4" maxlength="10000"></textarea>
+					<textarea data-bind="body" rows="4" maxlength="10000"
+						data-on:paste="window.fcPasteImage(evt,'image_data')"></textarea>
+				</div>
+				<input type="hidden" data-bind="image_data"/>
+				<div class="paste-preview" data-show="$image_data">
+					<img alt="pasted image preview" data-attr:src="$image_data"/>
+					<button class="link" data-on:click="$image_data=''">remove image</button>
 				</div>
 				<button data-on:click={ "@post('/forum/" + t.ID + "/reply')" }>Reply</button>
 			</section>

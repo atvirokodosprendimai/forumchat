@@ -5,12 +5,14 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -21,10 +23,13 @@ type Handler struct {
 	Repo          *Repo
 	NATS          *nats.Conn
 	Bus           *Bus
+	Uploads       *uploads.Store
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
 }
+
+const PasteImageMaxBytes = 1 << 20 // 1 MiB
 
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 	v := webtempl.Viewer{CommunityName: h.CommunityName}
@@ -90,8 +95,9 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 }
 
 type sendSignals struct {
-	Body       string `json:"body"`
-	ReplyToID  string `json:"reply_to_id"`
+	Body      string `json:"body"`
+	ReplyToID string `json:"reply_to_id"`
+	ImageData string `json:"image_data"`
 }
 
 func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
@@ -100,6 +106,9 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	// 2 MB cap: 1 MB image after base64 (~1.33 MB on the wire) + text + JSON
+	// framing. Defeats a runaway-paste turning into a memory grenade.
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in sendSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -107,6 +116,22 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	}
 	body := strings.TrimSpace(in.Body)
 	sse := datastar.NewSSE(w, r)
+
+	if in.ImageData != "" && h.Uploads != nil {
+		u, err := h.Uploads.SaveDataURL(r.Context(), id.User.ID, h.CommunityID, in.ImageData, PasteImageMaxBytes)
+		if err != nil {
+			h.Log.Warn("paste image", "err", err)
+		} else {
+			url := h.Uploads.SignedURL(u.ID, id.User.ID, 24*time.Hour)
+			imgMD := "![](" + url + ")"
+			if body == "" {
+				body = imgMD
+			} else {
+				body = imgMD + "\n\n" + body
+			}
+		}
+	}
+
 	if body == "" || len(body) > 4000 {
 		return
 	}
@@ -129,7 +154,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID)
 	}
 	// Clear composer signals.
-	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":""}`))
+	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":""}`))
 
 	h.broadcast()
 }

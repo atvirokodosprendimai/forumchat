@@ -1,10 +1,12 @@
 package uploads
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -161,6 +163,34 @@ func (s *Store) PathFor(u Upload) string {
 // ExtForMIME returns the canonical extension for an allowed MIME, or "" if not.
 func ExtForMIME(mime string) string {
 	return allowedMIME[strings.ToLower(mime)]
+}
+
+// SaveDataURL decodes a "data:<mime>;base64,XXXX" string, enforces maxBytes
+// on the decoded payload, and persists it via Save. Used by the paste-image
+// path on chat and forum forms.
+func (s *Store) SaveDataURL(ctx context.Context, ownerID, communityID, dataURL string, maxBytes int64) (Upload, error) {
+	if !strings.HasPrefix(dataURL, "data:") {
+		return Upload{}, errors.New("uploads: not a data URL")
+	}
+	comma := strings.IndexByte(dataURL, ',')
+	if comma < 0 {
+		return Upload{}, errors.New("uploads: bad data URL")
+	}
+	header := dataURL[5:comma]
+	payload := dataURL[comma+1:]
+	parts := strings.Split(header, ";")
+	if len(parts) < 2 || parts[len(parts)-1] != "base64" {
+		return Upload{}, errors.New("uploads: only base64 data URLs supported")
+	}
+	mime := strings.ToLower(parts[0])
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return Upload{}, fmt.Errorf("uploads: decode base64: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return Upload{}, ErrTooLarge
+	}
+	return s.Save(ctx, ownerID, communityID, mime, bytes.NewReader(data))
 }
 
 // MIMEFromHeader picks the best MIME from a multipart Content-Type, falling back

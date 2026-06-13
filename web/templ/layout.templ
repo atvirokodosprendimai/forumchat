@@ -32,7 +32,8 @@ const InitialSignals = `{
 	"bm_title":"",
 	"bm_category":"",
 	"bm_from":"",
-	"bm_to":""
+	"bm_to":"",
+	"image_data":""
 }`
 
 templ Layout(title string, v Viewer) {
@@ -44,6 +45,7 @@ templ Layout(title string, v Viewer) {
 			<title>{ title } — forumchat</title>
 			<link rel="stylesheet" href="/static/app.css"/>
 			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
+			<script src="/static/paste.js" defer></script>
 		</head>
 		<body data-signals={ InitialSignals }>
 			<header class="topbar">
