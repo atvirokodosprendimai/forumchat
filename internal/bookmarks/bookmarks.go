@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
@@ -183,9 +184,7 @@ func (r *Repo) List(ctx context.Context, userID, communityID string, f Filter) (
 		row.CreatedAt = time.Unix(created, 0)
 		row.MessageCreatedAt = time.Unix(msgCreated, 0)
 		row.MessageDeleted = msgDel.Valid
-		if len(row.MessageSnippet) > 200 {
-			row.MessageSnippet = row.MessageSnippet[:200] + "…"
-		}
+		row.MessageSnippet = SnippetForList(row.MessageSnippet)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -213,14 +212,56 @@ func (r *Repo) DistinctCategories(ctx context.Context, userID, communityID strin
 	return out, rows.Err()
 }
 
+// imageMarkdownRE matches a leading markdown image (optionally wrapped in a
+// link): `![alt](src)` or `[![alt](src)](href)`.
+var imageMarkdownRE = regexp.MustCompile(`^\[?!\[[^\]]*\]\([^)]*\)\]?(?:\([^)]*\))?`)
+
+// stripLeadingImage returns the body with any leading markdown image syntax
+// removed and trimmed. If the result is empty, the second return is true so
+// callers can substitute a placeholder.
+func stripLeadingImage(s string) (string, bool) {
+	stripped := strings.TrimSpace(imageMarkdownRE.ReplaceAllString(s, ""))
+	return stripped, stripped == "" && strings.TrimSpace(s) != ""
+}
+
 // AutoTitleFromMarkdown derives a sensible default title from a message body.
+// Image-only messages collapse to "(image)" instead of leaking raw markdown
+// link syntax into bookmark titles.
 func AutoTitleFromMarkdown(md string) string {
 	if i := strings.IndexAny(md, "\r\n"); i >= 0 {
 		md = md[:i]
 	}
 	md = strings.TrimSpace(md)
+	stripped, wasImage := stripLeadingImage(md)
+	if wasImage {
+		return "(image)"
+	}
+	md = stripped
 	if len(md) > 80 {
 		md = md[:80] + "…"
 	}
 	return md
+}
+
+// SnippetForList prepares the message-body excerpt shown in the bookmark
+// list. Image-only bodies become "(image)" and image-prefixed bodies have
+// the image syntax replaced by an "(image) " marker.
+func SnippetForList(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	stripped, wasImage := stripLeadingImage(body)
+	if wasImage {
+		return "(image)"
+	}
+	if stripped != body {
+		body = "(image) " + stripped
+	} else {
+		body = stripped
+	}
+	if len(body) > 200 {
+		body = body[:200] + "…"
+	}
+	return body
 }
