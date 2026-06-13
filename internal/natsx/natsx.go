@@ -38,6 +38,10 @@ func ForumSubject(communityID string) string {
 	return fmt.Sprintf("community.%s.forum", communityID)
 }
 
+func ForumThreadSubject(communityID, threadID string) string {
+	return fmt.Sprintf("community.%s.forum.thread.%s", communityID, threadID)
+}
+
 func PresenceSubject(communityID string) string {
 	return fmt.Sprintf("community.%s.presence", communityID)
 }

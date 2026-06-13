@@ -1,6 +1,7 @@
 package forum
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,11 +25,43 @@ type Handler struct {
 	Chat          *chat.Service
 	ChatRepo      *chat.Repo
 	ChatBus       *chat.Bus
+	Bus           *Bus
 	NATS          *nats.Conn
 	CommunityID   string
 	CommunityName string
 	BaseURL       string
 	Log           *slog.Logger
+}
+
+func (h *Handler) broadcastThread(threadID string) {
+	if h.Bus != nil {
+		h.Bus.Broadcast(threadID)
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.ForumThreadSubject(h.CommunityID, threadID), []byte("changed"))
+	}
+}
+
+func (h *Handler) loadPostViews(ctx context.Context, threadID, currentUserID string, isMod bool) ([]webtempl.PostView, error) {
+	posts, err := h.Repo.ListPosts(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	pv := make([]webtempl.PostView, 0, len(posts))
+	for _, p := range posts {
+		pv = append(pv, webtempl.PostView{
+			ID:           p.ID,
+			AuthorName:   p.AuthorName,
+			QuotedAuthor: p.QuotedAuthor,
+			QuotedBody:   p.QuotedBody,
+			BodyHTML:     p.BodyHTML,
+			CreatedAt:    p.CreatedAt,
+			Deleted:      p.IsDeleted(),
+			CanEdit:      (p.AuthorID == currentUserID && now.Sub(p.CreatedAt) <= h.Svc.EditGrace) || isMod,
+		})
+	}
+	return pv, nil
 }
 
 const ThreadLimit = 50
@@ -139,33 +172,79 @@ func (h *Handler) GetThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	posts, err := h.Repo.ListPosts(r.Context(), t.ID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	now := time.Now()
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+	now := time.Now()
 	view := webtempl.ThreadView{
 		ID: t.ID, Subject: t.Subject, AuthorName: t.AuthorName,
 		BodyHTML: t.BodyHTML, CreatedAt: t.CreatedAt,
 		CanEdit: t.AuthorID == id.User.ID && now.Sub(t.CreatedAt) <= h.Svc.EditGrace,
 		IsMod:   isMod,
 	}
-	pv := make([]webtempl.PostView, 0, len(posts))
-	for _, p := range posts {
-		pv = append(pv, webtempl.PostView{
-			ID:           p.ID,
-			AuthorName:   p.AuthorName,
-			QuotedAuthor: p.QuotedAuthor,
-			QuotedBody:   p.QuotedBody,
-			BodyHTML:     p.BodyHTML,
-			CreatedAt:    p.CreatedAt,
-			Deleted:      p.IsDeleted(),
-			CanEdit:      (p.AuthorID == id.User.ID && now.Sub(p.CreatedAt) <= h.Svc.EditGrace) || isMod,
-		})
+	pv, err := h.loadPostViews(r.Context(), t.ID, id.User.ID, isMod)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	_ = webtempl.ThreadPage(h.viewer(r), view, pv).Render(r.Context(), w)
+}
+
+// GetThreadStream is the per-thread SSE channel. On every local Bus signal or
+// NATS ping, refetch posts and outer-morph #posts.
+func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	threadID := chi.URLParam(r, "id")
+	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+	sse := datastar.NewSSE(w, r)
+
+	push := func() error {
+		pv, err := h.loadPostViews(r.Context(), threadID, id.User.ID, isMod)
+		if err != nil {
+			return nil
+		}
+		if err := sse.PatchElementTempl(
+			webtempl.ThreadPosts(threadID, pv),
+			datastar.WithModeOuter(),
+		); err != nil {
+			return err
+		}
+		return sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
+	}
+	_ = push()
+
+	local, unsubscribe := h.Bus.Subscribe(threadID)
+	defer unsubscribe()
+
+	var natsCh chan *nats.Msg
+	if h.NATS != nil && h.NATS.IsConnected() {
+		natsCh = make(chan *nats.Msg, 32)
+		sub, err := h.NATS.ChanSubscribe(natsx.ForumThreadSubject(h.CommunityID, threadID), natsCh)
+		if err == nil {
+			defer sub.Unsubscribe()
+		} else {
+			h.Log.Warn("nats subscribe forum thread", "err", err)
+			natsCh = nil
+		}
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-local:
+		case _, ok := <-natsCh:
+			if !ok {
+				natsCh = nil
+				continue
+			}
+		}
+		if err := push(); err != nil {
+			return
+		}
+	}
 }
 
 type replySignals struct {
@@ -202,7 +281,14 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("reply-error", err.Error()))
 		return
 	}
-	_ = sse.Redirect("/forum/" + threadID)
+	// Patch posts immediately for this client; broadcast for everyone else.
+	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+	if pv, err := h.loadPostViews(r.Context(), threadID, id.User.ID, isMod); err == nil {
+		_ = sse.PatchElementTempl(webtempl.ThreadPosts(threadID, pv), datastar.WithModeOuter())
+	}
+	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
+	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","reply_quote_label":""}`))
+	h.broadcastThread(threadID)
 }
 
 func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
@@ -331,7 +417,11 @@ func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := datastar.NewSSE(w, r)
-	_ = sse.Redirect("/forum/" + p.ThreadID)
+	if pv, err := h.loadPostViews(r.Context(), p.ThreadID, id.User.ID, isMod); err == nil {
+		_ = sse.PatchElementTempl(webtempl.ThreadPosts(p.ThreadID, pv), datastar.WithModeOuter())
+	}
+	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
+	h.broadcastThread(p.ThreadID)
 }
 
 func htmlEscape(s string) string {

@@ -1,6 +1,16 @@
 package templ
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
+
+// quoteClickJS builds the data-on:click expression for a forum post quote
+// button. AuthorName goes through strconv.Quote so names with quotes or
+// backslashes remain safe inside the JS expression.
+func quoteClickJS(postID, authorName string) string {
+	return "$quoted_post_id=" + strconv.Quote(postID) + "; $reply_quote_label=" + strconv.Quote(authorName)
+}
 
 type ThreadRow struct {
 	ID             string
@@ -84,28 +94,44 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 			</article>
 
 			<h2>Replies</h2>
-			<div id="posts">
-				if len(posts) == 0 {
-					<p class="muted">No replies yet.</p>
-				}
-				for _, p := range posts {
-					@ForumPost(t.ID, p)
-				}
-			</div>
+			@ThreadPosts(t.ID, posts)
+			<div id={ "thread-stream-open-" + t.ID } data-init={ "@get('/forum/" + t.ID + "/stream')" }></div>
 
 			<section class="card">
 				<h3>Reply</h3>
 				<div id="reply-error" class="error"></div>
 				<input type="hidden" data-bind="quoted_post_id"/>
-				<div id="reply-quote-hint" class="muted"></div>
+				<div id="reply-quote-hint" class="muted" data-show="$reply_quote_label">
+					Quoting <span data-text="$reply_quote_label"></span>
+					<button class="link" data-on:click="$quoted_post_id=''; $reply_quote_label=''">clear</button>
+				</div>
 				<div class="field">
 					<label>Markdown body</label>
 					<textarea data-bind="body" rows="4" maxlength="10000"></textarea>
 				</div>
 				<button data-on:click={ "@post('/forum/" + t.ID + "/reply')" }>Reply</button>
 			</section>
+			@ThreadScrollAnchor()
 		</section>
 	}
+}
+
+// ThreadScrollAnchor re-mounts on every posts update (server patches it with
+// WithModeReplace). data-init fires on each fresh mount, scrolling the page
+// to the bottom so newest reply + composer stay in view.
+templ ThreadScrollAnchor() {
+	<div id="thread-scroll-anchor" data-init="el.scrollIntoView({behavior:'smooth',block:'end'})"></div>
+}
+
+templ ThreadPosts(threadID string, posts []PostView) {
+	<div id="posts">
+		if len(posts) == 0 {
+			<p class="muted">No replies yet.</p>
+		}
+		for _, p := range posts {
+			@ForumPost(threadID, p)
+		}
+	</div>
 }
 
 templ ForumPost(threadID string, p PostView) {
@@ -117,7 +143,7 @@ templ ForumPost(threadID string, p PostView) {
 				<strong>{ p.AuthorName }</strong>
 				<span class="muted">{ fmtTime(p.CreatedAt) }</span>
 				<button class="link"
-					data-on:click={ "$quoted_post_id='" + p.ID + "'" }>quote</button>
+					data-on:click={ quoteClickJS(p.ID, p.AuthorName) }>quote</button>
 				if p.CanEdit {
 					<button class="link"
 						data-on:click={ "@post('/forum/post/" + p.ID + "/delete')" }>delete</button>

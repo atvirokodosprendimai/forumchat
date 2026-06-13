@@ -182,12 +182,14 @@ func run() error {
 
 	forumRepo := forum.NewRepo(db)
 	forumSvc := forum.NewService(forumRepo, cfg.EditGrace)
+	forumBus := forum.NewBus()
 	forumHandler := &forum.Handler{
 		Svc:           forumSvc,
 		Repo:          forumRepo,
 		Chat:          chatSvc,
 		ChatRepo:      chatRepo,
 		ChatBus:       chatBus,
+		Bus:           forumBus,
 		NATS:          nc,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
@@ -239,6 +241,7 @@ func run() error {
 		r.Get("/forum/new", forumHandler.GetNew)
 		r.Post("/forum/new", forumHandler.PostNew)
 		r.Get("/forum/{id}", forumHandler.GetThread)
+		r.Get("/forum/{id}/stream", forumHandler.GetThreadStream)
 		r.Post("/forum/{id}/reply", forumHandler.PostReply)
 		r.Post("/forum/{id}/delete", forumHandler.PostDeleteThread)
 		r.Post("/forum/post/{id}/delete", forumHandler.PostDeletePost)
