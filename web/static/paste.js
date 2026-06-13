@@ -38,6 +38,19 @@ window.fcPasteImage = function (evt, signalName) {
   }
 };
 
+// Close any open <details class="msg-menu"> when the user taps outside it or
+// presses Escape. Single global listener — works for menus added later via SSE.
+document.addEventListener('click', function (evt) {
+  const open = document.querySelectorAll('details.msg-menu[open]');
+  for (const d of open) {
+    if (!d.contains(evt.target)) d.open = false;
+  }
+});
+document.addEventListener('keydown', function (evt) {
+  if (evt.key !== 'Escape') return;
+  for (const d of document.querySelectorAll('details.msg-menu[open]')) d.open = false;
+});
+
 window.fcDropImage = function (evt, signalName) {
   const dt = evt.dataTransfer;
   if (!dt) return;

@@ -92,7 +92,58 @@ button.link:hover { text-decoration: underline; }
   border-radius: var(--radius); padding: .65rem .9rem; margin: .4rem 0;
   box-shadow: var(--shadow);
 }
-.bubble .meta { display: flex; gap: .55rem; align-items: baseline; margin-bottom: .25rem; flex-wrap: wrap; row-gap: .25rem; }
+.bubble .meta { display: flex; gap: .55rem; align-items: center; margin-bottom: .25rem; flex-wrap: wrap; row-gap: .25rem; }
+.bubble .meta > strong, .bubble .meta > .muted { line-height: 1.6; }
+
+/* Per-message action menu — collapsed behind a ⋯ trigger.
+   Single big tap target on phones instead of a row of tiny links. */
+.msg-menu { position: relative; margin-left: auto; }
+.msg-menu > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  padding: .15rem .55rem; border-radius: var(--radius-sm);
+  color: var(--fg-muted); font-weight: 700; letter-spacing: .15em;
+  border: 1px solid transparent;
+}
+.msg-menu > summary::-webkit-details-marker { display: none; }
+.msg-menu > summary:hover { background: var(--surface-alt); color: var(--fg); }
+.msg-menu[open] > summary { background: var(--surface-alt); border-color: var(--border); color: var(--fg); }
+.msg-menu-list {
+  position: absolute; top: calc(100% + .25rem); right: 0; z-index: 6;
+  min-width: 11rem; max-width: 16rem;
+  display: flex; flex-direction: column; gap: .1rem;
+  padding: .35rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.msg-menu-item {
+  background: transparent; color: var(--fg); border: none;
+  text-align: left; padding: .65rem .7rem; border-radius: var(--radius-sm);
+  font-weight: 500; font-size: .95rem; text-decoration: none;
+  display: block; cursor: pointer; width: 100%; min-height: 40px;
+}
+.msg-menu-item:hover, .msg-menu-item:focus-visible {
+  background: var(--surface-alt); text-decoration: none; outline: none;
+}
+.msg-menu-item.danger { color: var(--danger); }
+.msg-menu-item.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+/* On phones, drop the absolute dropdown and expand inline so chat container
+   overflow doesn't clip the menu and tap targets get full bubble width. */
+@media (max-width: 720px) {
+  .msg-menu { width: 100%; margin-left: 0; order: 99; }
+  .msg-menu > summary {
+    text-align: center; padding: .55rem;
+    border: 1px dashed var(--border); background: transparent;
+    color: var(--fg-muted); letter-spacing: .25em;
+  }
+  .msg-menu[open] > summary { border-style: solid; }
+  .msg-menu-list {
+    position: static; right: auto; top: auto;
+    width: 100%; max-width: none; min-width: 0;
+    margin-top: .35rem; box-shadow: none;
+  }
+  .msg-menu-item { padding: .8rem .7rem; min-height: 44px; font-size: 1rem; }
+}
 .bubble .meta strong { color: var(--fg); }
 .bubble .body p:first-child { margin-top: 0; }
 .bubble .body p:last-child { margin-bottom: 0; }
