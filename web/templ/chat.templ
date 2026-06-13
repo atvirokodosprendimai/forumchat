@@ -39,19 +39,12 @@ templ ChatPage(d ChatPageData) {
 	@Layout("Chat", d.Viewer) {
 		<section class="chat-layout">
 			<div>
-				<header class="chat-head">
-					<h1>{ d.Viewer.CommunityName }</h1>
-					<button class="btn ghost presence-toggle" data-on:click="$presence_open=true">Online</button>
-				</header>
+				<h1>{ d.Viewer.CommunityName }</h1>
 				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID)
 				@ChatComposer()
 			</div>
-			<div class="presence-backdrop" data-show="$presence_open" data-on:click="$presence_open=false"></div>
-			<aside id="presence" class="presence" data-class:open="$presence_open" data-init="@get('/presence/stream', {openWhenHidden: true})">
-				<header class="presence-head">
-					<h3>Online</h3>
-					<button class="btn ghost presence-close" data-on:click="$presence_open=false">×</button>
-				</header>
+			<aside id="presence" class="presence" data-init="@get('/presence/stream', {openWhenHidden: true})">
+				<h3>Online</h3>
 				<div id="presence-list"><p class="muted">connecting…</p></div>
 			</aside>
 		</section>
