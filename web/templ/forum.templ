@@ -62,7 +62,9 @@ templ ForumIndex(v Viewer, threads []ThreadRow) {
 
 templ NewThreadPage(v Viewer) {
 	@Layout("New thread", v) {
-		<section class="card">
+		<section class="card"
+			data-on:dragover="evt.preventDefault()"
+			data-on:drop="window.fcDropImage(evt,'image_data')">
 			<h1>New thread</h1>
 			<div id="thread-error" class="error"></div>
 			<div class="field">
@@ -70,7 +72,7 @@ templ NewThreadPage(v Viewer) {
 				<input type="text" data-bind="subject" maxlength="200" autofocus/>
 			</div>
 			<div class="field">
-				<label>Body (markdown)</label>
+				<label>Body (markdown — paste or drop image to attach)</label>
 				<textarea data-bind="body" rows="8" maxlength="20000"
 					data-on:paste="window.fcPasteImage(evt,'image_data')"></textarea>
 			</div>
@@ -103,7 +105,9 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 			@ThreadPosts(t.ID, posts)
 			<div id={ "thread-stream-open-" + t.ID } data-init={ "@get('/forum/" + t.ID + "/stream', {openWhenHidden: true})" }></div>
 
-			<section class="card">
+			<section class="card"
+				data-on:dragover="evt.preventDefault()"
+				data-on:drop="window.fcDropImage(evt,'image_data')">
 				<h3>Reply</h3>
 				<div id="reply-error" class="error"></div>
 				<input type="hidden" data-bind="quoted_post_id"/>
@@ -112,7 +116,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 					<button class="link" data-on:click="$quoted_post_id=''; $reply_quote_label=''">clear</button>
 				</div>
 				<div class="field">
-					<label>Markdown body</label>
+					<label>Markdown body (paste or drop image to attach)</label>
 					<textarea data-bind="body" rows="4" maxlength="10000"
 						data-on:paste="window.fcPasteImage(evt,'image_data')"></textarea>
 				</div>

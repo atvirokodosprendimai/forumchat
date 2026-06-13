@@ -56,7 +56,9 @@ templ ChatPage(d ChatPageData) {
 // `$reply_to_id` is set by per-bubble "reply" buttons; the indicator is
 // driven by the signal value via data-show.
 templ ChatComposer() {
-	<div id="composer" class="composer">
+	<div id="composer" class="composer"
+		data-on:dragover="evt.preventDefault()"
+		data-on:drop="window.fcDropImage(evt,'image_data')">
 		<div id="reply-indicator" class="reply-hint" data-show="$reply_to_id !== ''">
 			<span class="muted">Replying — <span data-text="'…' + ($reply_to_id || '').slice(0,8)"></span></span>
 			<button class="link" data-on:click="$reply_to_id = ''">cancel</button>
@@ -69,7 +71,7 @@ templ ChatComposer() {
 		<div class="composer-row">
 			<input type="text"
 				data-bind="body"
-				placeholder="Say something — markdown ok (paste an image to attach)"
+				placeholder="Say something — markdown ok (paste or drop an image)"
 				autocomplete="off"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
 				data-on:keydown="evt.key === 'Enter' && @post('/chat/send')"/>
