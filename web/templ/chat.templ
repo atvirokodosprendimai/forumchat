@@ -111,25 +111,41 @@ templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 			<header class="meta">
 				<strong>{ m.AuthorName }</strong>
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
-				<details class="msg-menu">
-					<summary aria-label="Actions">⋯</summary>
-					<div class="msg-menu-list">
-						<button class="msg-menu-item" data-on:click={ "$reply_to_id = '" + m.ID + "'; el.closest('details').open=false" }>↩ Reply</button>
-						<button class="msg-menu-item" data-on:click={ "$bm_open_msg = '" + m.ID + "'; el.closest('details').open=false" }>★ Bookmark</button>
-						<button class="msg-menu-item" data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false" }>☑ Add to todos</button>
-						if m.PromotedThreadID != "" {
-							<a class="msg-menu-item" href={ templ.URL("/c/" + slug + "/forum/" + m.PromotedThreadID) }>→ Open thread</a>
-						} else if isMod || m.AuthorID == currentUserID {
-							<button class="msg-menu-item"
-								data-on:click={ "@post('/c/" + slug + "/forum/promote-chat?id=" + m.ID + "')" }>→ Promote to thread</button>
-						}
-						if isMod {
-							<button class="msg-menu-item danger"
-								data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>✕ Delete</button>
-						}
-					</div>
-				</details>
 			</header>
+			<details class="msg-menu">
+				<summary aria-label="Actions"><span class="msg-menu-dot"></span></summary>
+				<div class="msg-menu-list" role="menu">
+					<div class="msg-menu-handle" aria-hidden="true"></div>
+					<button class="msg-menu-item" role="menuitem"
+						data-on:click={ "$reply_to_id = '" + m.ID + "'; el.closest('details').open=false" }>
+						<span class="mi-icon">↩</span><span class="mi-label">Reply</span>
+					</button>
+					<button class="msg-menu-item" role="menuitem"
+						data-on:click={ "$bm_open_msg = '" + m.ID + "'; el.closest('details').open=false" }>
+						<span class="mi-icon">★</span><span class="mi-label">Bookmark</span>
+					</button>
+					<button class="msg-menu-item" role="menuitem"
+						data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false" }>
+						<span class="mi-icon">☑</span><span class="mi-label">To-do</span>
+					</button>
+					if m.PromotedThreadID != "" {
+						<a class="msg-menu-item" role="menuitem" href={ templ.URL("/c/" + slug + "/forum/" + m.PromotedThreadID) }>
+							<span class="mi-icon">→</span><span class="mi-label">Thread</span>
+						</a>
+					} else if isMod || m.AuthorID == currentUserID {
+						<button class="msg-menu-item" role="menuitem"
+							data-on:click={ "@post('/c/" + slug + "/forum/promote-chat?id=" + m.ID + "')" }>
+							<span class="mi-icon">→</span><span class="mi-label">Promote</span>
+						</button>
+					}
+					if isMod {
+						<button class="msg-menu-item danger" role="menuitem"
+							data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>
+							<span class="mi-icon">✕</span><span class="mi-label">Delete</span>
+						</button>
+					}
+				</div>
+			</details>
 			if m.ReplyTo != nil {
 				<blockquote class="quote">
 					<span class="muted">{ m.ReplyTo.AuthorName } wrote:</span>
