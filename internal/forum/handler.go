@@ -16,6 +16,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
@@ -38,6 +39,27 @@ type Handler struct {
 
 const PasteImageMaxBytes = 1 << 20
 
+func (h *Handler) cid(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.ID
+	}
+	return h.CommunityID
+}
+
+func (h *Handler) cname(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.Name
+	}
+	return h.CommunityName
+}
+
+func (h *Handler) cslug(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.Slug
+	}
+	return ""
+}
+
 // attachPastedImage prepends a markdown image link to body if an image data
 // URL was pasted. Returns the new body; image errors are logged and ignored
 // so the textual content still posts.
@@ -45,7 +67,7 @@ func (h *Handler) attachPastedImage(r *http.Request, userID, body, imageData str
 	if imageData == "" || h.Uploads == nil {
 		return body
 	}
-	u, err := h.Uploads.SaveDataURL(r.Context(), userID, h.CommunityID, imageData, PasteImageMaxBytes)
+	u, err := h.Uploads.SaveDataURL(r.Context(), userID, h.cid(r.Context()), imageData, PasteImageMaxBytes)
 	if err != nil {
 		h.Log.Warn("paste image", "err", err)
 		return body
@@ -58,12 +80,12 @@ func (h *Handler) attachPastedImage(r *http.Request, userID, body, imageData str
 	return img + "\n\n" + body
 }
 
-func (h *Handler) broadcastThread(threadID string) {
+func (h *Handler) broadcastThread(ctx context.Context, threadID string) {
 	if h.Bus != nil {
 		h.Bus.Broadcast(threadID)
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ForumThreadSubject(h.CommunityID, threadID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ForumThreadSubject(h.cid(ctx), threadID), []byte("changed"))
 	}
 }
 
@@ -92,7 +114,7 @@ func (h *Handler) loadPostViews(ctx context.Context, threadID, currentUserID str
 const ThreadLimit = 50
 
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
-	v := webtempl.Viewer{CommunityName: h.CommunityName}
+	v := webtempl.Viewer{CommunityName: h.cname(r.Context()), CommunitySlug: h.cslug(r.Context())}
 	if id, ok := auth.FromContext(r.Context()); ok {
 		v.IsAuthed = true
 		v.DisplayName = id.Membership.DisplayName
@@ -120,7 +142,7 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 	if repoStatus == "all" {
 		repoStatus = ""
 	}
-	ts, err := h.Repo.ListThreadsFiltered(r.Context(), h.CommunityID, repoStatus, q, ThreadLimit)
+	ts, err := h.Repo.ListThreadsFiltered(r.Context(), h.cid(r.Context()), repoStatus, q, ThreadLimit)
 	if err != nil {
 		http.Error(w, "load threads: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -166,7 +188,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, err := h.Svc.CreateThread(r.Context(), CreateThreadInput{
-		CommunityID:  h.CommunityID,
+		CommunityID:  h.cid(r.Context()),
 		AuthorID:     id.User.ID,
 		Subject:      subject,
 		BodyMarkdown: body,
@@ -180,13 +202,13 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		link := fmt.Sprintf(`%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), t.ID)
 		threadID := t.ID
 		announceHTML := buildThreadAnnounce(id.Membership.DisplayName, link, t.Subject, t.BodyMarkdown)
-		_, err := h.Chat.PostSystem(r.Context(), h.CommunityID, announceHTML, chat.KindThreadAnnounce, &threadID)
+		_, err := h.Chat.PostSystem(r.Context(), h.cid(r.Context()), announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("post thread-announce", "err", err)
 		} else if h.NATS != nil && h.NATS.IsConnected() {
 			// Just ping the chat channel; subscribers refetch the latest 100
 			// from the DB (which now includes the thread_announce row).
-			_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
+			_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
 		}
 	}
 
@@ -261,7 +283,7 @@ func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
 	var natsCh chan *nats.Msg
 	if h.NATS != nil && h.NATS.IsConnected() {
 		natsCh = make(chan *nats.Msg, 32)
-		sub, err := h.NATS.ChanSubscribe(natsx.ForumThreadSubject(h.CommunityID, threadID), natsCh)
+		sub, err := h.NATS.ChanSubscribe(natsx.ForumThreadSubject(h.cid(r.Context()), threadID), natsCh)
 		if err == nil {
 			defer sub.Unsubscribe()
 		} else {
@@ -331,7 +353,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
 	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","reply_quote_label":"","image_data":""}`))
-	h.broadcastThread(threadID)
+	h.broadcastThread(r.Context(), threadID)
 }
 
 // PostResolve / PostUnresolve toggle the resolved marker. Author of the
@@ -512,7 +534,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		threadAuthorID = *msg.AuthorID
 	}
 	t, err := h.Svc.CreateThread(r.Context(), CreateThreadInput{
-		CommunityID:  h.CommunityID,
+		CommunityID:  h.cid(r.Context()),
 		AuthorID:     threadAuthorID,
 		Subject:      subject,
 		BodyMarkdown: msg.BodyMarkdown,
@@ -547,7 +569,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		}
 		threadID := t.ID
 		announceHTML := buildThreadAnnounce(announceName, link, t.Subject, msg.BodyMarkdown)
-		_, err := h.Chat.PostSystem(r.Context(), h.CommunityID, announceHTML, chat.KindThreadAnnounce, &threadID)
+		_, err := h.Chat.PostSystem(r.Context(), h.cid(r.Context()), announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("promote thread-announce", "err", err)
 		}
@@ -557,7 +579,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		h.ChatBus.Broadcast()
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
 	}
 	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/forum/" + t.ID)
@@ -648,7 +670,7 @@ func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ThreadPosts(p.ThreadID, pv), datastar.WithModeOuter())
 	}
 	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
-	h.broadcastThread(p.ThreadID)
+	h.broadcastThread(r.Context(), p.ThreadID)
 }
 
 func htmlEscape(s string) string {

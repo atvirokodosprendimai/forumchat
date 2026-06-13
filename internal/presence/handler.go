@@ -9,6 +9,7 @@ import (
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 )
 
@@ -18,6 +19,13 @@ type Handler struct {
 	Log         *slog.Logger
 }
 
+func (h *Handler) cid(r *http.Request) string {
+	if c, ok := community.FromContext(r.Context()); ok {
+		return c.ID
+	}
+	return h.CommunityID
+}
+
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -25,35 +33,36 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := render.NewSSE(w, r)
-	ch, cancel := h.Tracker.Watch(h.CommunityID)
+	ch, cancel := h.Tracker.Watch(h.cid(r))
 	defer cancel()
 
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
 
 	// Send initial state + heartbeat the user as present.
-	h.Tracker.Touch(h.CommunityID, Member{
+	h.Tracker.Touch(h.cid(r), Member{
 		UserID: id.User.ID, DisplayName: id.Membership.DisplayName, AvatarURL: id.Membership.AvatarURL,
 	})
-	h.push(sse)
+	cid := h.cid(r)
+	h.push(sse, cid)
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ch:
-			h.push(sse)
+			h.push(sse, cid)
 		case <-heartbeat.C:
-			h.Tracker.Touch(h.CommunityID, Member{
+			h.Tracker.Touch(cid, Member{
 				UserID: id.User.ID, DisplayName: id.Membership.DisplayName, AvatarURL: id.Membership.AvatarURL,
 			})
-			h.push(sse)
+			h.push(sse, cid)
 		}
 	}
 }
 
-func (h *Handler) push(sse *datastar.ServerSentEventGenerator) {
-	members := h.Tracker.Members(h.CommunityID)
+func (h *Handler) push(sse *datastar.ServerSentEventGenerator, communityID string) {
+	members := h.Tracker.Members(communityID)
 	var sb strings.Builder
 	sb.WriteString(`<div id="presence-list"><p class="muted">Online · `)
 	sb.WriteString(itoa(len(members)))

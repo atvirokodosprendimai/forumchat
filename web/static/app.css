@@ -199,6 +199,13 @@ button.link:hover { text-decoration: underline; }
 .thread-list li a { font-weight: 600; color: var(--fg); }
 .thread-list li a:hover { color: var(--accent); }
 
+.community-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.community-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.community-link { display: flex; flex-direction: column; gap: .35rem; padding: 1rem; color: var(--fg); text-decoration: none; }
+.community-link:hover { background: var(--surface-alt); }
+.community-link.disabled { color: var(--muted); cursor: not-allowed; }
+.role-tag { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
+
 .resolved-badge {
   display: inline-block; font-size: .7rem; font-weight: 600;
   padding: .1rem .45rem; border-radius: 999px;

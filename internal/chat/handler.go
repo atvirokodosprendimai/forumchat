@@ -11,6 +11,7 @@ import (
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
@@ -31,8 +32,32 @@ type Handler struct {
 
 const PasteImageMaxBytes = 1 << 20 // 1 MiB
 
+// cid / cname read the community resolved by the /c/{slug} middleware,
+// falling back to the boot community embedded on the handler for
+// transition / single-community deployments.
+func (h *Handler) cid(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.ID
+	}
+	return h.CommunityID
+}
+
+func (h *Handler) cname(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.Name
+	}
+	return h.CommunityName
+}
+
+func (h *Handler) cslug(ctx context.Context) string {
+	if c, ok := community.FromContext(ctx); ok {
+		return c.Slug
+	}
+	return ""
+}
+
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
-	v := webtempl.Viewer{CommunityName: h.CommunityName}
+	v := webtempl.Viewer{CommunityName: h.cname(r.Context()), CommunitySlug: h.cslug(r.Context())}
 	if id, ok := auth.FromContext(r.Context()); ok {
 		v.IsAuthed = true
 		v.DisplayName = id.Membership.DisplayName
@@ -42,7 +67,7 @@ func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 }
 
 func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
-	msgs, err := h.Repo.Recent(ctx, h.CommunityID, RecentLimit)
+	msgs, err := h.Repo.Recent(ctx, h.cid(ctx), RecentLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -66,12 +91,12 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 
 // broadcast fans out a chat-changed signal locally (this process) AND over
 // NATS (other processes). Either may be down; the other still works.
-func (h *Handler) broadcast() {
+func (h *Handler) broadcast(ctx context.Context) {
 	if h.Bus != nil {
 		h.Bus.Broadcast()
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ChatSubject(h.CommunityID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(ctx)), []byte("changed"))
 	}
 }
 
@@ -118,7 +143,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 
 	if in.ImageData != "" && h.Uploads != nil {
-		u, err := h.Uploads.SaveDataURL(r.Context(), id.User.ID, h.CommunityID, in.ImageData, PasteImageMaxBytes)
+		u, err := h.Uploads.SaveDataURL(r.Context(), id.User.ID, h.cid(r.Context()), in.ImageData, PasteImageMaxBytes)
 		if err != nil {
 			h.Log.Warn("paste image", "err", err)
 		} else {
@@ -140,7 +165,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		replyTo = &rid
 	}
 	if _, err := h.Svc.Send(r.Context(), SendInput{
-		CommunityID:  h.CommunityID,
+		CommunityID:  h.cid(r.Context()),
 		AuthorID:     id.User.ID,
 		BodyMarkdown: body,
 		ReplyToID:    replyTo,
@@ -156,7 +181,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	// Clear composer signals.
 	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":""}`))
 
-	h.broadcast()
+	h.broadcast(r.Context())
 }
 
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +207,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	var natsCh chan *nats.Msg
 	if h.NATS != nil && h.NATS.IsConnected() {
 		natsCh = make(chan *nats.Msg, 32)
-		sub, err := h.NATS.ChanSubscribe(natsx.ChatSubject(h.CommunityID), natsCh)
+		sub, err := h.NATS.ChanSubscribe(natsx.ChatSubject(h.cid(r.Context())), natsCh)
 		if err == nil {
 			defer sub.Unsubscribe()
 		} else {
@@ -234,7 +259,7 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		_ = fatMorph(sse, views, true, id.User.ID)
 	}
-	h.broadcast()
+	h.broadcast(r.Context())
 }
 
 func toMsgView(m Message) webtempl.MsgView {

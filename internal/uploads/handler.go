@@ -11,12 +11,20 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 )
 
 type Handler struct {
 	Store       *Store
 	CommunityID string
 	Log         *slog.Logger
+}
+
+func (h *Handler) cid(r *http.Request) string {
+	if c, ok := community.FromContext(r.Context()); ok {
+		return c.ID
+	}
+	return h.cid(r)
 }
 
 const signedTTL = 24 * time.Hour
@@ -49,7 +57,7 @@ func (h *Handler) PostUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	mime := MIMEFromHeader(hdr.Header.Get("Content-Type"), sniff)
 
-	u, err := h.Store.Save(r.Context(), id.User.ID, h.CommunityID, mime, file)
+	u, err := h.Store.Save(r.Context(), id.User.ID, h.cid(r), mime, file)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrBadMIME):
@@ -92,7 +100,7 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	if u.CommunityID != h.CommunityID {
+	if u.CommunityID != h.cid(r) {
 		http.Error(w, "cross-community", http.StatusForbidden)
 		return
 	}
