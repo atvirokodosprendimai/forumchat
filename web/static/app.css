@@ -334,6 +334,11 @@ img.thread-announce-img {
   align-items: baseline;
 }
 .ev-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .85rem; }
+.history-event:target {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 2px solid var(--accent); outline-offset: 2px;
+  scroll-margin-top: 5rem;
+}
 .ev-source {
   font-size: .7rem; text-transform: uppercase; letter-spacing: .04em;
   padding: .05rem .4rem; border-radius: 999px; color: var(--bg);
