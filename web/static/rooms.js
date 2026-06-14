@@ -84,6 +84,11 @@
   const local = { audio: null, video: null };
   let screenStream = null;
   let heartbeatTimer = null;
+  // leaving gates outbound POSTs after the user clicks Leave / page unloads.
+  // The server's EnsureMember would otherwise re-admit them on any in-flight
+  // ICE candidate / chat send that races the /leave call — leaving them
+  // stuck as a ghost admin even after a refresh.
+  let leaving = false;
 
   const tileForSelf = makeTile(myKey, myName + ' (you)', true);
   videoGrid.appendChild(tileForSelf.card);
@@ -228,15 +233,18 @@
   // ----- leave -------------------------------------------------------------
 
   leaveBtn?.addEventListener('click', () => {
+    leaving = true;
     teardown();
     fetch(`${roomBase}/leave`, { method: 'POST', keepalive: true })
       .finally(() => { window.location.href = `/c/${encodeURIComponent(communitySlug)}/rooms`; });
   });
 
   window.addEventListener('beforeunload', () => {
+    leaving = true;
     navigator.sendBeacon?.(`${roomBase}/leave`);
   });
   window.addEventListener('pagehide', () => {
+    leaving = true;
     navigator.sendBeacon?.(`${roomBase}/leave`);
   });
 
@@ -259,9 +267,12 @@
   // belt-and-braces about it.
 
   function startHeartbeat() {
-    const ping = () => fetch(`${roomBase}/ping`, {
-      method: 'POST', keepalive: true,
-    }).catch(() => {});
+    const ping = () => {
+      if (leaving) return;
+      fetch(`${roomBase}/ping`, {
+        method: 'POST', keepalive: true,
+      }).catch(() => {});
+    };
     ping();
     heartbeatTimer = setInterval(ping, 10000);
     document.addEventListener('visibilitychange', () => {
@@ -453,6 +464,7 @@
   };
 
   function sendSignal(to, kind, payload) {
+    if (leaving) return;
     fetch(`${roomBase}/signal/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
