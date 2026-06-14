@@ -913,6 +913,12 @@ img.thread-announce-img {
 .rooms-ctl-mic.on, .rooms-ctl-cam.on, .rooms-ctl-screen.on {
   background: #29a05c; color: white; border-color: #1c7a44;
 }
+.rooms-ctl-blur.on {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent-soft-strong);
+}
+.rooms-ctl-blur.off { opacity: .85; }
 .rooms-ctl-leave { background: #c63838; color: white; border-color: #8a2418; }
 
 /* Admin tray — slides down beneath the header, holds the admin

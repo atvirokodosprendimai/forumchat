@@ -144,6 +144,7 @@ templ RoomPage(d RoomPageData) {
 				<div class="rooms-room-controls">
 					<button class="btn rooms-ctl rooms-ctl-mic" data-rooms-mic title="Microphone (off)">🎙 off</button>
 					<button class="btn rooms-ctl rooms-ctl-cam" data-rooms-cam title="Camera (off)">🎥 off</button>
+					<button class="btn ghost rooms-ctl rooms-ctl-blur" data-rooms-blur title="Background blur">🌫 blur</button>
 					<button class="btn rooms-ctl rooms-ctl-screen" data-rooms-screen title="Share screen">🖥</button>
 					<button class="btn ghost rooms-ctl"
 						data-show="$rooms_am_admin"
@@ -209,6 +210,7 @@ templ RoomPage(d RoomPageData) {
 				<div class="rooms-vidcap-note muted">Audio-only — video cap reached.</div>
 			}
 		</section>
+		<script src={ "/static/rooms-blur.js?v=" + AssetVer("rooms-blur.js") } defer></script>
 		<script src={ "/static/rooms.js?v=" + AssetVer("rooms.js") } defer></script>
 	}
 }
