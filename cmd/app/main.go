@@ -469,6 +469,7 @@ func run() error {
 			r.Post("/admin/reject", adminHandler.PostReject)
 			r.Post("/admin/ban", adminHandler.PostBan)
 			r.Post("/admin/unban", adminHandler.PostUnban)
+			r.Post("/admin/remove", adminHandler.PostRemoveMember)
 			r.Post("/admin/invite", adminHandler.PostInvite)
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
 			r.Post("/admin/add-member", adminHandler.PostAddMember)

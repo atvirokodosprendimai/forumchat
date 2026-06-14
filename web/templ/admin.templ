@@ -132,11 +132,30 @@ templ AdminMembers(slug string, rows []AdminMember) {
 						} else {
 							<button data-on:click={ "@post('/c/" + slug + "/admin/unban?id=" + m.MembershipID + "')" }>Unban</button>
 						}
+						@RemoveForm(slug, m.MembershipID)
 					</div>
 				</li>
 			}
 		</ul>
 	</div>
+}
+
+// RemoveForm — second-step purge picker for "remove from community".
+// Same details/summary affordance as BanForm so the dangerous action
+// stays hidden behind a click, with explicit content-purge checkboxes
+// before the destructive confirm.
+templ RemoveForm(slug, membershipID string) {
+	<details>
+		<summary class="link-button" style="cursor:pointer">Remove…</summary>
+		<div style="margin-top:.5rem" data-signals={ "{cleanup_chat:false,cleanup_threads:false,cleanup_posts:false}" }>
+			<p class="muted" style="margin:.25rem 0">Deletes their membership in this community. The user account itself stays — they can rejoin with a fresh invite.</p>
+			<label><input type="checkbox" data-bind="cleanup_chat"/> also delete their chat messages</label><br/>
+			<label><input type="checkbox" data-bind="cleanup_threads"/> also delete their forum threads</label><br/>
+			<label><input type="checkbox" data-bind="cleanup_posts"/> also delete their forum replies</label><br/>
+			<button class="ghost danger" style="margin-top:.4rem"
+				data-on:click={ "@post('/c/" + slug + "/admin/remove?id=" + membershipID + "')" }>Confirm remove</button>
+		</div>
+	</details>
 }
 
 templ BanForm(slug, membershipID string) {

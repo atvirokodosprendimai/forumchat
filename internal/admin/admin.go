@@ -196,6 +196,64 @@ func (h *Handler) PostBan(w http.ResponseWriter, r *http.Request) {
 	h.refreshAdminLists(w, r)
 }
 
+type removeSignals struct {
+	CleanupChat    bool `json:"cleanup_chat"`
+	CleanupThreads bool `json:"cleanup_threads"`
+	CleanupPosts   bool `json:"cleanup_posts"`
+}
+
+// PostRemoveMember hard-deletes the membership row, optionally
+// soft-deleting the user's chat/forum content first. Guarded so the
+// admin can't pull the rug out from under themselves (self-removal) or
+// orphan the community (removing the last admin). The user account
+// itself stays — they can rejoin later with a fresh invite.
+func (h *Handler) PostRemoveMember(w http.ResponseWriter, r *http.Request) {
+	membershipID := r.URL.Query().Get("id")
+	if membershipID == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	var in removeSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	m, err := h.Repo.MembershipByID(r.Context(), membershipID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if id, ok := auth.FromContext(r.Context()); ok && id.User.ID == m.UserID {
+		http.Error(w, "cannot remove yourself", http.StatusBadRequest)
+		return
+	}
+	if m.Role == auth.RoleAdmin {
+		count, err := h.Repo.CountAdmins(r.Context(), h.cid(r))
+		if err != nil {
+			http.Error(w, "count admins: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if count <= 1 {
+			http.Error(w, "cannot remove the last admin", http.StatusBadRequest)
+			return
+		}
+	}
+	opts := auth.CleanupOptions{Chat: in.CleanupChat, Threads: in.CleanupThreads, Posts: in.CleanupPosts}
+	if opts.Chat || opts.Threads || opts.Posts {
+		if err := h.Repo.CleanupUserContent(r.Context(), m.UserID, h.cid(r), opts); err != nil {
+			h.Log.Error("cleanup on remove", "err", err)
+		}
+	}
+	if err := h.Repo.RejectMembership(r.Context(), membershipID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if opts.Chat && h.Chat != nil {
+		h.Chat.Bus.Broadcast()
+	}
+	h.refreshAdminLists(w, r)
+}
+
 func (h *Handler) PostUnban(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {

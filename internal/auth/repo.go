@@ -563,6 +563,20 @@ func (r *Repo) CleanupUserContent(ctx context.Context, userID, communityID strin
 	return nil
 }
 
+// CountAdmins returns the number of admin-role memberships in the
+// community. Used as a last-admin-standing guard before remove/demote
+// so an op can't accidentally lock everyone out.
+func (r *Repo) CountAdmins(ctx context.Context, communityID string) (int, error) {
+	var n int
+	if err := r.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM memberships
+		WHERE community_id = ? AND role = ?`,
+		communityID, string(RoleAdmin)).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // MembershipByID is needed by admin operations that come in via signal/ID.
 func (r *Repo) MembershipByID(ctx context.Context, id string) (Membership, error) {
 	var m Membership
