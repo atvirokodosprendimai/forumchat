@@ -19,7 +19,9 @@ import (
 type issueSignals struct {
 	Title       string `json:"projects_issue_title"`
 	Body        string `json:"projects_issue_body"`
+	BodyImage   string `json:"projects_issue_body_image"`
 	Edit        string `json:"projects_issue_edit"`
+	EditImage   string `json:"projects_issue_edit_image"`
 	Status      string `json:"projects_issue_status"`
 	CommentBody string `json:"projects_issue_comment_body"`
 	CommentEdit string `json:"projects_issue_comment_edit"`
@@ -512,13 +514,14 @@ func (h *Handler) PostCreateIssue(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in issueSignals
 	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	i, err := h.Svc.CreateIssue(r.Context(), pid, in.Title, in.Body, id)
+	body := h.composeBodyWithImage(r, c.ID, h.uploaderOwnerID(r, pid, id), in.BodyImage, in.Body)
+	i, err := h.Svc.CreateIssue(r.Context(), pid, in.Title, body, id)
 	if err != nil {
 		h.Log.Warn("projects issue create", "err", err, "project", pid)
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -605,13 +608,14 @@ func (h *Handler) PostIssueEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in issueSignals
 	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	isAdmin := id.Role == auth.RoleAdmin
+	c, _ := community.FromContext(r.Context())
 	if in.Title != "" {
 		if err := h.Svc.UpdateIssueTitle(r.Context(), pid, iid, in.Title, id, isAdmin); err != nil {
 			h.Log.Warn("projects issue title", "err", err, "issue", iid)
@@ -619,14 +623,14 @@ func (h *Handler) PostIssueEdit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.Edit != "" {
-		if err := h.Svc.UpdateIssueBody(r.Context(), pid, iid, in.Edit, id, isAdmin); err != nil {
+	if in.Edit != "" || in.EditImage != "" {
+		body := h.composeBodyWithImage(r, c.ID, h.uploaderOwnerID(r, pid, id), in.EditImage, in.Edit)
+		if err := h.Svc.UpdateIssueBody(r.Context(), pid, iid, body, id, isAdmin); err != nil {
 			h.Log.Warn("projects issue body", "err", err, "issue", iid)
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
-	c, _ := community.FromContext(r.Context())
 	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }

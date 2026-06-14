@@ -582,16 +582,26 @@ templ ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) {
 	@Layout(d.Project.Title+" — Issues", d.Viewer) {
 		@projectShell(d, "issues") {
 			<section class="project-panel project-panel-issues"
-				data-signals="{projects_issue_title:'',projects_issue_body:''}">
+				data-signals="{projects_issue_title:'',projects_issue_body:'',projects_issue_body_image:''}">
 				<h3>Issues</h3>
 				<form class="project-issue-add"
 					data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues')" }>
 					<input type="text" maxlength="200" placeholder="Issue title"
 						data-bind="projects_issue_title" required/>
-					<textarea rows="3" placeholder="Describe the issue (markdown)…"
+					<textarea rows="3" placeholder="Describe the issue (markdown, paste images here)…"
 						maxlength="10000"
+						data-on:paste="fcPasteImage(evt, 'projects_issue_body_image')"
 						data-bind="projects_issue_body"></textarea>
-					<button class="btn" type="submit">Open issue</button>
+					<input type="hidden" data-bind="projects_issue_body_image"/>
+					<div class="composer-row">
+						<label class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">
+							📎 Attach image
+							<input type="file" accept="image/*" style="display:none"
+								data-on:change="fcPickImage(evt, 'projects_issue_body_image')"/>
+						</label>
+						<button class="btn" type="submit">Open issue</button>
+					</div>
+					<div data-show="$projects_issue_body_image" class="muted">📎 Image attached — submits with the issue.</div>
 				</form>
 				if len(issues) == 0 {
 					<p class="muted">No issues yet.</p>
@@ -644,7 +654,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 	@Layout(i.Title+" — Issue", d.Viewer) {
 		@projectShell(d, "issues") {
 			<section class="project-panel project-panel-issue"
-				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',projects_issue_edit_open:false,projects_issue_comment_body:'',projects_issue_comment_edit:'',projects_issue_comment_edit_id:''}" }>
+				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_edit_image:'',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',projects_issue_edit_open:false,projects_issue_comment_body:'',projects_issue_comment_edit:'',projects_issue_comment_edit_id:''}" }>
 				<nav class="project-breadcrumb muted">
 					<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues") }>← all issues</a>
 				</nav>
@@ -695,15 +705,24 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 						<input type="text" maxlength="200" data-bind="projects_issue_title"/>
 					</label>
 					<label>
-						Body (markdown)
-						<textarea rows="6" data-bind="projects_issue_edit"></textarea>
+						Body (markdown, paste images here)
+						<textarea rows="6"
+							data-on:paste="fcPasteImage(evt, 'projects_issue_edit_image')"
+							data-bind="projects_issue_edit"></textarea>
 					</label>
-					<div class="project-edit-actions">
+					<input type="hidden" data-bind="projects_issue_edit_image"/>
+					<div class="composer-row">
+						<label class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">
+							📎 Attach image
+							<input type="file" accept="image/*" style="display:none"
+								data-on:change="fcPickImage(evt, 'projects_issue_edit_image')"/>
+						</label>
 						<button class="btn"
 							data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "'); $projects_issue_edit_open = false" }>Save</button>
 						<button class="btn ghost"
 							data-on:click="$projects_issue_edit_open = false">Cancel</button>
 					</div>
+					<div data-show="$projects_issue_edit_image" class="muted">📎 Image attached — submits with the edit.</div>
 				</div>
 				if len(bodyAtts) > 0 {
 					<div class="project-issue-attachments">
