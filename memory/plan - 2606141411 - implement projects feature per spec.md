@@ -25,21 +25,20 @@ status: active
 
 ## Phases
 
-### Phase 1 — Feature flag, schema, empty index — status: open
+### Phase 1 — Feature flag, schema, empty index — status: completed
 
 Goal: `PROJECTS_ENABLED=true` shows a Projects nav link and a `/c/{slug}/projects` page rendering "No projects yet". `false` hides everything. DB tables exist regardless.
 
-1. [ ] Migration `0001N_projects.sql` — create `projects`, `project_todos`, `project_attachments`, `project_comments` per spec schema
-   - Always runs (idempotent CREATE TABLE)
-   - Slot number chosen at implementation time (next free)
-2. [ ] `internal/config/config.go` — add `ProjectsEnabled bool ` env:`PROJECTS_ENABLED` envDefault:`"false"`
-3. [ ] `internal/projects/types.go` — `Project`, `Todo`, `Attachment`, `Comment`, `Event` structs (skeleton, fields per schema)
-4. [ ] `internal/projects/repo.go` — `ListActiveForCommunity`, `ListArchivedForCommunity`, `Create`, `ByID` only (others come in later phases)
-5. [ ] `internal/projects/handler.go` — `Handler` struct, `GetIndex` only; routes mount only when `cfg.ProjectsEnabled`
-6. [ ] `web/templ/projects.templ` — `ProjectsGrid(data)` + `ProjectsGridRow` (title, desc preview, counts; empty state)
-7. [ ] Wire mount in `cmd/app/main.go` under the existing `/c/{slug}` community group, gated by `cfg.ProjectsEnabled`
-8. [ ] Add `ProjectsEnabled bool` to `webtempl.Viewer`; `layout.templ` shows "Projects" nav link when set
-9. [ ] Spec merge: fast-forward `task/spec-projects` into main via this phase's PR so spec + first impl land together
+1. [x] Migration `00013_projects.sql` — projects + project_todos + project_attachments + project_comments
+2. [x] `internal/config/config.go` — `ProjectsEnabled bool env:"PROJECTS_ENABLED" envDefault:"false"`
+3. [x] `internal/projects/types.go` — `Project`, `Todo`, `Attachment`, `Comment`, `Event`, `IndexRow`
+4. [x] `internal/projects/repo.go` — `ListActiveForCommunity` / `ListArchivedForCommunity` (with aggregate counts via correlated subqueries), `ByID`, `Insert`, `UpdateTitle`, `UpdateDescription`, `SetArchived`, `Delete`
+5. [x] `internal/projects/handler.go` — `Handler{Repo, Log}` + `GetIndex` only
+6. [x] `web/templ/projects.templ` — `ProjectsGrid` + inline `projectCard` + empty state + collapsed archived `<details>` section + "New project" form
+7. [x] `cmd/app/main.go` — `projectsRepo` / `projectsHandler` constructed, `webtempl.ProjectsEnabled = cfg.ProjectsEnabled`, `/projects` GET mounted only when flag true
+8. [x] Used a package-level `var webtempl.ProjectsEnabled bool` instead of plumbing through every `Viewer` construction
+   - => Decision: 1 global var beats N handler edits. Flag is instance-level (not per-request) so the var fits the semantic shape.
+9. [x] Spec + plan + Phase 1 all merge to main via this branch's PR (task/projects-phase-1, off task/spec-projects)
 
 Verification: with `PROJECTS_ENABLED=true`, nav shows "Projects", `/c/main/projects` returns 200 with empty grid. With `=false`, link absent, route 404.
 
@@ -149,4 +148,4 @@ End-to-end story we want green after Phase 7:
 
 ## Progress Log
 
-<!-- Updated after every completed action. -->
+- **2026-06-14 14:20** — Phase 1 completed on `task/projects-phase-1` (off `task/spec-projects`). Migration 00013, config flag, projects package skeleton, templ index page, main.go wiring. Build clean. Ready to commit + open PR that brings spec + plan + Phase 1 to main together.

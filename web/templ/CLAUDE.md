@@ -7,6 +7,12 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3514 | 2:18 PM | 🔵 | Projects feature flag infrastructure already exists in layout template | ~334 |
+| #3510 | 2:17 PM | 🔄 | Projects feature flag changed from per-Viewer field to global package variable | ~399 |
+| #3507 | " | 🔄 | Refactored Projects feature flag from Viewer field to package-level global variable | ~399 |
+| #3506 | " | 🟣 | Created projects grid template with card-based layout for community projects | ~431 |
+| #3500 | 2:15 PM | 🟣 | Added ProjectsEnabled field to Viewer struct for nav link control | ~384 |
+| #3452 | 1:00 PM | ✅ | Merged WebRTC eviction resilience and TURN configuration to main branch | ~459 |
 | #3432 | 12:47 PM | 🔵 | Participant list template renders data-key attributes identically for guests and auth users | ~458 |
 | #3431 | 12:46 PM | 🔵 | Guest WebRTC signaling follows same path as authenticated users with participant key routing | ~468 |
 </claude-mem-context>

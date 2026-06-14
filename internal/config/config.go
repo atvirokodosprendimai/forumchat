@@ -43,6 +43,12 @@ type Config struct {
 	TURNURL      string   `env:"ROOMS_TURN_URL" envDefault:""`
 	TURNUsername string   `env:"ROOMS_TURN_USERNAME" envDefault:""`
 	TURNPassword string   `env:"ROOMS_TURN_PASSWORD" envDefault:""`
+
+	// Projects feature flag. When false the /c/{slug}/projects routes are
+	// not mounted, the nav link is hidden, and SSE streams are absent.
+	// The DB tables always exist so flipping the flag never needs a
+	// schema migration.
+	ProjectsEnabled bool `env:"PROJECTS_ENABLED" envDefault:"false"`
 }
 
 func (c Config) IsProd() bool { return strings.EqualFold(c.Env, "prod") }

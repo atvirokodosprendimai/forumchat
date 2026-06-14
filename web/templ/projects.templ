@@ -1,0 +1,85 @@
+package templ
+
+import (
+	"strconv"
+	"time"
+)
+
+// ProjectsGridRow is one card on the /c/{slug}/projects index.
+type ProjectsGridRow struct {
+	ID              string
+	Title           string
+	Preview         string
+	TodoTotal       int
+	TodoDone        int
+	AttachmentCount int
+	CommentCount    int
+	IsArchived      bool
+	UpdatedAt       time.Time
+}
+
+// ProjectsGridData is the index-page payload.
+type ProjectsGridData struct {
+	Viewer        Viewer
+	CommunitySlug string
+	CommunityName string
+	Active        []ProjectsGridRow
+	Archived      []ProjectsGridRow
+}
+
+templ ProjectsGrid(d ProjectsGridData) {
+	@Layout("Projects — "+d.CommunityName, d.Viewer) {
+		<section class="projects-grid-section">
+			<header class="projects-header">
+				<h1>Projects</h1>
+				<p class="muted">Shared pages for documents, checklists, and discussion. Any member can create one.</p>
+			</header>
+			<form class="projects-new" method="post" action={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>
+				<input type="text" name="title" placeholder="New project title" maxlength="120" required/>
+				<button class="btn" type="submit">Create project</button>
+			</form>
+			if len(d.Active) == 0 {
+				<p class="projects-empty muted">No projects yet. Create one above to get started.</p>
+			} else {
+				<ul class="projects-cards">
+					for _, row := range d.Active {
+						@projectCard(d.CommunitySlug, row)
+					}
+				</ul>
+			}
+			if len(d.Archived) > 0 {
+				<details class="projects-archived">
+					<summary>Archived ({ strconv.Itoa(len(d.Archived)) })</summary>
+					<ul class="projects-cards projects-cards-archived">
+						for _, row := range d.Archived {
+							@projectCard(d.CommunitySlug, row)
+						}
+					</ul>
+				</details>
+			}
+		</section>
+	}
+}
+
+templ projectCard(slug string, row ProjectsGridRow) {
+	<li class={ "projects-card", templ.KV("projects-card-archived", row.IsArchived) }>
+		<a href={ templ.URL("/c/" + slug + "/projects/" + row.ID) } class="projects-card-link">
+			<h2 class="projects-card-title">{ row.Title }</h2>
+			if row.Preview != "" {
+				<p class="projects-card-preview muted">{ row.Preview }</p>
+			}
+			<div class="projects-card-meta">
+				if row.TodoTotal > 0 {
+					<span class="projects-pill projects-pill-todos">{ strconv.Itoa(row.TodoDone) }/{ strconv.Itoa(row.TodoTotal) } done</span>
+				}
+				if row.AttachmentCount > 0 {
+					<span class="projects-pill projects-pill-files">📎 { strconv.Itoa(row.AttachmentCount) }</span>
+				}
+				if row.CommentCount > 0 {
+					<span class="projects-pill projects-pill-comments">💬 { strconv.Itoa(row.CommentCount) }</span>
+				}
+				<span class="muted projects-card-updated">updated { row.UpdatedAt.Local().Format("2006-01-02 15:04") }</span>
+			</div>
+		</a>
+	</li>
+}

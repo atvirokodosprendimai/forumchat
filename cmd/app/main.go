@@ -30,6 +30,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
+	"github.com/atvirokodosprendimai/forumchat/internal/projects"
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
@@ -227,6 +228,10 @@ func run() error {
 
 	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
 
+	projectsRepo := projects.NewRepo(db)
+	projectsHandler := &projects.Handler{Repo: projectsRepo, Log: log}
+	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
+
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
 
 	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
@@ -342,6 +347,12 @@ func run() error {
 		r.Post("/todos", todosHandler.PostCreate)
 		r.Post("/todos/{id}/status", todosHandler.PostStatus)
 		r.Post("/todos/{id}/delete", todosHandler.PostDelete)
+
+		// Projects feature is mounted only when PROJECTS_ENABLED=true.
+		// The flag also gates the nav link via webtempl.ProjectsEnabled.
+		if cfg.ProjectsEnabled {
+			r.Get("/projects", projectsHandler.GetIndex)
+		}
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))
