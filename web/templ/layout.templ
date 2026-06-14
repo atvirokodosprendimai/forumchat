@@ -8,6 +8,21 @@ type Viewer struct {
 	CommunitySlug string // empty when no community is in scope (dashboard, login pages)
 }
 
+// initial returns the first visible rune of a display name, uppercased,
+// for the sidebar avatar placeholder. Empty input → "?".
+func initial(s string) string {
+	for _, r := range s {
+		if r == ' ' || r == '\t' {
+			continue
+		}
+		if r >= 'a' && r <= 'z' {
+			r = r - 'a' + 'A'
+		}
+		return string(r)
+	}
+	return "?"
+}
+
 // ProjectsEnabled is the instance-level Projects feature flag. Set at boot
 // in main.go from config.ProjectsEnabled. Read directly by layout.templ
 // so no per-handler Viewer plumbing is required.
@@ -111,32 +126,32 @@ templ Layout(title string, v Viewer) {
 				<nav>
 					if v.IsAuthed {
 						if v.CommunitySlug != "" {
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") }>Chat</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>Forum</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") }>Bookmarks</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") }>Todos</a>
+							<h3 class="sidebar-group">{ v.CommunityName }</h3>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Forum</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") }><span class="sb-icon" aria-hidden="true">🎥</span>Rooms</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") }><span class="sb-icon" aria-hidden="true">★</span>Bookmarks</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") }><span class="sb-icon" aria-hidden="true">☑</span>Todos</a>
 							if ProjectsEnabled {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") }>Projects</a>
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") }><span class="sb-icon" aria-hidden="true">📂</span>Projects</a>
 							}
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") }>History</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
 							if v.Role == "admin" {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") }>Admin</a>
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
 							}
 						}
-						<a href="/messages" class="pm-nav-link">
-							Messages
-							@MessagesBadge(0)
+						<h3 class="sidebar-group">You</h3>
+						<a href="/messages" class="pm-nav-link"><span class="sb-icon" aria-hidden="true">✉</span>Messages @MessagesBadge(0)</a>
+						<a href="/explore"><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
+						<a href="/"><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
+						<a href="/profile" class="sidebar-profile">
+							<span class="sb-avatar" aria-hidden="true">{ initial(v.DisplayName) }</span>
+							<span class="sb-name">{ v.DisplayName }</span>
 						</a>
-						if v.CommunitySlug != "" {
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") }>Rooms</a>
-						}
-						<a href="/explore">Explore</a>
-						<a href="/">Communities</a>
-						<a href="/profile">{ v.DisplayName }</a>
-						<button class="ghost" data-on:click="@post('/logout')">Sign out</button>
+						<button class="ghost" data-on:click="@post('/logout')"><span class="sb-icon" aria-hidden="true">↩</span>Sign out</button>
 					} else {
-						<a href="/login">Sign in</a>
-						<a href="/register">Register</a>
+						<a href="/login"><span class="sb-icon" aria-hidden="true">→</span>Sign in</a>
+						<a href="/register"><span class="sb-icon" aria-hidden="true">＋</span>Register</a>
 					}
 				</nav>
 			</aside>

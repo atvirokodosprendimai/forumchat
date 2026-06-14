@@ -57,8 +57,12 @@ type PostView struct {
 templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
 	@Layout("Forum", v) {
 		<section>
-			<h1>{ v.CommunityName } — Forum</h1>
-			<p><a class="btn" href={ templ.URL("/c/" + v.CommunitySlug + "/forum/new") }>+ New thread</a></p>
+			<header class="page-head">
+				<h1>Forum</h1>
+				<div class="page-head-actions">
+					<a class="btn" href={ templ.URL("/c/" + v.CommunitySlug + "/forum/new") }>+ New thread</a>
+				</div>
+			</header>
 
 			<div class="forum-toolbar">
 				<nav class="forum-filters">
@@ -74,7 +78,11 @@ templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
 			</div>
 
 			if len(threads) == 0 {
-				<p class="muted">No threads match.</p>
+				<div class="empty-state">
+					<div class="empty-icon" aria-hidden="true">📋</div>
+					<p><strong>No threads match.</strong></p>
+					<p>Start the first conversation.</p>
+				</div>
 			}
 			<ul class="thread-list">
 				for _, t := range threads {

@@ -41,9 +41,15 @@ type MessagesThreadData struct {
 templ MessagesInbox(d MessagesInboxData) {
 	@Layout("Messages", d.Viewer) {
 		<section>
-			<h1>Messages</h1>
+			<header class="page-head">
+				<h1>Messages</h1>
+			</header>
 			if len(d.Rows) == 0 {
-				<p class="muted">No conversations yet. Open a chat, tap the … on a message, and pick <strong>Message</strong> to send someone a request.</p>
+				<div class="empty-state">
+					<div class="empty-icon" aria-hidden="true">✉</div>
+					<p><strong>No conversations yet.</strong></p>
+					<p>Open a chat, tap the … on a message, and pick <strong>Message</strong> to send a request.</p>
+				</div>
 			}
 			<ul class="pm-inbox">
 				for _, row := range d.Rows {

@@ -2,8 +2,18 @@ package templ
 
 templ ProfilePage(v Viewer, displayName, avatarURL string) {
 	@Layout("Profile", v) {
-		<section class="card narrow">
-			<h1>Your profile</h1>
+		<section class="card narrow profile-card">
+			<div class="profile-head">
+				if avatarURL != "" {
+					<img class="profile-avatar" src={ avatarURL } alt="avatar"/>
+				} else {
+					<span class="profile-avatar profile-avatar-fallback" aria-hidden="true">{ initial(displayName) }</span>
+				}
+				<div>
+					<h1>{ displayName }</h1>
+					<p class="muted">Update how others see you.</p>
+				</div>
+			</div>
 			<div id="profile-status" class="muted"></div>
 			<div class="field">
 				<label>Display name</label>
@@ -11,10 +21,12 @@ templ ProfilePage(v Viewer, displayName, avatarURL string) {
 			</div>
 			<div class="field">
 				<label>Avatar URL</label>
-				<input type="url" data-bind="avatar_url" value={ avatarURL } placeholder="https://..."/>
+				<input type="url" data-bind="avatar_url" value={ avatarURL } placeholder="https://…"/>
 			</div>
-			<button data-on:click="@post('/profile')">Save</button>
-			<a class="btn ghost" href="/">Back</a>
+			<div class="profile-actions">
+				<button data-on:click="@post('/profile')">Save changes</button>
+				<a class="btn ghost" href="/">Back</a>
+			</div>
 		</section>
 	}
 }
