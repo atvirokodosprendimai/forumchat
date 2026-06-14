@@ -13,8 +13,17 @@ a Raspberry Pi.
 
 **Built for:** indie hacker communities, study cohorts, family/club
 servers, classroom backchannels, open-source project lounges, internal
-team spaces — anywhere a Discord + forum mix would fit but you want to
-own the data.
+team spaces, **and freelance / agency client workspaces** — anywhere
+a Discord + forum mix would fit but you want to own the data.
+
+> **Each client / company you work with = one community.** Decisions
+> live in the forum, day-to-day chatter in chat, deliverables in
+> projects (issues + attachments + todos), kickoff calls in the video
+> rooms, every file shared via signed upload URLs — all per-client
+> siloed under `community_id`. Replace the Slack + Notion + Google Drive
+> + Zoom + Loom stack you cobbled together for each engagement with a
+> single tab the client can bookmark, and keep the whole history when
+> the project ends.
 
 **Pick forumchat if you want:**
 
