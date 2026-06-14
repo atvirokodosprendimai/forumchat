@@ -237,6 +237,28 @@ type ProjectIssueView struct {
 	CanChangeStatus bool
 }
 
+// ProjectIssueCommentView is one issue-thread comment.
+type ProjectIssueCommentView struct {
+	ID              string
+	AuthorName      string
+	IsGuestAuthored bool
+	BodyMD          string
+	BodyHTML        string
+	CreatedAt       time.Time
+	Edited          bool
+	CanEdit         bool
+	CanDelete       bool
+}
+
+// ProjectIssueAttachmentView is one image inside an issue body or comment.
+type ProjectIssueAttachmentView struct {
+	ID           string
+	URL          string
+	MIME         string
+	UploaderName string
+	CanDelete    bool
+}
+
 // ProjectIssuesPage is the issues-list tab.
 templ ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) {
 	@Layout(d.Project.Title+" — Issues", d.Viewer) {
@@ -300,11 +322,11 @@ func issueLabel(s string) string {
 }
 
 // ProjectIssuePage is the single-issue view.
-templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView) {
+templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []ProjectIssueCommentView, bodyAtts []ProjectIssueAttachmentView, commentAtts map[string][]ProjectIssueAttachmentView) {
 	@Layout(i.Title+" — Issue", d.Viewer) {
 		@projectShell(d, "issues") {
 			<section class="project-panel project-panel-issue"
-				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',projects_issue_edit_open:false}" }>
+				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',projects_issue_edit_open:false,projects_issue_comment_body:'',projects_issue_comment_edit:'',projects_issue_comment_edit_id:''}" }>
 				<nav class="project-breadcrumb muted">
 					<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues") }>← all issues</a>
 				</nav>
@@ -365,9 +387,82 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView) {
 							data-on:click="$projects_issue_edit_open = false">Cancel</button>
 					</div>
 				</div>
+				if len(bodyAtts) > 0 {
+					<div class="project-issue-attachments">
+						for _, a := range bodyAtts {
+							@issueImage(d.CommunitySlug, d.Project.ID, i.ID, a)
+						}
+					</div>
+				}
+				<div class="project-issue-upload"
+					data-rooms-projects-issue-dropzone={ "/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/attachment" }>
+					<p>Drop image here or click to attach</p>
+					<input type="file" accept="image/*" multiple hidden/>
+				</div>
+				<section class="project-issue-comments">
+					<h3>Discussion</h3>
+					<ul class="project-issue-comment-list">
+						for _, c := range comments {
+							<li class="project-issue-comment" id={ "ic-" + c.ID }>
+								<div class="project-issue-comment-meta muted">
+									<strong>{ c.AuthorName }</strong>
+									if c.IsGuestAuthored {
+										<span class="projects-pill projects-pill-guest">guest</span>
+									}
+									· <time>{ c.CreatedAt.Local().Format("2006-01-02 15:04") }</time>
+									if c.Edited {
+										<span>(edited)</span>
+									}
+								</div>
+								<div class="project-issue-comment-body"
+									data-show={ "$projects_issue_comment_edit_id !== '" + c.ID + "'" }>@templ.Raw(c.BodyHTML)</div>
+								<textarea class="project-issue-comment-edit-input"
+									rows="3"
+									data-show={ "$projects_issue_comment_edit_id === '" + c.ID + "'" }
+									data-bind="projects_issue_comment_edit"
+									data-on:keydown={ "evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault(), @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/comment/" + c.ID + "'), $projects_issue_comment_edit_id = '')" }></textarea>
+								if atts, ok := commentAtts[c.ID]; ok && len(atts) > 0 {
+									<div class="project-issue-comment-attachments">
+										for _, a := range atts {
+											@issueImage(d.CommunitySlug, d.Project.ID, i.ID, a)
+										}
+									</div>
+								}
+								<div class="project-issue-comment-actions">
+									if c.CanEdit {
+										<button class="btn ghost"
+											data-on:click={ "$projects_issue_comment_edit_id = '" + c.ID + "'; $projects_issue_comment_edit = '" + jsQuoteAttr(c.BodyMD) + "'" }>Edit</button>
+									}
+									if c.CanDelete {
+										<button class="btn ghost"
+											data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/comment/" + c.ID + "/delete')" }>Delete</button>
+									}
+								</div>
+							</li>
+						}
+					</ul>
+					<form class="project-issue-comment-add"
+						data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/comment')" }>
+						<textarea rows="2" placeholder="Write a comment (markdown supported)…"
+							maxlength="4000"
+							data-bind="projects_issue_comment_body"></textarea>
+						<button class="btn" type="submit">Post</button>
+					</form>
+				</section>
 			</section>
 		}
 	}
+}
+
+templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) {
+	<figure class="project-issue-image">
+		<img src={ a.URL } alt={ a.UploaderName + "'s upload" } loading="lazy"/>
+		if a.CanDelete {
+			<button class="btn ghost danger project-issue-image-delete"
+				title="Delete image"
+				data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + a.ID + "/delete')" }>×</button>
+		}
+	</figure>
 }
 
 // ProjectHeaderFragment renders the title + description block with

@@ -50,15 +50,18 @@ Goal: any approved community member can open a new issue from the project page, 
 
 Verification: member opens project page → clicks "Open new issue" → fills title + body → lands on `/projects/{id}/issues/{iid}` with status pill `open`. Status dropdown advances to `triaged`/`in_progress`/`closed`. Closed issues collapse under a `<details>`.
 
-### Phase 2 — Issue comments + attachments (realtime) — status: open
+### Phase 2 — Issue comments + image attachments — status: completed
 
 Goal: members can comment on issues and attach inline images.
 
-1. [ ] `issues_repo.go` — `ListIssueComments`, `InsertIssueComment`, `UpdateIssueComment`, `SoftDeleteIssueComment`, `IssueCommentByID`; `ListIssueAttachments`, `InsertIssueAttachment`, `IssueAttachmentByID`, `DeleteIssueAttachment`
-2. [ ] `issues_service.go` — `AddIssueComment`, `UpdateIssueComment` (edit-grace), `DeleteIssueComment`; `AddIssueAttachment` (uses `uploads.Store.Save` — image whitelist path), `DeleteIssueAttachment`
-3. [ ] `issues_handler.go` — `PostIssueComment`, `PostIssueCommentEdit`, `PostIssueCommentDelete`, `PostIssueAttachmentUpload`, `PostIssueAttachmentDelete`; per-issue SSE stream `GetIssueStream`
-4. [ ] `project_issues.templ` — `IssueCommentsFragment`, `IssueAttachmentsStrip` (renders inline in body for screenshots); reuse `humanBytes` from projects.templ
-5. [ ] Reuse `projects.js` MutationObserver + WeakSet pattern for issue-attachment uploader
+1. [x] `issues_comments_repo.go` — ListIssueComments, IssueCommentByID, InsertIssueComment, UpdateIssueComment, SoftDeleteIssueComment, ListIssueAttachments, IssueAttachmentByID, InsertIssueAttachment, DeleteIssueAttachment
+2. [x] `issues_service.go` — AddIssueComment, UpdateIssueComment (edit-grace), DeleteIssueComment, AddIssueAttachment (uploads.Store.Save image whitelist; guest ownerID = "guest:" prefix), DeleteIssueAttachment with permission check
+3. [x] `issues_handler.go` — PostIssueComment, PostIssueCommentEdit, PostIssueCommentDelete, PostIssueAttachmentUpload (multipart), PostIssueAttachmentDelete; GetIssue now loads comments + body+comment attachments
+4. [x] Templ extended — comment list with inline edit/delete, attachment dropzone, image gallery rendered via `issueImage` partial, comment-scoped attachments grouped under each comment
+5. [x] `projects.js` — `bindIssueZone` handler with the same WeakSet guard pattern; MutationObserver on `.project-panel-issue` re-binds after SSE morphs
+6. [x] CSS — image figures with delete overlay, dropzone, comment thread
+7. [x] main.go — 5 new routes wired (comment add/edit/delete + attachment upload/delete)
+8. [p] Per-issue SSE stream postponed — project-wide SSE already covers issue updates via `Event{Kind:"issues"}` since the entire issues page re-renders. Per-issue stream would only matter for very large comment threads; defer.
 
 Verification: member opens an issue → drags a screenshot → tab B sees it. Comments thread with edit-grace works identically to project comments.
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -124,6 +125,137 @@ func (s *Service) UpdateIssueBody(ctx context.Context, projectID, issueID, bodyM
 	if err := s.Repo.UpdateIssueBody(ctx, issueID, strings.TrimSpace(bodyMD), html, time.Now().UTC()); err != nil {
 		return fmt.Errorf("update body: %w", err)
 	}
+	s.Bus.PublishProject(projectID, Event{Kind: "issues"})
+	return nil
+}
+
+// AddIssueComment persists a new comment + publishes.
+func (s *Service) AddIssueComment(ctx context.Context, projectID, issueID string, author Identity, bodyMD string) (IssueComment, error) {
+	bodyMD = strings.TrimSpace(bodyMD)
+	if bodyMD == "" {
+		return IssueComment{}, ErrEmptyTitle
+	}
+	html, err := render.RenderMarkdown(bodyMD)
+	if err != nil {
+		return IssueComment{}, fmt.Errorf("render: %w", err)
+	}
+	c := IssueComment{
+		ID:            uuid.NewString(),
+		IssueID:       issueID,
+		AuthorUserID:  author.UserID,
+		AuthorGuestID: author.GuestID,
+		AuthorName:    author.Name,
+		BodyMD:        bodyMD,
+		BodyHTML:      html,
+		CreatedAt:     time.Now().UTC(),
+	}
+	if err := s.Repo.InsertIssueComment(ctx, c); err != nil {
+		return IssueComment{}, fmt.Errorf("insert issue comment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "issues"})
+	return c, nil
+}
+
+// UpdateIssueComment edits with grace window enforcement.
+func (s *Service) UpdateIssueComment(ctx context.Context, projectID, issueID, commentID string, caller Identity, callerIsAdmin bool, bodyMD string) error {
+	c, err := s.Repo.IssueCommentByID(ctx, commentID)
+	if err != nil {
+		return fmt.Errorf("issue comment lookup: %w", err)
+	}
+	if c.IssueID != issueID || c.IsDeleted() {
+		return ErrNotFound
+	}
+	now := time.Now().UTC()
+	isAuthor := (caller.UserID != "" && c.AuthorUserID == caller.UserID) ||
+		(caller.GuestID != "" && c.AuthorGuestID == caller.GuestID)
+	if !(callerIsAdmin || (isAuthor && now.Sub(c.CreatedAt) <= s.EditGrace)) {
+		return ErrForbidden
+	}
+	bodyMD = strings.TrimSpace(bodyMD)
+	if bodyMD == "" {
+		return ErrEmptyTitle
+	}
+	html, err := render.RenderMarkdown(bodyMD)
+	if err != nil {
+		return fmt.Errorf("render: %w", err)
+	}
+	if err := s.Repo.UpdateIssueComment(ctx, commentID, bodyMD, html, now); err != nil {
+		return fmt.Errorf("update issue comment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "issues"})
+	return nil
+}
+
+// DeleteIssueComment soft-deletes.
+func (s *Service) DeleteIssueComment(ctx context.Context, projectID, issueID, commentID string, caller Identity, callerIsAdmin bool) error {
+	c, err := s.Repo.IssueCommentByID(ctx, commentID)
+	if err != nil {
+		return fmt.Errorf("issue comment lookup: %w", err)
+	}
+	if c.IssueID != issueID || c.IsDeleted() {
+		return ErrNotFound
+	}
+	isAuthor := (caller.UserID != "" && c.AuthorUserID == caller.UserID) ||
+		(caller.GuestID != "" && c.AuthorGuestID == caller.GuestID)
+	if !(callerIsAdmin || isAuthor) {
+		return ErrForbidden
+	}
+	if err := s.Repo.SoftDeleteIssueComment(ctx, commentID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("delete issue comment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "issues"})
+	return nil
+}
+
+// AddIssueAttachment uploads an image via uploads.Store.Save (the
+// image-whitelist path) and links it to the issue. commentID may be
+// empty to attach to the issue body itself.
+func (s *Service) AddIssueAttachment(ctx context.Context, projectID, issueID, commentID, communityID, mime string, body io.Reader, uploader Identity) (IssueAttachment, error) {
+	ownerID := uploader.UserID
+	if ownerID == "" {
+		ownerID = "guest:" + uploader.GuestID
+	}
+	u, err := s.Uploads.Save(ctx, ownerID, communityID, mime, body)
+	if err != nil {
+		return IssueAttachment{}, fmt.Errorf("upload save: %w", err)
+	}
+	a := IssueAttachment{
+		ID:              uuid.NewString(),
+		IssueID:         issueID,
+		CommentID:       commentID,
+		UploadID:        u.ID,
+		UploaderUserID:  uploader.UserID,
+		UploaderGuestID: uploader.GuestID,
+		UploaderName:    uploader.Name,
+		CreatedAt:       time.Now().UTC(),
+	}
+	if err := s.Repo.InsertIssueAttachment(ctx, a); err != nil {
+		return IssueAttachment{}, fmt.Errorf("insert issue attachment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "issues"})
+	return a, nil
+}
+
+// DeleteIssueAttachment removes the row + (potentially) the underlying
+// file (uploads.Store.Delete no-ops when other rows still reference the
+// same content hash). Uploader OR admin.
+func (s *Service) DeleteIssueAttachment(ctx context.Context, projectID, issueID, attID string, caller Identity, callerIsAdmin bool) error {
+	a, err := s.Repo.IssueAttachmentByID(ctx, attID)
+	if err != nil {
+		return fmt.Errorf("attachment lookup: %w", err)
+	}
+	if a.IssueID != issueID {
+		return ErrNotFound
+	}
+	isUploader := (caller.UserID != "" && a.UploaderUserID == caller.UserID) ||
+		(caller.GuestID != "" && a.UploaderGuestID == caller.GuestID)
+	if !(callerIsAdmin || isUploader) {
+		return ErrForbidden
+	}
+	if err := s.Repo.DeleteIssueAttachment(ctx, attID); err != nil {
+		return fmt.Errorf("delete issue attachment: %w", err)
+	}
+	_ = s.Uploads.Delete(ctx, a.UploadID)
 	s.Bus.PublishProject(projectID, Event{Kind: "issues"})
 	return nil
 }

@@ -1260,3 +1260,49 @@ img.thread-announce-img {
 .project-issue-edit input,
 .project-issue-edit textarea { display: block; width: 100%; margin-top: .25rem; }
 .projects-pill-guest { background: #6a4cff; color: #fff; }
+
+/* Issue page comments + image attachments */
+.project-issue-attachments,
+.project-issue-comment-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin: .5rem 0;
+}
+.project-issue-image { position: relative; max-width: 320px; margin: 0; }
+.project-issue-image img {
+  max-width: 100%;
+  border-radius: var(--radius);
+  display: block;
+}
+.project-issue-image-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 0 .4rem;
+  background: rgba(0,0,0,.6);
+  color: #fff;
+  border-radius: 4px;
+}
+.project-issue-upload {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: .85rem;
+  text-align: center;
+  cursor: pointer;
+  margin: .75rem 0;
+}
+.project-issue-upload p { margin: 0; opacity: .7; }
+.project-issue-comments { margin-top: 1.5rem; }
+.project-issue-comment-list { list-style: none; padding: 0; margin: 0 0 1rem 0; }
+.project-issue-comment {
+  border-bottom: 1px solid var(--border);
+  padding: .75rem 0;
+}
+.project-issue-comment:last-child { border-bottom: none; }
+.project-issue-comment-meta { font-size: .8rem; margin-bottom: .25rem; }
+.project-issue-comment-body { margin-bottom: .35rem; }
+.project-issue-comment-edit-input { width: 100%; }
+.project-issue-comment-actions { display: flex; gap: .35rem; }
+.project-issue-comment-add { display: flex; flex-direction: column; gap: .5rem; }
+.project-issue-comment-add textarea { width: 100%; }

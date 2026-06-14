@@ -71,17 +71,58 @@
     });
   }
 
+  // The issue dropzone is a thinner variant — same listener set, but
+  // the data attribute is different so we have a separate select.
+  function bindIssueZone(zone) {
+    if (boundZones.has(zone)) return;
+    boundZones.add(zone);
+    const url = zone.dataset.roomsProjectsIssueDropzone;
+    if (!url) return;
+    const input = zone.querySelector('input[type="file"]');
+    if (input && !boundInputs.has(input)) {
+      boundInputs.add(input);
+      input.addEventListener('change', async () => {
+        if (!input.files || input.files.length === 0) return;
+        flashUploading(zone, true);
+        try { await postFiles(url, input.files); }
+        finally { flashUploading(zone, false); input.value = ''; }
+      });
+    }
+    zone.addEventListener('click', (ev) => {
+      if (ev.target !== input) input?.click();
+    });
+    zone.addEventListener('dragover', (ev) => { ev.preventDefault(); flashDragOver(zone, true); });
+    zone.addEventListener('dragleave', () => flashDragOver(zone, false));
+    zone.addEventListener('drop', async (ev) => {
+      ev.preventDefault();
+      flashDragOver(zone, false);
+      const files = ev.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      flashUploading(zone, true);
+      try { await postFiles(url, files); }
+      finally { flashUploading(zone, false); }
+    });
+  }
+
   // Datastar morphs the dropzone subtree on every SSE attachments event.
   // morphdom keeps the same DOM nodes when their ids match (WithModeOuter
   // on #proj-attachments), so re-bind only fires on truly new zones.
   function bindAll() {
     document.querySelectorAll('[data-rooms-projects-dropzone]').forEach(bindZone);
+    document.querySelectorAll('[data-rooms-projects-issue-dropzone]').forEach(bindIssueZone);
   }
 
   bindAll();
   const panel = document.querySelector('#proj-attachments');
   if (panel) {
     new MutationObserver(bindAll).observe(panel.parentNode, {
+      childList: true, subtree: true,
+    });
+  }
+  // For issue pages, the dropzone lives on a different parent.
+  const issueRoot = document.querySelector('.project-panel-issue');
+  if (issueRoot) {
+    new MutationObserver(bindAll).observe(issueRoot, {
       childList: true, subtree: true,
     });
   }
