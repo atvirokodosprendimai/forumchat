@@ -155,3 +155,78 @@ func TestLogin_BadPassword(t *testing.T) {
 		t.Fatal("expected error for bad password")
 	}
 }
+
+func TestMagicLink_IssueAndConsume_ActivatesPending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+
+	code, _ := svc.IssueInvite(ctx, communityID, nil, nil)
+	if _, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "magic@example.com", Password: "supersecret123", InviteCode: code,
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if err := svc.IssueMagicLink(ctx, "magic@example.com"); err != nil {
+		t.Fatalf("issue magic: %v", err)
+	}
+	// pull the freshest magic_login token directly from the repo (mailer is a log noop in tests)
+	var token string
+	if err := repo.DB.QueryRowContext(ctx,
+		`SELECT token FROM verification_tokens WHERE purpose='magic_login' ORDER BY expires_at DESC LIMIT 1`).
+		Scan(&token); err != nil {
+		t.Fatalf("read token: %v", err)
+	}
+	res, err := svc.ConsumeMagicLink(ctx, token, communityID)
+	if err != nil {
+		t.Fatalf("consume magic: %v", err)
+	}
+	if res.User.Status != auth.StatusActive {
+		t.Fatalf("want StatusActive after consume, got %s", res.User.Status)
+	}
+	if res.Membership.CommunityID != communityID {
+		t.Fatalf("want membership in community, got %q", res.Membership.CommunityID)
+	}
+}
+
+func TestMagicLink_UnknownEmail_NoError(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _, _ := setupSvc(t)
+	if err := svc.IssueMagicLink(ctx, "nobody@example.com"); err != nil {
+		t.Fatalf("unknown email should be silent no-op, got: %v", err)
+	}
+}
+
+func TestMagicLink_InvalidToken(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _, communityID := setupSvc(t)
+	if _, err := svc.ConsumeMagicLink(ctx, "not-a-real-token", communityID); err == nil {
+		t.Fatal("want error for invalid token")
+	}
+}
+
+func TestMagicLink_SecondConsumeFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	code, _ := svc.IssueInvite(ctx, communityID, nil, nil)
+	reg, _ := svc.Register(ctx, auth.RegisterInput{
+		Email: "once@example.com", Password: "supersecret123", InviteCode: code,
+	})
+	_, _ = svc.Verify(ctx, reg.VerificationToken, communityID)
+	if err := svc.IssueMagicLink(ctx, "once@example.com"); err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	var token string
+	_ = repo.DB.QueryRowContext(ctx,
+		`SELECT token FROM verification_tokens WHERE purpose='magic_login' ORDER BY expires_at DESC LIMIT 1`).
+		Scan(&token)
+	if _, err := svc.ConsumeMagicLink(ctx, token, communityID); err != nil {
+		t.Fatalf("first consume: %v", err)
+	}
+	if _, err := svc.ConsumeMagicLink(ctx, token, communityID); err == nil {
+		t.Fatal("want error on re-use")
+	}
+}

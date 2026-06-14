@@ -209,6 +209,95 @@ type LoginResult struct {
 	Membership Membership
 }
 
+// MagicLoginTTL is the default lifetime of a magic-login email link. Kept
+// short — the link grants a session without a password.
+const MagicLoginTTL = 30 * time.Minute
+
+// IssueMagicLink emails a one-shot login URL to the address. Reuses the
+// verification_tokens table with purpose='magic_login'. Returns nil even
+// when the email maps to no account — callers must not branch on the
+// result to avoid revealing membership (account-enumeration defence).
+//
+// Activated and pending accounts both receive a link; the consume step
+// activates pending users since the magic link is itself proof of
+// email ownership (same trust level as the registration verify mail).
+// Disabled / banned accounts get no link.
+func (s *Service) IssueMagicLink(ctx context.Context, email string) error {
+	u, err := s.Repo.UserByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil // silent no-op
+		}
+		return err
+	}
+	if u.Status == StatusDisabled {
+		return nil
+	}
+	token, err := RandomToken(24)
+	if err != nil {
+		return err
+	}
+	exp := time.Now().Add(MagicLoginTTL)
+	if err := s.Repo.CreateVerificationToken(ctx, token, u.ID, "magic_login", exp); err != nil {
+		return err
+	}
+	url := fmt.Sprintf("%s/login/magic?token=%s", s.BaseURL, token)
+	body := fmt.Sprintf("Sign in to forumchat by clicking the link below.\n\n%s\n\nLink expires %s.\nIgnore this email if you didn't request a login.\n",
+		url, exp.Format(time.RFC1123))
+	if err := s.Mailer.Send(ctx, email, "Sign in to forumchat", body); err != nil {
+		// Don't propagate mail failures — the token still exists; UX shows
+		// "check your email" either way and ops fixes the mailer.
+		return nil
+	}
+	return nil
+}
+
+// ConsumeMagicLink swaps a magic-login token for a LoginResult. Activates
+// the user if still pending (the token mail proves email ownership).
+// Auto-joins the supplied community on first sign-in, matching the
+// register/verify flow.
+func (s *Service) ConsumeMagicLink(ctx context.Context, token, communityID string) (LoginResult, error) {
+	vt, err := s.Repo.ConsumeVerificationToken(ctx, token, "magic_login")
+	if err != nil {
+		return LoginResult{}, err
+	}
+	u, err := s.Repo.UserByID(ctx, vt.UserID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if u.Status == StatusDisabled {
+		return LoginResult{}, ErrBanned
+	}
+	if u.Status == StatusPending || u.Status == StatusInvited {
+		if err := s.Repo.ActivateUser(ctx, u.ID); err != nil {
+			return LoginResult{}, err
+		}
+		u.Status = StatusActive
+	}
+	m, err := s.Repo.MembershipFor(ctx, u.ID, communityID)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			return LoginResult{}, err
+		}
+		m = Membership{
+			ID:          uuid.NewString(),
+			UserID:      u.ID,
+			CommunityID: communityID,
+			DisplayName: localPart(u.Email),
+			Role:        RoleMember,
+		}
+		if err := s.Repo.CreateMembership(ctx, nil, m); err != nil {
+			if !isUniqueViolation(err) {
+				return LoginResult{}, err
+			}
+		}
+	}
+	if m.IsBanned(time.Now()) {
+		return LoginResult{}, ErrBanned
+	}
+	return LoginResult{User: u, Membership: m}, nil
+}
+
 func (s *Service) Login(ctx context.Context, email, password, communityID string) (LoginResult, error) {
 	u, err := s.Repo.UserByEmail(ctx, email)
 	if err != nil {

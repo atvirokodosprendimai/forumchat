@@ -164,12 +164,16 @@ func run() error {
 	r.Group(func(r chi.Router) {
 		r.Use(httprate.LimitByIP(10, time.Minute))
 		r.Post("/login", authHandler.PostLogin)
+		r.Post("/login/check", authHandler.PostLoginCheck)
+		r.Post("/login/back", authHandler.PostLoginBack)
+		r.Post("/login/magic", authHandler.PostLoginMagic)
 		r.Post("/register", authHandler.PostRegister)
 		r.Post("/register-as-admin", authHandler.PostRegisterAsAdmin)
 	})
 	r.Get("/register", authHandler.GetRegister)
 	r.Get("/register-as-admin", authHandler.GetRegisterAsAdmin)
 	r.Get("/login", authHandler.GetLogin)
+	r.Get("/login/magic", authHandler.GetLoginMagic)
 	r.Get("/verify", authHandler.GetVerify)
 	r.Post("/logout", authHandler.PostLogout)
 
