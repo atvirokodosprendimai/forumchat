@@ -51,7 +51,12 @@ templ ChatPage(d ChatPageData) {
 			</div>
 			<aside id="presence" class="presence" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/presence/stream', {openWhenHidden: true})" }>
 				<h3>Online</h3>
-				<div id="presence-list"><p class="muted">connecting…</p></div>
+				<div id="presence-list">
+					<div class="loading-row" aria-live="polite">
+						<span class="dot-spinner" aria-hidden="true"><span></span><span></span><span></span></span>
+						<span class="muted">connecting…</span>
+					</div>
+				</div>
 			</aside>
 		</section>
 		// Mobile-only floating button (>=900px hides via CSS). Toggles
@@ -85,13 +90,16 @@ templ ChatComposer(slug string) {
 				<input type="file" accept="image/*" style="display:none"
 					data-on:change="window.fcPickImage(evt,'image_data')"/>
 			</label>
-			<input type="text"
+			<textarea
+				class="composer-text"
 				data-bind="body"
-				placeholder="Say something — markdown ok (paste, drop or attach an image)"
+				rows="1"
+				placeholder="Say something — markdown ok (paste, drop or attach an image). Shift+Enter for newline."
 				autocomplete="off"
+				data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
-				data-on:keydown={ "evt.key === 'Enter' && @post('/c/" + slug + "/chat/send')" }/>
-			<button data-on:click={ "@post('/c/" + slug + "/chat/send')" }>Send</button>
+				data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); @post('/c/" + slug + "/chat/send'); el.style.height='auto'}" }></textarea>
+			<button data-on:click={ "@post('/c/" + slug + "/chat/send'); document.querySelector('.composer-text').style.height='auto'" }>Send</button>
 		</div>
 	</div>
 }

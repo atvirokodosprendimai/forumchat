@@ -2058,6 +2058,96 @@ hr {
 }
 .empty-state p { margin: .25rem 0; }
 
+/* Composer textarea — autogrows via JS, behaves like single-line bar
+   at rest and expands as user types multi-line markdown. */
+.composer-row .composer-text {
+  flex: 1 1 auto; min-width: 0; width: 100%;
+  resize: none;
+  min-height: 2.6rem;
+  max-height: 200px;
+  padding: .7rem 1rem;
+  line-height: 1.45;
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  overflow-y: auto;
+}
+.composer-row .composer-text::-webkit-scrollbar { width: 6px; }
+.composer-row .composer-text::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+
+/* Dot spinner — three pulsing dots for SSE / async loading states */
+.loading-row {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .35rem 0;
+}
+.dot-spinner {
+  display: inline-flex; gap: 4px; align-items: center;
+}
+.dot-spinner > span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  opacity: .35;
+  animation: dot-pulse 1.2s var(--ease-out) infinite;
+}
+.dot-spinner > span:nth-child(2) { animation-delay: .15s; }
+.dot-spinner > span:nth-child(3) { animation-delay: .3s; }
+@keyframes dot-pulse {
+  0%, 80%, 100% { opacity: .25; transform: scale(.85); }
+  40%           { opacity: 1;   transform: scale(1.2); }
+}
+
+/* Room card live/idle status dot */
+.rooms-card-body { gap: .45rem; align-items: center; }
+.rooms-card-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; flex: 0 0 8px;
+}
+.rooms-card-dot-idle { background: var(--border-strong); }
+.rooms-card-dot-live {
+  background: var(--success);
+  box-shadow: 0 0 0 3px oklch(62% 0.18 150 / 0.2);
+  animation: dot-pulse-live 1.6s var(--ease-out) infinite;
+}
+@keyframes dot-pulse-live {
+  0%, 100% { box-shadow: 0 0 0 3px oklch(62% 0.18 150 / 0.18); }
+  50%      { box-shadow: 0 0 0 6px oklch(62% 0.18 150 / 0.05); }
+}
+.rooms-card-name { letter-spacing: -0.01em; }
+.rooms-card-count strong { color: var(--fg); font-weight: 600; }
+.rooms-card-link { transition: background-color var(--t-fast) var(--ease-out); }
+.rooms-card:hover .rooms-card-link { background: var(--surface-alt); }
+
+/* Admin invite cards */
+.invite-list { list-style: none; padding: 0; margin: 1rem 0; display: flex; flex-direction: column; gap: .5rem; }
+.invite-card {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  padding: .75rem .9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  transition: border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+}
+.invite-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.invite-card-main { display: flex; align-items: center; gap: 1rem; flex: 1 1 auto; flex-wrap: wrap; min-width: 0; }
+.invite-code {
+  font-family: var(--font-mono);
+  font-size: .95rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border-subtle);
+  padding: .35rem .6rem;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.02em;
+  color: var(--accent-strong);
+}
+.invite-card-meta {
+  display: flex; gap: 1rem; flex-wrap: wrap;
+  font-size: .85rem; color: var(--fg-muted);
+}
+.invite-stat .invite-stat-num {
+  color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums;
+  margin-right: .2rem;
+}
+
 /* Reduced motion — respect user preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
