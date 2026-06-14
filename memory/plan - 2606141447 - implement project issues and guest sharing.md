@@ -35,18 +35,18 @@ Goal: each existing project panel (overview / todos / docs / comments / activity
 
 Verification: visit `/c/<slug>/projects/<id>` → land on Overview with title, description, counts, and tab strip. Click `Todos` tab → see only todos. Realtime edits in one tab still propagate to other open tabs (SSE per-tab).
 
-### Phase 1 — Issues data model + list + create (member-only) — status: open
+### Phase 1 — Issues data model + list + create (member-only) — status: completed
 
 Goal: any approved community member can open a new issue from the project page, see it land in the issues list, and click into the issue page. Status defaults to `open`. No comments, no attachments, no guests yet.
 
-1. [ ] Migration `0001N_project_issues.sql` — `project_issues`, `project_issue_comments`, `project_issue_attachments`, `project_guest_invites` per spec (all four tables ship together)
-2. [ ] `internal/projects/issues.go` — `Issue`, `IssueComment`, `IssueAttachment`, `Identity` (guest+auth shape), `IssueEvent` (kind: `issue` | `comments` | `attachments`)
-3. [ ] `internal/projects/issues_repo.go` — `ListIssues(projectID, includeClosed bool)`, `IssueByID`, `InsertIssue`, `UpdateIssueTitle`, `UpdateIssueBody`, `UpdateIssueStatus`, `DeleteIssue`
-4. [ ] `internal/projects/issues_service.go` — `CreateIssue`, `UpdateIssueStatus`, `DeleteIssue`; publish `IssueEvent` on success
-5. [ ] `internal/projects/issues_handler.go` — `GetIssuesList` (panel under project page), `GetIssue`, `PostCreateIssue`, `PostUpdateStatus`, `PostDeleteIssue`. Member-only for now.
-6. [ ] `web/templ/project_issues.templ` — `IssuesPanel(slug, projectID, issues)` (rendered inside ProjectPage), `IssuePage` (5-panel layout slimmed: header + body + comments + activity), `IssueStatusPill`
-7. [ ] Wire under existing `PROJECTS_ENABLED` block in `cmd/app/main.go`; routes inside the existing auth-required community group
-8. [ ] Project page templ — slot the new IssuesPanel after the todos section
+1. [x] Migration `00014_project_issues.sql` — all four tables ship together (project_issues, project_issue_comments, project_issue_attachments, project_guest_invites)
+2. [x] `internal/projects/issues.go` — `Issue`, `IssueComment`, `IssueAttachment`, `GuestInvite`, `Identity` (used everywhere), `IssueEvent` kinds, IssueStatuses constants
+3. [x] `internal/projects/issues_repo.go` — ListIssues, IssueByID, InsertIssue, UpdateIssueTitle/Body/Status, DeleteIssue, CountOpenIssues
+4. [x] `internal/projects/issues_service.go` — CreateIssue, UpdateIssueStatus (guest-blocked via ErrForbidden), UpdateIssueTitle/Body (author+admin), DeleteIssue (author+admin). All publish `Event{Kind:"issues"}` so the issues tab re-renders.
+5. [x] `internal/projects/issues_handler.go` — GetIssuesTab, GetIssue, PostCreateIssue, PostIssueEdit, PostIssueStatus, PostIssueDelete; callerIdentity helper (Phase 3 extends to guests)
+6. [x] Templ — `ProjectIssuesPage` (list + new-issue form), `ProjectIssuePage` (header + body + status dropdown + edit/delete), `IssueStatusPill`, `issueLabel` for display strings
+7. [x] CSS — issue pills (4 colour-coded states), issue list rows, issue page head, edit form
+8. [x] main.go — 6 new routes wired under PROJECTS_ENABLED guard
 
 Verification: member opens project page → clicks "Open new issue" → fills title + body → lands on `/projects/{id}/issues/{iid}` with status pill `open`. Status dropdown advances to `triaged`/`in_progress`/`closed`. Closed issues collapse under a `<details>`.
 

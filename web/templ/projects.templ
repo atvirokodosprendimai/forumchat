@@ -221,6 +221,155 @@ templ ProjectActivityPage(d ProjectPageData) {
 	}
 }
 
+// ProjectIssueView is the per-row payload for the issues list + the
+// single-issue page.
+type ProjectIssueView struct {
+	ID              string
+	Title           string
+	BodyMD          string
+	BodyHTML        string
+	Status          string // open | triaged | in_progress | closed
+	CreatorName     string
+	CreatedAt       time.Time
+	IsGuestAuthored bool
+	CanEdit         bool
+	CanDelete       bool
+	CanChangeStatus bool
+}
+
+// ProjectIssuesPage is the issues-list tab.
+templ ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) {
+	@Layout(d.Project.Title+" — Issues", d.Viewer) {
+		@projectShell(d, "issues") {
+			<section class="project-panel project-panel-issues"
+				data-signals="{projects_issue_title:'',projects_issue_body:''}">
+				<h3>Issues</h3>
+				<form class="project-issue-add"
+					data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues')" }>
+					<input type="text" maxlength="200" placeholder="Issue title"
+						data-bind="projects_issue_title" required/>
+					<textarea rows="3" placeholder="Describe the issue (markdown)…"
+						maxlength="10000"
+						data-bind="projects_issue_body"></textarea>
+					<button class="btn" type="submit">Open issue</button>
+				</form>
+				if len(issues) == 0 {
+					<p class="muted">No issues yet.</p>
+				} else {
+					<ul class="project-issues">
+						for _, i := range issues {
+							<li class={ "project-issue-row", "project-issue-status-" + i.Status }>
+								<a class="project-issue-link"
+									href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID) }>
+									@IssueStatusPill(i.Status)
+									<span class="project-issue-title">{ i.Title }</span>
+									<span class="project-issue-meta muted">
+										by { i.CreatorName }
+										if i.IsGuestAuthored {
+											<span class="projects-pill projects-pill-guest">guest</span>
+										}
+										· { i.CreatedAt.Local().Format("2006-01-02 15:04") }
+									</span>
+								</a>
+							</li>
+						}
+					</ul>
+				}
+			</section>
+		}
+	}
+}
+
+// IssueStatusPill is a small color-coded chip per status.
+templ IssueStatusPill(status string) {
+	<span class={ "project-issue-pill", "project-issue-pill-" + status }>{ issueLabel(status) }</span>
+}
+
+func issueLabel(s string) string {
+	switch s {
+	case "open":
+		return "Open"
+	case "triaged":
+		return "Triaged"
+	case "in_progress":
+		return "In progress"
+	case "closed":
+		return "Closed"
+	}
+	return s
+}
+
+// ProjectIssuePage is the single-issue view.
+templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView) {
+	@Layout(i.Title+" — Issue", d.Viewer) {
+		@projectShell(d, "issues") {
+			<section class="project-panel project-panel-issue"
+				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',projects_issue_edit_open:false}" }>
+				<nav class="project-breadcrumb muted">
+					<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues") }>← all issues</a>
+				</nav>
+				<header class="project-issue-head">
+					<h1 class="project-issue-title">{ i.Title }</h1>
+					@IssueStatusPill(i.Status)
+					<span class="muted">
+						opened by { i.CreatorName }
+						if i.IsGuestAuthored {
+							<span class="projects-pill projects-pill-guest">guest</span>
+						}
+						· { i.CreatedAt.Local().Format("2006-01-02 15:04") }
+					</span>
+				</header>
+				<div class="project-issue-display" data-show="!$projects_issue_edit_open">
+					if i.BodyHTML != "" {
+						<div class="project-issue-body">@templ.Raw(i.BodyHTML)</div>
+					} else {
+						<p class="muted">No description.</p>
+					}
+					<div class="project-issue-actions">
+						if i.CanEdit {
+							<button class="btn ghost"
+								data-on:click="$projects_issue_edit_open = true">Edit</button>
+						}
+						if i.CanDelete {
+							<button class="btn ghost danger"
+								data-on:click={ "confirm('Delete this issue?') && @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/delete')" }>Delete</button>
+						}
+						if i.CanChangeStatus {
+							<select class="project-issue-status"
+								data-bind="projects_issue_status"
+								data-on:change={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/status')" }>
+								for _, s := range []string{"open","triaged","in_progress","closed"} {
+									if s == i.Status {
+										<option value={ s } selected>{ issueLabel(s) }</option>
+									} else {
+										<option value={ s }>{ issueLabel(s) }</option>
+									}
+								}
+							</select>
+						}
+					</div>
+				</div>
+				<div class="project-issue-edit" data-show="$projects_issue_edit_open">
+					<label>
+						Title
+						<input type="text" maxlength="200" data-bind="projects_issue_title"/>
+					</label>
+					<label>
+						Body (markdown)
+						<textarea rows="6" data-bind="projects_issue_edit"></textarea>
+					</label>
+					<div class="project-edit-actions">
+						<button class="btn"
+							data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "'); $projects_issue_edit_open = false" }>Save</button>
+						<button class="btn ghost"
+							data-on:click="$projects_issue_edit_open = false">Cancel</button>
+					</div>
+				</div>
+			</section>
+		}
+	}
+}
+
 // ProjectHeaderFragment renders the title + description block with
 // inline-edit affordances driven by datastar signals
 // `$projects_edit_header`, `$projects_title`, and `$projects_desc`.

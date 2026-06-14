@@ -1209,3 +1209,54 @@ img.thread-announce-img {
   border-radius: 999px;
   font-weight: 500;
 }
+
+/* ----- /c/{slug}/projects/{id}/issues ------------------------------------ */
+
+.project-issue-add {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-bottom: 1rem;
+  padding: .85rem;
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+}
+.project-issue-add input,
+.project-issue-add textarea { width: 100%; }
+.project-issues { list-style: none; padding: 0; margin: 0; }
+.project-issue-row {
+  border-bottom: 1px solid var(--border);
+  padding: .5rem 0;
+}
+.project-issue-row:last-child { border-bottom: none; }
+.project-issue-link {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  text-decoration: none;
+  color: inherit;
+}
+.project-issue-title { font-weight: 500; }
+.project-issue-link:hover .project-issue-title { color: var(--accent); }
+.project-issue-meta { margin-left: auto; font-size: .8rem; }
+.project-issue-pill {
+  padding: .1rem .55rem;
+  border-radius: 999px;
+  font-size: .75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.project-issue-pill-open { background: #e0f0ff; color: #0a4d8a; }
+.project-issue-pill-triaged { background: #fff3cc; color: #8a5a00; }
+.project-issue-pill-in_progress { background: #ffe0c2; color: #aa4500; }
+.project-issue-pill-closed { background: #d9d9d9; color: #555; }
+.project-panel-issue { padding: 1rem 1.25rem; }
+.project-issue-head { margin-bottom: 1rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.project-issue-head h1 { margin: 0; }
+.project-issue-body { margin-bottom: 1rem; }
+.project-issue-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.project-issue-status { padding: .35rem .5rem; }
+.project-issue-edit label { display: block; margin-bottom: .75rem; }
+.project-issue-edit input,
+.project-issue-edit textarea { display: block; width: 100%; margin-top: .25rem; }
+.projects-pill-guest { background: #6a4cff; color: #fff; }
