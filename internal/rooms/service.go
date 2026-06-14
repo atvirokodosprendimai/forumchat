@@ -271,6 +271,13 @@ func (s *Service) PostChat(ctx context.Context, roomID string, by Identity, body
 	if !s.State.IsMember(roomID, by.Key()) {
 		return ChatMessage{}, ErrNotMember
 	}
+	// room_chat.community_id is NOT NULL REFERENCES communities(id) since
+	// migration 00012_rooms_per_community — look it up via the room or the
+	// FK insert fails with "constraint failed (787)".
+	rm, err := s.Repo.RoomByID(ctx, roomID)
+	if err != nil {
+		return ChatMessage{}, fmt.Errorf("load room: %w", err)
+	}
 	html, err := render.RenderMarkdown(body)
 	if err != nil {
 		return ChatMessage{}, fmt.Errorf("render: %w", err)
@@ -278,6 +285,7 @@ func (s *Service) PostChat(ctx context.Context, roomID string, by Identity, body
 	m := ChatMessage{
 		ID:           uuid.NewString(),
 		RoomID:       roomID,
+		CommunityID:  rm.CommunityID,
 		AuthorUserID: by.UserID, // empty for guests — repo stores NULL
 		AuthorName:   by.Name,
 		Body:         body,
