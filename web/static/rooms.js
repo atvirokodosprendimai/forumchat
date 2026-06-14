@@ -7,8 +7,13 @@
 //     attaches it to every open PeerConnection (triggers renegotiation).
 //   - Toggling OFF stops the track and removes it from every PC — the
 //     device is fully released, not just .enabled = false.
-//   - A user who never toggles either stays in the room as a pure listener;
-//     they still receive remote audio and video.
+//   - Camera and screenshare are INDEPENDENT senders: enabling screen does
+//     not replace the camera track. Each lives in its own MediaStream so
+//     remote peers see two distinct tiles (camera + screen) and can pick
+//     either one to bring to the center stage.
+//   - A `meta` signal envelope carries the {streamID → 'screen'|'camera'}
+//     map so receivers can label incoming streams correctly. Without it
+//     every remote stream defaults to 'camera'.
 //
 // Server-side identity:
 //   - participant key = "u:<userID>" (auth) | "g:<guestID>" (invite guest)
@@ -31,110 +36,331 @@
   }
 
   const videoGrid = root.querySelector('[data-video-grid]');
+  const stage = root.querySelector('[data-rooms-stage]');
   const stageVideo = root.querySelector('[data-rooms-stage-video]');
   const stageEmpty = root.querySelector('[data-rooms-stage-empty]');
   const stageLabel = root.querySelector('[data-rooms-stage-label]');
+  const stageFullscreenBtn = root.querySelector('[data-rooms-stage-fullscreen]');
   const micBtn = root.querySelector('[data-rooms-mic]');
   const camBtn = root.querySelector('[data-rooms-cam]');
   const screenBtn = root.querySelector('[data-rooms-screen]');
   const leaveBtn = root.querySelector('[data-rooms-leave]');
-  let focusedKey = null;
 
-  // ----- center stage focus ------------------------------------------------
+  // ----- tile registry -----------------------------------------------------
+  //
+  // A "tile" is one visible video panel in the strip. Each tile is keyed by
+  // a stable string id and owns its own stream so the stage can pick any
+  // one independently. Self has up to two tiles (camera + screen). Each
+  // peer has one tile per remote stream id we've seen.
+  //
+  //   tileID  := "self:camera" | "self:screen" | "<peerKey>:<streamID>"
+  //   tile     = { card, video, label, name, role, peerKey, getStream }
+  //
+  // getStream() is called when the stage focuses this tile — it returns
+  // the current MediaStream for that tile (lets us swap in late-arriving
+  // streams without a stale reference).
 
-  function focusTile(key) {
-    focusedKey = key;
-    // Highlight the focused thumbnail in the strip.
-    videoGrid.querySelectorAll('.rooms-video-tile').forEach(el => {
-      el.classList.toggle('focused', el.dataset.peerKey === key);
-    });
-    let stream = null;
-    let label = '';
-    if (key === myKey) {
-      stream = tileForSelf.video.srcObject;
-      label = myName + ' (you)';
-    } else {
-      const entry = peers.get(key);
-      stream = entry?.video?.srcObject || null;
-      label = entry?.name || 'peer';
+  const tiles = new Map();
+  let focusedTileID = null;
+
+  function tileIdSelf(role) { return `self:${role}`; }
+  function tileIdPeer(peerKey, streamID) { return `${peerKey}:${streamID}`; }
+
+  function makeTile({ id, name, role, peerKey, isLocal, getStream }) {
+    const card = document.createElement('div');
+    card.className = 'rooms-video-tile'
+      + (isLocal ? ' rooms-video-tile-self' : '')
+      + (role === 'screen' ? ' rooms-video-tile-screen' : '');
+    card.dataset.tileId = id;
+    card.title = `Click to focus ${name} on the center stage`;
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.playsInline = true;
+    if (isLocal) video.muted = true;
+    const label = document.createElement('div');
+    label.className = 'rooms-video-label';
+    label.textContent = name + (role === 'screen' ? ' • screen' : '');
+    if (role === 'screen') {
+      const icon = document.createElement('span');
+      icon.className = 'rooms-video-screen-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = '🖥';
+      card.appendChild(icon);
     }
-    stageVideo.srcObject = stream;
+    card.appendChild(video);
+    card.appendChild(label);
+    card.addEventListener('click', () => focusTile(id));
+    const tile = { id, card, video, label, name, role, peerKey, isLocal, getStream };
+    tiles.set(id, tile);
+    videoGrid.appendChild(card);
+    return tile;
+  }
+
+  function removeTile(id) {
+    const tile = tiles.get(id);
+    if (!tile) return;
+    tile.card.remove();
+    tiles.delete(id);
+    if (focusedTileID === id) clearStage();
+  }
+
+  function relabelTile(id, name, role) {
+    const tile = tiles.get(id);
+    if (!tile) return;
+    tile.name = name;
+    if (role) tile.role = role;
+    tile.label.textContent = tile.name + (tile.role === 'screen' ? ' • screen' : '');
+    tile.card.classList.toggle('rooms-video-tile-screen', tile.role === 'screen');
+    if (focusedTileID === id) {
+      if (stageLabel) stageLabel.textContent = tile.name + (tile.role === 'screen' ? ' • screen' : '');
+    }
+  }
+
+  function focusTile(id) {
+    const tile = tiles.get(id);
+    if (!tile) return;
+    focusedTileID = id;
+    videoGrid.querySelectorAll('.rooms-video-tile').forEach(el => {
+      el.classList.toggle('focused', el.dataset.tileId === id);
+    });
+    const stream = tile.getStream();
+    stageVideo.srcObject = stream || null;
     stageVideo.classList.toggle('empty', !stream);
     stageEmpty?.classList.toggle('hidden', !!stream);
-    if (stageLabel) stageLabel.textContent = stream ? label : '';
+    if (stageLabel) stageLabel.textContent = stream
+      ? (tile.name + (tile.role === 'screen' ? ' • screen' : ''))
+      : '';
     if (stream) stageVideo.play?.().catch(() => {});
   }
 
-  function clearStageIfFocused(key) {
-    if (focusedKey === key) {
-      focusedKey = null;
-      stageVideo.srcObject = null;
-      stageVideo.classList.add('empty');
-      stageEmpty?.classList.remove('hidden');
-      if (stageLabel) stageLabel.textContent = '';
-    }
+  function clearStage() {
+    focusedTileID = null;
+    stageVideo.srcObject = null;
+    stageVideo.classList.add('empty');
+    stageEmpty?.classList.remove('hidden');
+    if (stageLabel) stageLabel.textContent = '';
   }
 
-  function refreshStageIfFocused(key) {
-    if (focusedKey === key) focusTile(key);
+  function refreshStageIfFocused(id) {
+    if (focusedTileID === id) focusTile(id);
   }
 
-  const peers = new Map(); // key -> { pc, video, card, name, senders: {audio?, video?} }
-  // Each kind tracks: { track, stream } when on; undefined when off.
+  // ----- self media tracking -----------------------------------------------
+
+  // Each kind tracks: { track, stream } when on; null when off.
   const local = { audio: null, video: null };
-  let screenStream = null;
+  let screenStream = null; // active MediaStream for screenshare or null
+
+  // Self camera tile always exists; its stream is just the local camera
+  // MediaStream when the camera is on, null otherwise.
+  function getSelfCameraStream() {
+    return local.video?.stream || null;
+  }
+  function getSelfScreenStream() {
+    return screenStream || null;
+  }
+
+  makeTile({
+    id: tileIdSelf('camera'),
+    name: myName + ' (you)',
+    role: 'camera',
+    peerKey: myKey,
+    isLocal: true,
+    getStream: getSelfCameraStream,
+  });
+
+  function ensureSelfScreenTile() {
+    if (tiles.has(tileIdSelf('screen'))) return;
+    makeTile({
+      id: tileIdSelf('screen'),
+      name: myName + ' (you)',
+      role: 'screen',
+      peerKey: myKey,
+      isLocal: true,
+      getStream: getSelfScreenStream,
+    });
+    const tile = tiles.get(tileIdSelf('screen'));
+    if (tile) tile.video.srcObject = screenStream;
+  }
+
+  function refreshSelfCameraPreview() {
+    const tile = tiles.get(tileIdSelf('camera'));
+    if (!tile) return;
+    tile.video.srcObject = getSelfCameraStream();
+    refreshStageIfFocused(tile.id);
+  }
+
+  // ----- peer plumbing -----------------------------------------------------
+
+  const peers = new Map();
+  // peer entry:
+  //   pc, audio, name,
+  //   senders: { audio, video, screen },        // RTCRtpSender refs
+  //   tilesByStream: Map<streamID, tileID>,     // remote stream → tile we created for it
+  //   roles: Map<streamID, 'camera'|'screen'>,  // populated from meta envelopes
+  //   makingOffer, ignoreOffer, ...
+
+  const polite = (otherKey) => otherKey > myKey;
   let heartbeatTimer = null;
-  // leaving gates outbound POSTs after the user clicks Leave / page unloads.
-  // The server's EnsureMember would otherwise re-admit them on any in-flight
-  // ICE candidate / chat send that races the /leave call — leaving them
-  // stuck as a ghost admin even after a refresh.
   let leaving = false;
 
-  const tileForSelf = makeTile(myKey, myName + ' (you)', true);
-  videoGrid.appendChild(tileForSelf.card);
-  syncToggleLabel(micBtn, 'mic', false);
-  syncToggleLabel(camBtn, 'cam', false);
+  function ensurePeer(key, name) {
+    let entry = peers.get(key);
+    if (entry) return entry;
+    const pc = new RTCPeerConnection({ iceServers });
+    const audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
 
-  // ----- toggle label ------------------------------------------------------
+    entry = {
+      pc, audio, name,
+      senders: { audio: null, video: null, screen: null },
+      tilesByStream: new Map(),
+      roles: new Map(),
+      makingOffer: false,
+      ignoreOffer: false,
+      isSettingRemoteAnswerPending: false,
+      iAmPolite: polite(key),
+    };
+    peers.set(key, entry);
 
-  function syncToggleLabel(btn, kind, on) {
-    if (!btn) return;
-    const icons = { mic: '🎙', cam: '🎥' };
-    btn.classList.toggle('on', on);
-    btn.classList.toggle('off', !on);
-    btn.textContent = `${icons[kind]} ${on ? 'on' : 'off'}`;
-    btn.title = (kind === 'mic' ? 'Microphone' : 'Camera') + (on ? ' (on)' : ' (off)');
+    if (local.audio) entry.senders.audio = pc.addTrack(local.audio.track, local.audio.stream);
+    if (local.video) entry.senders.video = pc.addTrack(local.video.track, local.video.stream);
+    if (screenStream) {
+      const screenTrack = screenStream.getVideoTracks()[0];
+      if (screenTrack) entry.senders.screen = pc.addTrack(screenTrack, screenStream);
+    }
+
+    pc.ontrack = (ev) => {
+      const sid = ev.streams[0]?.id || `track-${ev.track.id}`;
+      console.log('[rooms] ontrack', { key, kind: ev.track.kind, sid });
+      if (ev.track.kind === 'audio') {
+        if (!(entry.audio.srcObject instanceof MediaStream)) {
+          entry.audio.srcObject = new MediaStream();
+        }
+        entry.audio.srcObject.addTrack(ev.track);
+        const tryPlay = () => entry.audio.play?.()
+          .catch((err) => console.warn('[rooms] audio play blocked', key, err?.name));
+        tryPlay();
+        setTimeout(tryPlay, 250);
+        armGlobalAudioRecovery();
+        const dropAudio = () => {
+          try { entry.audio.srcObject?.removeTrack(ev.track); } catch {}
+        };
+        ev.track.addEventListener('mute', dropAudio);
+        ev.track.addEventListener('ended', dropAudio);
+        return;
+      }
+      // video → one tile per remote stream id
+      let tileID = entry.tilesByStream.get(sid);
+      if (!tileID) {
+        const role = entry.roles.get(sid) || 'camera';
+        tileID = tileIdPeer(key, sid);
+        const remoteStream = ev.streams[0] || new MediaStream();
+        makeTile({
+          id: tileID,
+          name: entry.name,
+          role,
+          peerKey: key,
+          isLocal: false,
+          getStream: () => remoteStream,
+        });
+        const tile = tiles.get(tileID);
+        if (tile) tile.video.srcObject = remoteStream;
+        entry.tilesByStream.set(sid, tileID);
+      }
+      const tile = tiles.get(tileID);
+      if (tile?.video?.srcObject !== ev.streams[0] && ev.streams[0]) {
+        tile.video.srcObject = ev.streams[0];
+      }
+      tile?.video?.play?.().catch(() => {});
+      refreshStageIfFocused(tileID);
+      // Auto-promote a screen stream to the stage (overrides camera focus).
+      const role = entry.roles.get(sid) || 'camera';
+      if (role === 'screen' && focusedTileID !== tileID) {
+        focusTile(tileID);
+      } else if (!focusedTileID || focusedTileID === tileIdSelf('camera') || focusedTileID === tileIdSelf('screen')) {
+        focusTile(tileID);
+      }
+      const drop = () => {
+        try { ev.streams[0]?.removeTrack(ev.track); } catch {}
+        const ms = ev.streams[0];
+        if (!ms || ms.getVideoTracks().length === 0) {
+          removeTile(tileID);
+          entry.tilesByStream.delete(sid);
+        } else {
+          refreshStageIfFocused(tileID);
+        }
+      };
+      ev.track.addEventListener('mute', drop);
+      ev.track.addEventListener('ended', drop);
+    };
+    pc.onicecandidate = (ev) => {
+      if (!ev.candidate) return;
+      sendSignal(key, 'ice', JSON.stringify(ev.candidate));
+    };
+    pc.oniceconnectionstatechange = () => {
+      console.log('[rooms] ice state', key, pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        try { pc.restartIce?.(); } catch {}
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      console.log('[rooms] pc state', key, pc.connectionState);
+    };
+    pc.onnegotiationneeded = async () => {
+      try {
+        entry.makingOffer = true;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal(key, 'offer', JSON.stringify(pc.localDescription));
+      } catch (e) {
+        console.warn('negotiation failed', e);
+      } finally {
+        entry.makingOffer = false;
+      }
+    };
+
+    // Brand-new peer needs to learn about any roles we already publish
+    // (screensharing) so they can label our incoming streams correctly.
+    queueMicrotask(() => sendMetaTo(key));
+
+    return entry;
   }
 
-  // ----- self preview composition ------------------------------------------
+  function closePeer(key) {
+    const entry = peers.get(key);
+    if (!entry) return;
+    try { entry.pc.close(); } catch {}
+    entry.audio?.remove();
+    for (const tileID of entry.tilesByStream.values()) removeTile(tileID);
+    peers.delete(key);
+  }
 
-  function refreshSelfPreview() {
-    if (screenStream) {
-      tileForSelf.video.srcObject = screenStream;
-    } else if (!local.audio && !local.video) {
-      tileForSelf.video.srcObject = null;
-    } else {
-      const ms = new MediaStream();
-      if (local.video) ms.addTrack(local.video.track);
-      // Don't render local audio (would cause echo even though muted=true).
-      tileForSelf.video.srcObject = ms;
-    }
-    refreshStageIfFocused(myKey);
+  // ----- meta signaling: stream → role map ---------------------------------
+
+  function selfStreamRoleMap() {
+    const m = {};
+    if (local.video?.stream) m[local.video.stream.id] = 'camera';
+    if (screenStream) m[screenStream.id] = 'screen';
+    return m;
+  }
+
+  function sendMetaTo(peerKey) {
+    if (leaving) return;
+    sendSignal(peerKey, 'meta', JSON.stringify({ streams: selfStreamRoleMap() }));
+  }
+
+  function broadcastMeta() {
+    for (const key of peers.keys()) sendMetaTo(key);
   }
 
   // ----- enable / disable media -------------------------------------------
-  //
-  // On enable: getUserMedia for just this kind, attach to every PC,
-  // trigger renegotiation by the impolite side.
-  // On disable: stop the track, remove from each PC, renegotiate.
 
   async function enableMedia(kind) {
     if (local[kind]) return true;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      // Almost always means the page is on http:// with a non-localhost
-      // host (insecure context). Surface it instead of failing silently —
-      // the toggle button will just stay "off" without this, leaving the
-      // user with no idea why their camera/mic won't engage.
       flashMediaError(kind, 'Camera/microphone require HTTPS (or localhost).');
       return false;
     }
@@ -150,14 +376,15 @@
     const track = stream.getTracks().find(t => t.kind === kind);
     if (!track) { stream.getTracks().forEach(t => t.stop()); return false; }
     local[kind] = { track, stream };
-    console.log('[rooms] media enabled', kind, 'peers:', peers.size);
 
-    // Attach to every existing peer connection.
     for (const entry of peers.values()) {
       const sender = entry.pc.addTrack(track, stream);
       entry.senders[kind] = sender;
     }
-    refreshSelfPreview();
+    if (kind === 'video') {
+      refreshSelfCameraPreview();
+      broadcastMeta();
+    }
     return true;
   }
 
@@ -174,7 +401,10 @@
         entry.senders[kind] = null;
       }
     }
-    refreshSelfPreview();
+    if (kind === 'video') {
+      refreshSelfCameraPreview();
+      broadcastMeta();
+    }
   }
 
   micBtn?.addEventListener('click', async () => {
@@ -186,48 +416,81 @@
     else { const ok = await enableMedia('video'); syncToggleLabel(camBtn, 'cam', ok); }
   });
 
+  syncToggleLabel(micBtn, 'mic', false);
+  syncToggleLabel(camBtn, 'cam', false);
+
+  function syncToggleLabel(btn, kind, on) {
+    if (!btn) return;
+    const icons = { mic: '🎙', cam: '🎥' };
+    btn.classList.toggle('on', on);
+    btn.classList.toggle('off', !on);
+    btn.textContent = `${icons[kind]} ${on ? 'on' : 'off'}`;
+    btn.title = (kind === 'mic' ? 'Microphone' : 'Camera') + (on ? ' (on)' : ' (off)');
+  }
+
   // ----- screenshare -------------------------------------------------------
+  //
+  // Independent of camera: addTrack a new screen video sender on every peer,
+  // make the self screen tile, and broadcast a meta envelope so peers label
+  // the incoming stream as 'screen'. Toggling off removes the sender and
+  // the tile but leaves the camera untouched.
 
   screenBtn?.addEventListener('click', async () => {
-    if (screenStream) { stopScreenshare(); return; }
+    if (screenStream) { await stopScreenshare(); return; }
     try {
       screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
     } catch { return; }
     const screenTrack = screenStream.getVideoTracks()[0];
-    screenTrack.addEventListener('ended', stopScreenshare);
+    if (!screenTrack) { screenStream = null; return; }
+    screenTrack.addEventListener('ended', () => { stopScreenshare(); });
+
     for (const entry of peers.values()) {
-      const sender = entry.senders.video;
-      if (sender) {
-        await sender.replaceTrack(screenTrack);
-      } else {
-        const s = entry.pc.addTrack(screenTrack, screenStream);
-        entry.senders.video = s;
-      }
+      const sender = entry.pc.addTrack(screenTrack, screenStream);
+      entry.senders.screen = sender;
     }
-    refreshSelfPreview();
+    ensureSelfScreenTile();
+    broadcastMeta();
     screenBtn.classList.add('on');
-    // Sharing screen is louder than a face — promote it to the stage
-    // automatically so everyone notices.
-    focusTile(myKey);
+    // Auto-focus our own screen tile so the user sees what they are sharing.
+    focusTile(tileIdSelf('screen'));
   });
 
   async function stopScreenshare() {
     if (!screenStream) return;
     screenStream.getTracks().forEach(t => t.stop());
     screenStream = null;
-    const camTrack = local.video?.track || null;
     for (const entry of peers.values()) {
-      const sender = entry.senders.video;
-      if (!sender) continue;
-      if (camTrack) {
-        await sender.replaceTrack(camTrack);
-      } else {
+      const sender = entry.senders.screen;
+      if (sender) {
         try { entry.pc.removeTrack(sender); } catch {}
-        entry.senders.video = null;
+        entry.senders.screen = null;
       }
     }
-    refreshSelfPreview();
+    removeTile(tileIdSelf('screen'));
+    broadcastMeta();
     screenBtn.classList.remove('on');
+  }
+
+  // ----- stage fullscreen --------------------------------------------------
+
+  stageFullscreenBtn?.addEventListener('click', () => toggleStageFullscreen());
+  stage?.addEventListener('dblclick', () => toggleStageFullscreen());
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && document.fullscreenElement === stage) {
+      document.exitFullscreen?.();
+    }
+    if (ev.key === 'f' && !ev.target.matches('input, textarea')) {
+      toggleStageFullscreen();
+    }
+  });
+
+  function toggleStageFullscreen() {
+    if (!stage) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+    } else {
+      (stage.requestFullscreen?.() ?? Promise.reject()).catch(() => {});
+    }
   }
 
   // ----- leave -------------------------------------------------------------
@@ -257,21 +520,11 @@
   }
 
   // ----- heartbeat ---------------------------------------------------------
-  //
-  // Background tabs get setInterval throttled to ~1Hz at best, and
-  // anything that breaks one HTTPS round-trip silently swallows a ping
-  // (the catch is a noop). Three missed pings used to evict the member,
-  // which broke every active PC for that key — now staleAfter is 60s on
-  // the server, EnsureMember self-heals on the next POST, and we also
-  // re-ping on tab-focus / visibility / connectivity recovery to be
-  // belt-and-braces about it.
 
   function startHeartbeat() {
     const ping = () => {
       if (leaving) return;
-      fetch(`${roomBase}/ping`, {
-        method: 'POST', keepalive: true,
-      }).catch(() => {});
+      fetch(`${roomBase}/ping`, { method: 'POST', keepalive: true }).catch(() => {});
     };
     ping();
     heartbeatTimer = setInterval(ping, 10000);
@@ -282,156 +535,7 @@
     window.addEventListener('online', ping);
   }
 
-  // ----- peer plumbing -----------------------------------------------------
-
-  const polite = (otherKey) => otherKey > myKey;
-
-  function ensurePeer(key, name) {
-    let entry = peers.get(key);
-    if (entry) return entry;
-    const tile = makeTile(key, name, false);
-    videoGrid.appendChild(tile.card);
-    const pc = new RTCPeerConnection({ iceServers });
-    // Dedicated <audio> sink per peer. Tiny video tiles in the strip can
-    // have their audio suppressed by browsers (they look hidden / off-
-    // screen). A separate, always-attached <audio autoplay> sidesteps the
-    // policy and gives us reliable voice even when the tile is invisible.
-    const audio = document.createElement('audio');
-    audio.autoplay = true;
-    audio.style.display = 'none';
-    document.body.appendChild(audio);
-
-    entry = {
-      pc, video: tile.video, audio, card: tile.card, name,
-      senders: { audio: null, video: null },
-      // Perfect-negotiation bookkeeping per MDN. Either side can initiate
-      // after adding a track later (camera toggle, screenshare). On glare
-      // the polite side rolls back its pending offer and accepts the
-      // remote one; the impolite side discards the colliding incoming.
-      makingOffer: false,
-      ignoreOffer: false,
-      isSettingRemoteAnswerPending: false,
-      iAmPolite: polite(key),
-    };
-    peers.set(key, entry);
-
-    if (local.audio) entry.senders.audio = pc.addTrack(local.audio.track, local.audio.stream);
-    if (local.video) entry.senders.video = pc.addTrack(local.video.track, local.video.stream);
-
-    pc.ontrack = (ev) => {
-      console.log('[rooms] ontrack', { key, kind: ev.track.kind, streams: ev.streams.length });
-      // Audio tracks go to the dedicated hidden <audio> sink (better
-      // browser autoplay tolerance). Video tracks go to the tile <video>
-      // (which is muted=false on the video element, but won't receive
-      // audio tracks under this routing).
-      if (ev.track.kind === 'audio') {
-        if (!(entry.audio.srcObject instanceof MediaStream)) {
-          entry.audio.srcObject = new MediaStream();
-        }
-        entry.audio.srcObject.addTrack(ev.track);
-        const tryPlay = () => entry.audio.play?.()
-          .then(() => console.log('[rooms] audio play OK', key))
-          .catch((err) => console.warn('[rooms] audio play blocked', key, err?.name));
-        tryPlay();
-        // Race a retry — some browsers reject .play() before the first
-        // packet arrives even when autoplay is allowed.
-        setTimeout(tryPlay, 250);
-        armGlobalAudioRecovery();
-        const dropAudio = () => {
-          try { entry.audio.srcObject?.removeTrack(ev.track); } catch {}
-        };
-        ev.track.addEventListener('mute', dropAudio);
-        ev.track.addEventListener('ended', dropAudio);
-        return;
-      }
-      let remote = tile.video.srcObject;
-      if (!(remote instanceof MediaStream)) {
-        remote = new MediaStream();
-        tile.video.srcObject = remote;
-      }
-      remote.addTrack(ev.track);
-      tile.video.play?.().catch(() => {});
-      refreshStageIfFocused(key);
-      // Auto-promote any incoming remote VIDEO to the center stage when
-      // the stage is empty or only showing ourselves. That covers the
-      // common case where a remote peer starts screenshare — without this
-      // the screen lands in the small thumbnail and the big stage stays
-      // black until someone clicks. We override "self focused" too because
-      // a remote video is almost always more interesting than your own
-      // preview, but we never override an explicit remote pick.
-      if (ev.track.kind === 'video' && (!focusedKey || focusedKey === myKey)) {
-        focusTile(key);
-      }
-      const drop = () => {
-        try { remote.removeTrack(ev.track); } catch {}
-        const ms = tile.video.srcObject;
-        tile.video.srcObject = null;
-        if (ms instanceof MediaStream && ms.getTracks().length > 0) {
-          tile.video.srcObject = ms;
-        }
-        refreshStageIfFocused(key);
-        // If the focused peer's only video track just vanished, release
-        // the stage so the next incoming video can auto-promote itself.
-        if (focusedKey === key && ev.track.kind === 'video') {
-          const stillVideo = (ms instanceof MediaStream) && ms.getVideoTracks().length > 0;
-          if (!stillVideo) clearStageIfFocused(key);
-        }
-      };
-      ev.track.addEventListener('mute', drop);
-      ev.track.addEventListener('ended', drop);
-    };
-    pc.onicecandidate = (ev) => {
-      if (!ev.candidate) return;
-      sendSignal(key, 'ice', JSON.stringify(ev.candidate));
-    };
-    // Diagnostic logging — silent failures were the #1 cause of "guest
-    // exists but no video". The browser console now shows the actual ICE
-    // verdict: relay-required without TURN, NAT type mismatch, etc.
-    pc.oniceconnectionstatechange = () => {
-      console.log('[rooms] ice state', key, pc.iceConnectionState);
-      if (pc.iceConnectionState === 'failed') {
-        try { pc.restartIce?.(); } catch {}
-      }
-    };
-    pc.onconnectionstatechange = () => {
-      console.log('[rooms] pc state', key, pc.connectionState);
-    };
-    pc.onicegatheringstatechange = () => {
-      console.log('[rooms] gather state', key, pc.iceGatheringState);
-    };
-    pc.onnegotiationneeded = async () => {
-      try {
-        entry.makingOffer = true;
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendSignal(key, 'offer', JSON.stringify(pc.localDescription));
-      } catch (e) {
-        console.warn('negotiation failed', e);
-      } finally {
-        entry.makingOffer = false;
-      }
-    };
-    return entry;
-  }
-
-  function closePeer(key) {
-    const entry = peers.get(key);
-    if (!entry) return;
-    try { entry.pc.close(); } catch {}
-    entry.card?.remove();
-    entry.audio?.remove();
-    peers.delete(key);
-    clearStageIfFocused(key);
-  }
-
   // ----- signaling ---------------------------------------------------------
-  //
-  // Signaling envelopes ride the same SSE stream as datastar room events
-  // (handler.go -> pushSignal -> sse.ExecuteScript -> window.__roomsSignal).
-  // No separate EventSource: under HTTP/1.1, the per-origin connection cap
-  // was being eaten by (messages SSE) + (room SSE) + (signal SSE) + the
-  // ICE-candidate POST bursts at cam-on time, which silently killed live
-  // chat / presence updates.
 
   window.__roomsSignal = async (msg) => {
     if (!msg || !msg.kind) return;
@@ -459,6 +563,16 @@
       } else if (msg.kind === 'ice') {
         try { await pc.addIceCandidate(JSON.parse(msg.payload)); }
         catch (e) { if (!entry.ignoreOffer) throw e; }
+      } else if (msg.kind === 'meta') {
+        const parsed = JSON.parse(msg.payload || '{}');
+        const streams = parsed?.streams || {};
+        // Update roles map for this peer and relabel any tiles already
+        // bound to those streams.
+        for (const [sid, role] of Object.entries(streams)) {
+          entry.roles.set(sid, role);
+          const tileID = entry.tilesByStream.get(sid);
+          if (tileID) relabelTile(tileID, entry.name, role);
+        }
       }
     } catch (e) { console.warn('signal handle failed', msg.kind, e); }
   };
@@ -489,7 +603,16 @@
       if (key && key !== myKey) wanted.set(key, name);
     });
     for (const [key, name] of wanted) {
-      if (!peers.has(key)) ensurePeer(key, name);
+      const existing = peers.get(key);
+      if (!existing) {
+        ensurePeer(key, name);
+      } else if (existing.name !== name) {
+        existing.name = name;
+        for (const tileID of existing.tilesByStream.values()) {
+          const t = tiles.get(tileID);
+          if (t) relabelTile(tileID, name, t.role);
+        }
+      }
     }
     for (const key of [...peers.keys()]) {
       if (!wanted.has(key)) closePeer(key);
@@ -498,8 +621,7 @@
 
   // Browsers block <audio>.play() until the user has interacted with the
   // page. We arm a single click listener that replays every peer audio
-  // element on the first click — recovers reliably whatever the user
-  // touches first.
+  // element on the first click.
   function armGlobalAudioRecovery() {
     if (window.__roomsAudioRecoveryArmed) return;
     window.__roomsAudioRecoveryArmed = true;
@@ -515,8 +637,6 @@
     document.addEventListener('touchstart', replay, { once: false });
   }
 
-  // flashMediaError briefly surfaces a gUM / device error next to the
-  // toolbar so users see why a camera/mic toggle did nothing.
   function flashMediaError(kind, msg) {
     const host = root.querySelector('.rooms-toolbar') || root;
     let banner = root.querySelector('.rooms-media-error');
@@ -531,28 +651,6 @@
     banner._t = setTimeout(() => { banner.remove(); }, 8000);
   }
 
-  function makeTile(key, name, isLocal) {
-    const card = document.createElement('div');
-    card.className = 'rooms-video-tile' + (isLocal ? ' rooms-video-tile-self' : '');
-    card.dataset.peerKey = key;
-    card.title = `Click to focus ${name} on the center stage`;
-    const video = document.createElement('video');
-    video.autoplay = true;
-    video.playsInline = true;
-    if (isLocal) video.muted = true;
-    const label = document.createElement('div');
-    label.className = 'rooms-video-label';
-    label.textContent = name;
-    card.appendChild(video);
-    card.appendChild(label);
-    card.addEventListener('click', () => focusTile(key));
-    return { card, video };
-  }
-
   // ----- boot --------------------------------------------------------------
-  //
-  // No openSignaling() call — signaling is pushed by the datastar room SSE
-  // stream that the templ opens via data-init. The handler invokes
-  // window.__roomsSignal for each envelope.
   startHeartbeat();
 })();

@@ -21,7 +21,10 @@ func (s *Service) RouteSignal(roomID, fromKey string, raw []byte) error {
 		return fmt.Errorf("signal bad json: %w", err)
 	}
 	switch in.Kind {
-	case "offer", "answer", "ice", "bye":
+	case "offer", "answer", "ice", "bye", "meta":
+		// meta carries opaque JSON (stream→role map) so receivers can label
+		// incoming tracks as camera vs screenshare. Server stays neutral
+		// to its shape; only the recipient parses it.
 	default:
 		return errors.New("unknown signal kind: " + in.Kind)
 	}

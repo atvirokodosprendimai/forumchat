@@ -175,6 +175,10 @@ templ RoomPage(d RoomPageData) {
 							<p>Click any participant above to bring their video to the center stage.</p>
 						</div>
 						<div class="rooms-stage-label" data-rooms-stage-label></div>
+						<button class="rooms-stage-fullscreen" type="button"
+							data-rooms-stage-fullscreen
+							aria-label="Toggle fullscreen"
+							title="Toggle fullscreen (or double-click the stage)">⛶</button>
 					</div>
 					<aside class="rooms-people" data-rooms-people>
 						@RoomsParticipants(d.Members, d.Pending, d.IsAdmin, d.CommunitySlug, d.RoomID)
