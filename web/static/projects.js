@@ -28,12 +28,25 @@
     zone.classList.toggle('project-dropzone-over', on);
   }
 
+  // Track zones (and their inputs) that have already had listeners
+  // attached. The SSE stream morphs sibling panels (header / todos /
+  // comments / activity) too, each triggering our MutationObserver. We
+  // were re-running bindZone on the SAME dropzone elements every morph,
+  // stacking change/drop listeners. One file pick then fired the POST
+  // 4-6 times. WeakSet keeps the bookkeeping per-element so morphdom-
+  // preserved nodes only get bound once across the page lifetime.
+  const boundZones = new WeakSet();
+  const boundInputs = new WeakSet();
+
   function bindZone(zone) {
+    if (boundZones.has(zone)) return;
+    boundZones.add(zone);
     const url = zone.dataset.roomsProjectsDropzone;
     if (!url) return;
     const input = zone.querySelector('input[type="file"]');
 
-    if (input) {
+    if (input && !boundInputs.has(input)) {
+      boundInputs.add(input);
       input.addEventListener('change', async () => {
         if (!input.files || input.files.length === 0) return;
         flashUploading(zone, true);
@@ -58,9 +71,9 @@
     });
   }
 
-  // Datastar morphs the dropzone subtree on every SSE attachments event,
-  // which throws away any listeners we attached the first time. A
-  // MutationObserver on the panel re-binds the new dropzone instance.
+  // Datastar morphs the dropzone subtree on every SSE attachments event.
+  // morphdom keeps the same DOM nodes when their ids match (WithModeOuter
+  // on #proj-attachments), so re-bind only fires on truly new zones.
   function bindAll() {
     document.querySelectorAll('[data-rooms-projects-dropzone]').forEach(bindZone);
   }
