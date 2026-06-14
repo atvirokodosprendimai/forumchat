@@ -12,8 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	"io"
+
+	"github.com/andybalholm/brotli"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/httprate"
+	"github.com/klauspost/compress/zstd"
 	"github.com/nats-io/nats.go"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/admin"
@@ -124,6 +129,7 @@ func run() error {
 	r := chi.NewRouter()
 	r.Use(httpx.Recover(log))
 	r.Use(httpx.RequestLogger(log))
+	r.Use(newCompressor().Handler)
 	r.Use(sessions.LoadAndSave)
 	r.Use(auth.Loader(sessions, aRepo))
 
@@ -763,4 +769,49 @@ func buildIceServers(cfg config.Config) []rooms.ICEServer {
 		})
 	}
 	return out
+}
+
+// compressibleContentTypes lists MIME types the response compressor will
+// encode. text/event-stream is included so long-lived datastar SSE streams
+// ride the same brotli/zstd path as regular pages.
+var compressibleContentTypes = []string{
+	"text/css",
+	"text/html",
+	"text/plain",
+	"text/javascript",
+	"application/javascript",
+	"application/x-javascript",
+	"application/json",
+	"application/atom+xml",
+	"application/rss+xml",
+	"image/svg+xml",
+	"text/event-stream",
+}
+
+// newCompressor returns a single chi Compressor with brotli and zstd encoders
+// registered on top of the built-in gzip/deflate. Most-recently-registered
+// encoder wins precedence, so zstd is preferred when the client advertises it.
+//
+// Level 5 is the sweet spot for both encoders on streaming HTML/SSE: noticeably
+// better than gzip default, far cheaper than brotli 9 or zstd 19.
+//
+// SSE handlers must call httpx.PrimeSSE(w) before datastar.NewSSE so this
+// compressor's WriteHeader hook picks an encoder and sets Content-Encoding
+// before the SDK's ResponseController.Flush unwraps past the wrapper.
+func newCompressor() *middleware.Compressor {
+	c := middleware.NewCompressor(20, compressibleContentTypes...)
+	// Register zstd first, br second — chi's SetEncoder prepends, so the
+	// last-registered encoder wins precedence. br ends up preferred over zstd
+	// over the built-in gzip/deflate when the client advertises all of them.
+	c.SetEncoder("zstd", func(w io.Writer, level int) io.Writer {
+		zw, err := zstd.NewWriter(w, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(level)))
+		if err != nil {
+			return nil
+		}
+		return zw
+	})
+	c.SetEncoder("br", func(w io.Writer, level int) io.Writer {
+		return brotli.NewWriterOptions(w, brotli.WriterOptions{Quality: level})
+	})
+	return c
 }

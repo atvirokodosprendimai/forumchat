@@ -13,6 +13,7 @@ import (
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -150,22 +151,22 @@ func (h *Handler) GetThread(w http.ResponseWriter, r *http.Request) {
 
 	v := h.layoutViewer(r, u)
 	_ = webtempl.MessagesThread(webtempl.MessagesThreadData{
-		Viewer:        v,
-		ThreadID:      t.ID,
-		Status:        string(t.Status),
-		OtherUserID:   otherID,
-		OtherUserName: otherName,
-		Messages:      toMsgViews(msgs, u.UserID),
+		Viewer:            v,
+		ThreadID:          t.ID,
+		Status:            string(t.Status),
+		OtherUserID:       otherID,
+		OtherUserName:     otherName,
+		Messages:          toMsgViews(msgs, u.UserID),
 		ViewerIsRecipient: t.RecipientUserID == u.UserID,
-		ViewerUserID:  u.UserID,
+		ViewerUserID:      u.UserID,
 	}).Render(r.Context(), w)
 }
 
 type newSignals struct {
-	ToUser         string `json:"pm_to_user"`
-	Body           string `json:"pm_body"`
-	SourceCommID   string `json:"pm_source_community_id"`
-	SourceChatMsg  string `json:"pm_source_chat_id"`
+	ToUser        string `json:"pm_to_user"`
+	Body          string `json:"pm_body"`
+	SourceCommID  string `json:"pm_source_community_id"`
+	SourceChatMsg string `json:"pm_source_chat_id"`
 }
 
 func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +194,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	toName := h.resolveName(r.Context(), to)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	// Close the modal, clear inputs, show a success toast pointing at the new
 	// thread. User stays on the page they were on (chat / forum / wherever).
 	payload := `{"pm_to_user":"","pm_body":"","pm_open_to_user":"","pm_open_to_name":"",` +
@@ -247,7 +248,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	if err := h.patchThreadMessages(r.Context(), sse, tid, u.UserID); err != nil {
 		h.Log.Warn("pm patch", "err", err)
 	}
@@ -278,7 +279,7 @@ func (h *Handler) statusChange(w http.ResponseWriter, r *http.Request, accept bo
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/messages/" + tid)
 }
 
@@ -331,7 +332,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 
 	if n, err := h.badgeCount(r.Context(), u.UserID); err == nil {
 		_ = sse.PatchElementTempl(webtempl.MessagesBadge(n), datastar.WithModeOuter())
@@ -373,7 +374,7 @@ func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 
 	if err := h.patchThreadMessages(r.Context(), sse, tid, u.UserID); err != nil {
 		h.Log.Warn("pm thread patch", "err", err)

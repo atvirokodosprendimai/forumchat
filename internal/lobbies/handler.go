@@ -16,6 +16,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -155,7 +156,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "mint: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	url := guestURL(r, l.GuestToken)
 	_ = sse.PatchElementTempl(webtempl.LobbiesInviteCreated(h.cslug(r.Context()), lobbyToView(l), url))
 	rows, err := h.Repo.ListByCommunity(r.Context(), h.cid(r.Context()), StatusOpen)
@@ -234,7 +235,7 @@ func (h *Handler) PostHostSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := composedBody(r.Context(), h.Uploads, id.User.ID, l.CommunityID, in.Body, in.ImageData, h.Log)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	if body == "" {
 		return
 	}
@@ -282,7 +283,7 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, status stri
 		return
 	}
 	h.broadcast(r.Context(), l.ID)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	// Patch the host-side header so the open lobby page swaps buttons
 	// (Close→Reopen etc.) and status badge in place. Harmless when the
 	// host happens to be on the list page instead — datastar morph is
@@ -335,7 +336,7 @@ func (h *Handler) PostUpdateGuest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchElementTempl(webtempl.LobbyHostHeader(h.cslug(r.Context()), lobbyToView(fresh), guestURL(r, fresh.GuestToken)))
 }
 
@@ -348,7 +349,7 @@ func (h *Handler) PostPromote(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	code, err := h.Svc.Promote(r.Context(), l.ID)
 	if err != nil {
 		msg := "Promote failed."
@@ -378,7 +379,7 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/lobbies")
 }
 
@@ -442,7 +443,7 @@ func (h *Handler) PostGuestJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	SetGuestCookie(w, l.ID, h.SessionSecret)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/lobby/" + token)
 }
 
@@ -474,7 +475,7 @@ func (h *Handler) PostGuestSend(w http.ResponseWriter, r *http.Request) {
 	}
 	syntheticUserID := "lobby:" + l.ID
 	body := composedBody(r.Context(), h.Uploads, syntheticUserID, l.CommunityID, in.Body, in.ImageData, h.Log)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	if body == "" {
 		return
 	}
@@ -563,7 +564,7 @@ func (h *Handler) PostGuestUpload(w http.ResponseWriter, r *http.Request) {
 // ---- shared streaming helper ---------------------------------------------
 
 func (h *Handler) streamMessages(w http.ResponseWriter, r *http.Request, l Lobby, viewerName string) {
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	// initial sync
 	if msgs, err := h.Repo.RecentMessages(r.Context(), l.ID, RecentLimit); err == nil {
 		_ = sse.PatchElementTempl(webtempl.LobbyMessages(messagesToView(msgs, viewerName)))

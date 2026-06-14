@@ -12,6 +12,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -45,7 +46,7 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 
 	source := strings.TrimSpace(in.Source)
 	title := strings.TrimSpace(in.Title)
@@ -168,7 +169,7 @@ func (h *Handler) patchList(w http.ResponseWriter, r *http.Request, userID, comm
 	for _, t := range rows {
 		views = append(views, todoToView(t))
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(webtempl.TodosList(c.Slug, views), datastar.WithModeOuter())
 }

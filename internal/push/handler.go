@@ -12,6 +12,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -185,15 +186,15 @@ func (h *Handler) GetSettingsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 type saveSignals struct {
-	Mention       bool `json:"notif_mention"`
-	Report        bool `json:"notif_report"`
-	ProjectNew    bool `json:"notif_project_new"`
-	IssueNew      bool `json:"notif_issue_new"`
-	CommentNew    bool `json:"notif_comment_new"`
-	ThreadNew     bool `json:"notif_thread_new"`
+	Mention    bool `json:"notif_mention"`
+	Report     bool `json:"notif_report"`
+	ProjectNew bool `json:"notif_project_new"`
+	IssueNew   bool `json:"notif_issue_new"`
+	CommentNew bool `json:"notif_comment_new"`
+	ThreadNew  bool `json:"notif_thread_new"`
 	// 0 = immediate. Bigger values bucket events into a digest sent
 	// at most every N minutes. Clamped server-side to [0, 1440].
-	DigestMinutes int  `json:"notif_digest_minutes"`
+	DigestMinutes int `json:"notif_digest_minutes"`
 }
 
 func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +233,7 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchElementTempl(webtempl.SuccessFragment("notif-status", "Saved."))
 }
 

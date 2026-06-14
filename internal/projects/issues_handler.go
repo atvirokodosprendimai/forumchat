@@ -12,6 +12,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -88,7 +89,7 @@ func (h *Handler) PostShareMint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, _ := community.FromContext(r.Context())
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid)
 }
 
@@ -235,7 +236,7 @@ func (h *Handler) PostIssueComment(w http.ResponseWriter, r *http.Request) {
 	// Issue page has no per-issue SSE stream — redirect to the same URL
 	// via datastar SSE so the page re-renders with the new comment.
 	c, _ := community.FromContext(r.Context())
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
@@ -269,7 +270,7 @@ func (h *Handler) PostIssueCommentEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, _ := community.FromContext(r.Context())
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
@@ -297,7 +298,7 @@ func (h *Handler) PostIssueCommentDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	c, _ := community.FromContext(r.Context())
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
@@ -371,7 +372,7 @@ func (h *Handler) PostIssueAttachmentDelete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	c, _ := community.FromContext(r.Context())
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
@@ -527,7 +528,7 @@ func (h *Handler) PostCreateIssue(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + i.ID)
 }
 
@@ -559,7 +560,7 @@ func (h *Handler) PostIssueStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, _ := community.FromContext(r.Context())
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
@@ -587,7 +588,7 @@ func (h *Handler) PostIssueDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues")
 }
 
@@ -631,7 +632,7 @@ func (h *Handler) PostIssueEdit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
@@ -640,16 +641,16 @@ func toIssueView(i Issue, viewer Identity, viewerIsAdmin bool) webtempl.ProjectI
 		(viewer.UserID != "" && i.CreatorUserID == viewer.UserID) ||
 		(viewer.GuestID != "" && i.CreatorGuestID == viewer.GuestID)
 	return webtempl.ProjectIssueView{
-		ID:             i.ID,
-		Title:          i.Title,
-		BodyMD:         i.BodyMD,
-		BodyHTML:       i.BodyHTML,
-		Status:         i.Status,
-		CreatorName:    i.CreatorName,
-		CreatedAt:      i.CreatedAt,
+		ID:              i.ID,
+		Title:           i.Title,
+		BodyMD:          i.BodyMD,
+		BodyHTML:        i.BodyHTML,
+		Status:          i.Status,
+		CreatorName:     i.CreatorName,
+		CreatedAt:       i.CreatedAt,
 		IsGuestAuthored: i.IsGuestAuthored(),
-		CanEdit:        canEdit,
-		CanDelete:      canEdit,
+		CanEdit:         canEdit,
+		CanDelete:       canEdit,
 		CanChangeStatus: !viewer.IsGuest(),
 	}
 }

@@ -12,19 +12,20 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
 // discussionSignals is the datastar bag for the discussions tab + thread page.
 type discussionSignals struct {
-	Subject     string `json:"projects_discussion_subject"`
-	Body        string `json:"projects_discussion_body"`
-	BodyImage   string `json:"projects_discussion_body_image"` // pasted/dropped data: URL
-	Edit        string `json:"projects_discussion_edit"`
-	ReplyBody   string `json:"projects_discussion_reply_body"`
-	ReplyImage  string `json:"projects_discussion_reply_image"`
-	ReplyEdit   string `json:"projects_discussion_reply_edit"`
-	QuoteID     string `json:"projects_discussion_quote_id"`
+	Subject    string `json:"projects_discussion_subject"`
+	Body       string `json:"projects_discussion_body"`
+	BodyImage  string `json:"projects_discussion_body_image"` // pasted/dropped data: URL
+	Edit       string `json:"projects_discussion_edit"`
+	ReplyBody  string `json:"projects_discussion_reply_body"`
+	ReplyImage string `json:"projects_discussion_reply_image"`
+	ReplyEdit  string `json:"projects_discussion_reply_edit"`
+	QuoteID    string `json:"projects_discussion_quote_id"`
 }
 
 // composeBodyWithImage decodes the data:URL into the uploads table and
@@ -145,7 +146,7 @@ func (h *Handler) PostDiscussionReply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions/" + did)
 }
 
@@ -179,7 +180,7 @@ func (h *Handler) PostDiscussionReplyEdit(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions/" + did)
 }
 
@@ -207,7 +208,7 @@ func (h *Handler) PostDiscussionReplyDelete(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions/" + did)
 }
 
@@ -279,7 +280,7 @@ func (h *Handler) PostCreateDiscussionThread(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions/" + t.ID)
 }
 
@@ -312,7 +313,7 @@ func (h *Handler) PostEditDiscussionThread(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions/" + did)
 }
 
@@ -339,7 +340,7 @@ func (h *Handler) PostDeleteDiscussionThread(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions")
 }
 

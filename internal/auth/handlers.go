@@ -10,6 +10,8 @@ import (
 	"github.com/alexedwards/scs/v2"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
+
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -105,7 +107,7 @@ func (h *Handler) PostRegisterAsAdmin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	email := strings.TrimSpace(in.Email)
 	if email == "" || in.Password == "" {
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Email and password required"))
@@ -146,7 +148,7 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	email := strings.TrimSpace(in.Email)
 	invite := strings.TrimSpace(strings.ToUpper(in.InviteCode))
 	if email == "" || in.Password == "" || invite == "" {
@@ -217,7 +219,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	email := strings.TrimSpace(in.Email)
 	if email == "" || in.Password == "" {
-		sse := datastar.NewSSE(w, r)
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Email and password required"))
 		return
 	}
@@ -232,7 +234,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrBanned):
 			msg = "Your account is banned"
 		}
-		sse := datastar.NewSSE(w, r)
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment(msg))
 		return
 	}
@@ -240,7 +242,7 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	// past scs's writer, so any cookie write after it is dropped.
 	PutLogin(r.Context(), h.Sessions, res.User.ID, res.Membership.CommunityID)
 	commitSession(h.Sessions, w, r)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/")
 }
 
@@ -261,7 +263,7 @@ func (h *Handler) PostLoginCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	email := strings.TrimSpace(in.Email)
 	if email == "" {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("auth-error", "Enter your email"))
@@ -273,7 +275,7 @@ func (h *Handler) PostLoginCheck(w http.ResponseWriter, r *http.Request) {
 // PostLoginBack rewinds the card to step 1, letting the user correct
 // a mistyped address without losing the email signal.
 func (h *Handler) PostLoginBack(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchElementTempl(webtempl.LoginStep1())
 }
 
@@ -287,7 +289,7 @@ func (h *Handler) PostLoginMagic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	email := strings.TrimSpace(in.Email)
 	if email == "" {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("auth-error", "Enter your email first"))
@@ -325,7 +327,7 @@ func (h *Handler) GetLoginMagic(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PostLogout(w http.ResponseWriter, r *http.Request) {
 	_ = Logout(r.Context(), h.Sessions)
 	commitSession(h.Sessions, w, r)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/login")
 }
 
@@ -364,7 +366,7 @@ func (h *Handler) PostProfile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	displayName := strings.TrimSpace(in.DisplayName)
 	avatarURL := strings.TrimSpace(in.AvatarURL)
 	if displayName == "" || len(displayName) > 40 {

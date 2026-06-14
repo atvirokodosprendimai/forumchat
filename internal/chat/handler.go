@@ -184,7 +184,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := strings.TrimSpace(in.Body)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 
 	if in.ImageData != "" && h.Uploads != nil {
 		u, err := h.Uploads.SaveDataURL(r.Context(), id.User.ID, h.cid(r.Context()), in.ImageData, PasteImageMaxBytes)
@@ -329,7 +329,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 
 	// Initial sync: on every (re)connection — including when the browser
 	// re-establishes SSE after tab sleep — push the latest 100 immediately.
@@ -392,7 +392,7 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	views, err := h.loadRecent(r.Context())
 	if err == nil {
 		_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
@@ -425,7 +425,7 @@ func (h *Handler) GetMentionSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	var hits []auth.MemberHit
 	if h.AuthRepo != nil {
 		q := strings.TrimSpace(in.MentionQuery)

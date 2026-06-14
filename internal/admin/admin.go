@@ -16,14 +16,15 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
 type Handler struct {
-	Repo          *auth.Repo
-	Svc           *auth.Service
-	Chat          *chat.Handler
-	Communities   *community.Repo
+	Repo        *auth.Repo
+	Svc         *auth.Service
+	Chat        *chat.Handler
+	Communities *community.Repo
 	// Mail is optional. When set, "Add member by email" can email the
 	// join link directly to the recipient (existing or invited user).
 	Mail auth.Mailer
@@ -133,7 +134,7 @@ func (h *Handler) PostTogglePublic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/admin")
 }
 
@@ -277,7 +278,7 @@ func (h *Handler) PostInvite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	var maxUses *int
 	if v := strings.TrimSpace(in.MaxUses); v != "" {
 		n, err := strconv.Atoi(v)
@@ -311,7 +312,7 @@ func (h *Handler) PostInviteRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	if list, err := h.Repo.ListInvites(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminInvites(h.cslug(r), invitesToAdminInvites(list)))
 	}
@@ -320,7 +321,7 @@ func (h *Handler) PostInviteRevoke(w http.ResponseWriter, r *http.Request) {
 // refreshAdminLists re-renders #admin-pending and #admin-members after an
 // admin action that changed the queue or member list.
 func (h *Handler) refreshAdminLists(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	now := time.Now()
 	if pending, err := h.Repo.ListPendingMemberships(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminPending(h.cslug(r), memberRowsToAdminMembers(pending, now)))
@@ -343,11 +344,11 @@ func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
 	// ReadSignals MUST come before NewSSE — NewSSE closes the request body.
 	var in createCommunitySignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
-		sse := datastar.NewSSE(w, r)
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "bad signals: "+err.Error()))
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	name := strings.TrimSpace(in.Name)
 	slug := strings.ToLower(strings.TrimSpace(in.Slug))
 	email := strings.TrimSpace(in.MemberEmail)
@@ -404,9 +405,9 @@ type addMemberSignals struct {
 }
 
 // PostAddMember is the admin "click click edit and done" add-by-email handler.
-// - existing user: insert pre-approved membership.
-// - new email: create placeholder user (status=invited) + pre-approved
-//   membership + signup token; render the copy-able join URL.
+//   - existing user: insert pre-approved membership.
+//   - new email: create placeholder user (status=invited) + pre-approved
+//     membership + signup token; render the copy-able join URL.
 func (h *Handler) PostAddMember(w http.ResponseWriter, r *http.Request) {
 	if h.Communities == nil {
 		http.Error(w, "communities repo not wired", http.StatusInternalServerError)
@@ -414,11 +415,11 @@ func (h *Handler) PostAddMember(w http.ResponseWriter, r *http.Request) {
 	}
 	var in addMemberSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
-		sse := datastar.NewSSE(w, r)
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", "bad signals: "+err.Error()))
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if email == "" || !strings.Contains(email, "@") {

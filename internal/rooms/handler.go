@@ -15,6 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
+
 	"github.com/google/uuid"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
@@ -301,7 +303,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	events, unsub := h.Bus.SubscribeRoom(roomID)
 	defer unsub()
 
@@ -562,7 +564,7 @@ func (h *Handler) PostJoin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/rooms/" + roomID)
 }
 
@@ -592,7 +594,7 @@ func (h *Handler) PostLeave(w http.ResponseWriter, r *http.Request) {
 		h.Sessions.Remove(r.Context(), sessKeyGuestName)
 		h.Sessions.Remove(r.Context(), sessKeyGuestRoomID)
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/rooms")
 }
 
@@ -664,7 +666,7 @@ func (h *Handler) PostChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals([]byte(`{"rooms_chat_body":""}`))
 }
 
@@ -846,7 +848,7 @@ func (h *Handler) PostEmailInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	// Clear the textarea + report via the same SSE stream so the admin
 	// panel re-renders with the (now possibly fresh) invite URL.
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	patch := `{"rooms_invite_emails":""}`
 	_ = sse.PatchSignals([]byte(patch))
 	if len(failures) > 0 {

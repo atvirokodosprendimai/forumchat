@@ -20,6 +20,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -64,13 +65,13 @@ func (h *Handler) SetCommunityLookup(fn commLookupFn) { h.commLookup = fn }
 // projectSignals carries the editable values posted from the project
 // page. One bag for everything so we don't need a struct per endpoint.
 type projectSignals struct {
-	Title         string   `json:"projects_title"`
-	Description   string   `json:"projects_desc"`
-	TodoBody      string   `json:"projects_todo_body"`
-	TodoEdit      string   `json:"projects_todo_edit"`
-	TodoOrder     []string `json:"projects_todo_order"`
-	CommentBody   string   `json:"projects_comment_body"`
-	CommentEdit   string   `json:"projects_comment_edit"`
+	Title       string   `json:"projects_title"`
+	Description string   `json:"projects_desc"`
+	TodoBody    string   `json:"projects_todo_body"`
+	TodoEdit    string   `json:"projects_todo_edit"`
+	TodoOrder   []string `json:"projects_todo_order"`
+	CommentBody string   `json:"projects_comment_body"`
+	CommentEdit string   `json:"projects_comment_edit"`
 }
 
 // shareChatSignals is read on the per-resource share-to-chat POSTs.
@@ -374,7 +375,7 @@ func (h *Handler) PostTodoAdd(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals([]byte(`{"projects_todo_body":""}`))
 }
 
@@ -627,7 +628,7 @@ func (h *Handler) PostDeleteProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects")
 }
 
@@ -657,7 +658,7 @@ func (h *Handler) PostComment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals([]byte(`{"projects_comment_body":""}`))
 }
 
@@ -744,7 +745,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	events, unsub := h.Bus.SubscribeProject(pid)
 	defer unsub()
 
@@ -1073,7 +1074,7 @@ func (h *Handler) postShareCore(w http.ResponseWriter, r *http.Request, kind, em
 	}
 	h.ChatBus.Broadcast()
 
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals([]byte(`{"share_message":""}`))
 	_ = sse.PatchElementTempl(webtempl.SuccessFragment("share-status", "Shared to chat."))
 }

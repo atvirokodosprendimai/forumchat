@@ -185,7 +185,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	subject := strings.TrimSpace(in.Subject)
 	body := strings.TrimSpace(in.Body)
 	body = h.attachPastedImage(r, id.User.ID, body, in.ImageData)
@@ -285,7 +285,7 @@ func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
 	}
 	threadID := chi.URLParam(r, "id")
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 
 	push := func() error {
 		pv, err := h.loadPostViews(r.Context(), threadID, id.User.ID, isMod)
@@ -353,7 +353,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	body := strings.TrimSpace(in.Body)
 	body = h.attachPastedImage(r, id.User.ID, body, in.ImageData)
 	if body == "" {
@@ -411,7 +411,7 @@ func (h *Handler) postResolve(w http.ResponseWriter, r *http.Request, resolved b
 			return
 		}
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + threadID)
 }
 
@@ -451,7 +451,7 @@ func (h *Handler) PostRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + threadID)
 }
 
@@ -485,7 +485,7 @@ func (h *Handler) PostHardDeleteThread(w http.ResponseWriter, r *http.Request) {
 			h.Log.Warn("clear promoted_thread_id", "thread", threadID, "err", err)
 		}
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum")
 }
 
@@ -511,7 +511,7 @@ func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum")
 }
 
@@ -545,7 +545,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if msg.PromotedThreadID != nil {
-		sse := datastar.NewSSE(w, r)
+		sse := render.NewSSE(w, r)
 		_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + *msg.PromotedThreadID)
 		return
 	}
@@ -578,7 +578,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	if !claimed {
 		_, _ = h.Repo.HardDeleteThread(r.Context(), t.ID)
 		fresh, err2 := h.ChatRepo.ByID(r.Context(), msg.ID)
-		sse := datastar.NewSSE(w, r)
+		sse := render.NewSSE(w, r)
 		if err2 == nil && fresh.PromotedThreadID != nil {
 			_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + *fresh.PromotedThreadID)
 		} else {
@@ -606,7 +606,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	if h.NATS != nil && h.NATS.IsConnected() {
 		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)
 }
 
@@ -690,7 +690,7 @@ func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	if pv, err := h.loadPostViews(r.Context(), p.ThreadID, id.User.ID, isMod); err == nil {
 		_ = sse.PatchElementTempl(webtempl.ThreadPosts(h.cslug(r.Context()), p.ThreadID, pv), datastar.WithModeOuter())
 	}

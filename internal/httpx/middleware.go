@@ -58,6 +58,31 @@ func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
+// PrimeSSE writes SSE response headers and locks the status at 200 *before*
+// any downstream call to http.ResponseController(w).Flush() unwraps past
+// middleware wrappers (chi compressor, scs session writer, request logger).
+//
+// Why: datastar.NewSSE finishes with rc.Flush(); ResponseController walks the
+// Unwrap chain to the deepest http.Flusher and flushes that — bypassing
+// compressResponseWriter.WriteHeader. Result: raw headers (no Content-Encoding)
+// reach the client, then subsequent Write calls go through the compressor and
+// emit gzipped/brotli/zstd bytes. Browser decodes garbage.
+//
+// Calling PrimeSSE(w) first lets the compressor's WriteHeader hook pick an
+// encoder from the Accept-Encoding header + our Content-Type=text/event-stream
+// and set Content-Encoding before the response status reaches the wire.
+//
+// Order required: PrimeSSE → datastar.NewSSE → patches. (For session-mutating
+// handlers it's: ReadSignals → mutate session → commitSession → PrimeSSE →
+// NewSSE.)
+func PrimeSSE(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+}
+
 func Recover(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

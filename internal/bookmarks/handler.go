@@ -13,6 +13,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -104,7 +105,7 @@ func (h *Handler) GetList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchElementTempl(
 		webtempl.BookmarksList(toViewRows(rows), h.cslug(r.Context())),
 		datastar.WithModeOuter(),
@@ -157,7 +158,7 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Reply: clear the per-message composer signal and close the inline form.
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals([]byte(`{"bm_open_msg":"","bm_new_title":"","bm_new_category":"","bm_new_note":""}`))
 }
 
@@ -187,7 +188,7 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		filter.To = t.Add(24 * time.Hour)
 	}
 	rows, _ := h.Repo.List(r.Context(), id.User.ID, h.cid(r.Context()), filter)
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchElementTempl(
 		webtempl.BookmarksList(toViewRows(rows), h.cslug(r.Context())),
 		datastar.WithModeOuter(),

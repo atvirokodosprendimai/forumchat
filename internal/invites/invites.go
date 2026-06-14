@@ -17,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -107,7 +108,7 @@ func (h *Handler) PostJoinConfirm(w http.ResponseWriter, r *http.Request) {
 	if h.Chat != nil {
 		h.Chat.Welcome(r.Context(), c.ID, id.Membership.DisplayName)
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/chat")
 }
 
@@ -126,11 +127,11 @@ func (h *Handler) PostJoinSetPassword(w http.ResponseWriter, r *http.Request) {
 	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	var in setPasswordSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
-		sse := datastar.NewSSE(w, r)
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", "bad signals: "+err.Error()))
 		return
 	}
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	pw := strings.TrimSpace(in.Password)
 	if len(pw) < 8 {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", "Password must be at least 8 characters"))
