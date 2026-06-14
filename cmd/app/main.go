@@ -30,6 +30,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
+	"github.com/atvirokodosprendimai/forumchat/internal/lobbies"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
 	"github.com/atvirokodosprendimai/forumchat/internal/push"
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
@@ -177,6 +178,7 @@ func run() error {
 	r.Get("/verify", authHandler.GetVerify)
 	r.Post("/logout", authHandler.PostLogout)
 
+
 	uploadStore := uploads.NewStore(db, cfg.UploadsDir, cfg.UploadsMaxSize, cfg.UploadsSignKey)
 	uploadHandler := &uploads.Handler{
 		Store:       uploadStore,
@@ -319,6 +321,34 @@ func run() error {
 	forumHandler.PushNotify = pushNotifyFn
 	projectsHandler.PushNotify = pushNotifyFn
 
+	// ----- Lobbies (guest access) ------------------------------------------
+	var lobbiesHandler *lobbies.Handler
+	if cfg.GuestAccessEnabled {
+		lobbiesRepo := lobbies.NewRepo(db)
+		lobbiesSvc := lobbies.NewService(lobbiesRepo, svc)
+		lobbiesHandler = &lobbies.Handler{
+			Svc:           lobbiesSvc,
+			Repo:          lobbiesRepo,
+			Bus:           lobbies.NewBus(),
+			NATS:          nc,
+			Uploads:       uploadStore,
+			SessionSecret: cfg.SessionKey,
+			PushNotify:    pushNotifyFn,
+			Log:           log,
+		}
+		webtempl.GuestAccessEnabled = true
+		// Public guest-side routes — token-authed, no community membership.
+		r.Get("/lobby/{token}", lobbiesHandler.GetGuestView)
+		r.Get("/lobby/{token}/closed", lobbiesHandler.GetClosed)
+		r.Get("/lobby/{token}/stream", lobbiesHandler.GetGuestStream)
+		r.Group(func(r chi.Router) {
+			r.Use(httprate.LimitByIP(30, time.Minute))
+			r.Post("/lobby/{token}/join", lobbiesHandler.PostGuestJoin)
+			r.Post("/lobby/{token}/send", lobbiesHandler.PostGuestSend)
+			r.Post("/lobby/{token}/upload", lobbiesHandler.PostGuestUpload)
+		})
+	}
+
 	// Project change → chat digest. Posts one system message per
 	// community per tick listing projects with new activity. Disabled
 	// when PROJECT_CHAT_DIGEST_MINUTES = 0.
@@ -459,6 +489,19 @@ func run() error {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))
 			r.Post("/chat/delete", chatHandler.PostDelete)
+			// Lobbies host area — admin/mod only, gated by env flag.
+			if cfg.GuestAccessEnabled && lobbiesHandler != nil {
+				r.Get("/lobbies", lobbiesHandler.GetIndex)
+				r.Post("/lobbies/new", lobbiesHandler.PostNew)
+				r.Get("/lobbies/{id}", lobbiesHandler.GetHostView)
+				r.Get("/lobbies/{id}/stream", lobbiesHandler.GetHostStream)
+				r.Post("/lobbies/{id}/send", lobbiesHandler.PostHostSend)
+				r.Post("/lobbies/{id}/close", lobbiesHandler.PostClose)
+				r.Post("/lobbies/{id}/archive", lobbiesHandler.PostArchive)
+				r.Post("/lobbies/{id}/reopen", lobbiesHandler.PostReopen)
+				r.Post("/lobbies/{id}/promote", lobbiesHandler.PostPromote)
+				r.Post("/lobbies/{id}/delete", lobbiesHandler.PostDelete)
+			}
 		})
 
 		// Per-community admin area.
