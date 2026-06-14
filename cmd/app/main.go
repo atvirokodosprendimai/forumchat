@@ -224,7 +224,7 @@ func run() error {
 
 	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
 
-	invitesHandler := &invites.Handler{AuthRepo: aRepo, Sessions: sessions, Log: log}
+	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
 
 	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
 	r.Group(func(r chi.Router) {
