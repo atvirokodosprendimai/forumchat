@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 320" width="880" height="320" font-family="Inter, system-ui, sans-serif" font-size="13">
+  <rect width="100%" height="100%" fill="#f7f8fb"/>
+
+  <rect x="20" y="20" width="200" height="280" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="120" y="42" text-anchor="middle" font-weight="700">User</text>
+  <rect x="240" y="20" width="200" height="280" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="340" y="42" text-anchor="middle" font-weight="700">push.js</text>
+  <rect x="460" y="20" width="200" height="280" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="560" y="42" text-anchor="middle" font-weight="700">Service worker</text>
+  <rect x="680" y="20" width="180" height="280" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="770" y="42" text-anchor="middle" font-weight="700">Server</text>
+
+  <text x="120" y="70">tap Enable</text>
+  <text x="340" y="70">requestPermission</text>
+  <text x="120" y="100">grant prompt</text>
+  <text x="340" y="100">register /sw.js</text>
+  <text x="560" y="100">install · activate</text>
+  <text x="340" y="130">PushManager.subscribe</text>
+  <text x="340" y="146" font-size="11">applicationServerKey =</text>
+  <text x="340" y="160" font-size="11">VAPID pub (Uint8Array)</text>
+  <text x="340" y="195">POST /push/subscribe</text>
+  <text x="770" y="195">Upsert push_subscriptions</text>
+  <text x="770" y="212" font-size="11">(user, community, endpoint)</text>
+  <text x="120" y="240">tick checkboxes</text>
+  <text x="340" y="240">POST /notifications/save</text>
+  <text x="770" y="240">UpdateSettings + digest_minutes</text>
+
+  <g stroke="#5b6cff" stroke-width="1.4" fill="none">
+    <path d="M220 64 L240 64" marker-end="url(#d)"/>
+    <path d="M340 70 L340 90" marker-end="url(#d)"/>
+    <path d="M220 100 L240 100" marker-end="url(#d)"/>
+    <path d="M440 100 L460 100" marker-end="url(#d)"/>
+    <path d="M340 165 L340 185" marker-end="url(#d)"/>
+    <path d="M440 195 L680 195" marker-end="url(#d)"/>
+    <path d="M220 240 L240 240" marker-end="url(#d)"/>
+    <path d="M440 240 L680 240" marker-end="url(#d)"/>
+  </g>
+  <defs>
+    <marker id="d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#5b6cff"/>
+    </marker>
+  </defs>
+</svg>

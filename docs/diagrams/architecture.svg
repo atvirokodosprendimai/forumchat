@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 460" width="880" height="460" font-family="Inter, system-ui, sans-serif" font-size="13">
+  <rect width="100%" height="100%" fill="#f7f8fb"/>
+
+  <rect x="20" y="20" width="200" height="420" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="120" y="46" text-anchor="middle" font-weight="700">Browser</text>
+  <rect x="34" y="64" width="172" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="120" y="86" text-anchor="middle">templ-rendered HTML</text>
+  <rect x="34" y="106" width="172" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="120" y="128" text-anchor="middle">datastar.js (SSE)</text>
+  <rect x="34" y="148" width="172" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="120" y="170" text-anchor="middle">rooms.js (WebRTC)</text>
+  <rect x="34" y="190" width="172" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="120" y="212" text-anchor="middle">rooms-blur.js (MediaPipe)</text>
+  <rect x="34" y="232" width="172" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="120" y="254" text-anchor="middle">push.js + sw.js</text>
+  <rect x="34" y="274" width="172" height="34" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="120" y="296" text-anchor="middle">localStorage prefs</text>
+
+  <rect x="280" y="20" width="320" height="420" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="440" y="46" text-anchor="middle" font-weight="700">forumchat (Go)</text>
+  <rect x="296" y="64" width="288" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="86" text-anchor="middle">chi router · middleware (auth, community, csrf)</text>
+  <rect x="296" y="106" width="288" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="128" text-anchor="middle">handlers (auth, chat, forum, rooms, push, ...)</text>
+  <rect x="296" y="148" width="288" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="170" text-anchor="middle">services · domain logic</text>
+  <rect x="296" y="190" width="288" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="212" text-anchor="middle">repos (SQLite via modernc.org)</text>
+
+  <rect x="296" y="244" width="138" height="60" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="365" y="266" text-anchor="middle" font-weight="700">presence</text>
+  <text x="365" y="285" text-anchor="middle" font-size="11">TTL sweep</text>
+  <text x="365" y="298" text-anchor="middle" font-size="11">in-process</text>
+
+  <rect x="446" y="244" width="138" height="60" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="515" y="266" text-anchor="middle" font-weight="700">digest worker</text>
+  <text x="515" y="285" text-anchor="middle" font-size="11">30s ticker</text>
+  <text x="515" y="298" text-anchor="middle" font-size="11">push_pending</text>
+
+  <rect x="296" y="316" width="288" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="338" text-anchor="middle">SSE multiplexers (chat / forum / presence / rooms / pm)</text>
+  <rect x="296" y="358" width="288" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="380" text-anchor="middle">signal mailboxes (rooms — offer/answer/ice/meta)</text>
+  <rect x="296" y="400" width="288" height="28" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="440" y="420" text-anchor="middle">webpush-go dispatcher</text>
+
+  <rect x="660" y="20" width="200" height="420" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="760" y="46" text-anchor="middle" font-weight="700">External</text>
+
+  <rect x="676" y="64" width="168" height="44" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="760" y="84" text-anchor="middle">SQLite (./data)</text>
+  <text x="760" y="100" text-anchor="middle" font-size="11">WAL · 17 migrations</text>
+
+  <rect x="676" y="120" width="168" height="44" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="760" y="140" text-anchor="middle">NATS (optional)</text>
+  <text x="760" y="156" text-anchor="middle" font-size="11">core pub/sub</text>
+
+  <rect x="676" y="176" width="168" height="44" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="760" y="196" text-anchor="middle">SMTP / mailpit</text>
+  <text x="760" y="212" text-anchor="middle" font-size="11">invite + verify mail</text>
+
+  <rect x="676" y="232" width="168" height="44" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="760" y="252" text-anchor="middle">FCM · APNs · Mozilla</text>
+  <text x="760" y="268" text-anchor="middle" font-size="11">web push services</text>
+
+  <rect x="676" y="288" width="168" height="44" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="760" y="308" text-anchor="middle">STUN / TURN</text>
+  <text x="760" y="324" text-anchor="middle" font-size="11">WebRTC NAT traversal</text>
+
+  <rect x="676" y="344" width="168" height="44" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="760" y="364" text-anchor="middle">jsdelivr CDN</text>
+  <text x="760" y="380" text-anchor="middle" font-size="11">MediaPipe blur model</text>
+
+  <g stroke="#5b6cff" stroke-width="1.5" fill="none">
+    <path d="M220 130 L296 130" marker-end="url(#a)"/>
+    <path d="M220 170 L296 175" marker-end="url(#a)"/>
+    <path d="M220 254 L296 254" marker-end="url(#a)"/>
+    <path d="M220 296 L296 296" marker-end="url(#a)" stroke-dasharray="4,4"/>
+    <path d="M584 86 L660 86" marker-end="url(#a)"/>
+    <path d="M584 142 L660 142" marker-end="url(#a)"/>
+    <path d="M584 196 L660 196" marker-end="url(#a)"/>
+    <path d="M584 250 L660 250" marker-end="url(#a)"/>
+    <path d="M584 366 L660 366" stroke-dasharray="4,4" marker-end="url(#a)"/>
+  </g>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#5b6cff"/>
+    </marker>
+  </defs>
+</svg>

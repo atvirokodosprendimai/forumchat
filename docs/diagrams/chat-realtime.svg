@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 360" width="880" height="360" font-family="Inter, system-ui, sans-serif" font-size="13">
+  <rect width="100%" height="100%" fill="#f7f8fb"/>
+
+  <rect x="20" y="20" width="200" height="320" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="120" y="46" text-anchor="middle" font-weight="700">Sender browser</text>
+  <rect x="34" y="70" width="172" height="34" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="120" y="92" text-anchor="middle">composer.send()</text>
+  <text x="120" y="118" text-anchor="middle" font-size="11">data-on:keydown enter</text>
+  <text x="120" y="134" text-anchor="middle" font-size="11">@post('/chat/send')</text>
+
+  <rect x="280" y="20" width="320" height="320" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="440" y="46" text-anchor="middle" font-weight="700">forumchat server</text>
+  <rect x="296" y="70" width="288" height="36" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="92" text-anchor="middle">chat.PostSend</text>
+  <rect x="296" y="114" width="288" height="36" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="136" text-anchor="middle">svc.Send → INSERT chat_messages</text>
+  <rect x="296" y="158" width="138" height="36" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="365" y="180" text-anchor="middle">bus.Publish (in-proc)</text>
+  <rect x="446" y="158" width="138" height="36" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="515" y="180" text-anchor="middle">NATS publish</text>
+  <rect x="296" y="202" width="288" height="36" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="440" y="224" text-anchor="middle">SSE patch ← morph #messages</text>
+  <rect x="296" y="246" width="288" height="36" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="440" y="268" text-anchor="middle">parseMentions → push.SendToUsers</text>
+  <rect x="296" y="290" width="288" height="36" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="440" y="312" text-anchor="middle">SSE patch ← clear composer signals</text>
+
+  <rect x="660" y="20" width="200" height="320" fill="#ffffff" stroke="#c6cde0" rx="10"/>
+  <text x="760" y="46" text-anchor="middle" font-weight="700">Other browsers</text>
+  <rect x="676" y="70" width="168" height="36" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="760" y="92" text-anchor="middle">datastar SSE open</text>
+  <text x="760" y="118" text-anchor="middle" font-size="11">/c/{slug}/chat/stream</text>
+  <rect x="676" y="138" width="168" height="36" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="760" y="160" text-anchor="middle">NATS ChanSubscribe</text>
+  <rect x="676" y="182" width="168" height="36" fill="#e8ebff" stroke="#5b6cff" rx="6"/>
+  <text x="760" y="204" text-anchor="middle">fatMorph(views)</text>
+  <rect x="676" y="226" width="168" height="36" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="760" y="248" text-anchor="middle">DOM morphdom patch</text>
+  <rect x="676" y="270" width="168" height="40" fill="#fff5e6" stroke="#f0d9a8" rx="6"/>
+  <text x="760" y="290" text-anchor="middle">push notification</text>
+  <text x="760" y="304" text-anchor="middle" font-size="11">(if @mentioned)</text>
+
+  <g stroke="#5b6cff" stroke-width="1.5" fill="none">
+    <path d="M220 100 L296 90" marker-end="url(#b)"/>
+    <path d="M584 176 L676 156" marker-end="url(#b)"/>
+    <path d="M584 224 L676 200" marker-end="url(#b)"/>
+    <path d="M584 308 L676 290" marker-end="url(#b)" stroke-dasharray="4,4"/>
+  </g>
+  <defs>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#5b6cff"/>
+    </marker>
+  </defs>
+</svg>
