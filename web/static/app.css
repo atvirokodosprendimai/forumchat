@@ -1,3 +1,8 @@
+/* Datastar x-cloak equivalent: hide flagged elements until <body data-init>
+   strips the attribute after Datastar hydrates. Stops pre-hydration flash
+   of dialogs/popups whose visibility is signal-driven via data-show. */
+[data-cloak] { display: none !important; }
+
 :root {
   /* Surfaces — cool-neutral, paper-like */
   --bg: oklch(98.5% 0.004 260);

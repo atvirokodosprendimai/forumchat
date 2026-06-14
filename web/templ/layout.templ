@@ -144,7 +144,8 @@ templ Layout(title string, v Viewer) {
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 			<script src={ "/static/mention.js?v=" + AssetVer("mention.js") } defer></script>
 		</head>
-		<body data-signals={ InitialSignals }>
+		<body data-signals={ InitialSignals }
+			data-init="document.querySelectorAll('[data-cloak]').forEach(e=>e.removeAttribute('data-cloak'))">
 			<script src={ "/static/nav.js?v=" + AssetVer("nav.js") } defer></script>
 			<header class="topbar">
 				<button class="topbar-hamburger" aria-label="Toggle navigation"
@@ -203,7 +204,7 @@ templ Layout(title string, v Viewer) {
 			</main>
 			if v.IsAuthed {
 				<div id="pm-stream-open" hidden data-init="@get('/messages/stream', {openWhenHidden: true})"></div>
-				<div class="pm-toast" data-show="$pm_toast_text !== ''"
+				<div class="pm-toast" data-cloak data-show="$pm_toast_text !== ''"
 					data-on:animationend="$pm_toast_text=''; $pm_toast_href=''">
 					<a class="pm-toast-link" data-attr:href="$pm_toast_href || '/messages'">
 						<span class="pm-toast-icon">✓</span>

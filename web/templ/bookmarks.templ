@@ -120,8 +120,8 @@ templ BookmarksList(rows []BookmarkRow, slug string) {
 // outside the scrolling #messages container fixes the prior bug where
 // the inline form opened inside an overflow:auto box and was invisible.
 templ BookmarkDialog(slug string) {
-	<div class="bm-dialog-backdrop" data-show="$bm_open_msg !== ''" data-on:click="$bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''"></div>
-	<div class="bm-dialog" data-show="$bm_open_msg !== ''">
+	<div class="bm-dialog-backdrop" data-cloak data-show="$bm_open_msg !== ''" data-on:click="$bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''"></div>
+	<div class="bm-dialog" data-cloak data-show="$bm_open_msg !== ''">
 		<h3>Bookmark message</h3>
 		<input type="text" placeholder="title (optional)" data-bind="bm_new_title"/>
 		<input type="text" placeholder="category (optional)" data-bind="bm_new_category"/>

@@ -121,7 +121,7 @@ templ ChatComposer(slug string) {
 // driven via $mention_open — set true when fcMentionDetect finds an
 // active @token, false on blur / Escape / mention insert.
 templ MentionPopup(hits []MentionHit) {
-	<div id="mention-popup" class="mention-popup" data-show="$mention_open">
+	<div id="mention-popup" class="mention-popup" data-cloak data-show="$mention_open">
 		for _, h := range hits {
 			<button type="button" class="mention-row"
 				data-on:click={ "window.fcInsertMention('" + jsString(h.DisplayName) + "'); $mention_open=false" }>
