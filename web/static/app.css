@@ -379,6 +379,12 @@ label.icon-btn {
 .todo-row .link { font-size: .85rem; }
 .todo-row .link.danger { color: #c4341c; margin-left: auto; }
 
+.explore-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.explore-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem; display: flex; flex-direction: column; gap: .6rem; }
+.explore-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+.explore-count { font-size: .85rem; }
+.explore-actions form { margin: 0; }
+
 .community-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .community-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .community-link { display: flex; flex-direction: column; gap: .35rem; padding: 1rem; color: var(--fg); text-decoration: none; }

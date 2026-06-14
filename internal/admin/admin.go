@@ -78,11 +78,16 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
+	isPublic := false
+	if c, ok := community.FromContext(r.Context()); ok {
+		isPublic = c.IsPublic
+	}
 	data := webtempl.AdminPageData{
-		Viewer:  h.viewer(r),
-		Pending: memberRowsToAdminMembers(pending, now),
-		Members: memberRowsToAdminMembers(members, now),
-		Invites: invitesToAdminInvites(invites),
+		Viewer:   h.viewer(r),
+		IsPublic: isPublic,
+		Pending:  memberRowsToAdminMembers(pending, now),
+		Members:  memberRowsToAdminMembers(members, now),
+		Invites:  invitesToAdminInvites(invites),
 	}
 	_ = webtempl.AdminPage(data).Render(r.Context(), w)
 }
@@ -106,6 +111,22 @@ func (h *Handler) PostApprove(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.refreshAdminLists(w, r)
+}
+
+// PostTogglePublic flips the community's discoverability flag. Visible
+// communities show up on /explore so signed-in users can request to join.
+func (h *Handler) PostTogglePublic(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.Communities.SetPublic(r.Context(), c.ID, !c.IsPublic); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/admin")
 }
 
 func (h *Handler) PostReject(w http.ResponseWriter, r *http.Request) {
