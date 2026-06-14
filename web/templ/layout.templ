@@ -113,7 +113,9 @@ const InitialSignals = `{
 	"rooms_room_name":"",
 	"rooms_am_admin":false,
 	"rooms_invite_emails":"",
-	"nav_open":false
+	"nav_open":false,
+	"mention_query":"",
+	"mention_open":false
 }`
 
 templ Layout(title string, v Viewer) {
@@ -136,6 +138,7 @@ templ Layout(title string, v Viewer) {
 				<meta name="apple-mobile-web-app-title" content="forumchat"/>
 			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
+			<script src={ "/static/mention.js?v=" + AssetVer("mention.js") } defer></script>
 		</head>
 		<body data-signals={ InitialSignals }>
 			<script src={ "/static/nav.js?v=" + AssetVer("nav.js") } defer></script>
