@@ -7,6 +7,37 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3602 | 2:36 PM | 🟣 | Added activity sidebar showing recent project events with emoji labels | ~407 |
+| #3601 | " | 🟣 | Added Phase 7 lifecycle action buttons to project header template | ~471 |
+| #3600 | " | 🔄 | Replaced hardcoded activity placeholder with ProjectActivityFragment template call | ~442 |
+| #3599 | 2:35 PM | 🟣 | Added activity log view model to track project changes chronologically | ~443 |
+| #3593 | 2:34 PM | 🟣 | Completed Phase 6 forum-style comments with 391 lines across 7 files | ~389 |
+| #3588 | 2:33 PM | 🟣 | Added comments thread template with inline editing for projects feature | ~475 |
+| #3587 | " | 🔄 | Added ProjectCommentView struct definition for Phase 6 comments feature | ~447 |
+| #3586 | " | 🔄 | Replaced static comments placeholder with ProjectCommentsFragment template call | ~321 |
+| #3585 | " | ✅ | Added Comments field to ProjectPageData for Phase 6 comment threading | ~356 |
+| #3575 | 2:31 PM | 🟣 | Phase 5 attachments shipped - drag-drop upload, download, permission-checked delete with SSE updates | ~578 |
+| #3570 | 2:30 PM | 🟣 | Added projects.js script to enable drag-and-drop file upload functionality | ~359 |
+| #3566 | " | 🟣 | Added attachments panel template with drag-drop upload and file listing | ~435 |
+| #3565 | " | 🔄 | Attachments section replaced with ProjectAttachmentsFragment template call | ~456 |
+| #3564 | " | ✅ | Added ProjectAttachmentView template data structure for attachment rendering | ~416 |
+| #3555 | 2:27 PM | 🟣 | Phase 4 realtime todos panel shipped - collaborative checklist with add, edit, toggle, delete, reorder | ~483 |
+| #3550 | 2:26 PM | ✅ | Added datastar signals for todo checklist inline editing state | ~405 |
+| #3549 | " | 🟣 | Project-local checklist UI with inline editing and SSE morphing | ~423 |
+| #3547 | " | 🟣 | Extended ProjectPageData with todo list support for Phase 4 checklist panel | ~388 |
+| #3541 | 2:24 PM | 🟣 | Implemented projects Phase 3 with event bus, SSE streaming, and inline editing | ~434 |
+| #3536 | " | 🟣 | Added SSE stream and inline editing to project header for Phase 3 realtime updates | ~583 |
+| #3529 | 2:22 PM | 🔵 | Datastar SSE pattern uses data-init with @get for realtime fragment updates | ~406 |
+| #3528 | " | 🟣 | Projects Phase 2 implemented with create and view functionality | ~351 |
+| #3523 | 2:21 PM | 🟣 | Added project detail page template with phased feature placeholders | ~498 |
+| #3522 | 2:20 PM | 🟣 | Added ProjectView and ProjectPageData structs for individual project page rendering | ~392 |
+| #3518 | " | 🟣 | Completed Phase 1 of projects feature with flag, schema, and empty index | ~451 |
+| #3514 | 2:18 PM | 🔵 | Projects feature flag infrastructure already exists in layout template | ~334 |
+| #3510 | 2:17 PM | 🔄 | Projects feature flag changed from per-Viewer field to global package variable | ~399 |
+| #3507 | " | 🔄 | Refactored Projects feature flag from Viewer field to package-level global variable | ~399 |
+| #3506 | " | 🟣 | Created projects grid template with card-based layout for community projects | ~431 |
+| #3500 | 2:15 PM | 🟣 | Added ProjectsEnabled field to Viewer struct for nav link control | ~384 |
+| #3452 | 1:00 PM | ✅ | Merged WebRTC eviction resilience and TURN configuration to main branch | ~459 |
 | #3432 | 12:47 PM | 🔵 | Participant list template renders data-key attributes identically for guests and auth users | ~458 |
 | #3431 | 12:46 PM | 🔵 | Guest WebRTC signaling follows same path as authenticated users with participant key routing | ~468 |
 </claude-mem-context>

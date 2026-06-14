@@ -1,0 +1,407 @@
+package templ
+
+import (
+	"strconv"
+	"time"
+)
+
+// ProjectsGridRow is one card on the /c/{slug}/projects index.
+type ProjectsGridRow struct {
+	ID              string
+	Title           string
+	Preview         string
+	TodoTotal       int
+	TodoDone        int
+	AttachmentCount int
+	CommentCount    int
+	IsArchived      bool
+	UpdatedAt       time.Time
+}
+
+// ProjectsGridData is the index-page payload.
+type ProjectsGridData struct {
+	Viewer        Viewer
+	CommunitySlug string
+	CommunityName string
+	Active        []ProjectsGridRow
+	Archived      []ProjectsGridRow
+}
+
+// ProjectView is the per-page render struct for one project. The
+// realtime panels (todos, attachments, comments, activity) get added in
+// Phase 4-6; Phase 2 only fills the header.
+type ProjectView struct {
+	ID              string
+	Title           string
+	DescriptionMD   string
+	DescriptionHTML string
+	IsArchived      bool
+	CanDelete       bool
+}
+
+// ProjectPageData is the project-page payload.
+type ProjectPageData struct {
+	Viewer        Viewer
+	CommunitySlug string
+	CommunityName string
+	Project       ProjectView
+	Todos         []ProjectTodoView
+	Attachments   []ProjectAttachmentView
+	Comments      []ProjectCommentView
+	Activity      []ProjectActivityView
+}
+
+// ProjectActivityView is one row in the activity sidebar.
+type ProjectActivityView struct {
+	Kind string // comment | attachment | todo | project
+	At   time.Time
+}
+
+// ProjectTodoView is one checklist row.
+type ProjectTodoView struct {
+	ID   string
+	Body string
+	Done bool
+}
+
+// ProjectAttachmentView is one attachment row.
+type ProjectAttachmentView struct {
+	ID        string
+	Filename  string
+	MIME      string
+	SizeBytes int64
+	CreatedAt time.Time
+	CanDelete bool
+}
+
+// ProjectCommentView is one inline comment.
+type ProjectCommentView struct {
+	ID        string
+	BodyMD    string
+	BodyHTML  string
+	CreatedAt time.Time
+	Edited    bool
+	CanEdit   bool
+	CanDelete bool
+}
+
+templ ProjectsGrid(d ProjectsGridData) {
+	@Layout("Projects — "+d.CommunityName, d.Viewer) {
+		<section class="projects-grid-section">
+			<header class="projects-header">
+				<h1>Projects</h1>
+				<p class="muted">Shared pages for documents, checklists, and discussion. Any member can create one.</p>
+			</header>
+			<form class="projects-new" method="post" action={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>
+				<input type="text" name="title" placeholder="New project title" maxlength="120" required/>
+				<button class="btn" type="submit">Create project</button>
+			</form>
+			if len(d.Active) == 0 {
+				<p class="projects-empty muted">No projects yet. Create one above to get started.</p>
+			} else {
+				<ul class="projects-cards">
+					for _, row := range d.Active {
+						@projectCard(d.CommunitySlug, row)
+					}
+				</ul>
+			}
+			if len(d.Archived) > 0 {
+				<details class="projects-archived">
+					<summary>Archived ({ strconv.Itoa(len(d.Archived)) })</summary>
+					<ul class="projects-cards projects-cards-archived">
+						for _, row := range d.Archived {
+							@projectCard(d.CommunitySlug, row)
+						}
+					</ul>
+				</details>
+			}
+		</section>
+	}
+}
+
+templ ProjectPage(d ProjectPageData) {
+	@Layout(d.Project.Title+" — Projects", d.Viewer) {
+		<script src={ "/static/projects.js?v=" + AssetVer("projects.js") } defer></script>
+		<section class="project-page">
+			<nav class="project-breadcrumb muted">
+				<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>← back to Projects</a>
+			</nav>
+			// Hidden div opens the SSE stream that drives every fragment
+			// morph on this page. openWhenHidden keeps the stream alive
+			// while the tab is backgrounded.
+			<div id="proj-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/stream', {openWhenHidden: true})" }></div>
+			@ProjectHeaderFragment(d.CommunitySlug, d.Project)
+			<div class="project-body">
+				@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos)
+				@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments)
+				@ProjectCommentsFragment(d.CommunitySlug, d.Project.ID, d.Comments)
+				@ProjectActivityFragment(d.Activity)
+			</div>
+		</section>
+	}
+}
+
+// ProjectHeaderFragment renders the title + description block with
+// inline-edit affordances driven by datastar signals
+// `$projects_edit_header`, `$projects_title`, and `$projects_desc`.
+// The Phase 3 SSE stream re-renders this fragment via WithModeOuter()
+// when either field changes anywhere.
+templ ProjectHeaderFragment(slug string, p ProjectView) {
+	<section id="proj-header" class="project-header"
+		data-signals={ "{projects_edit_header:false,projects_title:'" + jsQuoteAttr(p.Title) + "',projects_desc:'" + jsQuoteAttr(p.DescriptionMD) + "',projects_todo_body:'',projects_todo_edit:'',projects_todo_edit_id:'',projects_comment_body:'',projects_comment_edit:'',projects_comment_edit_id:''}" }>
+		<div class="project-header-display" data-show="!$projects_edit_header">
+			<h1 class="project-title">
+				{ p.Title }
+				if p.IsArchived {
+					<span class="projects-pill projects-pill-archived">archived</span>
+				}
+			</h1>
+			if p.DescriptionHTML != "" {
+				<div class="project-description">@templ.Raw(p.DescriptionHTML)</div>
+			} else {
+				<p class="project-description-empty muted">No description yet.</p>
+			}
+			<div class="project-header-actions">
+				<button class="btn ghost project-edit-btn"
+					data-on:click="$projects_edit_header = true">Edit</button>
+				if p.CanDelete {
+					if p.IsArchived {
+						<button class="btn ghost"
+							data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/unarchive')" }>Unarchive</button>
+					} else {
+						<button class="btn ghost"
+							data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/archive')" }>Archive</button>
+					}
+					<button class="btn ghost danger"
+						data-on:click={ "confirm('Hard-delete this project? Documents and comments are gone.') && @post('/c/" + slug + "/projects/" + p.ID + "/delete')" }>Delete</button>
+				}
+			</div>
+		</div>
+		<div class="project-header-edit" data-show="$projects_edit_header" hidden>
+			<label>
+				Title
+				<input type="text" maxlength="200" data-bind="projects_title"
+					data-on:keydown={ "evt.key === 'Enter' && @post('/c/" + slug + "/projects/" + p.ID + "/title')" }/>
+			</label>
+			<label>
+				Description (markdown)
+				<textarea rows="5" data-bind="projects_desc"></textarea>
+			</label>
+			<div class="project-edit-actions">
+				<button class="btn" data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/title'); @post('/c/" + slug + "/projects/" + p.ID + "/desc'); $projects_edit_header = false" }>Save</button>
+				<button class="btn ghost" data-on:click="$projects_edit_header = false">Cancel</button>
+			</div>
+		</div>
+	</section>
+}
+
+// ProjectTodosFragment renders the entire checklist panel. SSE morphs
+// this whole `<section id="proj-todos">` on every add/edit/toggle/delete/
+// reorder event, which keeps the implementation simple — no diffing.
+templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView) {
+	<section id="proj-todos" class="project-panel project-panel-todos">
+		<h3>Checklist</h3>
+		<ul class="project-todos">
+			for _, t := range todos {
+				<li class={ "project-todo", templ.KV("project-todo-done", t.Done) } data-todo-id={ t.ID }>
+					<input type="checkbox" checked?={ t.Done }
+						data-on:change={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/toggle')" }/>
+					<span class="project-todo-body"
+						data-on:dblclick={ "$projects_todo_edit_id = '" + t.ID + "'; $projects_todo_edit = '" + jsQuoteAttr(t.Body) + "'" }
+						data-show={ "$projects_todo_edit_id !== '" + t.ID + "'" }>{ t.Body }</span>
+					<input type="text" class="project-todo-edit-input"
+						data-show={ "$projects_todo_edit_id === '" + t.ID + "'" } hidden
+						data-bind="projects_todo_edit"
+						data-on:keydown={ "evt.key === 'Enter' && (@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "'), $projects_todo_edit_id = '')" }
+						data-on:blur="$projects_todo_edit_id = ''"/>
+					<button class="btn ghost project-todo-delete"
+						title="Delete this todo"
+						data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/delete')" }>×</button>
+				</li>
+			}
+		</ul>
+		<form class="project-todo-add" data-on:submit__prevent={ "@post('/c/" + slug + "/projects/" + projectID + "/todo')" }>
+			<input type="text" maxlength="500" placeholder="Add a todo…"
+				data-bind="projects_todo_body"/>
+			<button class="btn" type="submit">Add</button>
+		</form>
+	</section>
+}
+
+// ProjectAttachmentsFragment renders the drag-drop zone + file list.
+// The whole `<section id="proj-attachments">` is SSE-morphed on every
+// add/delete event.
+templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmentView) {
+	<section id="proj-attachments" class="project-panel project-panel-attachments">
+		<h3>Attachments</h3>
+		<div class="project-dropzone"
+			data-on:click="document.getElementById('proj-att-input').click()"
+			data-rooms-projects-dropzone={ "/c/" + slug + "/projects/" + projectID + "/attachment" }>
+			<p>Drop files here or click to choose</p>
+			<input id="proj-att-input" type="file" multiple hidden/>
+		</div>
+		if len(atts) == 0 {
+			<p class="muted">No attachments yet.</p>
+		} else {
+			<ul class="project-attachments">
+				for _, a := range atts {
+					<li class="project-attachment">
+						<a class="project-attachment-link"
+							href={ templ.URL("/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/download") }>
+							<span class="project-attachment-name">{ a.Filename }</span>
+							<span class="project-attachment-size muted">{ humanBytes(a.SizeBytes) }</span>
+						</a>
+						if a.CanDelete {
+							<button class="btn ghost project-attachment-delete"
+								title="Delete this attachment"
+								data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/delete')" }>×</button>
+						}
+					</li>
+				}
+			</ul>
+		}
+	</section>
+}
+
+// ProjectCommentsFragment renders the full comment thread + new-comment
+// textarea. SSE morphs the whole `<section id="proj-comments">` on
+// every add/edit/delete.
+templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentView) {
+	<section id="proj-comments" class="project-panel project-panel-comments">
+		<h3>Comments</h3>
+		<ul class="project-comments">
+			for _, c := range comments {
+				<li class="project-comment" id={ "proj-comment-" + c.ID }>
+					<div class="project-comment-meta muted">
+						<time>{ c.CreatedAt.Local().Format("2006-01-02 15:04") }</time>
+						if c.Edited {
+							<span class="project-comment-edited">(edited)</span>
+						}
+					</div>
+					<div class="project-comment-body"
+						data-show={ "$projects_comment_edit_id !== '" + c.ID + "'" }>@templ.Raw(c.BodyHTML)</div>
+					<textarea class="project-comment-edit-input"
+						rows="3"
+						data-show={ "$projects_comment_edit_id === '" + c.ID + "'" } hidden
+						data-bind="projects_comment_edit"
+						data-on:keydown={ "evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault(), @post('/c/" + slug + "/projects/" + projectID + "/comment/" + c.ID + "'), $projects_comment_edit_id = '')" }></textarea>
+					<div class="project-comment-actions">
+						if c.CanEdit {
+							<button class="btn ghost"
+								data-on:click={ "$projects_comment_edit_id = '" + c.ID + "'; $projects_comment_edit = '" + jsQuoteAttr(c.BodyMD) + "'" }>Edit</button>
+						}
+						if c.CanDelete {
+							<button class="btn ghost"
+								data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/comment/" + c.ID + "/delete')" }>Delete</button>
+						}
+					</div>
+				</li>
+			}
+		</ul>
+		<form class="project-comment-add"
+			data-on:submit__prevent={ "@post('/c/" + slug + "/projects/" + projectID + "/comment')" }>
+			<textarea rows="2" placeholder="Write a comment (markdown supported)…"
+				maxlength="4000"
+				data-bind="projects_comment_body"></textarea>
+			<button class="btn" type="submit">Post</button>
+		</form>
+	</section>
+}
+
+// ProjectActivityFragment renders the audit sidebar — most recent
+// events first. Each row is rendered as "<kind> · <time>" since we
+// derive from existing timestamps rather than storing per-event detail.
+templ ProjectActivityFragment(events []ProjectActivityView) {
+	<aside id="proj-activity" class="project-panel project-panel-activity">
+		<h3>Activity</h3>
+		if len(events) == 0 {
+			<p class="muted">No activity yet.</p>
+		} else {
+			<ul class="project-activity">
+				for _, e := range events {
+					<li class={ "project-activity-row project-activity-" + e.Kind }>
+						<span class="project-activity-kind">{ activityLabel(e.Kind) }</span>
+						<time class="muted">{ e.At.Local().Format("Mon 15:04") }</time>
+					</li>
+				}
+			</ul>
+		}
+	</aside>
+}
+
+func activityLabel(kind string) string {
+	switch kind {
+	case "comment":
+		return "💬 comment posted"
+	case "attachment":
+		return "📎 file added"
+	case "todo":
+		return "✓ todo added"
+	case "project":
+		return "✎ project edited"
+	}
+	return kind
+}
+
+// humanBytes formats a byte count in IEC units. Inlined to avoid a
+// new util package and to keep the template self-contained.
+func humanBytes(n int64) string {
+	const k = 1024
+	if n < k {
+		return strconv.FormatInt(n, 10) + " B"
+	}
+	units := []string{"K", "M", "G", "T"}
+	v := float64(n) / float64(k)
+	i := 0
+	for v >= float64(k) && i < len(units)-1 {
+		v /= float64(k)
+		i++
+	}
+	if v < 10 {
+		return strconv.FormatFloat(v, 'f', 1, 64) + " " + units[i] + "B"
+	}
+	return strconv.FormatInt(int64(v), 10) + " " + units[i] + "B"
+}
+
+// jsQuoteAttr escapes a string for inclusion inside a single-quoted
+// JSON value rendered into a data-signals attribute. Only the four
+// chars that break the literal need escaping.
+func jsQuoteAttr(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		switch r {
+		case '\\', '\'':
+			out = append(out, '\\', r)
+		case '\n':
+			out = append(out, '\\', 'n')
+		case '\r':
+			out = append(out, '\\', 'r')
+		default:
+			out = append(out, r)
+		}
+	}
+	return string(out)
+}
+
+templ projectCard(slug string, row ProjectsGridRow) {
+	<li class={ "projects-card", templ.KV("projects-card-archived", row.IsArchived) }>
+		<a href={ templ.URL("/c/" + slug + "/projects/" + row.ID) } class="projects-card-link">
+			<h2 class="projects-card-title">{ row.Title }</h2>
+			if row.Preview != "" {
+				<p class="projects-card-preview muted">{ row.Preview }</p>
+			}
+			<div class="projects-card-meta">
+				if row.TodoTotal > 0 {
+					<span class="projects-pill projects-pill-todos">{ strconv.Itoa(row.TodoDone) }/{ strconv.Itoa(row.TodoTotal) } done</span>
+				}
+				if row.AttachmentCount > 0 {
+					<span class="projects-pill projects-pill-files">📎 { strconv.Itoa(row.AttachmentCount) }</span>
+				}
+				if row.CommentCount > 0 {
+					<span class="projects-pill projects-pill-comments">💬 { strconv.Itoa(row.CommentCount) }</span>
+				}
+				<span class="muted projects-card-updated">updated { row.UpdatedAt.Local().Format("2006-01-02 15:04") }</span>
+			</div>
+		</a>
+	</li>
+}

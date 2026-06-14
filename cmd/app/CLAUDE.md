@@ -7,7 +7,5 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
-| #3448 | 12:54 PM | 🟣 | Added buildIceServers helper to construct ICE server configuration from config | ~404 |
-| #3447 | " | 🟣 | Wired IceServers configuration into rooms.Handler initialization | ~388 |
-| #3434 | 12:47 PM | 🔵 | IceServers field not initialized in rooms.Handler causing clients to use fallback STUN-only config | ~449 |
+| #3512 | 2:18 PM | ✅ | Added projects package import to main.go for Phase 1 wiring | ~287 |
 </claude-mem-context>

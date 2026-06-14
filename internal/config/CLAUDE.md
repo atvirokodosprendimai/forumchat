@@ -7,5 +7,8 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3499 | 2:15 PM | 🟣 | Added ProjectsEnabled feature flag to configuration | ~405 |
+| #3452 | 1:00 PM | ✅ | Merged WebRTC eviction resilience and TURN configuration to main branch | ~459 |
+| #3451 | 12:59 PM | 🔴 | Comprehensive WebRTC resilience fix committed addressing eviction, TURN config, and diagnostics | ~457 |
 | #3446 | 12:53 PM | 🟣 | Added environment variable config for WebRTC STUN/TURN servers | ~418 |
 </claude-mem-context>

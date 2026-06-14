@@ -215,6 +215,68 @@ func (s *Store) SaveDataURL(ctx context.Context, ownerID, communityID, dataURL s
 	return s.Save(ctx, ownerID, communityID, mime, bytes.NewReader(data))
 }
 
+// SaveAttachment persists a file under the uploads table WITHOUT the
+// image-only MIME whitelist that Save enforces. Used by feature areas
+// (e.g. projects) that need to accept arbitrary documents — PDFs,
+// spreadsheets, archives. The original filename is used to derive an
+// on-disk extension; the persisted MIME is honored when streaming back
+// so the browser gets the right Content-Type.
+func (s *Store) SaveAttachment(ctx context.Context, ownerID, communityID, mime, filename string, r io.Reader) (Upload, error) {
+	ext := filepath.Ext(filename)
+	if ext == "" {
+		if e, ok := allowedMIME[mime]; ok {
+			ext = e
+		} else {
+			ext = ".bin"
+		}
+	}
+	tmp, err := os.CreateTemp(s.Dir, "att-*.tmp")
+	if err != nil {
+		if err := os.MkdirAll(s.Dir, 0o755); err != nil {
+			return Upload{}, err
+		}
+		tmp, err = os.CreateTemp(s.Dir, "att-*.tmp")
+		if err != nil {
+			return Upload{}, err
+		}
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+
+	h := sha256.New()
+	mw := io.MultiWriter(tmp, h)
+	n, err := io.CopyN(mw, r, s.MaxSize+1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return Upload{}, fmt.Errorf("copy: %w", err)
+	}
+	if n > s.MaxSize {
+		return Upload{}, ErrTooLarge
+	}
+	digest := hex.EncodeToString(h.Sum(nil))
+	rel := filepath.Join(digest[:2], digest+ext)
+	dst := filepath.Join(s.Dir, rel)
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return Upload{}, err
+	}
+	if _, err := os.Stat(dst); errors.Is(err, os.ErrNotExist) {
+		if err := os.Rename(tmp.Name(), dst); err != nil {
+			return Upload{}, err
+		}
+	}
+
+	u := Upload{
+		ID: uuid.NewString(), OwnerID: ownerID, CommunityID: communityID,
+		SHA256: digest, MIME: mime, Size: n, RelPath: rel, CreatedAt: time.Now(),
+	}
+	if _, err := s.DB.ExecContext(ctx, `
+		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.CreatedAt.Unix()); err != nil {
+		return Upload{}, err
+	}
+	return u, nil
+}
+
 // MIMEFromHeader picks the best MIME from a multipart Content-Type, falling back
 // to a sniffed type from the leading bytes. Caller passes the first N bytes.
 func MIMEFromHeader(declared string, sniff []byte) string {

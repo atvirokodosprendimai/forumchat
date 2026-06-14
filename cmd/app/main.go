@@ -30,6 +30,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
+	"github.com/atvirokodosprendimai/forumchat/internal/projects"
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
@@ -227,6 +228,18 @@ func run() error {
 
 	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
 
+	projectsRepo := projects.NewRepo(db)
+	projectsBus := projects.NewBus()
+	projectsSvc := projects.NewService(projectsRepo, projectsBus, uploadStore, cfg.EditGrace)
+	projectsHandler := &projects.Handler{
+		Repo:    projectsRepo,
+		Svc:     projectsSvc,
+		Bus:     projectsBus,
+		Uploads: uploadStore,
+		Log:     log,
+	}
+	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
+
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
 
 	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
@@ -342,6 +355,31 @@ func run() error {
 		r.Post("/todos", todosHandler.PostCreate)
 		r.Post("/todos/{id}/status", todosHandler.PostStatus)
 		r.Post("/todos/{id}/delete", todosHandler.PostDelete)
+
+		// Projects feature is mounted only when PROJECTS_ENABLED=true.
+		// The flag also gates the nav link via webtempl.ProjectsEnabled.
+		if cfg.ProjectsEnabled {
+			r.Get("/projects", projectsHandler.GetIndex)
+			r.Post("/projects", projectsHandler.PostCreate)
+			r.Get("/projects/{id}", projectsHandler.GetProject)
+			r.Get("/projects/{id}/stream", projectsHandler.GetStream)
+			r.Post("/projects/{id}/title", projectsHandler.PostTitle)
+			r.Post("/projects/{id}/desc", projectsHandler.PostDescription)
+			r.Post("/projects/{id}/todo", projectsHandler.PostTodoAdd)
+			r.Post("/projects/{id}/todo/{tid}", projectsHandler.PostTodoEdit)
+			r.Post("/projects/{id}/todo/{tid}/toggle", projectsHandler.PostTodoToggle)
+			r.Post("/projects/{id}/todo/{tid}/delete", projectsHandler.PostTodoDelete)
+			r.Post("/projects/{id}/todo/reorder", projectsHandler.PostTodoReorder)
+			r.Post("/projects/{id}/attachment", projectsHandler.PostAttachmentUpload)
+			r.Get("/projects/{id}/attachment/{aid}/download", projectsHandler.GetAttachmentDownload)
+			r.Post("/projects/{id}/attachment/{aid}/delete", projectsHandler.PostAttachmentDelete)
+			r.Post("/projects/{id}/comment", projectsHandler.PostComment)
+			r.Post("/projects/{id}/comment/{cid}", projectsHandler.PostCommentEdit)
+			r.Post("/projects/{id}/comment/{cid}/delete", projectsHandler.PostCommentDelete)
+			r.Post("/projects/{id}/archive", projectsHandler.PostArchive)
+			r.Post("/projects/{id}/unarchive", projectsHandler.PostUnarchive)
+			r.Post("/projects/{id}/delete", projectsHandler.PostDeleteProject)
+		}
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))

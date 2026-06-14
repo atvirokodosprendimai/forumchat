@@ -15,3 +15,80 @@
 - 2026-06-13 `4c387fb` fix(css): stack reply-hint above composer input row
 - 2026-06-13 `78a22ec` fix(css): composer input expands to fill row width
 - 2026-06-13 `8a51736` feat(cli): approve and approve-all subcommands
+- 2026-06-13 `740f60b` feat: chat-message bookmarks with title/category/note + filter list page
+- 2026-06-13 `da5cda7` feat: realtime forum threads + admin nav + quote/scroll UX
+- 2026-06-13 `41ede3f` feat: history page (calendar + unified day timeline) + openWhenHidden SSE
+- 2026-06-13 `9d219ad` feat: presence as mobile drawer + chat-only /history
+- 2026-06-13 `747fcac` Merge task/hide-presence-mobile: presence hidden on mobile
+- 2026-06-13 `61f8ba7` Merge task/paste-image: paste-to-attach images in chat + forum
+- 2026-06-13 `ca716ca` Merge task/drop-image: file drag-and-drop attach
+- 2026-06-13 `0ec9afc` Merge task/image-link-and-size: image sizing + linkout + clean subject
+- 2026-06-13 `830ab0b` Merge task/thread-resolved-and-author: resolve marker, filters, search, rename, hard-delete, promote-author fix
+- 2026-06-13 `0a194e2` Merge task/hide-resolved-default: default forum to open threads
+- 2026-06-13 `979dcff` Merge task/fix-bookmark-dialog: page-level dialog + image-title strip
+- 2026-06-13 `b1caa72` Merge task/fix-sse-flush: SSE flush via ResponseController
+- 2026-06-13 `f917785` Merge task/prevent-duplicate-promote: one thread per chat message
+- 2026-06-13 `5274e58` Merge task/image-thread-announce: image thumb announce + no-hidden-URL links
+- 2026-06-13 `2a2bd0d` Merge task/fix-byid-scan: ByID Scan parity
+- 2026-06-13 `c727189` Merge task/multi-community: per-community routes, dashboard, admin community-create
+- 2026-06-13 `1414cdf` Merge task/scoped-templ-urls: fix 404 on streams + every action button
+- 2026-06-13 `439dce6` Merge task/fix-communities-link: show dashboard when nav-clicked
+- 2026-06-13 `59046a0` Merge: fix create-community bad-signals from SSE/ReadSignals order
+- 2026-06-13 `ebe761e` Merge: community-creator display_name + SSE redirect scoping
+- 2026-06-13 `643a4a2` Merge: todos spec (draft)
+- 2026-06-13 `e72abf8` Merge: todos plan
+- 2026-06-13 `55b08a8` Merge: todos phase 1 — schema + empty page
+- 2026-06-13 `1542d7e` Merge: invites spec
+- 2026-06-13 `705ef69` Merge: invites plan
+- 2026-06-13 `c4d82fc` Merge: todos add-buttons + invites add-by-email + join page
+- 2026-06-13 `1ef401d` Merge: history msg anchor for todo backlinks
+- 2026-06-13 `5b8076a` Merge: thread announce link scoped to /c/{slug}
+- 2026-06-13 `2db4b91` Merge: backfill old thread_announce URLs
+- 2026-06-13 `4faa7e2` Merge: GET /uploads at root so stored URLs survive route restructure
+- 2026-06-13 `4f33204` Merge: todos status buttons + delete
+- 2026-06-13 `c4faa4b` Merge: explicit done button on todo rows
+- 2026-06-13 `8853d89` ci: ghcr docker build on semver tags + compose.yml.example
+- 2026-06-13 `54f8998` Merge task/footer-credits: built-by footer
+- 2026-06-13 `719e4f9` Merge task/dockerfile-cli: include CLI binary in image
+- 2026-06-13 `8965560` Merge task/smtp-starttls: STARTTLS + implicit TLS for outbound mail
+- 2026-06-13 `355e09a` Merge task/smtp-headers: RFC-compliant mail headers
+- 2026-06-13 `f8bac7e` Merge task/pwa-manifest: installable PWA manifest + icons
+- 2026-06-13 `f3dbd43` refactor(css): mobile-responsive layout pass
+- 2026-06-13 `5eb777a` refactor(chat,forum): collapse action buttons into per-message dropdown
+- 2026-06-13 `d693dab` ux(chat,forum): per-message bottom-sheet on mobile, icon+label tiles
+- 2026-06-14 `7c4515e` fix(history): scope calendar hrefs under /c/<slug>
+- 2026-06-14 `6c19ae7` feat(composer): attach-image button (file picker) on chat + forum
+- 2026-06-14 `8a3d2c2` Merge task/drop-mailpit-note: clean register-success page
+- 2026-06-14 `c9197ec` Merge task/attach-label-fix: native label-for file picker
+- 2026-06-14 `c6e0fbf` Merge task/attach-label-wrap: wrap input in label, datastar change handler
+- 2026-06-14 `23982a8` Merge task/app-shell-layout: viewport-locked app shell
+- 2026-06-14 `1668b04` Merge task/presence-scroll: internal scroll for online list
+- 2026-06-14 `25f4054` Merge task/chat-no-overflow: kill the main scroll on chat page
+- 2026-06-14 `947ee89` Merge task/fixed-image-height: stable image height in bubbles
+- 2026-06-14 `02ed520` Merge task/asset-version: content-hash cache bust
+- 2026-06-14 `6de77c6` Merge task/private-messages: cross-community DMs with accept/decline
+- 2026-06-14 `3487185` Merge task/dm-toast: success toast + modal close after DM request
+- 2026-06-14 `881eef1` Merge task/bootstrap-admin: first-user admin bootstrap
+- 2026-06-14 `2945dbc` Merge task/welcome-message: welcome ping on member approval
+- 2026-06-14 `71fb9b7` Merge task/welcome-on-join: welcome ping on every join surface
+- 2026-06-14 `fa2a8fd` Merge task/public-communities: public/private + /explore
+- 2026-06-14 `6242871` feat(rooms): 8-slot WebRTC meeting rooms with mesh signaling
+- 2026-06-14 `9d55cf4` fix(rooms): multiplex signaling on room SSE + always-render admin tray
+- 2026-06-14 `58cd184` feat(rooms): scope rooms per community
+- 2026-06-14 `c36f76e` Merge task/rooms-audio-and-email-invites: audio recovery + email invites + back link fix
+- 2026-06-14 `ea93ce3` fix(rooms): self-heal stale eviction + ICE/TURN env + diagnostics
+- 2026-06-14 `5adfdb6` Merge task/rooms-chat-community-id-fk: rooms chat FK fix
+- 2026-06-14 `61cdee5` Merge task/rooms-leave-race: stop EnsureMember re-admitting on leave race
+- 2026-06-14 `50b57ee` Merge task/rooms-caller-401-diag: diagnostic for caller() 401s
+- 2026-06-14 `3ef7363` Merge task/rooms-decode-url-param: chi URLParam decoding for room IDs
+- 2026-06-14 `0d450ef` Merge task/rooms-fix-recursive-helper: stop roomIDParam recursing into itself
+- 2026-06-14 `48b19ee` spec(projects): per-community collaborative projects with docs, todos, comments
+- 2026-06-14 `46aaf3c` plan(projects): 8-phase implementation plan for projects feature
+- 2026-06-14 `54581bb` feat(projects) Phase 1: feature flag + schema + empty index
+- 2026-06-14 `bd0170e` feat(projects) Phase 2: create + view a project (no SSE yet)
+- 2026-06-14 `bdc188e` feat(projects) Phase 3: Bus + SSE + inline title/desc edit
+- 2026-06-14 `04a3bfc` feat(projects) Phase 4: realtime todos panel
+- 2026-06-14 `f510779` feat(projects) Phase 5: attachments — upload + download + delete
+- 2026-06-14 `952df0f` feat(projects) Phase 6: forum-style comments
+- 2026-06-14 `bc26052` feat(projects) Phase 7: archive, hard delete, activity sidebar, CSS
+- 2026-06-14 `c67e051` docs(projects) Phase 8: spec sync — friction + future to match shipped
