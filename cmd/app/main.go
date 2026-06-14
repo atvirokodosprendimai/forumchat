@@ -162,7 +162,12 @@ func run() error {
 	r.Post("/logout", authHandler.PostLogout)
 
 	uploadStore := uploads.NewStore(db, cfg.UploadsDir, cfg.UploadsMaxSize, cfg.UploadsSignKey)
-	uploadHandler := &uploads.Handler{Store: uploadStore, CommunityID: bootCommunity.ID, Log: log}
+	uploadHandler := &uploads.Handler{
+		Store:       uploadStore,
+		CommunityID: bootCommunity.ID,
+		Log:         log,
+		Sessions:    sessions, // lets project-share guests view images
+	}
 
 	chatRepo := chat.NewRepo(db)
 	chatSvc := chat.NewService(chatRepo)
@@ -474,12 +479,10 @@ func run() error {
 
 	// Uploads GET lives at root so stored /uploads/{id}?sig=... URLs survive
 	// the multi-community route restructure. The HMAC signature already
-	// scopes access (binds upload id + viewer id + exp), so no
-	// community-scoped middleware is needed.
-	r.Group(func(r chi.Router) {
-		r.Use(auth.RequireAuth)
-		r.Get("/uploads/{id}", uploadHandler.GetFile)
-	})
+	// scopes access (binds upload id + viewer id + exp). Auth.RequireAuth
+	// is OFF — the handler resolves auth users AND project-share guest
+	// sessions internally so guests can view images on issues.
+	r.Get("/uploads/{id}", uploadHandler.GetFile)
 
 	// Private messages are global — no community membership required.
 	// The handler authenticates via the session directly.
