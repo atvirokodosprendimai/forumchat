@@ -291,7 +291,12 @@ func (s *Sender) dispatch(ctx context.Context, subs []Subscription, n Notificati
 			VAPIDPublicKey:  s.Public,
 			VAPIDPrivateKey: s.Private,
 			TTL:             60 * 60 * 24, // 1 day
-			HTTPClient:      s.HTTPClient,
+		}
+		// Only set HTTPClient when the caller injected one. webpush-go
+		// reads through an interface, so passing a typed-nil *http.Client
+		// here defeats its own nil-check and panics inside (*Client).Do.
+		if s.HTTPClient != nil {
+			opts.HTTPClient = s.HTTPClient
 		}
 		resp, perr := webpush.SendNotificationWithContext(ctx, payload, &webpush.Subscription{
 			Endpoint: sub.Endpoint,
