@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"context"
 	"errors"
+	"html"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -15,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -97,7 +100,36 @@ func (h *Handler) PostApprove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Drop a "say hello" notice into the chat so the rest of the community
+	// notices the new member. Best-effort — if any of this fails the approve
+	// itself still succeeded.
+	if m, err := h.Repo.MembershipByID(r.Context(), id); err == nil {
+		h.postWelcome(r.Context(), m.CommunityID, m.DisplayName)
+	}
 	h.refreshAdminLists(w, r)
+}
+
+// postWelcome inserts a system chat message and pings every open chat
+// stream — locally via the in-process bus and across processes via NATS.
+func (h *Handler) postWelcome(ctx context.Context, communityID, displayName string) {
+	if h.Chat == nil || h.Chat.Svc == nil {
+		return
+	}
+	name := strings.TrimSpace(displayName)
+	if name == "" {
+		return
+	}
+	body := "👋 Say hello to <strong>" + html.EscapeString(name) + "</strong>!"
+	if _, err := h.Chat.Svc.PostSystem(ctx, communityID, body, chat.KindSystem, nil); err != nil {
+		h.Log.Warn("welcome system msg", "err", err)
+		return
+	}
+	if h.Chat.Bus != nil {
+		h.Chat.Bus.Broadcast()
+	}
+	if h.Chat.NATS != nil && h.Chat.NATS.IsConnected() {
+		_ = h.Chat.NATS.Publish(natsx.ChatSubject(communityID), []byte("changed"))
+	}
 }
 
 func (h *Handler) PostReject(w http.ResponseWriter, r *http.Request) {
