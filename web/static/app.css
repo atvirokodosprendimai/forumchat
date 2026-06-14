@@ -1383,3 +1383,22 @@ img.thread-announce-img {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+
+/* Discussion thread + reply images — thumb-sized, click opens
+   original in a new tab via the wrapping <a class="upload-img-link">
+   injected by render.RenderMarkdown. */
+.project-discussion-body img,
+.project-discussion-reply-body img,
+.project-discussion-quote img {
+  max-height: 160px;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius);
+  cursor: zoom-in;
+  display: inline-block;
+  background: var(--surface-alt);
+}
+.project-discussion-quote img { max-height: 80px; }
+
+.upload-img-link { display: inline-block; }
