@@ -38,16 +38,10 @@ window.fcPasteImage = function (evt, signalName) {
   }
 };
 
-// Open the hidden file input that is a sibling of the trigger button, and
-// load the chosen file into `signalName`. Wired from the attach button so
-// the user-gesture passes through to the picker.
-window.fcOpenPicker = function (evt, signalName) {
-  const btn = evt.currentTarget || evt.target;
-  const root = btn.closest('.composer, section, form, .card') || document;
-  const input = root.querySelector('input[type=file][data-pick="' + signalName + '"]');
-  if (input) input.click();
-};
-
+// Reads the file chosen from the native picker and pipes it into
+// `signalName` via the existing FileReader path. Triggered by a
+// <input type="file" onchange="fcPickImage(event,'image_data')"> whose
+// label[for=...] opens the picker natively (no JS click needed).
 window.fcPickImage = function (evt, signalName) {
   const f = evt.target.files && evt.target.files[0];
   if (!f) return;
