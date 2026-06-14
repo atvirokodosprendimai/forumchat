@@ -1,0 +1,369 @@
+package templ
+
+import (
+	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
+)
+
+// ---- view models ----------------------------------------------------------
+
+type LobbyView struct {
+	ID             string
+	Medium         string
+	GuestName      string
+	GuestEmail     string
+	Status         string
+	CreatedAt      time.Time
+	LastActivityAt time.Time
+	ExpiresAt      *time.Time
+	MessageCount   int
+	LastMessageAt  *time.Time
+	LastAuthorKind string
+}
+
+type LobbyMsgView struct {
+	ID         string
+	AuthorKind string // "host" | "guest"
+	BodyHTML   string
+	CreatedAt  time.Time
+	Deleted    bool
+}
+
+type LobbiesIndexData struct {
+	Viewer Viewer
+	Status string
+	Rows   []LobbyView
+}
+
+type LobbyHostViewData struct {
+	Viewer        Viewer
+	Lobby         LobbyView
+	Messages      []LobbyMsgView
+	GuestURL      string
+	CurrentUserID string
+}
+
+type GuestLandingData struct {
+	Token         string
+	CommunityName string
+	HostName      string
+	PrefillName   string
+}
+
+type GuestChatData struct {
+	Token         string
+	CommunityName string
+	HostName      string
+	GuestName     string
+	Messages      []LobbyMsgView
+}
+
+type GuestClosedData struct {
+	Token         string
+	CommunityName string
+	HasHistory    bool
+	Messages      []LobbyMsgView
+}
+
+// ---- host: index ----------------------------------------------------------
+
+templ LobbiesIndex(d LobbiesIndexData) {
+	@Layout("Lobbies", d.Viewer) {
+		<section>
+			<h1>Lobbies — { d.Viewer.CommunityName }</h1>
+			<p class="muted">Invite a guest to a persistent text conversation by sharing a one-shot URL. No account required on their side.</p>
+
+			@LobbiesInviteCard(d.Viewer.CommunitySlug)
+
+			<div class="primary-nav" style="margin:.8rem 0">
+				<a href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/lobbies?status=open") }
+					class={ tabClass(d.Status, "open") }>Open</a>
+				<a href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/lobbies?status=archived") }
+					class={ tabClass(d.Status, "archived") }>Archived</a>
+				<a href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/lobbies?status=closed") }
+					class={ tabClass(d.Status, "closed") }>Closed</a>
+			</div>
+
+			@LobbiesList(d.Viewer.CommunitySlug, d.Status, d.Rows)
+		</section>
+	}
+}
+
+templ LobbiesInviteCard(slug string) {
+	<section class="card narrow"
+		data-signals={ "{lobby_medium:'lobby',lobby_guest_name:'',lobby_guest_email:'',lobby_expires_hours:''}" }>
+		<h3>Invite a guest</h3>
+		<div id="lobby-invite-result"></div>
+		<div class="field">
+			<label>Their name (optional)</label>
+			<input type="text" data-bind="lobby_guest_name" placeholder="Casey"/>
+		</div>
+		<div class="field">
+			<label>Their email (optional — enables 'promote to member' later)</label>
+			<input type="email" data-bind="lobby_guest_email" placeholder="casey@acme.com"/>
+		</div>
+		<div class="field">
+			<label>Expires in (hours, blank = no expiry)</label>
+			<input type="number" data-bind="lobby_expires_hours" min="1" placeholder="168"/>
+		</div>
+		<button data-on:click={ "@post('/c/" + slug + "/lobbies/new')" }>Create lobby link</button>
+	</section>
+}
+
+templ LobbiesInviteCreated(slug string, l LobbyView, url string) {
+	<div id="lobby-invite-result" class="success">
+		<p>Created. Share this URL:</p>
+		<input type="text" readonly value={ url } onfocus="this.select()" style="width:100%;margin-top:.35rem"/>
+		<p class="muted" style="margin-top:.35rem">
+			<a href={ templ.URL("/c/" + slug + "/lobbies/" + l.ID) }>Open the lobby →</a>
+		</p>
+	</div>
+}
+
+templ LobbiesList(slug, status string, rows []LobbyView) {
+	<div id="lobbies-list">
+		if len(rows) == 0 {
+			<div class="empty-state">
+				<p><strong>No { status } lobbies.</strong></p>
+				<p>Create one above to invite a guest.</p>
+			</div>
+		}
+		<ul class="thread-list">
+			for _, l := range rows {
+				<li>
+					<a href={ templ.URL("/c/" + slug + "/lobbies/" + l.ID) }>
+						<strong>{ guestNameOrFallback(l.GuestName) }</strong>
+					</a>
+					<span class="muted"> · { l.Medium } · { itoa(l.MessageCount) } msgs · last activity { fmtTime(l.LastActivityAt) }</span>
+					if l.ExpiresAt != nil {
+						<span class="muted"> · expires { fmtTime(*l.ExpiresAt) }</span>
+					}
+					<div style="margin-top:.3rem" class="primary-nav">
+						if l.Status == "open" {
+							<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/archive')" }>Archive</button>
+							<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/close')" }>Close</button>
+						} else if l.Status == "archived" {
+							<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/reopen')" }>Reopen</button>
+						}
+					</div>
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+// ---- host: chat view ------------------------------------------------------
+
+templ LobbyHostView(d LobbyHostViewData) {
+	@Layout("Lobby with " + guestNameOrFallback(d.Lobby.GuestName), d.Viewer) {
+		<section>
+			<h1>{ guestNameOrFallback(d.Lobby.GuestName) } · <span class="muted">{ d.Lobby.Status }</span></h1>
+			<div class="card narrow">
+				<p class="muted">Share URL:</p>
+				<input type="text" readonly value={ d.GuestURL } onfocus="this.select()" style="width:100%"/>
+				<div class="primary-nav" style="margin-top:.4rem">
+					if d.Lobby.GuestEmail != "" {
+						<button class="ghost" data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/lobbies/" + d.Lobby.ID + "/promote')" }>Promote guest to member</button>
+					}
+					<button class="ghost" data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/lobbies/" + d.Lobby.ID + "/close')" }>Close lobby</button>
+				</div>
+				<div id="lobby-promote-result"></div>
+			</div>
+			<div id="lobby-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/lobbies/" + d.Lobby.ID + "/stream', {openWhenHidden: true})" }></div>
+			@LobbyMessages(d.Messages)
+			@LobbyComposer(d.Viewer.CommunitySlug, d.Lobby.ID)
+		</section>
+	}
+}
+
+templ LobbyMessages(msgs []LobbyMsgView) {
+	<div id="lobby-messages" class="messages"
+		data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
+		for i := len(msgs) - 1; i >= 0; i-- {
+			@LobbyMessage(msgs[i])
+		}
+	</div>
+}
+
+templ LobbyMessage(m LobbyMsgView) {
+	<article class={ "bubble-group", lobbyMsgSide(m.AuthorKind) } id={ "lobbymsg-" + m.ID }>
+		if m.Deleted {
+			<div class="muted">[deleted]</div>
+		} else {
+			<div class="body">
+				@templ.Raw(render.WrapUploadImages(m.BodyHTML))
+			</div>
+			<div class="muted" style="font-size:.75rem">{ m.AuthorKind } · { fmtTime(m.CreatedAt) }</div>
+		}
+	</article>
+}
+
+templ LobbyComposer(slug, lobbyID string) {
+	<div class="composer"
+		data-signals={ "{lobby_body:'',lobby_image_data:''}" }
+		data-on:dragover="evt.preventDefault()"
+		data-on:drop="window.fcDropImage(evt,'lobby_image_data')">
+		<input type="hidden" data-bind="lobby_image_data"/>
+		<div class="paste-preview" data-show="$lobby_image_data">
+			<img alt="attached image preview" data-attr:src="$lobby_image_data"/>
+			<button class="link" data-on:click="$lobby_image_data=''">remove image</button>
+		</div>
+		<div class="composer-row">
+			<label class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">
+				📎
+				<input type="file" accept="image/*" style="display:none"
+					data-on:change="window.fcPickImage(evt,'lobby_image_data')"/>
+			</label>
+			<textarea
+				class="composer-text"
+				data-bind="lobby_body"
+				rows="1"
+				placeholder="Message…  (markdown ok; Shift+Enter for newline)"
+				autocomplete="off"
+				data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
+				data-on:paste="window.fcPasteImage(evt,'lobby_image_data')"
+				data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); @post('/c/" + slug + "/lobbies/" + lobbyID + "/send'); el.style.height='auto'}" }></textarea>
+			<button data-on:click={ "@post('/c/" + slug + "/lobbies/" + lobbyID + "/send')" }>Send</button>
+		</div>
+	</div>
+}
+
+templ LobbyPromoteResult(code, errMsg string) {
+	<div id="lobby-promote-result" class={ promoteResultClass(errMsg) }>
+		if errMsg != "" {
+			{ errMsg }
+		} else {
+			<p>Invite code for the guest: <code>{ code }</code></p>
+		}
+	</div>
+}
+
+// ---- guest: landing / chat / closed ---------------------------------------
+
+templ GuestLanding(d GuestLandingData) {
+	@GuestLayout("Join " + d.CommunityName) {
+		<section class="card narrow"
+			data-signals={ "{lobby_guest_name:'" + jsString(d.PrefillName) + "'}" }>
+			<h1>Join the conversation</h1>
+			<p><strong>{ d.HostName }</strong> from <strong>{ d.CommunityName }</strong> invited you to a private chat.</p>
+			<div class="field">
+				<label>Your name</label>
+				<input type="text" data-bind="lobby_guest_name" autofocus
+					data-on:keydown={ "if(evt.key==='Enter'){evt.preventDefault(); @post('/lobby/" + d.Token + "/join')}" }/>
+			</div>
+			<button data-on:click={ "@post('/lobby/" + d.Token + "/join')" }>Join</button>
+			<p class="muted" style="margin-top:1rem; font-size:.85rem">
+				No signup required. Your conversation is persistent — bookmark this page and you can return any time.
+			</p>
+		</section>
+	}
+}
+
+templ GuestChat(d GuestChatData) {
+	@GuestLayout("Chat with " + d.HostName) {
+		<section>
+			<h1>{ d.HostName } · <span class="muted">{ d.CommunityName }</span></h1>
+			<p class="muted" style="font-size:.85rem">Hi { d.GuestName } — refresh-safe. Bookmark this page to return.</p>
+			<div id="lobby-stream-open" data-init={ "@get('/lobby/" + d.Token + "/stream', {openWhenHidden: true})" }></div>
+			@LobbyMessages(d.Messages)
+			@GuestComposer(d.Token)
+		</section>
+	}
+}
+
+templ GuestComposer(token string) {
+	<div class="composer"
+		data-signals={ "{lobby_body:'',lobby_image_data:''}" }
+		data-on:dragover="evt.preventDefault()"
+		data-on:drop="window.fcDropImage(evt,'lobby_image_data')">
+		<input type="hidden" data-bind="lobby_image_data"/>
+		<div class="paste-preview" data-show="$lobby_image_data">
+			<img alt="attached image preview" data-attr:src="$lobby_image_data"/>
+			<button class="link" data-on:click="$lobby_image_data=''">remove image</button>
+		</div>
+		<div class="composer-row">
+			<label class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">
+				📎
+				<input type="file" accept="image/*" style="display:none"
+					data-on:change="window.fcPickImage(evt,'lobby_image_data')"/>
+			</label>
+			<textarea
+				class="composer-text"
+				data-bind="lobby_body"
+				rows="1"
+				placeholder="Message…  (Shift+Enter for newline)"
+				autocomplete="off"
+				data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
+				data-on:paste="window.fcPasteImage(evt,'lobby_image_data')"
+				data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); @post('/lobby/" + token + "/send'); el.style.height='auto'}" }></textarea>
+			<button data-on:click={ "@post('/lobby/" + token + "/send')" }>Send</button>
+		</div>
+	</div>
+}
+
+templ GuestClosed(d GuestClosedData) {
+	@GuestLayout("Conversation closed") {
+		<section class="card narrow">
+			<h1>This conversation has been closed.</h1>
+			<p>The host has closed this lobby. No new messages can be sent.</p>
+			if d.HasHistory && len(d.Messages) > 0 {
+				<p class="muted">Your history is below — bookmark this page if you want to keep a record.</p>
+				@LobbyMessages(d.Messages)
+			} else {
+				<p class="muted">If you saved your conversation link and the URL stopped working, the host has closed the conversation.</p>
+			}
+		</section>
+	}
+}
+
+// ---- guest layout — no community chrome ----------------------------------
+
+templ GuestLayout(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width,initial-scale=1"/>
+			<title>{ title } — forumchat</title>
+			<link rel="stylesheet" href={ "/static/app.css?v=" + AssetVer("app.css") }/>
+			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
+			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
+		</head>
+		<body class="guest-body" data-signals={ InitialSignals }>
+			<main class="guest-main">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
+
+// ---- helpers --------------------------------------------------------------
+
+func tabClass(active, want string) string {
+	if active == want {
+		return "btn"
+	}
+	return "btn ghost"
+}
+
+func guestNameOrFallback(name string) string {
+	if name == "" {
+		return "Unnamed guest"
+	}
+	return name
+}
+
+func lobbyMsgSide(kind string) string {
+	if kind == "host" {
+		return "own"
+	}
+	return "other"
+}
+
+func promoteResultClass(errMsg string) string {
+	if errMsg != "" {
+		return "error"
+	}
+	return "success"
+}

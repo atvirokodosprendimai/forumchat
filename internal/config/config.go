@@ -50,6 +50,11 @@ type Config struct {
 	// schema migration.
 	ProjectsEnabled bool `env:"PROJECTS_ENABLED" envDefault:"false"`
 
+	// GuestAccessEnabled toggles the Lobbies feature: token-authed
+	// guest URLs into persistent text conversations, without the guest
+	// needing an account. Default off so a fresh deployment is closed.
+	GuestAccessEnabled bool `env:"GUEST_ACCESS_ENABLED" envDefault:"false"`
+
 	// Project-change → chat digest cadence (minutes). 0 disables the
 	// worker. When > 0, every N minutes the worker checks each community
 	// for projects with new attachments/issues/discussions/comments/replies

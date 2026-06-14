@@ -41,6 +41,7 @@ a Discord + forum mix would fit but you want to own the data.
 - **Built-in video rooms.** Mesh WebRTC, screen + camera as independent tiles, no Jitsi sidecar.
 - **Push notifications that don't spam.** Per-event toggles + 5 / 15 / 60 / 240-min digest mode.
 - **Two-step sign-in with magic link.** Email-then-password OR email-me-a-link, anti-enumeration by default.
+- **Lobbies for outsiders.** Share a tokenised URL with someone who doesn't have an account — they pick a name, you talk, history persists, image uploads work. Set `GUEST_ACCESS_ENABLED=true`.
 - **Multi-community by default.** Every row is `community_id`-scoped; public communities discoverable under `/explore`.
 - **Boring stack.** Go 1.26 · chi · templ · Datastar · scs sessions · SQLite + goose migrations. No JS framework.
 
@@ -92,6 +93,7 @@ docker run -p 8080:8080 \
 | **Rooms (video)**   | Eight always-on WebRTC meeting rooms per community. Mesh topology, lazy media policy, screen+camera as independent tiles, background blur, stage fullscreen.     |
 | **Projects**        | Optional feature flag. Each project carries discussions, issues (status + comments + attachments), todos, attachments, activity log. Share-link guest viewers.   |
 | **Private messages**| Request-based DMs. Recipient must accept before threads open. Live SSE updates + dock toast.                                                                      |
+| **Lobbies (guest access)** | Optional feature flag (`GUEST_ACCESS_ENABLED`). Admin / mod mints a tokenised URL; recipient joins, picks a name, full realtime chat with image paste/drop, history persists. Promote-to-member mints an invite tied to the captured email. |
 | **Push**            | Web Push (VAPID) with per-community settings, per-event toggles, digest mode (immediate / 5 / 15 / 60 / 240 min).                                                 |
 | **Notifications**   | Service worker delivers OS-level pushes; user picks which events wake them and the cadence.                                                                       |
 | **Moderation**      | admin / moderator / member roles. Soft-delete with role-aware render. Ban with optional content cleanup window. Trust level reserved for later.                  |

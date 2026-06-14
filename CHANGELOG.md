@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-06-15 `task/lobbies-v1` feat(lobbies): tokenised guest access — host mints a URL, guest joins with a chosen name, full realtime chat (history persists, image paste/drop, markdown), promote-to-member mints an invite. Behind `GUEST_ACCESS_ENABLED=true`.
 - 2026-06-13 `05ae0ed` chore: init repo
 - 2026-06-13 `8ae6ef3` chore: add directory skeleton with .gitkeep placeholders
 - 2026-06-13 `d9a76b1` feat(phase-1): scaffold, deps, migrations, datastar SSE clock smoke
@@ -92,3 +93,62 @@
 - 2026-06-14 `952df0f` feat(projects) Phase 6: forum-style comments
 - 2026-06-14 `bc26052` feat(projects) Phase 7: archive, hard delete, activity sidebar, CSS
 - 2026-06-14 `c67e051` docs(projects) Phase 8: spec sync — friction + future to match shipped
+- 2026-06-14 `3d47610` docs(projects) Phase 8: CHANGELOG + auto-mem updates
+- 2026-06-14 `77787e2` Merge task/projects-fix-upload-duplicate: dedupe attachment upload
+- 2026-06-14 `33bb09f` Merge task/projects-fix-data-show-hidden: drop static hidden attr beside data-show
+- 2026-06-14 `39c1a40` spec(project-issues): per-project issues + guest share + MPA tabs
+- 2026-06-14 `a1c8094` feat(projects) P0: MPA tabs refactor — Overview/Todos/Docs/Issues/Comments/Activity
+- 2026-06-14 `0802dab` feat(projects) P1: issues data model + list + create (member-only)
+- 2026-06-14 `437834c` feat(projects) P2: issue comments + image attachments
+- 2026-06-14 `facd6b1` feat(projects) P3: guest share-link mint + landing + read-gating
+- 2026-06-14 `509b9be` feat(projects) P4: guest write-paths on issues + read-only UI gating
+- 2026-06-14 `319963f` docs(project-issues) P5: spec/plan status -> shipped/completed + final progress log
+- 2026-06-14 `f0b2332` Merge task/projects-fix-404: unshadow projects index by consolidating routes
+- 2026-06-14 `cd149de` Merge task/projects-guest-upload-fk: attribute guest issue uploads to project creator
+- 2026-06-14 `2b4c8ca` Merge task/uploads-guest-view: let project-share guests view uploaded images
+- 2026-06-14 `37caa98` Merge task/issue-page-refresh: refresh issue page after mutations
+- 2026-06-14 `8333066` spec(project-discussions): per-project forum-style threads + replies + images
+- 2026-06-14 `894af64` feat(projects) PD1: discussions schema + threads CRUD + tab
+- 2026-06-14 `f4765e4` feat(projects) PD2: discussion replies + quoted-reply + edit-grace
+- 2026-06-14 `70de2c1` feat(projects) PD3: paste-image attachments on discussions + spec sync
+- 2026-06-14 `ccaf9cd` Merge task/uploads-shared-signing: shared signed URLs + discussion file-picker
+- 2026-06-14 `50aaeab` Merge task/discussions-bump-body-cap: 2MB request body limit on discussion mutators
+- 2026-06-14 `9abfb50` Merge task/uploads-img-clickable-thumb: clickable thumb images on discussions
+- 2026-06-14 `613c893` Merge task/issues-paste-image: paste/pick image on issue body
+- 2026-06-14 `5181d68` Merge task/wrap-upload-img-at-render: clickable images for old + new posts
+- 2026-06-14 `ab0d3b3` Merge task/layout-left-drawer: left sidebar nav + mobile hamburger drawer
+- 2026-06-14 `37da0a6` Merge task/layout-drawer-fix: mobile drawer + hamburger + presence-hide breakpoint
+- 2026-06-14 `1712da8` Merge task/hamburger-icon-fix: CSS-drawn hamburger bars
+- 2026-06-14 `6ca9f5b` Merge task/presence-right-drawer: mobile online-users right drawer
+- 2026-06-14 `f388c4d` Merge task/uploads-relax-hmac: HMAC best-effort, session is real gate
+- 2026-06-14 `862a5ae` Merge task/wrap-strip-existing-imglink: chat image embeds render correctly
+- 2026-06-14 `0e9d1a7` Merge task/regex-template-braces: fix swallowed src= literal in img wrap
+- 2026-06-14 `63b84ca` feat(ui): 2026 design refresh — OKLCH tokens, Inter, layered shadows
+- 2026-06-14 `69bd0ab` feat(ui): per-component polish — list hover lift, pill colors, dialog blur
+- 2026-06-14 `3c60a49` feat(ui): sidebar icons + active state, profile avatar, empty states
+- 2026-06-14 `191d7eb` feat(ui): chat textarea autogrow, SSE spinner, room dots, invite cards, theme hue
+- 2026-06-14 `0c88f26` fix(ui): MessagesBadge call no longer rendered as literal text
+- 2026-06-14 `4f36d71` feat(ui): redesign rooms admin tray as a card grid
+- 2026-06-14 `cab1c7c` feat(rooms): independent camera + screen tiles, stage fullscreen
+- 2026-06-14 `2c20562` fix(ui): mobile chat composer single row, presence FAB no longer overlaps
+- 2026-06-14 `7d7a3d1` feat(rooms): real-time background blur for camera (default on)
+- 2026-06-14 `5eccd1a` feat(admin): email join link when "Add member by email" checkbox is on
+- 2026-06-14 `f3acf52` fix(profile): apply display name + avatar to every community membership
+- 2026-06-14 `217406c` feat(push): Web Push notifications with per-community settings
+- 2026-06-14 `3b61d9c` fix(push): serve service worker from / so its scope reaches every route
+- 2026-06-14 `08ee530` fix(push): only set webpush HTTPClient when injected
+- 2026-06-14 `18725bc` feat(push): digest mode — batch notifications every N minutes
+- 2026-06-14 `38ded0b` docs: comprehensive README + system-design SVG diagrams
+- 2026-06-14 `a278638` feat(projects): share a project / issue / doc to community chat
+- 2026-06-14 `832f306` feat(projects): chat digest of changes + attachment categories + migration
+- 2026-06-14 `c947a94` feat(bookmarks): add 'open in history' link, matching todos pattern
+- 2026-06-14 `6216589` fix(projects): chat-digest query uses correct table name project_discussion_threads
+- 2026-06-14 `bbd87f3` feat(chat): @mention typeahead popup with telegram-style colours
+- 2026-06-14 `994f92f` feat(chat): group same-author runs into one bubble, highlight pings
+- 2026-06-14 `4ff4726` feat(auth): two-step login with email-then-password-or-magic-link
+- 2026-06-14 `9f7d393` feat(admin): remove member from community with optional content purge
+- 2026-06-14 `01a6bc1` Merge task/readme-hero-seo: hero rewrite for discoverability
+- 2026-06-14 `c056489` Merge task/docker-data-paths: persist data dir in /data volume
+- 2026-06-14 `3fca542` Merge task/readme-client-workspace-angle: client/agency workspace framing
+- 2026-06-14 `49bbc46` Merge task/readme-freelancer-fit: solo-freelancer sweet-spot callout
+- 2026-06-14 `097884d` Merge task/readme-quickstart-uploads-mount: split data/uploads volumes

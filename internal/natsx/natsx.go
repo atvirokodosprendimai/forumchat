@@ -45,3 +45,10 @@ func ForumThreadSubject(communityID, threadID string) string {
 func PresenceSubject(communityID string) string {
 	return fmt.Sprintf("community.%s.presence", communityID)
 }
+
+// LobbySubject is the per-lobby fan-out subject for the guest-access
+// feature. Per-lobby scoping (rather than per-community) keeps streams
+// from waking on unrelated lobbies' messages.
+func LobbySubject(communityID, lobbyID string) string {
+	return fmt.Sprintf("community.%s.lobby.%s", communityID, lobbyID)
+}

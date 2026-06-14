@@ -53,6 +53,10 @@ func initial(s string) string {
 // so no per-handler Viewer plumbing is required.
 var ProjectsEnabled bool
 
+// GuestAccessEnabled — instance-level Lobbies flag. Toggles the
+// sidebar menu item and gates the host-side routes registered in main.
+var GuestAccessEnabled bool
+
 // InitialSignals — global signal bag rendered on every page.
 // Every data-bind / data-on-click POST sees these as their starting state.
 const InitialSignals = `{
@@ -165,6 +169,9 @@ templ Layout(title string, v Viewer) {
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") }><span class="sb-icon" aria-hidden="true">☑</span>Todos</a>
 							if ProjectsEnabled {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") }><span class="sb-icon" aria-hidden="true">📂</span>Projects</a>
+							}
+							if GuestAccessEnabled && (v.Role == "admin" || v.Role == "moderator") {
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/lobbies") }><span class="sb-icon" aria-hidden="true">🚪</span>Lobbies</a>
 							}
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/notifications") }><span class="sb-icon" aria-hidden="true">🔔</span>Notifications</a>
