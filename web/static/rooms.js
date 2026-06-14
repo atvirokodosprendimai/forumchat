@@ -129,12 +129,14 @@
     try {
       const constraints = kind === 'audio' ? { audio: true } : { video: { width: 640, height: 480 } };
       stream = await navigator.mediaDevices.getUserMedia(constraints);
-    } catch {
+    } catch (e) {
+      console.warn('[rooms] getUserMedia denied', kind, e);
       return false;
     }
     const track = stream.getTracks().find(t => t.kind === kind);
     if (!track) { stream.getTracks().forEach(t => t.stop()); return false; }
     local[kind] = { track, stream };
+    console.log('[rooms] media enabled', kind, 'peers:', peers.size);
 
     // Attach to every existing peer connection.
     for (const entry of peers.values()) {
@@ -284,23 +286,26 @@
     if (local.video) entry.senders.video = pc.addTrack(local.video.track, local.video.stream);
 
     pc.ontrack = (ev) => {
+      console.log('[rooms] ontrack', { key, kind: ev.track.kind, streams: ev.streams.length });
       // Audio tracks go to the dedicated hidden <audio> sink (better
       // browser autoplay tolerance). Video tracks go to the tile <video>
       // (which is muted=false on the video element, but won't receive
       // audio tracks under this routing).
       if (ev.track.kind === 'audio') {
-        let aStream = entry.audio.srcObject;
-        if (!(aStream instanceof MediaStream)) {
-          aStream = new MediaStream();
-          entry.audio.srcObject = aStream;
+        if (!(entry.audio.srcObject instanceof MediaStream)) {
+          entry.audio.srcObject = new MediaStream();
         }
-        aStream.addTrack(ev.track);
-        entry.audio.play?.().catch(() => {});
-        // Wire up a one-shot retry on the first user gesture so a missed
-        // autoplay window still recovers without forcing a reload.
-        document.addEventListener('click', () => entry.audio.play?.().catch(() => {}), { once: true });
+        entry.audio.srcObject.addTrack(ev.track);
+        const tryPlay = () => entry.audio.play?.()
+          .then(() => console.log('[rooms] audio play OK', key))
+          .catch((err) => console.warn('[rooms] audio play blocked', key, err?.name));
+        tryPlay();
+        // Race a retry — some browsers reject .play() before the first
+        // packet arrives even when autoplay is allowed.
+        setTimeout(tryPlay, 250);
+        armGlobalAudioRecovery();
         const dropAudio = () => {
-          try { aStream.removeTrack(ev.track); } catch {}
+          try { entry.audio.srcObject?.removeTrack(ev.track); } catch {}
         };
         ev.track.addEventListener('mute', dropAudio);
         ev.track.addEventListener('ended', dropAudio);
@@ -440,6 +445,25 @@
     for (const key of [...peers.keys()]) {
       if (!wanted.has(key)) closePeer(key);
     }
+  }
+
+  // Browsers block <audio>.play() until the user has interacted with the
+  // page. We arm a single click listener that replays every peer audio
+  // element on the first click — recovers reliably whatever the user
+  // touches first.
+  function armGlobalAudioRecovery() {
+    if (window.__roomsAudioRecoveryArmed) return;
+    window.__roomsAudioRecoveryArmed = true;
+    const replay = () => {
+      document.querySelectorAll('audio').forEach((a) => {
+        if (a.srcObject instanceof MediaStream && a.srcObject.getTracks().length > 0) {
+          a.play?.().catch(() => {});
+        }
+      });
+    };
+    document.addEventListener('click', replay, { once: false });
+    document.addEventListener('keydown', replay, { once: false });
+    document.addEventListener('touchstart', replay, { once: false });
   }
 
   function makeTile(key, name, isLocal) {

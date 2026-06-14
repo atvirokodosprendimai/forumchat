@@ -129,7 +129,7 @@ templ RoomPage(d RoomPageData) {
 		>
 			<div id="rooms-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/stream', {openWhenHidden: true})" }></div>
 			<header class="rooms-room-head">
-				<a class="btn ghost rooms-back" href="/rooms">← Rooms</a>
+				<a class="btn ghost rooms-back" href={ templ.URL("/c/" + d.CommunitySlug + "/rooms") }>← Rooms</a>
 				<h1 class="rooms-room-title" data-rooms-title>{ d.RoomName }</h1>
 				if d.IsPublic {
 					<span class="rooms-pill rooms-pill-public">public</span>
@@ -249,6 +249,17 @@ templ RoomsAdminPanel(d RoomAdminPanelData) {
 				<p class="muted">No active share link.</p>
 				<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite')" }>Create share link</button>
 			}
+		</div>
+
+		<div class="rooms-admin-section">
+			<h3>Invite by email</h3>
+			<p class="muted">One address per line, or comma/semicolon separated. We'll mint the share link if one doesn't exist and email it to each address.</p>
+			<textarea
+				data-bind="rooms_invite_emails"
+				rows="3"
+				placeholder="alice@example.com, bob@example.com"
+				class="rooms-emails"></textarea>
+			<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite/email')" }>Send invites</button>
 		</div>
 	</div>
 }
