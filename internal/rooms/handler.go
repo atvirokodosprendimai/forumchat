@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -95,6 +96,19 @@ func (h *Handler) OpenRoutes(r chi.Router) {
 func (h *Handler) PublicRoutes(r chi.Router) {
 	r.Get("/rooms/invite/{token}", h.GetInviteLanding)
 	r.Post("/rooms/invite/{token}/join", h.PostInviteJoin)
+}
+
+// roomIDParam returns the {id} URL param percent-DECODED. Chi v5 keeps
+// reserved-char encodings intact when r.URL.RawPath is set, which means
+// our room IDs (format "<communityID>:room-NN") come back with "%3A"
+// instead of ":". The session, the DB row, and the State map all use
+// the decoded form, so we normalize here once at the boundary.
+func roomIDParam(r *http.Request) string {
+	raw := roomIDParam(r)
+	if dec, err := url.PathUnescape(raw); err == nil {
+		return dec
+	}
+	return raw
 }
 
 // caller resolves the requester to an Identity — either an auth user, or
@@ -198,7 +212,7 @@ func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no community", http.StatusInternalServerError)
 		return
 	}
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	rm, err := h.Repo.RoomByID(r.Context(), roomID)
 	if err != nil || rm.CommunityID != c.ID {
 		// Room doesn't exist OR belongs to a different community — same
@@ -276,7 +290,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug := c.Slug
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -485,7 +499,7 @@ func (h *Handler) pushChat(ctx context.Context, sse *datastar.ServerSentEventGen
 // GetSignalStream is the raw SSE relay (separate connection from the room
 // stream so message ordering is preserved and JS uses native EventSource).
 func (h *Handler) GetSignalStream(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -499,7 +513,7 @@ func (h *Handler) GetSignalStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PostSignal(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -532,7 +546,7 @@ func (h *Handler) PostSignal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PostJoin(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -555,7 +569,7 @@ func (h *Handler) PostJoin(w http.ResponseWriter, r *http.Request) {
 // PostPing is the heartbeat the client sends every 15s. Updates last-seen
 // in state; the janitor evicts members who go silent for 45s.
 func (h *Handler) PostPing(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -566,7 +580,7 @@ func (h *Handler) PostPing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PostLeave(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -590,33 +604,33 @@ type targetSignals struct {
 
 func (h *Handler) PostApprove(w http.ResponseWriter, r *http.Request) {
 	h.adminAction(w, r, func(svc *Service, id Identity, in targetSignals) error {
-		return svc.Approve(r.Context(), chi.URLParam(r, "id"), id.Key(), in.Target)
+		return svc.Approve(r.Context(), roomIDParam(r), id.Key(), in.Target)
 	})
 }
 func (h *Handler) PostDecline(w http.ResponseWriter, r *http.Request) {
 	h.adminAction(w, r, func(svc *Service, id Identity, in targetSignals) error {
-		return svc.Decline(r.Context(), chi.URLParam(r, "id"), id.Key(), in.Target)
+		return svc.Decline(r.Context(), roomIDParam(r), id.Key(), in.Target)
 	})
 }
 func (h *Handler) PostPromote(w http.ResponseWriter, r *http.Request) {
 	h.adminAction(w, r, func(svc *Service, id Identity, in targetSignals) error {
-		return svc.Promote(r.Context(), chi.URLParam(r, "id"), id.Key(), in.Target)
+		return svc.Promote(r.Context(), roomIDParam(r), id.Key(), in.Target)
 	})
 }
 func (h *Handler) PostTogglePublic(w http.ResponseWriter, r *http.Request) {
 	h.adminAction(w, r, func(svc *Service, id Identity, in targetSignals) error {
-		_, err := svc.TogglePublic(r.Context(), chi.URLParam(r, "id"), id.Key())
+		_, err := svc.TogglePublic(r.Context(), roomIDParam(r), id.Key())
 		return err
 	})
 }
 func (h *Handler) PostRename(w http.ResponseWriter, r *http.Request) {
 	h.adminAction(w, r, func(svc *Service, id Identity, in targetSignals) error {
-		return svc.Rename(r.Context(), chi.URLParam(r, "id"), id.Key(), in.NewName)
+		return svc.Rename(r.Context(), roomIDParam(r), id.Key(), in.NewName)
 	})
 }
 
 func (h *Handler) PostChat(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -655,7 +669,7 @@ func (h *Handler) PostChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PostCreateInvite(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -681,7 +695,7 @@ func (h *Handler) PostCreateInvite(w http.ResponseWriter, r *http.Request) {
 // an explicit target="_blank" anchor so the chat renders the URL as a
 // clickable button-style link instead of plain text.
 func (h *Handler) PostShareToChat(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	if h.ChatRepo == nil || h.ChatBus == nil {
 		http.Error(w, "chat sharing not available", http.StatusServiceUnavailable)
 		return
@@ -772,7 +786,7 @@ type emailInviteSignals struct {
 // exist so the recipients always get a valid token. The body sent is
 // plain text: "<community> invites you to a meeting (<room name>). Join: <url>".
 func (h *Handler) PostEmailInvite(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	if h.Mailer == nil {
 		http.Error(w, "email not configured", http.StatusServiceUnavailable)
 		return
@@ -869,7 +883,7 @@ func parseEmailList(s string) []string {
 }
 
 func (h *Handler) PostRevokeInvite(w http.ResponseWriter, r *http.Request) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -947,7 +961,7 @@ func (h *Handler) PostInviteJoin(w http.ResponseWriter, r *http.Request) {
 // adminAction is the shared decoder + dispatcher for the admin-only POSTs
 // that take a `rooms_target` signal.
 func (h *Handler) adminAction(w http.ResponseWriter, r *http.Request, fn func(*Service, Identity, targetSignals) error) {
-	roomID := chi.URLParam(r, "id")
+	roomID := roomIDParam(r)
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
