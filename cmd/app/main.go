@@ -799,7 +799,7 @@ var compressibleContentTypes = []string{
 // compressor's WriteHeader hook picks an encoder and sets Content-Encoding
 // before the SDK's ResponseController.Flush unwraps past the wrapper.
 func newCompressor() *middleware.Compressor {
-	c := middleware.NewCompressor(20, compressibleContentTypes...)
+	c := middleware.NewCompressor(5, compressibleContentTypes...)
 	// Register zstd first, br second — chi's SetEncoder prepends, so the
 	// last-registered encoder wins precedence. br ends up preferred over zstd
 	// over the built-in gzip/deflate when the client advertises all of them.
