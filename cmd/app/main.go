@@ -144,6 +144,17 @@ func run() error {
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static"))))
 
+	// Serve the push service worker from the site root so it can claim
+	// the whole '/' scope. Without this, registering /static/sw.js
+	// confines its scope to /static/* and the push events never fire on
+	// app routes. Also set Service-Worker-Allowed for belt-and-braces.
+	r.Get("/sw.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Service-Worker-Allowed", "/")
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, "./web/static/sw.js")
+	})
+
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

@@ -59,7 +59,10 @@
   }
 
   async function registerSW() {
-    const reg = await navigator.serviceWorker.register('/static/sw.js', { scope: '/' });
+    // Must register from a path whose URL allows scope '/'. The server
+    // exposes a dedicated /sw.js handler that adds Service-Worker-Allowed: /
+    // and ServeFiles the same file from web/static/sw.js.
+    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
     // Wait for it to be active so subscribe() doesn't race.
     if (reg.installing) {
       await new Promise(res => {
@@ -131,7 +134,8 @@
     try {
       showError('');
       showStatus('Disabling…');
-      const reg = await navigator.serviceWorker.getRegistration('/');
+      const reg = await navigator.serviceWorker.getRegistration('/')
+        || await navigator.serviceWorker.getRegistration('/sw.js');
       const sub = reg ? await reg.pushManager.getSubscription() : null;
       if (sub) {
         try { await sub.unsubscribe(); } catch (_) {}
