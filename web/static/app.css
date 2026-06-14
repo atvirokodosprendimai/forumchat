@@ -2416,6 +2416,68 @@ hr {
   .project-upload-label { flex: 1 1 100%; }
 }
 
+/* Chat message groups — telegram-style. Consecutive same-author user
+   messages collapse into one outer bubble; own messages right-align,
+   others left-align. The inner .bubble articles go flat (no own bg/
+   border/shadow) inside grouped bubbles so the group itself is the
+   visible box. System / thread-announce groups keep their existing
+   per-article styling. */
+.messages { display: flex; flex-direction: column; gap: .55rem; }
+.bubble-group {
+  display: flex;
+  flex-direction: column;
+  max-width: min(72ch, 75%);
+  border-radius: 16px;
+  padding: .55rem .85rem;
+  position: relative;
+}
+.bubble-group.own {
+  align-self: flex-end;
+  background: var(--accent-soft, color-mix(in srgb, var(--accent) 18%, var(--surface)));
+  color: var(--fg);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-bottom-right-radius: 6px;
+}
+.bubble-group.other {
+  align-self: flex-start;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border-subtle);
+  border-bottom-left-radius: 6px;
+}
+.bubble-group.system { align-self: center; background: transparent; border: 0; padding: 0; max-width: 90%; }
+/* Flatten inner bubble articles when grouped — group wrapper owns the
+   visual bubble. System groups keep their original .bubble.system look. */
+.bubble-group.own > .bubble,
+.bubble-group.other > .bubble {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+}
+.bubble-group.own > .bubble + .bubble,
+.bubble-group.other > .bubble + .bubble { margin-top: .25rem; }
+.bubble-group.own > .bubble:hover,
+.bubble-group.other > .bubble:hover { border-color: transparent; box-shadow: none; }
+/* Own messages hide the author name in the meta (it's "me"). Time stays. */
+.bubble-group.own .meta > strong { display: none; }
+
+/* @mention spans in rendered message bodies. .me variant flags pings
+   targeted at the viewer. */
+.mention {
+  color: var(--accent-strong, var(--accent));
+  font-weight: 600;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+.mention.me {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent-fg, var(--fg));
+  padding: 0 4px;
+}
+
 /* @mention typeahead popup — floats above the composer textarea. */
 .composer { position: relative; }
 .mention-popup {

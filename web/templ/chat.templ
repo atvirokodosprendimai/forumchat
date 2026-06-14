@@ -54,7 +54,7 @@ templ ChatPage(d ChatPageData) {
 		<section class="chat-layout">
 			<div>
 				<h1>{ d.Viewer.CommunityName }</h1>
-				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID, d.Viewer.CommunitySlug)
+				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID, d.Viewer.DisplayName, d.Viewer.CommunitySlug)
 				@ChatComposer(d.Viewer.CommunitySlug)
 			</div>
 			<aside id="presence" class="presence" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/presence/stream', {openWhenHidden: true})" }>
@@ -167,26 +167,97 @@ func mentionInitial(name string) string {
 	return "?"
 }
 
+// MsgGroup is a run of consecutive same-author user messages rendered
+// as a single visual bubble (telegram-style). System / thread-announce
+// messages each live in their own one-element group so they keep their
+// own styling.
+type MsgGroup struct {
+	AuthorID string
+	Kind     MsgKind
+	IsOwn    bool
+	Messages []MsgView
+}
+
+// groupMessages run-length-encodes the asc-ordered message list by
+// (AuthorID, Kind), but only collapses MsgKindUser runs — system and
+// thread-announce kinds always stay in their own group so their
+// non-bubble styling isn't smeared across neighbours.
+func groupMessages(asc []MsgView, currentUserID string) []MsgGroup {
+	out := make([]MsgGroup, 0, len(asc))
+	for _, m := range asc {
+		if len(out) > 0 {
+			last := &out[len(out)-1]
+			if last.Kind == MsgKindUser && m.Kind == MsgKindUser && last.AuthorID == m.AuthorID && last.AuthorID != "" {
+				last.Messages = append(last.Messages, m)
+				continue
+			}
+		}
+		out = append(out, MsgGroup{
+			AuthorID: m.AuthorID,
+			Kind:     m.Kind,
+			IsOwn:    m.Kind == MsgKindUser && currentUserID != "" && m.AuthorID == currentUserID,
+			Messages: []MsgView{m},
+		})
+	}
+	return out
+}
+
+func groupClass(g MsgGroup) string {
+	cls := "bubble-group"
+	switch g.Kind {
+	case MsgKindSystem, MsgKindThreadAnnounce:
+		cls += " system"
+	default:
+		if g.IsOwn {
+			cls += " own"
+		} else {
+			cls += " other"
+		}
+	}
+	return cls
+}
+
 // MessagesContainer renders the latest N messages with a data-init on the
 // container itself for the initial scroll. Subsequent updates get
 // sse.ExecuteScript from the handler. currentUserID lets us show the
 // "promote to thread" button only on the viewer's own messages (mods get it
-// regardless via isMod).
-templ MessagesContainer(messages []MsgView, isMod bool, currentUserID string, slug string) {
+// regardless via isMod). viewerName drives @mention "ping me" highlighting.
+templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName, slug string) {
 	<div id="messages" class="messages"
 		data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
-		for i := len(messages) - 1; i >= 0; i-- {
-			@MessageView(messages[i], isMod, currentUserID, slug)
+		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
+			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
 		}
 	</div>
 }
 
-templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
+// reverseMessages flips the desc-from-DB slice so groupMessages walks
+// oldest→newest. Returns a fresh slice — does not mutate the input.
+func reverseMessages(msgs []MsgView) []MsgView {
+	out := make([]MsgView, len(msgs))
+	for i, m := range msgs {
+		out[len(msgs)-1-i] = m
+	}
+	return out
+}
+
+// MessageGroup wraps a same-author run in one bubble. The first message
+// renders its meta header (name + time); the rest just stack their body
+// inside the shared box.
+templ MessageGroup(g MsgGroup, isMod bool, currentUserID, viewerName, slug string) {
+	<div class={ groupClass(g) }>
+		for i, m := range g.Messages {
+			@MessageView(m, isMod, currentUserID, viewerName, slug, i == 0)
+		}
+	</div>
+}
+
+templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, showMeta bool) {
 	<article class={ msgClass(m) } id={ "msg-" + m.ID } data-id={ m.ID }>
 		if m.Deleted {
 			if isMod {
 				<div class="muted">[deleted by mod] · { fmtTime(m.CreatedAt) }</div>
-				<div class="body deleted">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
+				<div class="body deleted">@templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
 			} else {
 				<div class="muted">[message removed]</div>
 			}
@@ -194,10 +265,12 @@ templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
 			@templ.Raw(render.WrapUploadImages(m.BodyHTML))
 		} else {
-			<header class="meta">
-				<strong>{ m.AuthorName }</strong>
-				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
-			</header>
+			if showMeta {
+				<header class="meta">
+					<strong>{ m.AuthorName }</strong>
+					<span class="muted">{ fmtTime(m.CreatedAt) }</span>
+				</header>
+			}
 			<details class="msg-menu">
 				<summary aria-label="Actions"><span class="msg-menu-dot"></span></summary>
 				<div class="msg-menu-list" role="menu">
@@ -244,7 +317,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 					<div>{ m.ReplyTo.Snippet }</div>
 				</blockquote>
 			}
-			<div class="body">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
+			<div class="body">@templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
 		}
 	</article>
 }
