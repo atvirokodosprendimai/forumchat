@@ -103,7 +103,9 @@ templ Layout(title string, v Viewer) {
 							Messages
 							@MessagesBadge(0)
 						</a>
-						<a href="/rooms">Rooms</a>
+						if v.CommunitySlug != "" {
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") }>Rooms</a>
+						}
 						<a href="/explore">Explore</a>
 						<a href="/">Communities</a>
 						<a href="/profile">{ v.DisplayName }</a>

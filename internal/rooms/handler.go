@@ -18,6 +18,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
+	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -33,6 +34,7 @@ type Handler struct {
 	Bus        *Bus
 	State      *State
 	AuthRepo   *auth.Repo
+	CommRepo   *community.Repo // for slug lookups (share-to-chat URLs, guest redirect after invite-join)
 	Sessions   *scs.SessionManager
 	Log        *slog.Logger
 	IceServers []ICEServer // optional STUN/TURN config; client-side passes to RTCPeerConnection
@@ -54,37 +56,36 @@ type ICEServer struct {
 	Credential string   `json:"credential,omitempty"`
 }
 
-// AuthRoutes mounts the slice that requires a logged-in user: the grid and
-// the admin-only invite link operations. Per-room interaction routes are
-// mounted via OpenRoutes so guests (who arrive through a share-link cookie,
-// not an account) can reach them.
-func (h *Handler) AuthRoutes(r chi.Router) {
-	r.Get("/rooms", h.GetGrid)
-	r.Post("/rooms/{id}/invite", h.PostCreateInvite)
-	r.Post("/rooms/{id}/invite/revoke", h.PostRevokeInvite)
+// MemberRoutes mounts the slice that requires a logged-in community member.
+// Mount at "/c/{slug}/rooms" under the existing RequireAuth + LoadCommunity
+// + RequireMember + RequireApproved stack.
+func (h *Handler) MemberRoutes(r chi.Router) {
+	r.Get("/", h.GetGrid)
+	r.Post("/{id}/invite", h.PostCreateInvite)
+	r.Post("/{id}/invite/revoke", h.PostRevokeInvite)
 }
 
-// OpenRoutes mounts the routes that an auth user OR a session-scoped guest
-// may use. Each handler defers identity resolution to caller(), which
-// accepts either an SCS-backed auth session or the guest keys set by
-// PostInviteJoin.
+// OpenRoutes mounts per-room interaction routes that an auth user OR a
+// session-scoped invite-guest may use. Mount at "/c/{slug}/rooms" with just
+// the LoadCommunity middleware — caller() resolves identity itself.
 func (h *Handler) OpenRoutes(r chi.Router) {
-	r.Get("/rooms/{id}", h.GetRoom)
-	r.Get("/rooms/{id}/stream", h.GetStream)
-	r.Post("/rooms/{id}/signal/send", h.PostSignal)
-	r.Post("/rooms/{id}/join", h.PostJoin)
-	r.Post("/rooms/{id}/leave", h.PostLeave)
-	r.Post("/rooms/{id}/ping", h.PostPing)
-	r.Post("/rooms/{id}/approve", h.PostApprove)
-	r.Post("/rooms/{id}/decline", h.PostDecline)
-	r.Post("/rooms/{id}/promote", h.PostPromote)
-	r.Post("/rooms/{id}/public", h.PostTogglePublic)
-	r.Post("/rooms/{id}/rename", h.PostRename)
-	r.Post("/rooms/{id}/chat", h.PostChat)
-	r.Post("/rooms/{id}/share-to-chat", h.PostShareToChat)
+	r.Get("/{id}", h.GetRoom)
+	r.Get("/{id}/stream", h.GetStream)
+	r.Post("/{id}/signal/send", h.PostSignal)
+	r.Post("/{id}/join", h.PostJoin)
+	r.Post("/{id}/leave", h.PostLeave)
+	r.Post("/{id}/ping", h.PostPing)
+	r.Post("/{id}/approve", h.PostApprove)
+	r.Post("/{id}/decline", h.PostDecline)
+	r.Post("/{id}/promote", h.PostPromote)
+	r.Post("/{id}/public", h.PostTogglePublic)
+	r.Post("/{id}/rename", h.PostRename)
+	r.Post("/{id}/chat", h.PostChat)
+	r.Post("/{id}/share-to-chat", h.PostShareToChat)
 }
 
-// PublicRoutes mounts the guest invite landing. No auth required.
+// PublicRoutes mounts the guest invite landing at root. No auth/community
+// context — the token resolves to a room which resolves to a community.
 func (h *Handler) PublicRoutes(r chi.Router) {
 	r.Get("/rooms/invite/{token}", h.GetInviteLanding)
 	r.Post("/rooms/invite/{token}/join", h.PostInviteJoin)
@@ -119,12 +120,22 @@ func (h *Handler) resolveAuthName(ctx context.Context, uid string) string {
 }
 
 func (h *Handler) GetGrid(w http.ResponseWriter, r *http.Request) {
-	uid := auth.CurrentUserID(r.Context(), h.Sessions)
-	if uid == "" {
-		http.Redirect(w, r, "/login?next=/rooms", http.StatusSeeOther)
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "no community", http.StatusInternalServerError)
 		return
 	}
-	rooms, err := h.Repo.ListRooms(r.Context())
+	uid := auth.CurrentUserID(r.Context(), h.Sessions)
+	if uid == "" {
+		http.Redirect(w, r, "/login?next=/c/"+c.Slug+"/rooms", http.StatusSeeOther)
+		return
+	}
+	// Lazy-seed this community's 8 rooms on first visit. The bootstrap
+	// community is seeded at boot; everyone else gets seeded here.
+	if err := h.Repo.EnsureSeeded(r.Context(), c.ID); err != nil {
+		h.Log.Error("rooms seed", "err", err, "community", c.ID)
+	}
+	rooms, err := h.Repo.ListRoomsForCommunity(r.Context(), c.ID)
 	if err != nil {
 		h.Log.Error("rooms list", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -153,19 +164,34 @@ func (h *Handler) GetGrid(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	v := h.layoutViewer(r)
-	_ = webtempl.RoomsGrid(webtempl.RoomsGridData{Viewer: v, Rows: rows}).Render(r.Context(), w)
+	v.CommunityName = c.Name
+	v.CommunitySlug = c.Slug
+	_ = webtempl.RoomsGrid(webtempl.RoomsGridData{
+		Viewer:        v,
+		CommunitySlug: c.Slug,
+		CommunityName: c.Name,
+		Rows:          rows,
+	}).Render(r.Context(), w)
 }
 
 func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "no community", http.StatusInternalServerError)
+		return
+	}
 	roomID := chi.URLParam(r, "id")
 	rm, err := h.Repo.RoomByID(r.Context(), roomID)
-	if err != nil {
+	if err != nil || rm.CommunityID != c.ID {
+		// Room doesn't exist OR belongs to a different community — same
+		// "not found" response either way so we don't leak room ids across
+		// communities.
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 	id, ok := h.caller(r, roomID)
 	if !ok {
-		http.Redirect(w, r, "/login?next=/rooms/"+roomID, http.StatusSeeOther)
+		http.Redirect(w, r, "/login?next=/c/"+c.Slug+"/rooms/"+roomID, http.StatusSeeOther)
 		return
 	}
 
@@ -199,8 +225,12 @@ func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := h.layoutViewer(r)
+	v.CommunityName = c.Name
+	v.CommunitySlug = c.Slug
 	data := webtempl.RoomPageData{
 		Viewer:         v,
+		CommunitySlug:  c.Slug,
+		CommunityName:  c.Name,
 		RoomID:         rm.ID,
 		RoomName:       rm.Name,
 		IsPublic:       rm.IsPublic,
@@ -222,6 +252,12 @@ func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
 // GetStream is the long-lived per-room SSE for presence/chat/meta deltas.
 // Datastar-style: each event re-renders the affected fragment.
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "no community", http.StatusInternalServerError)
+		return
+	}
+	slug := c.Slug
 	roomID := chi.URLParam(r, "id")
 	id, ok := h.caller(r, roomID)
 	if !ok {
@@ -229,7 +265,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rm, err := h.Repo.RoomByID(r.Context(), roomID)
-	if err != nil {
+	if err != nil || rm.CommunityID != c.ID {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -253,7 +289,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	// inside fragment pushes. Resolve once from this request.
 	scheme, host := publicSchemeHost(r)
 
-	h.pushRoomFragments(r.Context(), sse, rm, id, scheme, host)
+	h.pushRoomFragments(r.Context(), sse, rm, id, slug, scheme, host)
 
 	ticker := time.NewTicker(25 * time.Second)
 	defer ticker.Stop()
@@ -272,16 +308,16 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			h.Log.Info("rooms stream push", "kind", ev.Kind, "room", roomID, "key", id.Key())
 			switch ev.Kind {
 			case "presence", "approval":
-				h.pushParticipants(r.Context(), sse, rm2.ID, id)
+				h.pushParticipants(r.Context(), sse, slug, rm2.ID, id)
 				// Promotion / admin transfer also flips the recipient's
 				// admin status. Pushing the admin panel here ensures the
 				// just-promoted user sees their full controls (invite link,
 				// public toggle, rename) instead of stale non-admin content.
-				h.pushAdminPanel(r.Context(), sse, rm2, id, scheme, host)
+				h.pushAdminPanel(r.Context(), sse, rm2, id, slug, scheme, host)
 			case "chat":
 				h.pushChat(r.Context(), sse, rm2.ID, id)
 			case "meta":
-				h.pushRoomFragments(r.Context(), sse, rm2, id, scheme, host)
+				h.pushRoomFragments(r.Context(), sse, rm2, id, slug, scheme, host)
 			}
 		case env, ok := <-sigInbox:
 			if !ok {
@@ -297,24 +333,24 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Handler) pushRoomFragments(ctx context.Context, sse *datastar.ServerSentEventGenerator, rm Room, viewer Identity, scheme, host string) {
-	h.pushParticipants(ctx, sse, rm.ID, viewer)
+func (h *Handler) pushRoomFragments(ctx context.Context, sse *datastar.ServerSentEventGenerator, rm Room, viewer Identity, slug, scheme, host string) {
+	h.pushParticipants(ctx, sse, slug, rm.ID, viewer)
 	h.pushChat(ctx, sse, rm.ID, viewer)
-	h.pushAdminPanel(ctx, sse, rm, viewer, scheme, host)
+	h.pushAdminPanel(ctx, sse, rm, viewer, slug, scheme, host)
 	_ = sse.PatchSignals([]byte(`{"rooms_room_name":"` + jsQuote(rm.Name) + `"}`))
 }
 
-func (h *Handler) pushParticipants(ctx context.Context, sse *datastar.ServerSentEventGenerator, roomID string, viewer Identity) {
+func (h *Handler) pushParticipants(ctx context.Context, sse *datastar.ServerSentEventGenerator, slug, roomID string, viewer Identity) {
 	snap := h.State.Snapshot(roomID)
 	members := toParticipantViews(snap.Members, snap.AdminKey, viewer.Key())
 	pending := toParticipantViews(snap.Pending, "", viewer.Key())
 	isAdmin := snap.AdminKey == viewer.Key() && !viewer.IsGuest()
 	_ = sse.PatchElementTempl(
-		webtempl.RoomsParticipants(members, pending, isAdmin, roomID),
+		webtempl.RoomsParticipants(members, pending, isAdmin, slug, roomID),
 		datastar.WithModeOuter(),
 	)
 	_ = sse.PatchElementTempl(
-		webtempl.RoomsPendingBanner(pending, isAdmin, roomID),
+		webtempl.RoomsPendingBanner(pending, isAdmin, slug, roomID),
 		datastar.WithModeOuter(),
 	)
 	// am_admin is consumed by data-show on the gear button so a just-
@@ -332,7 +368,7 @@ func (h *Handler) pushParticipants(ctx context.Context, sse *datastar.ServerSent
 
 // pushAdminPanel re-renders the admin tray fragment (only meaningful when
 // the viewer is the room admin — non-admins don't render that block).
-func (h *Handler) pushAdminPanel(ctx context.Context, sse *datastar.ServerSentEventGenerator, rm Room, viewer Identity, scheme, host string) {
+func (h *Handler) pushAdminPanel(ctx context.Context, sse *datastar.ServerSentEventGenerator, rm Room, viewer Identity, slug, scheme, host string) {
 	if !h.State.IsAdmin(rm.ID, viewer.Key()) || viewer.IsGuest() {
 		return
 	}
@@ -342,9 +378,10 @@ func (h *Handler) pushAdminPanel(ctx context.Context, sse *datastar.ServerSentEv
 	}
 	_ = sse.PatchElementTempl(
 		webtempl.RoomsAdminPanel(webtempl.RoomAdminPanelData{
-			RoomID:    rm.ID,
-			IsPublic:  rm.IsPublic,
-			InviteURL: inviteURL,
+			CommunitySlug: slug,
+			RoomID:        rm.ID,
+			IsPublic:      rm.IsPublic,
+			InviteURL:     inviteURL,
 		}),
 		datastar.WithSelector("#rooms-admin-panel"),
 		datastar.WithModeOuter(),
@@ -637,19 +674,17 @@ func (h *Handler) PostShareToChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "only public rooms can be shared", http.StatusBadRequest)
 		return
 	}
-	commID := ""
-	if ai, ok := auth.FromContext(r.Context()); ok {
-		commID = ai.Membership.CommunityID
-	}
-	if commID == "" {
-		commID = auth.CurrentCommunityID(r.Context(), h.Sessions)
-	}
-	if commID == "" {
-		http.Error(w, "no community to share to", http.StatusBadRequest)
+	// Rooms are community-scoped: the share message goes to the room's
+	// community chat (not the viewer's session community — those are now
+	// always the same, but explicit is safer).
+	c, ok := community.FromContext(r.Context())
+	if !ok || c.ID != rm.CommunityID {
+		http.Error(w, "community mismatch", http.StatusBadRequest)
 		return
 	}
 	scheme, host := publicSchemeHost(r)
-	link := scheme + "://" + host + "/rooms/" + rm.ID
+	link := scheme + "://" + host + "/c/" + c.Slug + "/rooms/" + rm.ID
+	commID := c.ID
 	name := htmlEsc(rm.Name)
 	href := htmlEsc(link)
 	bodyHTML := `🎥 Room <strong>` + name + `</strong> is live — ` +
@@ -756,7 +791,20 @@ func (h *Handler) PostInviteJoin(w http.ResponseWriter, r *http.Request) {
 	h.Sessions.Put(r.Context(), sessKeyGuestID, gid.GuestID)
 	h.Sessions.Put(r.Context(), sessKeyGuestName, gid.Name)
 	h.Sessions.Put(r.Context(), sessKeyGuestRoomID, rm.ID)
-	http.Redirect(w, r, "/rooms/"+rm.ID, http.StatusSeeOther)
+	// Resolve the community slug for the redirect URL — the guest lands at
+	// /c/<slug>/rooms/<id> which the per-room route handles without
+	// requiring community membership.
+	slug := ""
+	if h.CommRepo != nil {
+		if c, err := h.CommRepo.ByID(r.Context(), rm.CommunityID); err == nil {
+			slug = c.Slug
+		}
+	}
+	if slug == "" {
+		http.Error(w, "community not found", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/c/"+slug+"/rooms/"+rm.ID, http.StatusSeeOther)
 }
 
 // adminAction is the shared decoder + dispatcher for the admin-only POSTs

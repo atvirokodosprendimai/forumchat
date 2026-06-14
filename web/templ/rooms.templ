@@ -17,8 +17,10 @@ type RoomsGridRow struct {
 }
 
 type RoomsGridData struct {
-	Viewer Viewer
-	Rows   []RoomsGridRow
+	Viewer         Viewer
+	CommunitySlug  string
+	CommunityName  string
+	Rows           []RoomsGridRow
 }
 
 type RoomChatView struct {
@@ -42,13 +44,16 @@ type RoomParticipantView struct {
 // Lives on its own so the SSE stream can re-render this fragment alone
 // after invite/visibility changes without forcing a page reload.
 type RoomAdminPanelData struct {
-	RoomID    string
-	IsPublic  bool
-	InviteURL string
+	CommunitySlug string
+	RoomID        string
+	IsPublic      bool
+	InviteURL     string
 }
 
 type RoomPageData struct {
 	Viewer         Viewer
+	CommunitySlug  string
+	CommunityName  string
 	RoomID         string
 	RoomName       string
 	IsPublic       bool
@@ -79,7 +84,7 @@ templ RoomsGrid(d RoomsGridData) {
 			<ul class="rooms-grid">
 				for _, row := range d.Rows {
 					<li class={ "rooms-card", templ.KV("rooms-card-public", row.IsPublic), templ.KV("rooms-card-busy", row.MemberCount > 0) }>
-						<a class="rooms-card-link" href={ templ.URL("/rooms/" + row.ID) }>
+						<a class="rooms-card-link" href={ templ.URL("/c/" + d.CommunitySlug + "/rooms/" + row.ID) }>
 							<div class="rooms-card-head">
 								<span class="rooms-card-slot">#{ strconv.Itoa(row.Slot) }</span>
 								<strong class="rooms-card-name">{ row.Name }</strong>
@@ -113,6 +118,7 @@ templ RoomPage(d RoomPageData) {
 		<section
 			class="rooms-room"
 			data-room-id={ d.RoomID }
+			data-community-slug={ d.CommunitySlug }
 			data-my-key={ d.MyKey }
 			data-my-name={ d.MyName }
 			data-am-admin={ boolStr(d.IsAdmin) }
@@ -121,7 +127,7 @@ templ RoomPage(d RoomPageData) {
 			data-ice-servers={ d.IceServersJSON }
 			data-signals={ "{\"rooms_am_admin\":" + boolStr(d.IsAdmin) + "}" }
 		>
-			<div id="rooms-stream-open" hidden data-init={ "@get('/rooms/" + d.RoomID + "/stream', {openWhenHidden: true})" }></div>
+			<div id="rooms-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/stream', {openWhenHidden: true})" }></div>
 			<header class="rooms-room-head">
 				<a class="btn ghost rooms-back" href="/rooms">← Rooms</a>
 				<h1 class="rooms-room-title" data-rooms-title>{ d.RoomName }</h1>
@@ -143,14 +149,15 @@ templ RoomPage(d RoomPageData) {
 
 			<div class="rooms-admin-tray" data-show="$rooms_admin_open">
 				@RoomsAdminPanel(RoomAdminPanelData{
-					RoomID:    d.RoomID,
-					IsPublic:  d.IsPublic,
-					InviteURL: d.InviteURL,
+					CommunitySlug: d.CommunitySlug,
+					RoomID:        d.RoomID,
+					IsPublic:      d.IsPublic,
+					InviteURL:     d.InviteURL,
 				})
 			</div>
 
 			<div class="rooms-pending-banner" data-rooms-pending>
-				@RoomsPendingBanner(d.Pending, d.IsAdmin, d.RoomID)
+				@RoomsPendingBanner(d.Pending, d.IsAdmin, d.CommunitySlug, d.RoomID)
 			</div>
 
 			<div class="rooms-layout-v3">
@@ -164,7 +171,7 @@ templ RoomPage(d RoomPageData) {
 						<div class="rooms-stage-label" data-rooms-stage-label></div>
 					</div>
 					<aside class="rooms-people" data-rooms-people>
-						@RoomsParticipants(d.Members, d.Pending, d.IsAdmin, d.RoomID)
+						@RoomsParticipants(d.Members, d.Pending, d.IsAdmin, d.CommunitySlug, d.RoomID)
 					</aside>
 				</section>
 
@@ -181,9 +188,9 @@ templ RoomPage(d RoomPageData) {
 						<input type="text" placeholder="message"
 							data-bind="rooms_chat_body"
 							maxlength="2000"
-							data-on:keydown={ "evt.key === 'Enter' && @post('/rooms/" + d.RoomID + "/chat')" }/>
+							data-on:keydown={ "evt.key === 'Enter' && @post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/chat')" }/>
 						<button class="btn" type="button"
-							data-on:click={ "@post('/rooms/" + d.RoomID + "/chat')" }>Send</button>
+							data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/chat')" }>Send</button>
 					</div>
 				</aside>
 			</div>
@@ -204,7 +211,7 @@ templ RoomsAdminPanel(d RoomAdminPanelData) {
 			<h3>Rename room</h3>
 			<div class="rooms-row">
 				<input type="text" placeholder="new room name" data-bind="rooms_new_name" maxlength="80"/>
-				<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/rename')" }>Save</button>
+				<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/rename')" }>Save</button>
 			</div>
 		</div>
 
@@ -213,14 +220,14 @@ templ RoomsAdminPanel(d RoomAdminPanelData) {
 			if d.IsPublic {
 				<p>This room is <strong>public</strong>. Anyone logged in can join without your approval.</p>
 				<div class="rooms-row">
-					<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/public')" }>Make private</button>
+					<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/public')" }>Make private</button>
 					<button class="btn"
-						data-on:click={ "@post('/rooms/" + d.RoomID + "/share-to-chat')" }
+						data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/share-to-chat')" }
 						title="Post a join link in the community chat">Share to chat</button>
 				</div>
 			} else {
 				<p>This room is <strong>private</strong>. You approve each joiner.</p>
-				<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/public')" }>Make public</button>
+				<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/public')" }>Make public</button>
 			}
 		</div>
 
@@ -235,18 +242,18 @@ templ RoomsAdminPanel(d RoomAdminPanelData) {
 						data-on:click="navigator.clipboard.writeText(document.getElementById('rooms-share-link').value)">Copy</button>
 				</div>
 				<div class="rooms-row">
-					<button class="btn ghost" data-on:click={ "@post('/rooms/" + d.RoomID + "/invite')" }>Rotate</button>
-					<button class="btn ghost" data-on:click={ "@post('/rooms/" + d.RoomID + "/invite/revoke')" }>Revoke</button>
+					<button class="btn ghost" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite')" }>Rotate</button>
+					<button class="btn ghost" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite/revoke')" }>Revoke</button>
 				</div>
 			} else {
 				<p class="muted">No active share link.</p>
-				<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/invite')" }>Create share link</button>
+				<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite')" }>Create share link</button>
 			}
 		</div>
 	</div>
 }
 
-templ RoomsPendingBanner(pending []RoomParticipantView, viewerIsAdmin bool, roomID string) {
+templ RoomsPendingBanner(pending []RoomParticipantView, viewerIsAdmin bool, communitySlug string, roomID string) {
 	<div id="rooms-pending-banner-inner" class="rooms-pending-banner-inner" data-pending-count={ strconv.Itoa(len(pending)) }>
 	if len(pending) > 0 && viewerIsAdmin {
 		<div class="rooms-pending-list">
@@ -258,9 +265,9 @@ templ RoomsPendingBanner(pending []RoomParticipantView, viewerIsAdmin bool, room
 						<span class="rooms-pill rooms-pill-guest">guest</span>
 					}
 					<button class="btn"
-						data-on:click={ "$rooms_target='" + p.Key + "'; @post('/rooms/" + roomID + "/approve')" }>Approve</button>
+						data-on:click={ "$rooms_target='" + p.Key + "'; @post('/c/" + communitySlug + "/rooms/" + roomID + "/approve')" }>Approve</button>
 					<button class="btn ghost"
-						data-on:click={ "$rooms_target='" + p.Key + "'; @post('/rooms/" + roomID + "/decline')" }>Decline</button>
+						data-on:click={ "$rooms_target='" + p.Key + "'; @post('/c/" + communitySlug + "/rooms/" + roomID + "/decline')" }>Decline</button>
 				</span>
 			}
 		</div>
@@ -268,7 +275,7 @@ templ RoomsPendingBanner(pending []RoomParticipantView, viewerIsAdmin bool, room
 	</div>
 }
 
-templ RoomsParticipants(members []RoomParticipantView, pending []RoomParticipantView, viewerIsAdmin bool, roomID string) {
+templ RoomsParticipants(members []RoomParticipantView, pending []RoomParticipantView, viewerIsAdmin bool, communitySlug string, roomID string) {
 	<div id="rooms-participants" class="rooms-participants">
 		<h3>People ({ strconv.Itoa(len(members)) })</h3>
 		<ul>
@@ -286,7 +293,7 @@ templ RoomsParticipants(members []RoomParticipantView, pending []RoomParticipant
 					}
 					if viewerIsAdmin && !p.IsMe && !p.IsAdmin && !p.IsGuest {
 						<button class="btn ghost rooms-people-promote"
-							data-on:click={ "$rooms_target='" + p.Key + "'; @post('/rooms/" + roomID + "/promote')" }>
+							data-on:click={ "$rooms_target='" + p.Key + "'; @post('/c/" + communitySlug + "/rooms/" + roomID + "/promote')" }>
 							Make admin
 						</button>
 					}

@@ -13,6 +13,7 @@ const (
 // Room is the persistent slot record. Live presence lives in State.
 type Room struct {
 	ID          string
+	CommunityID string
 	Slot        int
 	Name        string
 	IsPublic    bool
@@ -25,6 +26,7 @@ type Room struct {
 type ChatMessage struct {
 	ID           string
 	RoomID       string
+	CommunityID  string
 	AuthorUserID string // empty for guest
 	AuthorName   string
 	Body         string
