@@ -36,11 +36,15 @@ type CommunityRef struct {
 
 // Handler holds the dependencies for the projects HTTP layer.
 type Handler struct {
-	Repo       *Repo
-	Svc        *Service
-	Bus        *Bus
-	Uploads    *uploads.Store
-	Sessions   *scs.SessionManager // for share-link guest sessions
+	Repo     *Repo
+	Svc      *Service
+	Bus      *Bus
+	Uploads  *uploads.Store
+	Sessions *scs.SessionManager // for share-link guest sessions
+	// PushNotify dispatches a web-push notification. Optional. Wired in
+	// main.go to the push package's Sender. Used to broadcast new-project,
+	// new-issue and new-comment events to community subscribers.
+	PushNotify func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
 	Log        *slog.Logger
 	commLookup commLookupFn // injected by main.go for the guest-bounce route
 }
@@ -125,6 +129,17 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		h.Log.Error("projects create", "err", err, "community", c.ID, "user", id.User.ID)
 		http.Error(w, "create failed: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+	if h.PushNotify != nil {
+		title := "New project: " + p.Title
+		body := id.Membership.DisplayName + " created a new project."
+		projectURL := "/c/" + c.Slug + "/projects/" + p.ID
+		cid := c.ID
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			h.PushNotify(ctx, cid, "project_new", nil, title, body, projectURL)
+		}()
 	}
 	http.Redirect(w, r, "/c/"+c.Slug+"/projects/"+p.ID, http.StatusSeeOther)
 }

@@ -26,6 +26,14 @@ type Handler struct {
 	NATS          *nats.Conn
 	Bus           *Bus
 	Uploads       *uploads.Store
+	// AuthRepo is used to resolve @mentions in chat messages to user ids
+	// before firing PushNotify. Optional — when nil, mention notifications
+	// are skipped silently.
+	AuthRepo *auth.Repo
+	// PushNotify dispatches a web-push notification. Wired in main.go to
+	// the push package's Sender so this package doesn't import push.
+	// userIDs may be empty to broadcast across the whole community.
+	PushNotify    func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
@@ -218,6 +226,100 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":""}`))
 
 	h.broadcast(r.Context())
+
+	// Fire-and-forget push notification for @mentions. Runs in the
+	// background so a slow push service doesn't make the chat send
+	// look stalled to the sender.
+	if h.PushNotify != nil && h.AuthRepo != nil {
+		mentions := parseMentions(body)
+		if len(mentions) > 0 {
+			cid := h.cid(r.Context())
+			cslug := h.cslug(r.Context())
+			senderName := id.Membership.DisplayName
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				ids, err := h.AuthRepo.UserIDsByDisplayName(ctx, cid, mentions)
+				if err != nil || len(ids) == 0 {
+					return
+				}
+				// Drop the sender from the recipient list — no self-pings.
+				ids = filterOut(ids, id.User.ID)
+				if len(ids) == 0 {
+					return
+				}
+				title := senderName + " mentioned you"
+				preview := bodyPreview(body, 120)
+				url := "/c/" + cslug + "/chat"
+				h.PushNotify(ctx, cid, "mention", ids, title, preview, url)
+			}()
+		}
+	}
+}
+
+// parseMentions finds @name tokens in the body. Returns the unique
+// lowercased name set (the membership query is case-insensitive).
+func parseMentions(body string) []string {
+	if body == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 4)
+	var b strings.Builder
+	in := false
+	for _, r := range body {
+		if r == '@' {
+			in = true
+			b.Reset()
+			continue
+		}
+		if in {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+				b.WriteRune(r)
+				continue
+			}
+			// Token ended.
+			if b.Len() >= 2 {
+				k := strings.ToLower(b.String())
+				if _, ok := seen[k]; !ok {
+					seen[k] = struct{}{}
+					out = append(out, k)
+				}
+			}
+			in = false
+		}
+	}
+	if in && b.Len() >= 2 {
+		k := strings.ToLower(b.String())
+		if _, ok := seen[k]; !ok {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// bodyPreview returns the first N visible runes of the body with a
+// trailing ellipsis when it was truncated.
+func bodyPreview(body string, n int) string {
+	body = strings.TrimSpace(body)
+	count := 0
+	for i := range body {
+		if count >= n {
+			return body[:i] + "…"
+		}
+		count++
+	}
+	return body
+}
+
+func filterOut(ids []string, drop string) []string {
+	out := ids[:0]
+	for _, id := range ids {
+		if id != drop {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {

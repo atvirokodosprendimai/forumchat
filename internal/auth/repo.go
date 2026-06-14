@@ -329,6 +329,42 @@ func (r *Repo) UpdateMembershipProfile(ctx context.Context, membershipID, displa
 	return err
 }
 
+// UserIDsByDisplayName resolves a list of (case-insensitive) display
+// names to the user_ids backing the matching memberships in this
+// community. Used by chat to map @mention tokens to push targets.
+// Empty input returns an empty slice without hitting the DB.
+func (r *Repo) UserIDsByDisplayName(ctx context.Context, communityID string, names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, 0, len(names))
+	args := []any{communityID}
+	for _, n := range names {
+		placeholders = append(placeholders, "?")
+		args = append(args, n)
+	}
+	q := `
+		SELECT DISTINCT user_id
+		FROM memberships
+		WHERE community_id = ?
+		AND lower(display_name) IN (` + strings.Join(placeholders, ",") + `)
+	`
+	rows, err := r.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		out = append(out, uid)
+	}
+	return out, rows.Err()
+}
+
 // UpdateAllMembershipProfiles updates display_name + avatar_url on every
 // membership this user holds, so the profile editor reflects across every
 // community at once. Without this, only the membership the user is

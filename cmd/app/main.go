@@ -31,6 +31,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
+	"github.com/atvirokodosprendimai/forumchat/internal/push"
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
@@ -178,6 +179,7 @@ func run() error {
 		NATS:          nc,
 		Bus:           chatBus,
 		Uploads:       uploadStore,
+		AuthRepo:      aRepo,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
@@ -256,6 +258,43 @@ func run() error {
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
+
+	// ----- Web Push (VAPID) -------------------------------------------------
+	vapidPub, vapidPriv, err := push.LoadOrCreateVAPID(cfg.VAPIDPublic, cfg.VAPIDPrivate, cfg.VAPIDKeysFile, log)
+	if err != nil {
+		log.Warn("push: VAPID load/generate failed — push disabled", "err", err)
+	}
+	pushRepo := push.NewRepo(db)
+	pushSender := &push.Sender{
+		Repo:    pushRepo,
+		Public:  vapidPub,
+		Private: vapidPriv,
+		Subject: cfg.VAPIDSubject,
+		Log:     log,
+	}
+	pushHandler := &push.Handler{
+		Repo:      pushRepo,
+		Sender:    pushSender,
+		PublicKey: vapidPub,
+		AuthSvc:   svc,
+		AuthRepo:  aRepo,
+		Log:       log,
+	}
+	pushHandler.Mount(r)
+	// Wire the sender so other packages (chat, forum, projects) can call
+	// notify helpers without importing each other. Each package owns the
+	// "what counts as a notifiable event" logic.
+	pushNotifyFn := func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string) {
+		n := push.Notification{Title: title, Body: body, URL: url, Tag: kind}
+		if len(userIDs) > 0 {
+			pushSender.SendToUsers(ctx, communityID, kind, userIDs, n)
+			return
+		}
+		pushSender.SendToCommunity(ctx, communityID, kind, n)
+	}
+	chatHandler.PushNotify = pushNotifyFn
+	forumHandler.PushNotify = pushNotifyFn
+	projectsHandler.PushNotify = pushNotifyFn
 
 	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
 	r.Group(func(r chi.Router) {
@@ -370,6 +409,9 @@ func run() error {
 		r.Post("/todos", todosHandler.PostCreate)
 		r.Post("/todos/{id}/status", todosHandler.PostStatus)
 		r.Post("/todos/{id}/delete", todosHandler.PostDelete)
+
+		// Per-community notification settings (Web Push opt-in + toggles).
+		pushHandler.MountPerCommunity(r)
 
 		// Projects routes ALL live in their own r.Route block below the
 		// big /c/{slug} group — see "Projects feature routes" further
