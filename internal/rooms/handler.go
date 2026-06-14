@@ -47,6 +47,11 @@ type Handler struct {
 	ChatSvc  *chat.Service
 	ChatRepo *chat.Repo
 	ChatBus  *chat.Bus
+
+	// Mailer is used for the "invite guests by email" admin action. When
+	// nil the email-invite endpoint returns 503 — the rest of the rooms
+	// feature works without it.
+	Mailer auth.Mailer
 }
 
 // ICEServer matches the WebRTC dictionary shape.
@@ -62,6 +67,7 @@ type ICEServer struct {
 func (h *Handler) MemberRoutes(r chi.Router) {
 	r.Get("/", h.GetGrid)
 	r.Post("/{id}/invite", h.PostCreateInvite)
+	r.Post("/{id}/invite/email", h.PostEmailInvite)
 	r.Post("/{id}/invite/revoke", h.PostRevokeInvite)
 }
 
@@ -729,6 +735,113 @@ func htmlEsc(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// emailInviteSignals is the datastar body for the "email invites" admin
+// action. The textarea is bound to rooms_invite_emails.
+type emailInviteSignals struct {
+	Emails string `json:"rooms_invite_emails"`
+}
+
+// PostEmailInvite emails the room's current share-link to each address
+// the admin entered. Creates a new active invite if one doesn't already
+// exist so the recipients always get a valid token. The body sent is
+// plain text: "<community> invites you to a meeting (<room name>). Join: <url>".
+func (h *Handler) PostEmailInvite(w http.ResponseWriter, r *http.Request) {
+	roomID := chi.URLParam(r, "id")
+	if h.Mailer == nil {
+		http.Error(w, "email not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id, ok := h.caller(r, roomID)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	if id.IsGuest() || !h.State.IsAdmin(roomID, id.Key()) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "no community", http.StatusInternalServerError)
+		return
+	}
+	rm, err := h.Repo.RoomByID(r.Context(), roomID)
+	if err != nil || rm.CommunityID != c.ID {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in emailInviteSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	addresses := parseEmailList(in.Emails)
+	if len(addresses) == 0 {
+		http.Error(w, "no email addresses provided", http.StatusBadRequest)
+		return
+	}
+	// Reuse the currently-active invite when one exists; mint a fresh one
+	// otherwise so recipients can always join.
+	inv, err := h.Repo.ActiveInviteForRoom(r.Context(), roomID)
+	if err != nil {
+		inv, err = h.Svc.CreateInvite(r.Context(), roomID, id.Key(), id.UserID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	scheme, host := publicSchemeHost(r)
+	link := scheme + "://" + host + "/rooms/invite/" + inv.Token
+	subject := c.Name + " — meeting invite: " + rm.Name
+	body := "You've been invited to join \"" + rm.Name + "\" in " + c.Name + ".\n\n" +
+		"Click to join: " + link + "\n\n" +
+		"(Pick a display name on the page that opens; no account needed.)\n"
+	var failures []string
+	for _, addr := range addresses {
+		if err := h.Mailer.Send(r.Context(), addr, subject, body); err != nil {
+			h.Log.Warn("rooms invite email failed", "to", addr, "err", err)
+			failures = append(failures, addr)
+		}
+	}
+	// Clear the textarea + report via the same SSE stream so the admin
+	// panel re-renders with the (now possibly fresh) invite URL.
+	sse := datastar.NewSSE(w, r)
+	patch := `{"rooms_invite_emails":""}`
+	_ = sse.PatchSignals([]byte(patch))
+	if len(failures) > 0 {
+		http.Error(w, "some emails failed: "+strings.Join(failures, ", "), http.StatusBadRequest)
+		return
+	}
+}
+
+// parseEmailList splits a comma / newline / semicolon-delimited string of
+// addresses, trims whitespace, drops empties.
+func parseEmailList(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	splitter := func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r' || r == ';' || r == ' ' || r == '\t'
+	}
+	parts := strings.FieldsFunc(s, splitter)
+	out := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" || !strings.Contains(p, "@") {
+			continue
+		}
+		key := strings.ToLower(p)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, p)
+	}
+	return out
 }
 
 func (h *Handler) PostRevokeInvite(w http.ResponseWriter, r *http.Request) {

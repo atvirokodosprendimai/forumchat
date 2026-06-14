@@ -281,6 +281,7 @@ func run() error {
 		ChatSvc:  chatSvc,
 		ChatRepo: chatRepo,
 		ChatBus:  chatBus,
+		Mailer:   mailer,
 	}
 	// Seed the bootstrap community's 8 rooms on boot. Other communities
 	// get lazy-seeded on first GET /c/{slug}/rooms.
