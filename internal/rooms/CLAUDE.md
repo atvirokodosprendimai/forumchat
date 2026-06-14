@@ -7,14 +7,5 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
-| #3450 | 12:55 PM | ✅ | Janitor eviction timeout increased from 25 to 60 seconds for heartbeat resilience | ~397 |
-| #3441 | 12:52 PM | 🔴 | Applied EnsureMember self-healing to PostChat and PostSignal endpoints | ~400 |
-| #3440 | " | 🔴 | Added automatic re-admission to PostSignal handler preventing WebRTC signaling failures | ~426 |
-| #3439 | " | 🔴 | Removed recipient membership gate from WebRTC signaling to survive janitor evictions | ~477 |
-| #3438 | " | 🔴 | Auto-readmit members evicted by janitor to prevent 400 errors on active POSTs | ~414 |
-| #3437 | " | 🔴 | Increased janitor eviction timeout to prevent background tab disconnections | ~382 |
-| #3434 | 12:47 PM | 🔵 | IceServers field not initialized in rooms.Handler causing clients to use fallback STUN-only config | ~449 |
-| #3433 | " | 🔵 | Client WebRTC code lacks ICE connection state monitoring and error logging | ~469 |
-| #3431 | 12:46 PM | 🔵 | Guest WebRTC signaling follows same path as authenticated users with participant key routing | ~468 |
-| #3430 | " | 🔵 | WebRTC rooms implementation uses mesh topology with lazy media policy | ~196 |
+| #3456 | 1:08 PM | 🔴 | Fixed PostChat foreign key constraint failure by populating CommunityID | ~427 |
 </claude-mem-context>

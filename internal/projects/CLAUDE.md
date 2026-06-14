@@ -7,6 +7,7 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3606 | 2:37 PM | 🟣 | Added activity log loading to project page handler | ~376 |
 | #3598 | 2:35 PM | 🟣 | Added activity view transformation for project activity log display | ~369 |
 | #3597 | " | 🟣 | Added activity log push to every project event for real-time audit trail | ~403 |
 | #3596 | " | 🟣 | Added archive, unarchive, and delete project handlers with permission checks | ~409 |

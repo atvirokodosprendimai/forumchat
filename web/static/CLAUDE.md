@@ -7,6 +7,15 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3604 | 2:37 PM | ✅ | Added comprehensive CSS styling for projects feature UI components | ~431 |
+| #3575 | 2:31 PM | 🟣 | Phase 5 attachments shipped - drag-drop upload, download, permission-checked delete with SSE updates | ~578 |
+| #3466 | 1:12 PM | 🔴 | Fixed leave operation race where EnsureMember re-admitted departing users | ~417 |
+| #3465 | " | 🔴 | Heartbeat ping now respects leaving flag preventing ghost admin re-admission | ~435 |
+| #3463 | " | 🔴 | Added leaving flag to prevent ghost admin re-admission after explicit leave | ~413 |
+| #3462 | " | 🔴 | Added leaving flag to prevent EnsureMember race during room departure | ~414 |
+| #3453 | 1:03 PM | 🔴 | Shipped WebRTC guest resilience fixes: eviction self-heal, TURN config, ICE diagnostics | ~583 |
+| #3452 | 1:00 PM | ✅ | Merged WebRTC eviction resilience and TURN configuration to main branch | ~459 |
+| #3451 | 12:59 PM | 🔴 | Comprehensive WebRTC resilience fix committed addressing eviction, TURN config, and diagnostics | ~457 |
 | #3445 | 12:53 PM | 🟣 | Added visual error banner for getUserMedia failures | ~420 |
 | #3444 | " | 🟣 | Added user-facing error messages for getUserMedia failures in enableMedia | ~451 |
 | #3443 | " | 🟣 | Added ICE connection state logging to diagnose WebRTC connectivity failures | ~440 |
