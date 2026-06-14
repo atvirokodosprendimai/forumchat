@@ -44,7 +44,18 @@
   const micBtn = root.querySelector('[data-rooms-mic]');
   const camBtn = root.querySelector('[data-rooms-cam]');
   const screenBtn = root.querySelector('[data-rooms-screen]');
+  const blurBtn = root.querySelector('[data-rooms-blur]');
   const leaveBtn = root.querySelector('[data-rooms-leave]');
+
+  // Background blur is ON by default — the camera stream feeds MediaPipe
+  // Selfie Segmentation and remote peers receive the composited
+  // "person sharp, background blurred" stream. Persisted to localStorage
+  // so the choice survives reload. Toggle off for raw camera.
+  let blurEnabled = (() => {
+    try { return localStorage.getItem('rooms.blur') !== 'off'; }
+    catch { return true; }
+  })();
+  let blurController = null; // {stop()} from rooms-blur.wrap when active
 
   // ----- tile registry -----------------------------------------------------
   //
@@ -364,21 +375,37 @@
       flashMediaError(kind, 'Camera/microphone require HTTPS (or localhost).');
       return false;
     }
-    let stream;
+    let rawStream;
     try {
       const constraints = kind === 'audio' ? { audio: true } : { video: { width: 640, height: 480 } };
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      rawStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (e) {
       console.warn('[rooms] getUserMedia denied', kind, e);
       flashMediaError(kind, e?.name ? `${e.name}: ${e.message || ''}` : String(e));
       return false;
     }
-    const track = stream.getTracks().find(t => t.kind === kind);
-    if (!track) { stream.getTracks().forEach(t => t.stop()); return false; }
-    local[kind] = { track, stream };
+
+    // For camera: optionally run through background blur. The wrapped
+    // stream's track is what we expose to peers; the raw stream is kept
+    // so we can fully release the device on disable.
+    let publishStream = rawStream;
+    if (kind === 'video' && blurEnabled && window.fcRoomsBlur) {
+      try {
+        const wrapped = await window.fcRoomsBlur.wrap(rawStream, { blurPx: 12 });
+        publishStream = wrapped.stream;
+        blurController = wrapped;
+      } catch (e) {
+        console.warn('[rooms] background blur failed, falling back to raw camera', e);
+        blurController = null;
+      }
+    }
+
+    const track = publishStream.getTracks().find(t => t.kind === kind);
+    if (!track) { publishStream.getTracks().forEach(t => t.stop()); return false; }
+    local[kind] = { track, stream: publishStream, rawStream };
 
     for (const entry of peers.values()) {
-      const sender = entry.pc.addTrack(track, stream);
+      const sender = entry.pc.addTrack(track, publishStream);
       entry.senders[kind] = sender;
     }
     if (kind === 'video') {
@@ -393,7 +420,15 @@
     if (!cur) return;
     cur.track.stop();
     cur.stream.getTracks().forEach(t => t.stop());
+    // The raw camera stream (pre-blur) lives separately so we can fully
+    // release the device — without this, the camera LED stayed on after
+    // toggling off because the wrapper held the only reference.
+    cur.rawStream?.getTracks().forEach(t => t.stop());
     local[kind] = null;
+    if (kind === 'video' && blurController) {
+      try { blurController.stop(); } catch {}
+      blurController = null;
+    }
     for (const entry of peers.values()) {
       const sender = entry.senders[kind];
       if (sender) {
@@ -418,6 +453,7 @@
 
   syncToggleLabel(micBtn, 'mic', false);
   syncToggleLabel(camBtn, 'cam', false);
+  syncBlurLabel();
 
   function syncToggleLabel(btn, kind, on) {
     if (!btn) return;
@@ -427,6 +463,28 @@
     btn.textContent = `${icons[kind]} ${on ? 'on' : 'off'}`;
     btn.title = (kind === 'mic' ? 'Microphone' : 'Camera') + (on ? ' (on)' : ' (off)');
   }
+
+  function syncBlurLabel() {
+    if (!blurBtn) return;
+    blurBtn.classList.toggle('on', blurEnabled);
+    blurBtn.classList.toggle('off', !blurEnabled);
+    blurBtn.textContent = blurEnabled ? '🌫 blur' : '🌫 off';
+    blurBtn.title = `Background blur (${blurEnabled ? 'on' : 'off'}) — click to toggle`;
+  }
+
+  // Toggle blur: persist the choice and, if the camera is already on,
+  // tear it down + bring it back up so peers see the new pipeline.
+  blurBtn?.addEventListener('click', async () => {
+    blurEnabled = !blurEnabled;
+    try { localStorage.setItem('rooms.blur', blurEnabled ? 'on' : 'off'); } catch {}
+    syncBlurLabel();
+    if (local.video) {
+      const wasOn = true;
+      await disableMedia('video');
+      const ok = await enableMedia('video');
+      syncToggleLabel(camBtn, 'cam', ok && wasOn);
+    }
+  });
 
   // ----- screenshare -------------------------------------------------------
   //
