@@ -3,12 +3,13 @@ package templ
 // NotificationSettings is the per-community opt-in map rendered into
 // the form. Defaults to true on the server when a key is missing.
 type NotificationSettings struct {
-	Mention    bool
-	Report     bool
-	ProjectNew bool
-	IssueNew   bool
-	CommentNew bool
-	ThreadNew  bool
+	Mention       bool
+	Report        bool
+	ProjectNew    bool
+	IssueNew      bool
+	CommentNew    bool
+	ThreadNew     bool
+	DigestMinutes int // 0 = immediate; 5 / 15 / 60 / 240 sample options
 }
 
 type NotificationsPageData struct {
@@ -51,6 +52,25 @@ templ NotificationsPage(d NotificationsPageData) {
 
 			<hr/>
 
+			<h3>Delivery rhythm</h3>
+			<div class="notif-digest">
+				<label class="muted" for="notif-digest-select">Batch notifications:</label>
+				<select id="notif-digest-select" data-bind="notif_digest_minutes">
+					<option value="0">Immediately</option>
+					<option value="5">Every 5 minutes (if anything new)</option>
+					<option value="15">Every 15 minutes (if anything new)</option>
+					<option value="60">Every hour (if anything new)</option>
+					<option value="240">Every 4 hours (if anything new)</option>
+				</select>
+				<p class="muted notif-digest-note">
+					Digest mode only fires when there is something new since the last
+					notification. You will never get the same item twice and never get
+					a silent "nothing new" ping.
+				</p>
+			</div>
+
+			<hr/>
+
 			<h3>Send me a notification when…</h3>
 
 			<label class="check-row">
@@ -88,8 +108,8 @@ templ NotificationsPage(d NotificationsPageData) {
 }
 
 // notifSignalsJSON serializes the form defaults so the data-signals
-// attribute can prime the checkboxes from server state. Booleans go in
-// as bare true/false.
+// attribute can prime the checkboxes + digest select from server state.
+// Booleans go in as bare true/false; ints as bare numbers.
 func notifSignalsJSON(s NotificationSettings) string {
 	bs := func(b bool) string {
 		if b {
@@ -103,6 +123,29 @@ func notifSignalsJSON(s NotificationSettings) string {
 		"\"notif_project_new\":" + bs(s.ProjectNew) + "," +
 		"\"notif_issue_new\":" + bs(s.IssueNew) + "," +
 		"\"notif_comment_new\":" + bs(s.CommentNew) + "," +
-		"\"notif_thread_new\":" + bs(s.ThreadNew) +
+		"\"notif_thread_new\":" + bs(s.ThreadNew) + "," +
+		"\"notif_digest_minutes\":" + itoaNotif(s.DigestMinutes) +
 		"}"
+}
+
+func itoaNotif(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var b [16]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
 }
