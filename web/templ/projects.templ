@@ -167,6 +167,7 @@ templ ProjectTabs(slug, projectID, active string) {
 		@projectTab(slug, projectID, "todos", "Todos", active)
 		@projectTab(slug, projectID, "docs", "Docs", active)
 		@projectTab(slug, projectID, "issues", "Issues", active)
+		@projectTab(slug, projectID, "discussions", "Discussions", active)
 		@projectTab(slug, projectID, "comments", "Comments", active)
 		@projectTab(slug, projectID, "activity", "Activity", active)
 	</nav>
@@ -312,6 +313,214 @@ templ ProjectActivityPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Activity", d.Viewer) {
 		@projectShell(d, "activity") {
 			@ProjectActivityFragment(d.Activity)
+		}
+	}
+}
+
+// ProjectDiscussionRowView is one row on the discussions list page.
+type ProjectDiscussionRowView struct {
+	ID              string
+	Subject         string
+	CreatorName     string
+	IsGuestAuthored bool
+	LastActivityAt  time.Time
+	ReplyCount      int
+}
+
+// ProjectDiscussionThreadView is the per-thread render struct.
+type ProjectDiscussionThreadView struct {
+	ID              string
+	Subject         string
+	BodyMD          string
+	BodyHTML        string
+	CreatorName     string
+	IsGuestAuthored bool
+	CreatedAt       time.Time
+	LastActivityAt  time.Time
+	CanEdit         bool
+	CanDelete       bool
+}
+
+// ProjectDiscussionReplyView is one reply (PD2 fills it in; PD1 keeps
+// the type stable so the thread page signature doesn't churn).
+type ProjectDiscussionReplyView struct {
+	ID              string
+	AuthorName      string
+	IsGuestAuthored bool
+	BodyMD          string
+	BodyHTML        string
+	CreatedAt       time.Time
+	Edited          bool
+	CanEdit         bool
+	CanDelete       bool
+	QuotedReplyID   string
+	QuotedAuthor    string
+	QuotedSnippet   string
+}
+
+// ProjectDiscussionsPage renders the thread-list tab.
+templ ProjectDiscussionsPage(d ProjectPageData, threads []ProjectDiscussionRowView) {
+	@Layout(d.Project.Title+" — Discussions", d.Viewer) {
+		@projectShell(d, "discussions") {
+			<section class="project-panel project-panel-discussions"
+				data-signals="{projects_discussion_subject:'',projects_discussion_body:'',projects_discussion_body_image:''}">
+				<h3>Discussions</h3>
+				<form class="project-discussion-add"
+					data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions')" }>
+					<input type="text" maxlength="200" placeholder="Thread subject"
+						data-bind="projects_discussion_subject" required/>
+					<textarea rows="3" placeholder="Start the conversation (markdown supported, paste images here)…"
+						maxlength="10000"
+						data-on:paste="fcPasteImage(evt, 'projects_discussion_body_image')"
+						data-bind="projects_discussion_body"></textarea>
+					<input type="hidden" data-bind="projects_discussion_body_image"/>
+					<div data-show="$projects_discussion_body_image" class="muted">📎 Image attached — submits with the thread.</div>
+					<button class="btn" type="submit">Start thread</button>
+				</form>
+				if len(threads) == 0 {
+					<p class="muted">No discussion threads yet. Start the first one above.</p>
+				} else {
+					<ul class="project-discussions">
+						for _, t := range threads {
+							<li class="project-discussion-row">
+								<a class="project-discussion-link"
+									href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID) }>
+									<span class="project-discussion-subject">{ t.Subject }</span>
+									<span class="project-discussion-meta muted">
+										by { t.CreatorName }
+										if t.IsGuestAuthored {
+											<span class="projects-pill projects-pill-guest">guest</span>
+										}
+										· { strconv.Itoa(t.ReplyCount) } replies
+										· active { t.LastActivityAt.Local().Format("2006-01-02 15:04") }
+									</span>
+								</a>
+							</li>
+						}
+					</ul>
+				}
+			</section>
+		}
+	}
+}
+
+// ProjectDiscussionThreadPage renders the thread page. PD2 fills the
+// replies slice + reply form.
+templ ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadView, replies []ProjectDiscussionReplyView) {
+	@Layout(t.Subject+" — Discussion", d.Viewer) {
+		@projectShell(d, "discussions") {
+			<section class="project-panel project-panel-discussion"
+				data-signals={ "{projects_discussion_subject:'" + jsQuoteAttr(t.Subject) + "',projects_discussion_edit:'" + jsQuoteAttr(t.BodyMD) + "',projects_discussion_edit_open:false,projects_discussion_reply_body:'',projects_discussion_reply_image:'',projects_discussion_reply_edit:'',projects_discussion_reply_edit_id:'',projects_discussion_quote_id:''}" }>
+				<nav class="project-breadcrumb muted">
+					<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions") }>← all discussions</a>
+				</nav>
+				<header class="project-discussion-head">
+					<h1 class="project-discussion-title">{ t.Subject }</h1>
+					<span class="muted">
+						opened by { t.CreatorName }
+						if t.IsGuestAuthored {
+							<span class="projects-pill projects-pill-guest">guest</span>
+						}
+						· { t.CreatedAt.Local().Format("2006-01-02 15:04") }
+					</span>
+				</header>
+				<div class="project-discussion-display" data-show="!$projects_discussion_edit_open">
+					if t.BodyHTML != "" {
+						<div class="project-discussion-body">@templ.Raw(t.BodyHTML)</div>
+					} else {
+						<p class="muted">No body.</p>
+					}
+					<div class="project-discussion-actions">
+						if t.CanEdit {
+							<button class="btn ghost"
+								data-on:click="$projects_discussion_edit_open = true">Edit</button>
+						}
+						if t.CanDelete {
+							<button class="btn ghost danger"
+								data-on:click={ "confirm('Delete this thread?') && @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "/delete')" }>Delete</button>
+						}
+					</div>
+				</div>
+				<div class="project-discussion-edit" data-show="$projects_discussion_edit_open">
+					<label>
+						Subject
+						<input type="text" maxlength="200" data-bind="projects_discussion_subject"/>
+					</label>
+					<label>
+						Body (markdown)
+						<textarea rows="6" data-bind="projects_discussion_edit"></textarea>
+					</label>
+					<div class="project-edit-actions">
+						<button class="btn"
+							data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "'); $projects_discussion_edit_open = false" }>Save</button>
+						<button class="btn ghost"
+							data-on:click="$projects_discussion_edit_open = false">Cancel</button>
+					</div>
+				</div>
+				<section class="project-discussion-replies">
+					<h3>Replies</h3>
+					if len(replies) == 0 {
+						<p class="muted">No replies yet.</p>
+					} else {
+						<ul class="project-discussion-reply-list">
+							for _, rr := range replies {
+								<li class="project-discussion-reply" id={ "dr-" + rr.ID }>
+									if rr.QuotedReplyID != "" {
+										<blockquote class="project-discussion-quote">
+											<header class="muted">{ rr.QuotedAuthor } wrote:</header>
+											<p>{ rr.QuotedSnippet }</p>
+										</blockquote>
+									}
+									<div class="project-discussion-reply-meta muted">
+										<strong>{ rr.AuthorName }</strong>
+										if rr.IsGuestAuthored {
+											<span class="projects-pill projects-pill-guest">guest</span>
+										}
+										· <time>{ rr.CreatedAt.Local().Format("2006-01-02 15:04") }</time>
+										if rr.Edited {
+											<span>(edited)</span>
+										}
+									</div>
+									<div class="project-discussion-reply-body"
+										data-show={ "$projects_discussion_reply_edit_id !== '" + rr.ID + "'" }>@templ.Raw(rr.BodyHTML)</div>
+									<textarea class="project-discussion-reply-edit-input"
+										rows="3"
+										data-show={ "$projects_discussion_reply_edit_id === '" + rr.ID + "'" }
+										data-bind="projects_discussion_reply_edit"
+										data-on:keydown={ "evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault(), @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "/reply/" + rr.ID + "'), $projects_discussion_reply_edit_id = '')" }></textarea>
+									<div class="project-discussion-reply-actions">
+										<button class="btn ghost"
+											data-on:click={ "$projects_discussion_quote_id = '" + rr.ID + "'" }>Quote</button>
+										if rr.CanEdit {
+											<button class="btn ghost"
+												data-on:click={ "$projects_discussion_reply_edit_id = '" + rr.ID + "'; $projects_discussion_reply_edit = '" + jsQuoteAttr(rr.BodyMD) + "'" }>Edit</button>
+										}
+										if rr.CanDelete {
+											<button class="btn ghost"
+												data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "/reply/" + rr.ID + "/delete')" }>Delete</button>
+										}
+									</div>
+								</li>
+							}
+						</ul>
+					}
+					<form class="project-discussion-reply-add"
+						data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "/reply')" }>
+						<div data-show="$projects_discussion_quote_id !== ''" class="project-discussion-quote-pending muted">
+							Quoting reply
+							<button class="btn ghost" type="button"
+								data-on:click="$projects_discussion_quote_id = ''">×</button>
+						</div>
+						<textarea rows="3" placeholder="Reply (markdown supported, paste images here)…"
+							maxlength="4000"
+							data-on:paste="fcPasteImage(evt, 'projects_discussion_reply_image')"
+							data-bind="projects_discussion_reply_body" required></textarea>
+						<input type="hidden" data-bind="projects_discussion_reply_image"/>
+						<div data-show="$projects_discussion_reply_image" class="muted">📎 Image attached — submits with the reply.</div>
+						<button class="btn" type="submit">Post reply</button>
+					</form>
+				</section>
+			</section>
 		}
 	}
 }

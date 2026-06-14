@@ -438,6 +438,14 @@ func run() error {
 				r.Post("/{id}/issues/{iid}/comment/{cid}/delete", projectsHandler.PostIssueCommentDelete)
 				r.Post("/{id}/issues/{iid}/attachment", projectsHandler.PostIssueAttachmentUpload)
 				r.Post("/{id}/issues/{iid}/attachment/{aid}/delete", projectsHandler.PostIssueAttachmentDelete)
+				r.Get("/{id}/discussions", projectsHandler.GetDiscussionsTab)
+				r.Post("/{id}/discussions", projectsHandler.PostCreateDiscussionThread)
+				r.Get("/{id}/discussions/{did}", projectsHandler.GetDiscussionThread)
+				r.Post("/{id}/discussions/{did}", projectsHandler.PostEditDiscussionThread)
+				r.Post("/{id}/discussions/{did}/delete", projectsHandler.PostDeleteDiscussionThread)
+				r.Post("/{id}/discussions/{did}/reply", projectsHandler.PostDiscussionReply)
+				r.Post("/{id}/discussions/{did}/reply/{rid}", projectsHandler.PostDiscussionReplyEdit)
+				r.Post("/{id}/discussions/{did}/reply/{rid}/delete", projectsHandler.PostDiscussionReplyDelete)
 			})
 
 			// Member-only — index, create, edits, lifecycle, share mint,
