@@ -112,6 +112,18 @@ func (h *Handler) caller(r *http.Request, roomID string) (Identity, bool) {
 		name := h.Sessions.GetString(r.Context(), sessKeyGuestName)
 		return Identity{GuestID: gid, Name: name}, true
 	}
+	// Surface which branch missed so production 401 storms become
+	// debuggable — uid empty / gid empty / groom mismatch each call for
+	// a different fix.
+	h.Log.Warn("rooms caller: no identity",
+		"path", r.URL.Path,
+		"room", roomID,
+		"uid_empty", uid == "",
+		"gid_empty", gid == "",
+		"groom", groom,
+		"groom_matches", groom == roomID,
+		"has_cookie", r.Header.Get("Cookie") != "",
+	)
 	return Identity{}, false
 }
 
