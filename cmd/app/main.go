@@ -364,37 +364,12 @@ func run() error {
 		r.Post("/todos/{id}/status", todosHandler.PostStatus)
 		r.Post("/todos/{id}/delete", todosHandler.PostDelete)
 
-		// Projects feature is mounted only when PROJECTS_ENABLED=true.
-		// The OPEN routes (tab GETs + issue write-paths) admit guests and
-		// live in a separate Route block below the community group — they
-		// can't share auth.RequireAuth with the rest of the community
-		// surface. The flag also gates the nav link via webtempl.ProjectsEnabled.
-		if cfg.ProjectsEnabled {
-			// Member-only project routes — edits / lifecycle / share-mint
-			// stay inside the auth group.
-			r.Get("/projects", projectsHandler.GetIndex)
-			r.Post("/projects", projectsHandler.PostCreate)
-			r.Get("/projects/{id}/stream", projectsHandler.GetStream)
-			r.Post("/projects/{id}/title", projectsHandler.PostTitle)
-			r.Post("/projects/{id}/desc", projectsHandler.PostDescription)
-			r.Post("/projects/{id}/todo", projectsHandler.PostTodoAdd)
-			r.Post("/projects/{id}/todo/{tid}", projectsHandler.PostTodoEdit)
-			r.Post("/projects/{id}/todo/{tid}/toggle", projectsHandler.PostTodoToggle)
-			r.Post("/projects/{id}/todo/{tid}/delete", projectsHandler.PostTodoDelete)
-			r.Post("/projects/{id}/todo/reorder", projectsHandler.PostTodoReorder)
-			r.Post("/projects/{id}/attachment", projectsHandler.PostAttachmentUpload)
-			r.Get("/projects/{id}/attachment/{aid}/download", projectsHandler.GetAttachmentDownload)
-			r.Post("/projects/{id}/attachment/{aid}/delete", projectsHandler.PostAttachmentDelete)
-			r.Post("/projects/{id}/comment", projectsHandler.PostComment)
-			r.Post("/projects/{id}/comment/{cid}", projectsHandler.PostCommentEdit)
-			r.Post("/projects/{id}/comment/{cid}/delete", projectsHandler.PostCommentDelete)
-			r.Post("/projects/{id}/archive", projectsHandler.PostArchive)
-			r.Post("/projects/{id}/unarchive", projectsHandler.PostUnarchive)
-			r.Post("/projects/{id}/delete", projectsHandler.PostDeleteProject)
-			r.Post("/projects/{id}/share", projectsHandler.PostShareMint)
-			r.Post("/projects/{id}/share/revoke", projectsHandler.PostShareRevoke)
-			r.Post("/projects/{id}/issues/{iid}/status", projectsHandler.PostIssueStatus)
-		}
+		// Projects routes ALL live in their own r.Route block below the
+		// big /c/{slug} group — see "Projects feature routes" further
+		// down. Mounting them here would conflict with that block's
+		// /c/{slug}/projects tree and shadow the index page (chi resolves
+		// the more-specific Route first, leaving the empty-path
+		// /c/{slug}/projects unmatched -> 404).
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))
@@ -426,28 +401,71 @@ func run() error {
 		r.Post("/admin/create-community", adminHandler.PostCreateCommunity)
 	})
 
-	// Projects OPEN routes — auth member OR share-link guest. Mounted
-	// outside the auth-required community group so guests aren't
-	// bounced to /login.
+	// Projects feature routes — all under one r.Route("/c/{slug}/projects")
+	// block with TWO inner groups:
+	//   - Open (auth member OR share-link guest): only LoadCommunity
+	//     middleware. callerIdentity inside the handler resolves the
+	//     viewer.
+	//   - Member-only (auth member + community member): also gets
+	//     RequireAuth + RequireMember + RequireApproved.
+	// Mounting all projects routes in one tree avoids the chi shadowing
+	// gotcha where a separate /c/{slug}/projects route block hides
+	// individual /projects/* routes registered inside the broader
+	// /c/{slug} group.
 	if cfg.ProjectsEnabled {
 		r.Route("/c/{slug}/projects", func(r chi.Router) {
 			r.Use(community.LoadCommunity(cRepo))
-			r.Get("/{id}", projectsHandler.GetOverview)
-			r.Get("/{id}/todos", projectsHandler.GetTodosTab)
-			r.Get("/{id}/docs", projectsHandler.GetDocsTab)
-			r.Get("/{id}/comments", projectsHandler.GetCommentsTab)
-			r.Get("/{id}/activity", projectsHandler.GetActivityTab)
-			r.Get("/{id}/issues", projectsHandler.GetIssuesTab)
-			r.Post("/{id}/issues", projectsHandler.PostCreateIssue)
-			r.Get("/{id}/issues/{iid}", projectsHandler.GetIssue)
-			r.Post("/{id}/issues/{iid}", projectsHandler.PostIssueEdit)
-			r.Post("/{id}/issues/{iid}/delete", projectsHandler.PostIssueDelete)
-			r.Post("/{id}/issues/{iid}/comment", projectsHandler.PostIssueComment)
-			r.Post("/{id}/issues/{iid}/comment/{cid}", projectsHandler.PostIssueCommentEdit)
-			r.Post("/{id}/issues/{iid}/comment/{cid}/delete", projectsHandler.PostIssueCommentDelete)
-			r.Post("/{id}/issues/{iid}/attachment", projectsHandler.PostIssueAttachmentUpload)
-			r.Post("/{id}/issues/{iid}/attachment/{aid}/delete", projectsHandler.PostIssueAttachmentDelete)
+
+			// Open — auth member OR share-link guest.
+			r.Group(func(r chi.Router) {
+				r.Get("/{id}", projectsHandler.GetOverview)
+				r.Get("/{id}/todos", projectsHandler.GetTodosTab)
+				r.Get("/{id}/docs", projectsHandler.GetDocsTab)
+				r.Get("/{id}/comments", projectsHandler.GetCommentsTab)
+				r.Get("/{id}/activity", projectsHandler.GetActivityTab)
+				r.Get("/{id}/issues", projectsHandler.GetIssuesTab)
+				r.Post("/{id}/issues", projectsHandler.PostCreateIssue)
+				r.Get("/{id}/issues/{iid}", projectsHandler.GetIssue)
+				r.Post("/{id}/issues/{iid}", projectsHandler.PostIssueEdit)
+				r.Post("/{id}/issues/{iid}/delete", projectsHandler.PostIssueDelete)
+				r.Post("/{id}/issues/{iid}/comment", projectsHandler.PostIssueComment)
+				r.Post("/{id}/issues/{iid}/comment/{cid}", projectsHandler.PostIssueCommentEdit)
+				r.Post("/{id}/issues/{iid}/comment/{cid}/delete", projectsHandler.PostIssueCommentDelete)
+				r.Post("/{id}/issues/{iid}/attachment", projectsHandler.PostIssueAttachmentUpload)
+				r.Post("/{id}/issues/{iid}/attachment/{aid}/delete", projectsHandler.PostIssueAttachmentDelete)
+			})
+
+			// Member-only — index, create, edits, lifecycle, share mint,
+			// issue status change. Auth + RequireMember + RequireApproved.
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireAuth)
+				r.Use(community.RequireMember(aRepo))
+				r.Use(auth.RequireApproved)
+				r.Get("/", projectsHandler.GetIndex)
+				r.Post("/", projectsHandler.PostCreate)
+				r.Get("/{id}/stream", projectsHandler.GetStream)
+				r.Post("/{id}/title", projectsHandler.PostTitle)
+				r.Post("/{id}/desc", projectsHandler.PostDescription)
+				r.Post("/{id}/todo", projectsHandler.PostTodoAdd)
+				r.Post("/{id}/todo/{tid}", projectsHandler.PostTodoEdit)
+				r.Post("/{id}/todo/{tid}/toggle", projectsHandler.PostTodoToggle)
+				r.Post("/{id}/todo/{tid}/delete", projectsHandler.PostTodoDelete)
+				r.Post("/{id}/todo/reorder", projectsHandler.PostTodoReorder)
+				r.Post("/{id}/attachment", projectsHandler.PostAttachmentUpload)
+				r.Get("/{id}/attachment/{aid}/download", projectsHandler.GetAttachmentDownload)
+				r.Post("/{id}/attachment/{aid}/delete", projectsHandler.PostAttachmentDelete)
+				r.Post("/{id}/comment", projectsHandler.PostComment)
+				r.Post("/{id}/comment/{cid}", projectsHandler.PostCommentEdit)
+				r.Post("/{id}/comment/{cid}/delete", projectsHandler.PostCommentDelete)
+				r.Post("/{id}/archive", projectsHandler.PostArchive)
+				r.Post("/{id}/unarchive", projectsHandler.PostUnarchive)
+				r.Post("/{id}/delete", projectsHandler.PostDeleteProject)
+				r.Post("/{id}/share", projectsHandler.PostShareMint)
+				r.Post("/{id}/share/revoke", projectsHandler.PostShareRevoke)
+				r.Post("/{id}/issues/{iid}/status", projectsHandler.PostIssueStatus)
+			})
 		})
+
 		// Public guest-landing routes — no community context.
 		r.Get("/projects/share/{token}", projectsHandler.GetGuestLanding)
 		r.Post("/projects/share/{token}/join", projectsHandler.PostGuestJoin)
