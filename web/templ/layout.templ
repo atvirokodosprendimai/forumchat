@@ -92,14 +92,14 @@ templ Layout(title string, v Viewer) {
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 		</head>
 		<body data-signals={ InitialSignals }>
+			<script src={ "/static/nav.js?v=" + AssetVer("nav.js") } defer></script>
 			<header class="topbar">
 				<button class="topbar-hamburger" aria-label="Toggle navigation"
-					data-on:click="$nav_open = !$nav_open">☰</button>
+					type="button" data-nav-toggle>☰</button>
 				<a href="/" class="brand">forumchat</a>
 			</header>
-			<div class="nav-overlay" data-show="$nav_open"
-				data-on:click="$nav_open = false"></div>
-			<aside class={ "sidebar", templ.KV("sidebar-open", false) } data-class-sidebar-open="$nav_open">
+			<div class="nav-overlay" data-nav-overlay></div>
+			<aside class="sidebar">
 				<a href="/" class="sidebar-brand">forumchat</a>
 				<nav>
 					if v.IsAuthed {
