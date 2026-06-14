@@ -230,7 +230,7 @@ func run() error {
 
 	projectsRepo := projects.NewRepo(db)
 	projectsBus := projects.NewBus()
-	projectsSvc := projects.NewService(projectsRepo, projectsBus, uploadStore)
+	projectsSvc := projects.NewService(projectsRepo, projectsBus, uploadStore, cfg.EditGrace)
 	projectsHandler := &projects.Handler{
 		Repo:    projectsRepo,
 		Svc:     projectsSvc,
@@ -373,6 +373,9 @@ func run() error {
 			r.Post("/projects/{id}/attachment", projectsHandler.PostAttachmentUpload)
 			r.Get("/projects/{id}/attachment/{aid}/download", projectsHandler.GetAttachmentDownload)
 			r.Post("/projects/{id}/attachment/{aid}/delete", projectsHandler.PostAttachmentDelete)
+			r.Post("/projects/{id}/comment", projectsHandler.PostComment)
+			r.Post("/projects/{id}/comment/{cid}", projectsHandler.PostCommentEdit)
+			r.Post("/projects/{id}/comment/{cid}/delete", projectsHandler.PostCommentDelete)
 		}
 
 		r.Group(func(r chi.Router) {

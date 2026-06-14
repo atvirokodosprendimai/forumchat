@@ -7,7 +7,15 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
-| #3572 | 2:31 PM | 🔄 | Removed filepath.Base placeholder from attachment download handler | ~283 |
+| #3583 | 2:33 PM | 🟣 | Added comments loading to GetProject handler for initial page render | ~357 |
+| #3582 | " | 🟣 | Implemented comments SSE fragment push with edit grace period and permission controls | ~473 |
+| #3581 | " | 🟣 | Added Phase 6 comment handlers for forum-style commenting on projects | ~592 |
+| #3580 | " | 🟣 | Wired comments SSE push completing Phase 6 realtime comments functionality | ~359 |
+| #3579 | 2:32 PM | 🟣 | Added comment signal fields to projectSignals struct for Phase 6 preparation | ~421 |
+| #3578 | " | 🟣 | Added comment CRUD methods to projects service with edit grace and permission enforcement | ~495 |
+| #3577 | " | 🟣 | Added edit grace period to projects service for comment edit/delete permissions | ~357 |
+| #3575 | 2:31 PM | 🟣 | Phase 5 attachments shipped - drag-drop upload, download, permission-checked delete with SSE updates | ~578 |
+| #3572 | " | 🔄 | Removed filepath.Base placeholder from attachment download handler | ~283 |
 | #3571 | " | 🔄 | Removed unused path/filepath import from projects handler | ~322 |
 | #3568 | 2:30 PM | 🟣 | Extended GetProject handler to load and render attachments with permission checks | ~421 |
 | #3562 | 2:29 PM | 🟣 | Added attachment upload, download, and delete handlers for Phase 5 | ~625 |

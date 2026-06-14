@@ -31,11 +31,13 @@ type Handler struct {
 // projectSignals carries the editable values posted from the project
 // page. One bag for everything so we don't need a struct per endpoint.
 type projectSignals struct {
-	Title       string   `json:"projects_title"`
-	Description string   `json:"projects_desc"`
-	TodoBody    string   `json:"projects_todo_body"`
-	TodoEdit    string   `json:"projects_todo_edit"`
-	TodoOrder   []string `json:"projects_todo_order"`
+	Title         string   `json:"projects_title"`
+	Description   string   `json:"projects_desc"`
+	TodoBody      string   `json:"projects_todo_body"`
+	TodoEdit      string   `json:"projects_todo_edit"`
+	TodoOrder     []string `json:"projects_todo_order"`
+	CommentBody   string   `json:"projects_comment_body"`
+	CommentEdit   string   `json:"projects_comment_edit"`
 }
 
 // GetIndex renders /c/{slug}/projects: active projects on top, archived
@@ -146,6 +148,10 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.Log.Error("projects attachments load", "err", err, "id", pid)
 	}
+	comments, err := h.Repo.ListComments(r.Context(), p.ID)
+	if err != nil {
+		h.Log.Error("projects comments load", "err", err, "id", pid)
+	}
 
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
@@ -165,6 +171,7 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 		},
 		Todos:       toTodoViews(todos),
 		Attachments: toAttachmentViews(atts, p.CreatorUserID, id.User.ID, isAdmin),
+		Comments:    toCommentViews(comments, id.User.ID, isAdmin, h.Svc.EditGrace, time.Now().UTC()),
 	}
 	_ = webtempl.ProjectPage(data).Render(r.Context(), w)
 }
@@ -419,6 +426,92 @@ func (h *Handler) PostAttachmentDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PostComment adds a new comment to the project.
+func (h *Handler) PostComment(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Svc.AddComment(r.Context(), pid, id.User.ID, in.CommentBody); err != nil {
+		if errors.Is(err, ErrEmptyTitle) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h.Log.Warn("projects comment add", "err", err, "project", pid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"projects_comment_body":""}`))
+}
+
+// PostCommentEdit replaces a comment body within the grace window.
+func (h *Handler) PostCommentEdit(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	cid := chi.URLParam(r, "cid")
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	isAdmin := id.Membership.Role == auth.RoleAdmin
+	if err := h.Svc.UpdateComment(r.Context(), pid, cid, id.User.ID, isAdmin, in.CommentEdit); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Warn("projects comment edit", "err", err, "project", pid, "comment", cid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostCommentDelete soft-deletes a comment.
+func (h *Handler) PostCommentDelete(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	cid := chi.URLParam(r, "cid")
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	isAdmin := id.Membership.Role == auth.RoleAdmin
+	if err := h.Svc.DeleteComment(r.Context(), pid, cid, id.User.ID, isAdmin); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Warn("projects comment delete", "err", err, "project", pid, "comment", cid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // sanitizeFilename drops the four chars that break a quoted
 // Content-Disposition value, keeping everything else (Unicode is fine
 // inside RFC 6266 quoted-string for modern browsers).
@@ -474,8 +567,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			case "attachments":
 				h.pushAttachments(r, sse, pid)
 			case "comments":
-				// Phase 6 will fill this in.
-				h.pushHeader(r, sse, pid)
+				h.pushComments(r, sse, pid)
 			}
 		}
 	}
@@ -485,6 +577,46 @@ func (h *Handler) pushAll(r *http.Request, sse *datastar.ServerSentEventGenerato
 	h.pushHeader(r, sse, pid)
 	h.pushTodos(r, sse, pid)
 	h.pushAttachments(r, sse, pid)
+	h.pushComments(r, sse, pid)
+}
+
+func (h *Handler) pushComments(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {
+	comments, err := h.Repo.ListComments(r.Context(), pid)
+	if err != nil {
+		return
+	}
+	id, _ := auth.FromContext(r.Context())
+	c, _ := community.FromContext(r.Context())
+	now := time.Now().UTC()
+	views := toCommentViews(comments, id.User.ID, id.Membership.Role == auth.RoleAdmin, h.Svc.EditGrace, now)
+	_ = sse.PatchElementTempl(
+		webtempl.ProjectCommentsFragment(c.Slug, pid, views),
+		datastar.WithSelector("#proj-comments"),
+		datastar.WithModeOuter(),
+	)
+}
+
+func toCommentViews(cs []Comment, viewerID string, viewerIsAdmin bool, grace time.Duration, now time.Time) []webtempl.ProjectCommentView {
+	out := make([]webtempl.ProjectCommentView, 0, len(cs))
+	for _, c := range cs {
+		if c.IsDeleted() {
+			continue
+		}
+		isAuthor := c.AuthorID == viewerID
+		canEdit := viewerIsAdmin || (isAuthor && now.Sub(c.CreatedAt) <= grace)
+		canDelete := viewerIsAdmin || isAuthor
+		edited := c.EditedAt != nil
+		out = append(out, webtempl.ProjectCommentView{
+			ID:        c.ID,
+			BodyMD:    c.BodyMD,
+			BodyHTML:  c.BodyHTML,
+			CreatedAt: c.CreatedAt,
+			Edited:    edited,
+			CanEdit:   canEdit,
+			CanDelete: canDelete,
+		})
+	}
+	return out
 }
 
 func (h *Handler) pushAttachments(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {

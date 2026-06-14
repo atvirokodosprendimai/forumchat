@@ -301,6 +301,93 @@ func (r *Repo) DeleteAttachment(ctx context.Context, id string) error {
 	return err
 }
 
+// ListComments returns a project's comments in created_at ascending,
+// excluding soft-deleted rows. Forum-style edit_at / deleted_at apply.
+func (r *Repo) ListComments(ctx context.Context, projectID string) ([]Comment, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT id, project_id, author_id, body_md, body_html, edited_at, deleted_at, created_at
+		FROM project_comments
+		WHERE project_id = ?
+		ORDER BY created_at ASC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list comments: %w", err)
+	}
+	defer rows.Close()
+	var out []Comment
+	for rows.Next() {
+		var c Comment
+		var edited, deleted sql.NullInt64
+		var cAt int64
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.AuthorID, &c.BodyMD,
+			&c.BodyHTML, &edited, &deleted, &cAt); err != nil {
+			return nil, err
+		}
+		c.CreatedAt = time.UnixMilli(cAt).UTC()
+		if edited.Valid {
+			t := time.UnixMilli(edited.Int64).UTC()
+			c.EditedAt = &t
+		}
+		if deleted.Valid {
+			t := time.UnixMilli(deleted.Int64).UTC()
+			c.DeletedAt = &t
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// InsertComment persists one new comment.
+func (r *Repo) InsertComment(ctx context.Context, c Comment) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO project_comments (id, project_id, author_id, body_md, body_html, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		c.ID, c.ProjectID, c.AuthorID, c.BodyMD, c.BodyHTML, c.CreatedAt.UnixMilli())
+	return err
+}
+
+// UpdateComment replaces body + bumps edited_at.
+func (r *Repo) UpdateComment(ctx context.Context, id, md, html string, now time.Time) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE project_comments SET body_md = ?, body_html = ?, edited_at = ? WHERE id = ?`,
+		md, html, now.UnixMilli(), id)
+	return err
+}
+
+// SoftDeleteComment stamps deleted_at — preserves the row so existing
+// references (e.g. nested replies in future) stay resolvable.
+func (r *Repo) SoftDeleteComment(ctx context.Context, id string, now time.Time) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE project_comments SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`,
+		now.UnixMilli(), id)
+	return err
+}
+
+// CommentByID loads one row, including soft-deleted ones (so the
+// service can check the author/grace before re-acting).
+func (r *Repo) CommentByID(ctx context.Context, id string) (Comment, error) {
+	var c Comment
+	var edited, deleted sql.NullInt64
+	var cAt int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id, project_id, author_id, body_md, body_html, edited_at, deleted_at, created_at
+		FROM project_comments WHERE id = ?`, id).Scan(
+		&c.ID, &c.ProjectID, &c.AuthorID, &c.BodyMD, &c.BodyHTML,
+		&edited, &deleted, &cAt)
+	if err != nil {
+		return Comment{}, err
+	}
+	c.CreatedAt = time.UnixMilli(cAt).UTC()
+	if edited.Valid {
+		t := time.UnixMilli(edited.Int64).UTC()
+		c.EditedAt = &t
+	}
+	if deleted.Valid {
+		t := time.UnixMilli(deleted.Int64).UTC()
+		c.DeletedAt = &t
+	}
+	return c, nil
+}
+
 // ReorderTodos applies a new (id -> sort_order) mapping inside one
 // transaction. Callers pass the full desired order so we don't need to
 // fiddle with fractional indexes.

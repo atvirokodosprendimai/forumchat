@@ -25,14 +25,17 @@ var (
 // on success so every open SSE stream re-renders just the affected
 // fragment.
 type Service struct {
-	Repo    *Repo
-	Bus     *Bus
-	Uploads *uploads.Store
+	Repo      *Repo
+	Bus       *Bus
+	Uploads   *uploads.Store
+	EditGrace time.Duration
 }
 
-// NewService wraps a repo, bus, and uploads store.
-func NewService(repo *Repo, bus *Bus, store *uploads.Store) *Service {
-	return &Service{Repo: repo, Bus: bus, Uploads: store}
+// NewService wraps a repo, bus, and uploads store. EditGrace controls
+// how long after creation an author can still edit/delete their own
+// comment (matches forum.Service.EditGrace semantically).
+func NewService(repo *Repo, bus *Bus, store *uploads.Store, editGrace time.Duration) *Service {
+	return &Service{Repo: repo, Bus: bus, Uploads: store, EditGrace: editGrace}
 }
 
 // CreateProject persists a fresh project with rendered description HTML.
@@ -194,6 +197,80 @@ func (s *Service) AddAttachment(ctx context.Context, projectID, communityID, upl
 	}
 	s.Bus.PublishProject(projectID, Event{Kind: "attachments"})
 	return a, nil
+}
+
+// AddComment renders markdown and persists one new comment.
+func (s *Service) AddComment(ctx context.Context, projectID, authorID, bodyMD string) (Comment, error) {
+	bodyMD = strings.TrimSpace(bodyMD)
+	if bodyMD == "" {
+		return Comment{}, ErrEmptyTitle
+	}
+	html, err := render.RenderMarkdown(bodyMD)
+	if err != nil {
+		return Comment{}, fmt.Errorf("render comment: %w", err)
+	}
+	c := Comment{
+		ID:        uuid.NewString(),
+		ProjectID: projectID,
+		AuthorID:  authorID,
+		BodyMD:    bodyMD,
+		BodyHTML:  html,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.Repo.InsertComment(ctx, c); err != nil {
+		return Comment{}, fmt.Errorf("insert comment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "comments"})
+	return c, nil
+}
+
+// UpdateComment enforces the edit grace window + author-or-admin rule.
+func (s *Service) UpdateComment(ctx context.Context, projectID, commentID, callerUserID string, callerIsAdmin bool, bodyMD string) error {
+	c, err := s.Repo.CommentByID(ctx, commentID)
+	if err != nil {
+		return fmt.Errorf("comment lookup: %w", err)
+	}
+	if c.ProjectID != projectID || c.IsDeleted() {
+		return ErrNotFound
+	}
+	now := time.Now().UTC()
+	if !(callerIsAdmin || (c.AuthorID == callerUserID && now.Sub(c.CreatedAt) <= s.EditGrace)) {
+		return ErrForbidden
+	}
+	bodyMD = strings.TrimSpace(bodyMD)
+	if bodyMD == "" {
+		return ErrEmptyTitle
+	}
+	html, err := render.RenderMarkdown(bodyMD)
+	if err != nil {
+		return fmt.Errorf("render comment: %w", err)
+	}
+	if err := s.Repo.UpdateComment(ctx, commentID, bodyMD, html, now); err != nil {
+		return fmt.Errorf("update comment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "comments"})
+	return nil
+}
+
+// DeleteComment soft-deletes with the same author-or-admin rule as
+// UpdateComment, but skips the grace check — authors can always remove
+// their own comments. Admins can delete anyone's.
+func (s *Service) DeleteComment(ctx context.Context, projectID, commentID, callerUserID string, callerIsAdmin bool) error {
+	c, err := s.Repo.CommentByID(ctx, commentID)
+	if err != nil {
+		return fmt.Errorf("comment lookup: %w", err)
+	}
+	if c.ProjectID != projectID || c.IsDeleted() {
+		return ErrNotFound
+	}
+	if !(callerIsAdmin || c.AuthorID == callerUserID) {
+		return ErrForbidden
+	}
+	if err := s.Repo.SoftDeleteComment(ctx, commentID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("delete comment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "comments"})
+	return nil
 }
 
 // DeleteAttachment enforces permission then deletes both rows. Caller
