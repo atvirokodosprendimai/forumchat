@@ -704,46 +704,153 @@ The same handler can run many concurrent reads (one per open SSE stream, one
 per page load) and they never block writes. SQLite's WAL mode (default) gives
 us reader/writer concurrency, so this works fine at the scale we target.
 
-### Read-model fan-out via Bus + NATS
+### The "read model is a reusable pure function" mental model
 
-Writes broadcast via the handler's `broadcast()` helper, NOT the service:
+The cleanest way to think about the write↔read split here is **not** "writes
+push HTML to readers". It's:
+
+> The write side mutates the DB and publishes an event saying *which id
+> changed*. The read model is a pure function `(id) → struct → templ` that's
+> called from two unrelated entry points: initial page load and the SSE event
+> loop. Neither entry point knows or cares about the other.
+
+This matters because:
+
+- **The read model can ship without the write model.** A new viewer page,
+  reporting query, exported PDF — all reuse the same `(id) → struct` step.
+- **The write model can be replaced** (raw SQL → service layer → outbox →
+  whatever) without touching reader code.
+- **The wire payload is minimal.** Just the id (or the small set of ids) that
+  changed. The reader is the source of truth for "what HTML should this id
+  look like *right now*", queried fresh on every event.
+
+Concretely:
 
 ```go
-// lobbies/handler.go
+// ---------- the read model: one pure function, used everywhere ----------
+// internal/lobbies/repo.go
+func (r *Repo) RecentMessages(ctx context.Context, lobbyID string, limit int) ([]LobbyMessage, error)
+
+// internal/lobbies/handler.go
+func renderMessages(ctx context.Context, repo *Repo, lobbyID string) (templ.Component, error) {
+    msgs, err := repo.RecentMessages(ctx, lobbyID, RecentLimit)
+    if err != nil { return nil, err }
+    return webtempl.LobbyMessages(messagesToView(msgs)), nil
+}
+
+// ---------- entry point 1: page load ----------
+func (h *Handler) GetHostView(w http.ResponseWriter, r *http.Request) {
+    comp, _ := renderMessages(r.Context(), h.Repo, lobbyID)
+    _ = webtempl.LobbyHostView(LobbyHostViewData{ /* ... */ Messages: ... }).Render(r.Context(), w)
+}
+
+// ---------- entry point 2: SSE event loop ----------
+func (h *Handler) GetHostStream(w http.ResponseWriter, r *http.Request) {
+    sse := datastar.NewSSE(w, r)
+    local, unsubscribe := h.Bus.Subscribe(lobbyID)
+    defer unsubscribe()
+    natsCh, _ := subscribeNATS(h.NATS, natsx.LobbySubject(cid, lobbyID))
+
+    // initial sync — call the SAME read model
+    if comp, err := renderMessages(r.Context(), h.Repo, lobbyID); err == nil {
+        _ = sse.PatchElementTempl(comp)
+    }
+    for {
+        select {
+        case <-r.Context().Done(): return
+        case <-local:  // in-process Bus
+        case <-natsCh: // remote NATS — payload carries the id but we don't even need it here
+        }
+        if comp, err := renderMessages(r.Context(), h.Repo, lobbyID); err == nil {
+            _ = sse.PatchElementTempl(comp)
+        }
+    }
+}
+```
+
+### The write side — emit the id, nothing else
+
+The write handler ONLY: validates → persists → publishes a tiny "X changed"
+event. It does NOT compose HTML, does NOT know which clients are watching,
+does NOT call the read model.
+
+```go
+func (h *Handler) PostHostSend(w http.ResponseWriter, r *http.Request) {
+    // 1. validate + persist (write model, single writer)
+    msg, err := h.Svc.Send(ctx, SendInput{LobbyID: lobbyID, ...})
+    if err != nil { return }
+
+    // 2. echo the new state back to the actor that just posted, then exit
+    //    (their SSE stream will also receive the broadcast — this PatchElementTempl
+    //    is purely UX latency hiding, optional)
+    if comp, err := renderMessages(ctx, h.Repo, lobbyID); err == nil {
+        _ = sse.PatchElementTempl(comp)
+    }
+    _ = sse.PatchSignals([]byte(`{"lobby_body":"","lobby_image_data":""}`))
+
+    // 3. publish the id that changed — every other open viewer's SSE loop
+    //    will re-render via the read model.
+    h.broadcast(r.Context(), lobbyID)
+}
+```
+
+The broadcast helper does double duty (in-process + cross-process):
+
+```go
 func (h *Handler) broadcast(ctx context.Context, lobbyID string) {
     if h.Bus != nil {
-        h.Bus.Broadcast(lobbyID)
+        h.Bus.Broadcast(lobbyID)  // payload = the id itself, via map key
     }
     if h.NATS != nil && h.NATS.IsConnected() {
-        _ = h.NATS.Publish(natsx.LobbySubject(h.cid(ctx), lobbyID), []byte("changed"))
+        _ = h.NATS.Publish(natsx.LobbySubject(h.cid(ctx), lobbyID), []byte(lobbyID))
     }
 }
 ```
 
-- `Bus.Broadcast` is in-process — wakes every SSE stream in the same process
-  that subscribed to this id. Same-machine multi-tab, multi-pane.
-- NATS payload is always `"changed"` — subscribers re-query the Repo, don't
-  try to decode the event payload. Keeps the wire format trivial and the
-  refresh logic identical between local and remote events.
+### Wire-payload guidance
 
-SSE streams re-query and re-PatchElementTempl on every wake:
+| Scenario | Payload |
+|---|---|
+| Stream subscribes to one specific row's subject (`community.<cid>.lobby.<lid>`) | The id can be empty / `"changed"` — the subject IS the id. We do this for lobbies / per-thread forum. |
+| Stream subscribes to a broad subject (`community.<cid>.chat`) and many rows can change | Payload = the changed id, so the consumer can decide whether it cares (skip if the id isn't visible in its current viewport). |
+| Multiple ids changed atomically | Payload = JSON array of ids, OR publish multiple events. Prefer one-event-per-id; keeps consumers stateless. |
 
-```go
-for {
-    select {
-    case <-r.Context().Done(): return
-    case <-local:  // Bus
-    case <-natsCh: // NATS
-    }
-    msgs, _ := repo.RecentMessages(ctx, lobbyID, RecentLimit)
-    sse.PatchElementTempl(webtempl.LobbyMessages(messagesToView(msgs)))
-}
-```
+We deliberately do **not** put domain data on the wire (rendered HTML,
+serialised structs, anything that would let a consumer skip the DB read).
+Reasons:
+
+- The DB is the source of truth at the instant the consumer renders. Wire-state
+  goes stale between "write committed" and "consumer drains its queue".
+- Permissions check at render time (mods see deleted messages, regular users
+  don't). A pre-rendered payload would have to be re-rendered per-viewer
+  anyway.
+- The wire stays cheap — "changed" or a uuid fits in a packet, no GC pressure.
 
 This is the "fat-morph" pattern §6 calls out for chat. Same shape applies to
 lobbies, forum, project discussions. Don't try to be clever and send only the
 diff — re-rendering the whole list with templ is cheap enough and morph keeps
 the DOM in sync.
+
+### Subscribe-once handler — browser → handler → NATS
+
+The browser doesn't talk to NATS. It opens one long-lived SSE connection to
+the handler, and the handler is the one subscribed to NATS (and the
+in-process Bus). This is the shape every realtime page in forumchat follows:
+
+```
+browser
+  └── EventSource('/c/<slug>/lobbies/<id>/stream')   ← Datastar opens this via data-init="@get(...)"
+        └── handler.GetHostStream
+              ├── Bus.Subscribe(lobbyID)              ← local fan-in
+              └── NATS.ChanSubscribe("community.<cid>.lobby.<lid>")  ← remote fan-in
+                    ↑
+        every write handler calls h.broadcast(ctx, lobbyID), which publishes here
+```
+
+Net effect: write traffic on any node lights up every subscriber on every
+node — without the read model and write model knowing about each other.
+Replace NATS with anything else (Redis pub/sub, a message bus, a poll loop) by
+swapping one package; nothing else moves.
 
 ### When to add a Service vs put logic in Repo
 
