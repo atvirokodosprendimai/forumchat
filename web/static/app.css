@@ -898,27 +898,109 @@ img.thread-announce-img {
 }
 .rooms-ctl-leave { background: #c63838; color: white; border-color: #8a2418; }
 
-/* Admin tray (slide-down panel under the header) */
+/* Admin tray — slides down beneath the header, holds the admin
+   section cards. Background is a soft sunken band so the cards inside
+   feel raised against it. */
 .rooms-admin-tray {
+  background: linear-gradient(180deg, var(--surface-alt), var(--bg));
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  padding: .6rem .8rem;
+  padding: 1rem 1rem 1.1rem;
+  animation: rooms-tray-down .22s var(--ease-out);
 }
+@keyframes rooms-tray-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .rooms-admin-panel {
-  display: grid; gap: .9rem;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  display: grid; gap: .85rem;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  max-width: 100%;
 }
+
+.rooms-admin-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: .95rem 1.05rem 1.05rem;
+  box-shadow: var(--shadow-xs);
+  display: flex; flex-direction: column; gap: .55rem;
+  transition: border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+}
+.rooms-admin-section:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
 .rooms-admin-section h3 {
-  margin: 0 0 .35rem; font-size: .8em; text-transform: uppercase;
-  letter-spacing: .04em; color: var(--fg-muted);
+  margin: 0;
+  font-size: .72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--fg-subtle);
+  display: flex; align-items: center; gap: .45rem;
 }
-.rooms-admin-section p { margin: .15rem 0 .45rem; }
-.rooms-admin-section input[type="text"] {
-  width: 100%; padding: .4rem .55rem; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); background: var(--surface);
+.rooms-admin-section h3::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  display: inline-block;
 }
-.rooms-row { display: flex; gap: .35rem; align-items: center; margin: .25rem 0; flex-wrap: wrap; }
-.rooms-row > input[type="text"] { flex: 1 1 200px; }
+.rooms-admin-section p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: .88rem;
+  line-height: 1.5;
+}
+.rooms-admin-section p strong { color: var(--fg); }
+.rooms-admin-section input[type="text"],
+.rooms-admin-section textarea,
+.rooms-admin-section .rooms-emails {
+  width: 100%;
+  padding: .6rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font: inherit;
+}
+.rooms-admin-section input[type="text"]:focus,
+.rooms-admin-section textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: var(--ring);
+}
+.rooms-admin-section .rooms-emails { resize: vertical; min-height: 78px; }
+
+/* Read-only share link gets a slightly different look so users see it
+   as copy-only, not edit. */
+#rooms-share-link {
+  font-family: var(--font-mono);
+  font-size: .9rem;
+  background: var(--surface-alt);
+  color: var(--accent-strong);
+  letter-spacing: 0.01em;
+  cursor: text;
+}
+
+.rooms-row {
+  display: flex; gap: .5rem; align-items: stretch;
+  margin: 0; flex-wrap: wrap;
+}
+.rooms-row > input[type="text"] { flex: 1 1 200px; min-width: 0; }
+.rooms-row .btn, .rooms-row button { flex: 0 0 auto; }
+.rooms-row.rooms-row-actions { gap: .5rem; }
+
+/* Active visibility toggle button when the room is currently in that
+   state (Public on now, etc) gets a subtle accent halo via :focus-visible
+   only — but the section's primary CTA always uses .btn. */
+.rooms-admin-section .btn { white-space: nowrap; }
+
+@media (max-width: 720px) {
+  .rooms-admin-tray { padding: .85rem .65rem 1rem; }
+  .rooms-admin-panel { grid-template-columns: 1fr; gap: .65rem; }
+  .rooms-admin-section { padding: .85rem .9rem 1rem; }
+}
+
+/* Admin toggle button (cog) — pulse subtly while open so the user
+   knows the tray is its companion. */
+.rooms-room-controls [data-on\:click*="rooms_admin_open"] {
+  font-size: 1.1rem; padding: .35rem .65rem;
+}
 
 /* Pending banner above the layout (admins only) */
 .rooms-pending-banner:not(:empty) {
