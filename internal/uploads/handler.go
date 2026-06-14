@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
@@ -18,7 +19,16 @@ type Handler struct {
 	Store       *Store
 	CommunityID string
 	Log         *slog.Logger
+	// Sessions is optional; when set, GetFile resolves project share-
+	// link guest sessions in addition to auth users so guests can view
+	// images uploaded inside their project.
+	Sessions *scs.SessionManager
 }
+
+// Project guest session keys — kept in sync with internal/projects/guest.go.
+const (
+	sessKeyProjectGuestID = "project_guest_id"
+)
 
 func (h *Handler) cid(r *http.Request) string {
 	if c, ok := community.FromContext(r.Context()); ok {
@@ -78,8 +88,8 @@ func (h *Handler) PostUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
-	if !ok {
+	viewerID := h.viewerID(r)
+	if viewerID == "" {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
@@ -91,7 +101,7 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad exp", http.StatusBadRequest)
 		return
 	}
-	if err := h.Store.Verify(uploadID, id.User.ID, sig, exp); err != nil {
+	if err := h.Store.Verify(uploadID, viewerID, sig, exp); err != nil {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -107,4 +117,22 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", u.MIME)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	http.ServeFile(w, r, h.Store.PathFor(u))
+}
+
+// viewerID returns the identity to verify the signed URL against. Auth
+// users win; otherwise we look for a project-share guest session and
+// build "guest:<gid>" — matching the synthetic viewer-id the projects
+// package signs URLs with.
+func (h *Handler) viewerID(r *http.Request) string {
+	if id, ok := auth.FromContext(r.Context()); ok {
+		return id.User.ID
+	}
+	if h.Sessions == nil {
+		return ""
+	}
+	gid := h.Sessions.GetString(r.Context(), sessKeyProjectGuestID)
+	if gid != "" {
+		return "guest:" + gid
+	}
+	return ""
 }
