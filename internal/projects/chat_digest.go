@@ -169,7 +169,7 @@ func (w *ChatDigestWorker) changedProjects(ctx context.Context, communityID stri
 		     p.updated_at > ?
 		  OR EXISTS (SELECT 1 FROM project_attachments a       WHERE a.project_id = p.id AND a.created_at > ?)
 		  OR EXISTS (SELECT 1 FROM project_issues i            WHERE i.project_id = p.id AND i.updated_at > ?)
-		  OR EXISTS (SELECT 1 FROM project_discussions d       WHERE d.project_id = p.id AND d.updated_at > ?)
+		  OR EXISTS (SELECT 1 FROM project_discussion_threads d       WHERE d.project_id = p.id AND d.updated_at > ?)
 		  OR EXISTS (
 		       SELECT 1 FROM project_issue_comments pic
 		       JOIN project_issues pi ON pic.issue_id = pi.id
@@ -177,7 +177,7 @@ func (w *ChatDigestWorker) changedProjects(ctx context.Context, communityID stri
 		     )
 		  OR EXISTS (
 		       SELECT 1 FROM project_discussion_replies pdr
-		       JOIN project_discussions pd ON pdr.thread_id = pd.id
+		       JOIN project_discussion_threads pd ON pdr.thread_id = pd.id
 		       WHERE pd.project_id = p.id AND pdr.created_at > ?
 		     )
 		  )
