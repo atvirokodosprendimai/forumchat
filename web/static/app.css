@@ -436,14 +436,17 @@ button:focus-visible, .btn:focus-visible {
   display: block;
 }
 
-/* Inline images posted in chat / forum bubbles cap at a sane size and
-   clicking opens the original in a new tab (anchor wraps the img). */
+/* Inline images posted in chat / forum bubbles get a fixed thumbnail
+   height so the layout is stable before the image finishes loading.
+   Without this the bubble grows after the network round-trip and the
+   chat container's initial scroll-to-end ends up short. Click opens
+   the original in a new tab (anchor wraps the img). */
 .body img {
-  max-width: 100%; max-height: 320px;
-  height: auto; width: auto; object-fit: contain;
+  height: 100px; width: auto; max-width: 100%;
+  object-fit: contain; object-position: left center;
   border-radius: var(--radius-sm); display: inline-block;
+  background: var(--surface-alt);
 }
-.message .body img { max-height: 220px; }
 
 img.thread-announce-img {
   max-height: 64px; max-width: 200px; vertical-align: middle;
@@ -546,7 +549,7 @@ img.thread-announce-img {
 
   .messages { padding: .5rem; }
   .bubble { padding: .55rem .7rem; }
-  .bubble .body img { max-height: 180px; }
+  .bubble .body img { height: 90px; }
 
   .composer-row { flex-wrap: wrap; }
   .composer-row input { flex: 1 1 60%; min-width: 0; }
