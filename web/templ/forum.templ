@@ -3,6 +3,8 @@ package templ
 import (
 	"strconv"
 	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 )
 
 // quoteClickJS builds the data-on:click expression for a forum post quote
@@ -178,7 +180,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 			<p class="muted"><a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>← Forum</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
 
 			<article class="bubble">
-				<div class="body">@templ.Raw(t.BodyHTML)</div>
+				<div class="body">@templ.Raw(render.WrapUploadImages(t.BodyHTML))</div>
 				<div class="thread-actions">
 					if t.CanResolve {
 						if t.IsResolved {
@@ -296,7 +298,7 @@ templ ForumPost(slug, threadID string, p PostView) {
 					<div>@templ.Raw(p.QuotedBody)</div>
 				</blockquote>
 			}
-			<div class="body">@templ.Raw(p.BodyHTML)</div>
+			<div class="body">@templ.Raw(render.WrapUploadImages(p.BodyHTML))</div>
 		}
 	</article>
 }

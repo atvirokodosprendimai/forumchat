@@ -1,6 +1,10 @@
 package templ
 
-import "time"
+import (
+	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
+)
 
 type MsgKind string
 
@@ -106,13 +110,13 @@ templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 		if m.Deleted {
 			if isMod {
 				<div class="muted">[deleted by mod] · { fmtTime(m.CreatedAt) }</div>
-				<div class="body deleted">@templ.Raw(m.BodyHTML)</div>
+				<div class="body deleted">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
 			} else {
 				<div class="muted">[message removed]</div>
 			}
 		} else if m.Kind == MsgKindThreadAnnounce {
 			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
-			@templ.Raw(m.BodyHTML)
+			@templ.Raw(render.WrapUploadImages(m.BodyHTML))
 		} else {
 			<header class="meta">
 				<strong>{ m.AuthorName }</strong>
@@ -164,7 +168,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 					<div>{ m.ReplyTo.Snippet }</div>
 				</blockquote>
 			}
-			<div class="body">@templ.Raw(m.BodyHTML)</div>
+			<div class="body">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
 		}
 	</article>
 }

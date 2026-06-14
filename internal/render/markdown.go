@@ -21,6 +21,12 @@ import (
 // handlers so a wrapping <a> is the only viable affordance.
 var uploadsImageRE = regexp.MustCompile(`<img ([^>]*?)src="(/uploads/[^"]+)"([^>]*)>`)
 
+// uploadsImageWrapRE matches the FULL anchor-wrapped image so we can
+// strip it before re-applying the wrap — keeps WrapUploadImages
+// idempotent across multiple render-paths that may have already
+// wrapped the content once.
+var uploadsImageWrapRE = regexp.MustCompile(`<a target="_blank" rel="noopener" href="/uploads/[^"]+" class="upload-img-link"><img ([^>]*?)src="(/uploads/[^"]+)"([^>]*)></a>`)
+
 // uploadsAnchorRE matches anchors pointing at our signed-upload URLs so we
 // can force target="_blank" rel="noopener" on them after sanitization. We
 // run this AFTER bluemonday so the added attributes are trusted output.
@@ -79,7 +85,20 @@ func RenderMarkdown(src string) (string, error) {
 	}
 	out := policy.Sanitize(buf.String())
 	out = uploadsAnchorRE.ReplaceAllString(out, `<a target="_blank" rel="noopener" $1`)
-	out = uploadsImageRE.ReplaceAllString(out,
-		`<a target="_blank" rel="noopener" href="$2" class="upload-img-link"><img $1src="$2"$3></a>`)
 	return out, nil
+}
+
+// WrapUploadImages wraps every `<img src="/uploads/...">` in an anchor
+// that opens the original in a new tab. Idempotent: it first strips
+// any existing wrap then re-applies one, so running twice (or on
+// content already processed by a prior render pass) yields the same
+// result.
+//
+// Run at DISPLAY time so already-stored bodies pick up the wrap
+// without a migration. New writes don't get wrapped at write time —
+// keeps the DB free of presentation HTML.
+func WrapUploadImages(s string) string {
+	s = uploadsImageWrapRE.ReplaceAllString(s, `<img $1src="$2"$3>`)
+	return uploadsImageRE.ReplaceAllString(s,
+		`<a target="_blank" rel="noopener" href="$2" class="upload-img-link"><img $1src="$2"$3></a>`)
 }
