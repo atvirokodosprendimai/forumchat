@@ -14,12 +14,34 @@ type Repo struct{ DB *sql.DB }
 
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 
-// ListRooms returns the 8 rooms ordered by slot.
-func (r *Repo) ListRooms(ctx context.Context) ([]Room, error) {
+// EnsureSeeded makes sure the community has all NumRooms slots present.
+// Idempotent: any missing slot gets inserted with a deterministic id of
+// the form "<communityID>:room-NN". Call from main.go on boot for the
+// bootstrap community, and lazily from GetGrid for any others.
+func (r *Repo) EnsureSeeded(ctx context.Context, communityID string) error {
+	now := time.Now().UTC().UnixMilli()
+	for slot := 1; slot <= NumRooms; slot++ {
+		id := fmt.Sprintf("%s:room-%02d", communityID, slot)
+		name := fmt.Sprintf("Room %d", slot)
+		_, err := r.DB.ExecContext(ctx, `
+			INSERT OR IGNORE INTO rooms
+			  (id, community_id, slot, name, is_public, admin_user_id, created_at, updated_at)
+			VALUES (?,?,?,?,0,NULL,?,?)`,
+			id, communityID, slot, name, now, now)
+		if err != nil {
+			return fmt.Errorf("seed room slot %d: %w", slot, err)
+		}
+	}
+	return nil
+}
+
+// ListRoomsForCommunity returns the 8 rooms of one community, ordered by slot.
+func (r *Repo) ListRoomsForCommunity(ctx context.Context, communityID string) ([]Room, error) {
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT id, slot, name, is_public,
+		SELECT id, community_id, slot, name, is_public,
 		       COALESCE(admin_user_id,''), created_at, updated_at
-		FROM rooms ORDER BY slot ASC`)
+		FROM rooms WHERE community_id = ? ORDER BY slot ASC`,
+		communityID)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +51,7 @@ func (r *Repo) ListRooms(ctx context.Context) ([]Room, error) {
 		var rm Room
 		var pub int
 		var cAt, uAt int64
-		if err := rows.Scan(&rm.ID, &rm.Slot, &rm.Name, &pub,
+		if err := rows.Scan(&rm.ID, &rm.CommunityID, &rm.Slot, &rm.Name, &pub,
 			&rm.AdminUserID, &cAt, &uAt); err != nil {
 			return nil, err
 		}
@@ -43,13 +65,13 @@ func (r *Repo) ListRooms(ctx context.Context) ([]Room, error) {
 
 func (r *Repo) RoomByID(ctx context.Context, id string) (Room, error) {
 	row := r.DB.QueryRowContext(ctx, `
-		SELECT id, slot, name, is_public,
+		SELECT id, community_id, slot, name, is_public,
 		       COALESCE(admin_user_id,''), created_at, updated_at
 		FROM rooms WHERE id = ?`, id)
 	var rm Room
 	var pub int
 	var cAt, uAt int64
-	err := row.Scan(&rm.ID, &rm.Slot, &rm.Name, &pub,
+	err := row.Scan(&rm.ID, &rm.CommunityID, &rm.Slot, &rm.Name, &pub,
 		&rm.AdminUserID, &cAt, &uAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Room{}, ErrNotFound
@@ -107,9 +129,9 @@ func (r *Repo) AppendChat(ctx context.Context, m ChatMessage) error {
 	}
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO room_chat
-		  (id, room_id, author_user_id, author_name, body, body_html, created_at)
-		VALUES (?,?,?,?,?,?,?)`,
-		m.ID, m.RoomID, uid, m.AuthorName, m.Body, m.BodyHTML, m.CreatedAt.UnixMilli())
+		  (id, room_id, community_id, author_user_id, author_name, body, body_html, created_at)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		m.ID, m.RoomID, m.CommunityID, uid, m.AuthorName, m.Body, m.BodyHTML, m.CreatedAt.UnixMilli())
 	if err != nil {
 		return fmt.Errorf("insert room_chat: %w", err)
 	}
@@ -122,7 +144,7 @@ func (r *Repo) ListChat(ctx context.Context, roomID string, limit int) ([]ChatMe
 		limit = 200
 	}
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT id, room_id, COALESCE(author_user_id,''), author_name, body, body_html, created_at
+		SELECT id, room_id, community_id, COALESCE(author_user_id,''), author_name, body, body_html, created_at
 		FROM room_chat
 		WHERE room_id = ?
 		ORDER BY created_at DESC LIMIT ?`, roomID, limit)
@@ -134,7 +156,7 @@ func (r *Repo) ListChat(ctx context.Context, roomID string, limit int) ([]ChatMe
 	for rows.Next() {
 		var m ChatMessage
 		var ts int64
-		if err := rows.Scan(&m.ID, &m.RoomID, &m.AuthorUserID, &m.AuthorName,
+		if err := rows.Scan(&m.ID, &m.RoomID, &m.CommunityID, &m.AuthorUserID, &m.AuthorName,
 			&m.Body, &m.BodyHTML, &ts); err != nil {
 			return nil, err
 		}

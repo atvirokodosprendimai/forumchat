@@ -39,6 +39,27 @@ func (r *Repo) BySlug(ctx context.Context, slug string) (Community, error) {
 	return c, nil
 }
 
+// ByID is the same lookup as BySlug but keyed by primary id. Used by
+// callers that have a community id stashed elsewhere (e.g. a room row)
+// and need to resolve back to the slug for URL building.
+func (r *Repo) ByID(ctx context.Context, id string) (Community, error) {
+	var c Community
+	var created int64
+	var isPublic int
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id, slug, name, COALESCE(is_public,0), created_at FROM communities WHERE id = ?`, id).
+		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Community{}, sql.ErrNoRows
+	}
+	if err != nil {
+		return Community{}, err
+	}
+	c.IsPublic = isPublic != 0
+	c.CreatedAt = time.Unix(created, 0)
+	return c, nil
+}
+
 // SetPublic flips the discoverability flag on a community.
 func (r *Repo) SetPublic(ctx context.Context, id string, public bool) error {
 	v := 0

@@ -20,6 +20,8 @@
   if (!root) return;
 
   const roomID = root.dataset.roomId;
+  const communitySlug = root.dataset.communitySlug;
+  const roomBase = `/c/${encodeURIComponent(communitySlug)}/rooms/${encodeURIComponent(roomID)}`;
   const myKey = root.dataset.myKey;
   const myName = root.dataset.myName || 'me';
   let iceServers = [];
@@ -216,15 +218,15 @@
 
   leaveBtn?.addEventListener('click', () => {
     teardown();
-    fetch(`/rooms/${encodeURIComponent(roomID)}/leave`, { method: 'POST', keepalive: true })
-      .finally(() => { window.location.href = '/rooms'; });
+    fetch(`${roomBase}/leave`, { method: 'POST', keepalive: true })
+      .finally(() => { window.location.href = `/c/${encodeURIComponent(communitySlug)}/rooms`; });
   });
 
   window.addEventListener('beforeunload', () => {
-    navigator.sendBeacon?.(`/rooms/${encodeURIComponent(roomID)}/leave`);
+    navigator.sendBeacon?.(`${roomBase}/leave`);
   });
   window.addEventListener('pagehide', () => {
-    navigator.sendBeacon?.(`/rooms/${encodeURIComponent(roomID)}/leave`);
+    navigator.sendBeacon?.(`${roomBase}/leave`);
   });
 
   function teardown() {
@@ -238,7 +240,7 @@
   // ----- heartbeat ---------------------------------------------------------
 
   function startHeartbeat() {
-    const ping = () => fetch(`/rooms/${encodeURIComponent(roomID)}/ping`, {
+    const ping = () => fetch(`${roomBase}/ping`, {
       method: 'POST', keepalive: true,
     }).catch(() => {});
     ping();
@@ -409,7 +411,7 @@
   };
 
   function sendSignal(to, kind, payload) {
-    fetch(`/rooms/${encodeURIComponent(roomID)}/signal/send`, {
+    fetch(`${roomBase}/signal/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ to, kind, payload }),

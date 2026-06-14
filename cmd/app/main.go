@@ -275,11 +275,17 @@ func run() error {
 		Bus:      roomsBus,
 		State:    roomsState,
 		AuthRepo: aRepo,
+		CommRepo: cRepo,
 		Sessions: sessions,
 		Log:      log,
 		ChatSvc:  chatSvc,
 		ChatRepo: chatRepo,
 		ChatBus:  chatBus,
+	}
+	// Seed the bootstrap community's 8 rooms on boot. Other communities
+	// get lazy-seeded on first GET /c/{slug}/rooms.
+	if err := roomsRepo.EnsureSeeded(ctx, bootCommunity.ID); err != nil {
+		log.Warn("rooms seed bootstrap community failed", "err", err)
 	}
 
 	// Per-community JOIN landing — LoadCommunity runs so the templ can render
@@ -381,15 +387,27 @@ func run() error {
 		pmHandler.Routes(r)
 	})
 
-	// Rooms grid + admin invite ops are auth-required. Per-room interaction
-	// routes are auth-or-guest (handler.caller() resolves either). Public
-	// invite landing pages are wide open so a logged-out user can claim a
-	// guest slot via the share-link.
-	r.Group(func(r chi.Router) {
-		r.Use(auth.RequireAuth)
-		roomsHandler.AuthRoutes(r)
+	// Rooms are community-scoped. The /c/{slug}/rooms tree carries
+	// LoadCommunity for everyone; the auth-required slice (grid +
+	// invite admin ops) lives in an inner group with RequireAuth +
+	// RequireMember, while per-room interaction routes accept either
+	// an auth user or an invite-guest (handler.caller() resolves it).
+	r.Route("/c/{slug}/rooms", func(r chi.Router) {
+		r.Use(community.LoadCommunity(cRepo))
+
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth)
+			r.Use(community.RequireMember(aRepo))
+			r.Use(auth.RequireApproved)
+			roomsHandler.MemberRoutes(r)
+		})
+
+		r.Group(func(r chi.Router) {
+			roomsHandler.OpenRoutes(r)
+		})
 	})
-	roomsHandler.OpenRoutes(r)
+	// Guest invite landing stays at the root — anyone with the token can
+	// pick a display name and join, regardless of community membership.
 	roomsHandler.PublicRoutes(r)
 
 	go roomsState.RunJanitor(ctx, log)
