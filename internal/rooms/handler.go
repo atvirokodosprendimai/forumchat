@@ -71,7 +71,6 @@ func (h *Handler) AuthRoutes(r chi.Router) {
 func (h *Handler) OpenRoutes(r chi.Router) {
 	r.Get("/rooms/{id}", h.GetRoom)
 	r.Get("/rooms/{id}/stream", h.GetStream)
-	r.Get("/rooms/{id}/signal/stream", h.GetSignalStream)
 	r.Post("/rooms/{id}/signal/send", h.PostSignal)
 	r.Post("/rooms/{id}/join", h.PostJoin)
 	r.Post("/rooms/{id}/leave", h.PostLeave)
@@ -238,6 +237,18 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	events, unsub := h.Bus.SubscribeRoom(roomID)
 	defer unsub()
 
+	// Signaling envelopes ride the SAME SSE stream as room events. Folding
+	// them in here costs nothing on the server but saves the browser one
+	// long-lived HTTP connection — under HTTP/1.1 the 6-per-origin cap was
+	// being eaten by (messages SSE) + (room SSE) + (signal SSE) + the
+	// burst of ICE-candidate POSTs at cam-on time, which silently demoted
+	// the room SSE and killed live chat / presence updates.
+	sigInbox, sigUnsub := h.Bus.SubscribeSignal(roomID, id.Key())
+	defer sigUnsub()
+
+	h.Log.Info("rooms stream open", "room", roomID, "user", id.UserID, "guest", id.GuestID, "key", id.Key())
+	defer h.Log.Info("rooms stream close", "room", roomID, "user", id.UserID, "guest", id.GuestID)
+
 	// We need the public scheme+host to build copy-able share-link URLs
 	// inside fragment pushes. Resolve once from this request.
 	scheme, host := publicSchemeHost(r)
@@ -255,16 +266,33 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		case ev := <-events:
 			rm2, err := h.Repo.RoomByID(r.Context(), roomID)
 			if err != nil {
+				h.Log.Warn("rooms stream: load room failed", "err", err, "room", roomID, "key", id.Key())
 				continue
 			}
+			h.Log.Info("rooms stream push", "kind", ev.Kind, "room", roomID, "key", id.Key())
 			switch ev.Kind {
 			case "presence", "approval":
 				h.pushParticipants(r.Context(), sse, rm2.ID, id)
+				// Promotion / admin transfer also flips the recipient's
+				// admin status. Pushing the admin panel here ensures the
+				// just-promoted user sees their full controls (invite link,
+				// public toggle, rename) instead of stale non-admin content.
+				h.pushAdminPanel(r.Context(), sse, rm2, id, scheme, host)
 			case "chat":
 				h.pushChat(r.Context(), sse, rm2.ID, id)
 			case "meta":
 				h.pushRoomFragments(r.Context(), sse, rm2, id, scheme, host)
 			}
+		case env, ok := <-sigInbox:
+			if !ok {
+				// Another GetStream for the same key just subscribed and
+				// closed our mailbox out from under us. Without this log
+				// it's invisible — the room SSE just stops with no error.
+				h.Log.Info("rooms stream: sig mailbox closed, exiting",
+					"room", roomID, "key", id.Key())
+				return
+			}
+			h.pushSignal(sse, env)
 		}
 	}
 }
@@ -283,15 +311,23 @@ func (h *Handler) pushParticipants(ctx context.Context, sse *datastar.ServerSent
 	isAdmin := snap.AdminKey == viewer.Key() && !viewer.IsGuest()
 	_ = sse.PatchElementTempl(
 		webtempl.RoomsParticipants(members, pending, isAdmin, roomID),
-		datastar.WithSelector("[data-rooms-people]"),
-		datastar.WithModeInner(),
+		datastar.WithModeOuter(),
 	)
 	_ = sse.PatchElementTempl(
 		webtempl.RoomsPendingBanner(pending, isAdmin, roomID),
-		datastar.WithSelector("[data-rooms-pending]"),
-		datastar.WithModeInner(),
+		datastar.WithModeOuter(),
 	)
-	_ = sse.PatchSignals([]byte(`{"rooms_member_count":` + intStr(snap.MemberCount) + `}`))
+	// am_admin is consumed by data-show on the gear button so a just-
+	// promoted user gets their admin controls without a page reload.
+	// Force-close the tray for demoted users so they can't keep a stale
+	// view open after losing the role.
+	patch := `{"rooms_member_count":` + intStr(snap.MemberCount) +
+		`,"rooms_am_admin":` + boolJSON(isAdmin)
+	if !isAdmin {
+		patch += `,"rooms_admin_open":false`
+	}
+	patch += `}`
+	_ = sse.PatchSignals([]byte(patch))
 }
 
 // pushAdminPanel re-renders the admin tray fragment (only meaningful when
@@ -312,6 +348,25 @@ func (h *Handler) pushAdminPanel(ctx context.Context, sse *datastar.ServerSentEv
 		}),
 		datastar.WithSelector("#rooms-admin-panel"),
 		datastar.WithModeOuter(),
+	)
+}
+
+// pushSignal forwards a routed WebRTC signaling envelope to the page over
+// the same SSE stream that carries room events. The client registers a
+// global window.__roomsSignal handler in rooms.js. Folding signaling into
+// the room stream keeps us under Chrome's HTTP/1.1 6-connection cap, which
+// was being eaten by separate /signal/stream + ICE-candidate POST bursts.
+func (h *Handler) pushSignal(sse *datastar.ServerSentEventGenerator, env SignalEnvelope) {
+	payload, err := json.Marshal(map[string]string{
+		"kind":    env.Kind,
+		"from":    env.FromKey,
+		"payload": env.Payload,
+	})
+	if err != nil {
+		return
+	}
+	_ = sse.ExecuteScript(
+		"window.__roomsSignal && window.__roomsSignal(" + string(payload) + ")",
 	)
 }
 
@@ -359,10 +414,16 @@ func (h *Handler) pushChat(ctx context.Context, sse *datastar.ServerSentEventGen
 		return
 	}
 	views := toChatViews(msgs, viewer.UserID, viewer.GuestID)
+	// Outer-mode patch: datastar morphs by the element's own id
+	// ("rooms-chat-msgs"). This is the pattern privatemsg/community chat
+	// use; the [data-rooms-chat] wrapper stays put while its <ul> swaps.
 	_ = sse.PatchElementTempl(
 		webtempl.RoomsChatList(views),
-		datastar.WithSelector("[data-rooms-chat]"),
-		datastar.WithModeInner(),
+		datastar.WithModeOuter(),
+	)
+	// Pin the scroll to the bottom so the newest message is always visible.
+	_ = sse.ExecuteScript(
+		`document.querySelector('[data-rooms-chat]')?.scrollTo({top: 1e9, behavior: 'smooth'})`,
 	)
 }
 
@@ -396,6 +457,9 @@ func (h *Handler) PostSignal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Svc.RouteSignal(roomID, id.Key(), raw); err != nil {
+		h.Log.Warn("rooms signal route failed",
+			"err", err, "room", roomID, "from", id.Key(),
+			"is_member", h.State.IsMember(roomID, id.Key()))
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -496,10 +560,26 @@ func (h *Handler) PostChat(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	var in targetSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
+		h.Log.Warn("rooms chat: bad signals", "err", err, "room", roomID, "user", id.UserID, "guest", id.GuestID)
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if _, err := h.Svc.PostChat(r.Context(), roomID, id, in.Body); err != nil {
+	// Self-heal: the janitor evicts idle members after staleAfter. If an
+	// auth user was just evicted, transparently rejoin them and retry —
+	// they're still on the room page, they just paused. Guests aren't
+	// auto-readmitted because their invite cookie + identity verification
+	// already happens at /rooms/invite/{token}/join time.
+	_, err := h.Svc.PostChat(r.Context(), roomID, id, in.Body)
+	if errors.Is(err, ErrNotMember) && id.UserID != "" {
+		if _, jerr := h.Svc.JoinAuth(r.Context(), roomID, id.UserID, id.Name); jerr == nil {
+			_, err = h.Svc.PostChat(r.Context(), roomID, id, in.Body)
+		}
+	}
+	if err != nil {
+		h.Log.Warn("rooms chat: send failed",
+			"err", err, "room", roomID, "user", id.UserID, "guest", id.GuestID,
+			"body_len", len(in.Body), "key", id.Key(),
+			"is_member", h.State.IsMember(roomID, id.Key()))
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -749,6 +829,13 @@ func toChatViews(msgs []ChatMessage, viewerUID, viewerGID string) []webtempl.Roo
 		})
 	}
 	return out
+}
+
+func boolJSON(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 func intStr(n int) string {

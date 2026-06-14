@@ -3,6 +3,7 @@ package rooms
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -17,21 +18,25 @@ type signalIn struct {
 func (s *Service) RouteSignal(roomID, fromKey string, raw []byte) error {
 	var in signalIn
 	if err := json.Unmarshal(raw, &in); err != nil {
-		return err
+		return fmt.Errorf("signal bad json: %w", err)
 	}
 	switch in.Kind {
 	case "offer", "answer", "ice", "bye":
 	default:
-		return errors.New("unknown signal kind")
+		return errors.New("unknown signal kind: " + in.Kind)
 	}
 	if in.To == "" {
 		return errors.New("missing recipient")
 	}
 	if !s.State.IsMember(roomID, fromKey) {
-		return ErrNotMember
+		return fmt.Errorf("%w (from=%s)", ErrNotMember, fromKey)
 	}
+	// Recipient may not have subscribed yet — we still queue the envelope
+	// so the very first SDP exchange survives the race between
+	// JoinAuth/presence-push and the new peer's signal stream opening.
+	// We only refuse delivery when the recipient is *not even a member*.
 	if !s.State.IsMember(roomID, in.To) {
-		return errors.New("recipient not in room")
+		return fmt.Errorf("recipient not in room: %s", in.To)
 	}
 	s.Bus.SendSignal(roomID, in.To, SignalEnvelope{
 		FromKey: fromKey,

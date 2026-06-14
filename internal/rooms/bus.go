@@ -22,14 +22,23 @@ type SignalEnvelope struct {
 //   - per-peer signaling mailboxes (one inbox per participant key)
 type Bus struct {
 	mu       sync.Mutex
-	roomSubs map[string]map[chan Event]struct{}            // roomID -> set
-	sigSubs  map[string]map[string]chan SignalEnvelope     // roomID -> key -> ch
+	roomSubs map[string]map[chan Event]struct{}              // roomID -> set
+	sigSubs  map[string]map[string]chan SignalEnvelope       // roomID -> key -> ch
+	// sigQueue holds envelopes sent before the recipient's mailbox was
+	// open. Drained the moment the peer subscribes. Without this, the
+	// very first SDP offer between two browsers races their signal-stream
+	// connect and gets dropped, leaving both tiles black until someone
+	// triggers a renegotiation by adding a track.
+	sigQueue map[string]map[string][]SignalEnvelope // roomID -> toKey -> envs
 }
+
+const sigQueueCap = 64
 
 func NewBus() *Bus {
 	return &Bus{
 		roomSubs: map[string]map[chan Event]struct{}{},
 		sigSubs:  map[string]map[string]chan SignalEnvelope{},
+		sigQueue: map[string]map[string][]SignalEnvelope{},
 	}
 }
 
@@ -73,7 +82,7 @@ func (b *Bus) PublishRoom(roomID string, ev Event) {
 // participant's Identity.Key(). Replaces any prior mailbox under that key
 // (so reconnects don't leak).
 func (b *Bus) SubscribeSignal(roomID, key string) (<-chan SignalEnvelope, func()) {
-	ch := make(chan SignalEnvelope, 32)
+	ch := make(chan SignalEnvelope, 64)
 	b.mu.Lock()
 	if b.sigSubs[roomID] == nil {
 		b.sigSubs[roomID] = map[string]chan SignalEnvelope{}
@@ -82,6 +91,20 @@ func (b *Bus) SubscribeSignal(roomID, key string) (<-chan SignalEnvelope, func()
 		close(old)
 	}
 	b.sigSubs[roomID][key] = ch
+	// Drain anything that arrived before this subscription. Order is
+	// preserved (slice append-order), which matters for SDP exchange.
+	if q := b.sigQueue[roomID]; q != nil {
+		for _, env := range q[key] {
+			select {
+			case ch <- env:
+			default:
+			}
+		}
+		delete(q, key)
+		if len(q) == 0 {
+			delete(b.sigQueue, roomID)
+		}
+	}
 	b.mu.Unlock()
 	return ch, func() {
 		b.mu.Lock()
@@ -97,13 +120,21 @@ func (b *Bus) SubscribeSignal(roomID, key string) (<-chan SignalEnvelope, func()
 	}
 }
 
-// SendSignal routes an envelope to one participant. Returns true if a
-// mailbox existed (regardless of buffer state).
+// SendSignal routes an envelope to one participant. If no mailbox is
+// subscribed yet (peer's signal stream hasn't connected) the envelope is
+// queued and flushed on the next SubscribeSignal for that key. Returns
+// true if delivered immediately, false if queued or buffer-dropped.
 func (b *Bus) SendSignal(roomID, toKey string, env SignalEnvelope) bool {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	ch, ok := b.sigSubs[roomID][toKey]
-	b.mu.Unlock()
 	if !ok {
+		if b.sigQueue[roomID] == nil {
+			b.sigQueue[roomID] = map[string][]SignalEnvelope{}
+		}
+		if len(b.sigQueue[roomID][toKey]) < sigQueueCap {
+			b.sigQueue[roomID][toKey] = append(b.sigQueue[roomID][toKey], env)
+		}
 		return false
 	}
 	select {
@@ -112,4 +143,18 @@ func (b *Bus) SendSignal(roomID, toKey string, env SignalEnvelope) bool {
 		// drop: WebRTC will retry ICE; the renegotiation flow tolerates loss.
 	}
 	return true
+}
+
+// ClearSignalQueue drops any queued envelopes for a peer key. Called by
+// service.Leave so a peer that re-joins later doesn't replay a stale SDP
+// offer from a now-defunct RTCPeerConnection.
+func (b *Bus) ClearSignalQueue(roomID, key string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if q := b.sigQueue[roomID]; q != nil {
+		delete(q, key)
+		if len(q) == 0 {
+			delete(b.sigQueue, roomID)
+		}
+	}
 }

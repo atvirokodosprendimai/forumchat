@@ -29,16 +29,58 @@
   }
 
   const videoGrid = root.querySelector('[data-video-grid]');
+  const stageVideo = root.querySelector('[data-rooms-stage-video]');
+  const stageEmpty = root.querySelector('[data-rooms-stage-empty]');
+  const stageLabel = root.querySelector('[data-rooms-stage-label]');
   const micBtn = root.querySelector('[data-rooms-mic]');
   const camBtn = root.querySelector('[data-rooms-cam]');
   const screenBtn = root.querySelector('[data-rooms-screen]');
   const leaveBtn = root.querySelector('[data-rooms-leave]');
+  let focusedKey = null;
+
+  // ----- center stage focus ------------------------------------------------
+
+  function focusTile(key) {
+    focusedKey = key;
+    // Highlight the focused thumbnail in the strip.
+    videoGrid.querySelectorAll('.rooms-video-tile').forEach(el => {
+      el.classList.toggle('focused', el.dataset.peerKey === key);
+    });
+    let stream = null;
+    let label = '';
+    if (key === myKey) {
+      stream = tileForSelf.video.srcObject;
+      label = myName + ' (you)';
+    } else {
+      const entry = peers.get(key);
+      stream = entry?.video?.srcObject || null;
+      label = entry?.name || 'peer';
+    }
+    stageVideo.srcObject = stream;
+    stageVideo.classList.toggle('empty', !stream);
+    stageEmpty?.classList.toggle('hidden', !!stream);
+    if (stageLabel) stageLabel.textContent = stream ? label : '';
+    if (stream) stageVideo.play?.().catch(() => {});
+  }
+
+  function clearStageIfFocused(key) {
+    if (focusedKey === key) {
+      focusedKey = null;
+      stageVideo.srcObject = null;
+      stageVideo.classList.add('empty');
+      stageEmpty?.classList.remove('hidden');
+      if (stageLabel) stageLabel.textContent = '';
+    }
+  }
+
+  function refreshStageIfFocused(key) {
+    if (focusedKey === key) focusTile(key);
+  }
 
   const peers = new Map(); // key -> { pc, video, card, name, senders: {audio?, video?} }
   // Each kind tracks: { track, stream } when on; undefined when off.
   const local = { audio: null, video: null };
   let screenStream = null;
-  let signalSrc = null;
   let heartbeatTimer = null;
 
   const tileForSelf = makeTile(myKey, myName + ' (you)', true);
@@ -60,12 +102,17 @@
   // ----- self preview composition ------------------------------------------
 
   function refreshSelfPreview() {
-    if (screenStream) { tileForSelf.video.srcObject = screenStream; return; }
-    if (!local.audio && !local.video) { tileForSelf.video.srcObject = null; return; }
-    const ms = new MediaStream();
-    if (local.video) ms.addTrack(local.video.track);
-    // Don't render local audio (would cause echo even though muted=true).
-    tileForSelf.video.srcObject = ms;
+    if (screenStream) {
+      tileForSelf.video.srcObject = screenStream;
+    } else if (!local.audio && !local.video) {
+      tileForSelf.video.srcObject = null;
+    } else {
+      const ms = new MediaStream();
+      if (local.video) ms.addTrack(local.video.track);
+      // Don't render local audio (would cause echo even though muted=true).
+      tileForSelf.video.srcObject = ms;
+    }
+    refreshStageIfFocused(myKey);
   }
 
   // ----- enable / disable media -------------------------------------------
@@ -141,6 +188,9 @@
     }
     refreshSelfPreview();
     screenBtn.classList.add('on');
+    // Sharing screen is louder than a face — promote it to the stage
+    // automatically so everyone notices.
+    focusTile(myKey);
   });
 
   async function stopScreenshare() {
@@ -183,7 +233,6 @@
     disableMedia('audio');
     disableMedia('video');
     screenStream?.getTracks().forEach(t => t.stop());
-    if (signalSrc) signalSrc.close();
   }
 
   // ----- heartbeat ---------------------------------------------------------
@@ -206,14 +255,25 @@
     const tile = makeTile(key, name, false);
     videoGrid.appendChild(tile.card);
     const pc = new RTCPeerConnection({ iceServers });
+    // Dedicated <audio> sink per peer. Tiny video tiles in the strip can
+    // have their audio suppressed by browsers (they look hidden / off-
+    // screen). A separate, always-attached <audio autoplay> sidesteps the
+    // policy and gives us reliable voice even when the tile is invisible.
+    const audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
+
     entry = {
-      pc, video: tile.video, card: tile.card, name,
+      pc, video: tile.video, audio, card: tile.card, name,
       senders: { audio: null, video: null },
-      // Perfect-negotiation bookkeeping: either side can initiate after
-      // adding a track later (camera toggle, screenshare). On glare, the
-      // polite side rolls its local offer back and accepts the remote one.
+      // Perfect-negotiation bookkeeping per MDN. Either side can initiate
+      // after adding a track later (camera toggle, screenshare). On glare
+      // the polite side rolls back its pending offer and accepts the
+      // remote one; the impolite side discards the colliding incoming.
       makingOffer: false,
       ignoreOffer: false,
+      isSettingRemoteAnswerPending: false,
       iAmPolite: polite(key),
     };
     peers.set(key, entry);
@@ -222,12 +282,63 @@
     if (local.video) entry.senders.video = pc.addTrack(local.video.track, local.video.stream);
 
     pc.ontrack = (ev) => {
+      // Audio tracks go to the dedicated hidden <audio> sink (better
+      // browser autoplay tolerance). Video tracks go to the tile <video>
+      // (which is muted=false on the video element, but won't receive
+      // audio tracks under this routing).
+      if (ev.track.kind === 'audio') {
+        let aStream = entry.audio.srcObject;
+        if (!(aStream instanceof MediaStream)) {
+          aStream = new MediaStream();
+          entry.audio.srcObject = aStream;
+        }
+        aStream.addTrack(ev.track);
+        entry.audio.play?.().catch(() => {});
+        // Wire up a one-shot retry on the first user gesture so a missed
+        // autoplay window still recovers without forcing a reload.
+        document.addEventListener('click', () => entry.audio.play?.().catch(() => {}), { once: true });
+        const dropAudio = () => {
+          try { aStream.removeTrack(ev.track); } catch {}
+        };
+        ev.track.addEventListener('mute', dropAudio);
+        ev.track.addEventListener('ended', dropAudio);
+        return;
+      }
       let remote = tile.video.srcObject;
       if (!(remote instanceof MediaStream)) {
         remote = new MediaStream();
         tile.video.srcObject = remote;
       }
       remote.addTrack(ev.track);
+      tile.video.play?.().catch(() => {});
+      refreshStageIfFocused(key);
+      // Auto-promote any incoming remote VIDEO to the center stage when
+      // the stage is empty or only showing ourselves. That covers the
+      // common case where a remote peer starts screenshare — without this
+      // the screen lands in the small thumbnail and the big stage stays
+      // black until someone clicks. We override "self focused" too because
+      // a remote video is almost always more interesting than your own
+      // preview, but we never override an explicit remote pick.
+      if (ev.track.kind === 'video' && (!focusedKey || focusedKey === myKey)) {
+        focusTile(key);
+      }
+      const drop = () => {
+        try { remote.removeTrack(ev.track); } catch {}
+        const ms = tile.video.srcObject;
+        tile.video.srcObject = null;
+        if (ms instanceof MediaStream && ms.getTracks().length > 0) {
+          tile.video.srcObject = ms;
+        }
+        refreshStageIfFocused(key);
+        // If the focused peer's only video track just vanished, release
+        // the stage so the next incoming video can auto-promote itself.
+        if (focusedKey === key && ev.track.kind === 'video') {
+          const stillVideo = (ms instanceof MediaStream) && ms.getVideoTracks().length > 0;
+          if (!stillVideo) clearStageIfFocused(key);
+        }
+      };
+      ev.track.addEventListener('mute', drop);
+      ev.track.addEventListener('ended', drop);
     };
     pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
@@ -236,7 +347,8 @@
     pc.onnegotiationneeded = async () => {
       try {
         entry.makingOffer = true;
-        await pc.setLocalDescription();
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
         sendSignal(key, 'offer', JSON.stringify(pc.localDescription));
       } catch (e) {
         console.warn('negotiation failed', e);
@@ -252,47 +364,49 @@
     if (!entry) return;
     try { entry.pc.close(); } catch {}
     entry.card?.remove();
+    entry.audio?.remove();
     peers.delete(key);
+    clearStageIfFocused(key);
   }
 
   // ----- signaling ---------------------------------------------------------
+  //
+  // Signaling envelopes ride the same SSE stream as datastar room events
+  // (handler.go -> pushSignal -> sse.ExecuteScript -> window.__roomsSignal).
+  // No separate EventSource: under HTTP/1.1, the per-origin connection cap
+  // was being eaten by (messages SSE) + (room SSE) + (signal SSE) + the
+  // ICE-candidate POST bursts at cam-on time, which silently killed live
+  // chat / presence updates.
 
-  function openSignaling() {
-    signalSrc = new EventSource(`/rooms/${encodeURIComponent(roomID)}/signal/stream`);
-    signalSrc.addEventListener('sig', async (e) => {
-      let msg;
-      try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.kind === 'hello') return;
-      if (msg.kind === 'bye') { closePeer(msg.from); return; }
-      const entry = ensurePeer(msg.from, msg.from);
-      const pc = entry.pc;
-      try {
-        if (msg.kind === 'offer') {
-          const desc = JSON.parse(msg.payload);
-          const offerCollision =
-            entry.makingOffer || pc.signalingState !== 'stable';
-          entry.ignoreOffer = !entry.iAmPolite && offerCollision;
-          if (entry.ignoreOffer) return;
-          if (offerCollision) {
-            // Polite side: roll back its pending offer and take theirs.
-            await Promise.all([
-              pc.setLocalDescription({ type: 'rollback' }).catch(() => {}),
-              pc.setRemoteDescription(desc),
-            ]);
-          } else {
-            await pc.setRemoteDescription(desc);
-          }
-          await pc.setLocalDescription();
+  window.__roomsSignal = async (msg) => {
+    if (!msg || !msg.kind) return;
+    if (msg.kind === 'hello') return;
+    if (msg.kind === 'bye') { closePeer(msg.from); return; }
+    const entry = ensurePeer(msg.from, msg.from);
+    const pc = entry.pc;
+    try {
+      if (msg.kind === 'offer' || msg.kind === 'answer') {
+        const desc = JSON.parse(msg.payload);
+        const readyForOffer =
+          !entry.makingOffer &&
+          (pc.signalingState === 'stable' || entry.isSettingRemoteAnswerPending);
+        const offerCollision = desc.type === 'offer' && !readyForOffer;
+        entry.ignoreOffer = !entry.iAmPolite && offerCollision;
+        if (entry.ignoreOffer) return;
+        entry.isSettingRemoteAnswerPending = desc.type === 'answer';
+        await pc.setRemoteDescription(desc);
+        entry.isSettingRemoteAnswerPending = false;
+        if (desc.type === 'offer') {
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
           sendSignal(msg.from, 'answer', JSON.stringify(pc.localDescription));
-        } else if (msg.kind === 'answer') {
-          await pc.setRemoteDescription(JSON.parse(msg.payload));
-        } else if (msg.kind === 'ice') {
-          try { await pc.addIceCandidate(JSON.parse(msg.payload)); }
-          catch (e) { if (!entry.ignoreOffer) throw e; }
         }
-      } catch (e) { console.warn('signal handle failed', msg.kind, e); }
-    });
-  }
+      } else if (msg.kind === 'ice') {
+        try { await pc.addIceCandidate(JSON.parse(msg.payload)); }
+        catch (e) { if (!entry.ignoreOffer) throw e; }
+      }
+    } catch (e) { console.warn('signal handle failed', msg.kind, e); }
+  };
 
   function sendSignal(to, kind, payload) {
     fetch(`/rooms/${encodeURIComponent(roomID)}/signal/send`, {
@@ -330,6 +444,7 @@
     const card = document.createElement('div');
     card.className = 'rooms-video-tile' + (isLocal ? ' rooms-video-tile-self' : '');
     card.dataset.peerKey = key;
+    card.title = `Click to focus ${name} on the center stage`;
     const video = document.createElement('video');
     video.autoplay = true;
     video.playsInline = true;
@@ -339,11 +454,14 @@
     label.textContent = name;
     card.appendChild(video);
     card.appendChild(label);
+    card.addEventListener('click', () => focusTile(key));
     return { card, video };
   }
 
   // ----- boot --------------------------------------------------------------
-
-  openSignaling();
+  //
+  // No openSignaling() call — signaling is pushed by the datastar room SSE
+  // stream that the templ opens via data-init. The handler invokes
+  // window.__roomsSignal for each envelope.
   startHeartbeat();
 })();

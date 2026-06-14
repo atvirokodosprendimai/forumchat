@@ -124,6 +124,9 @@ func (s *Service) Leave(ctx context.Context, roomID, key string) error {
 	}
 	s.Bus.PublishRoom(roomID, Event{Kind: "presence"})
 	s.Bus.SendSignal(roomID, key, SignalEnvelope{Kind: "bye"}) // closes any open inbox
+	// Stale offers buffered for a peer that just left would replay on
+	// their next join against a closed RTCPeerConnection — drop them.
+	s.Bus.ClearSignalQueue(roomID, key)
 	return nil
 }
 

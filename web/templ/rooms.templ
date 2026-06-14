@@ -119,8 +119,9 @@ templ RoomPage(d RoomPageData) {
 			data-am-guest={ boolStr(d.IsGuest) }
 			data-video-cap="8"
 			data-ice-servers={ d.IceServersJSON }
+			data-signals={ "{\"rooms_am_admin\":" + boolStr(d.IsAdmin) + "}" }
 		>
-			<div hidden data-init={ "@get('/rooms/" + d.RoomID + "/stream', {openWhenHidden: true})" }></div>
+			<div id="rooms-stream-open" hidden data-init={ "@get('/rooms/" + d.RoomID + "/stream', {openWhenHidden: true})" }></div>
 			<header class="rooms-room-head">
 				<a class="btn ghost rooms-back" href="/rooms">← Rooms</a>
 				<h1 class="rooms-room-title" data-rooms-title>{ d.RoomName }</h1>
@@ -132,32 +133,36 @@ templ RoomPage(d RoomPageData) {
 					<button class="btn rooms-ctl rooms-ctl-mic" data-rooms-mic title="Microphone (off)">🎙 off</button>
 					<button class="btn rooms-ctl rooms-ctl-cam" data-rooms-cam title="Camera (off)">🎥 off</button>
 					<button class="btn rooms-ctl rooms-ctl-screen" data-rooms-screen title="Share screen">🖥</button>
-					if d.IsAdmin {
-						<button class="btn ghost rooms-ctl"
-							data-on:click="$rooms_admin_open = !$rooms_admin_open"
-							title="Admin controls">⚙</button>
-					}
+					<button class="btn ghost rooms-ctl"
+						data-show="$rooms_am_admin"
+						data-on:click="$rooms_admin_open = !$rooms_admin_open"
+						title="Admin controls">⚙</button>
 					<button class="btn rooms-ctl rooms-ctl-leave" data-rooms-leave>Leave</button>
 				</div>
 			</header>
 
-			if d.IsAdmin {
-				<div class="rooms-admin-tray" data-show="$rooms_admin_open">
-					@RoomsAdminPanel(RoomAdminPanelData{
-						RoomID:    d.RoomID,
-						IsPublic:  d.IsPublic,
-						InviteURL: d.InviteURL,
-					})
-				</div>
-			}
+			<div class="rooms-admin-tray" data-show="$rooms_admin_open">
+				@RoomsAdminPanel(RoomAdminPanelData{
+					RoomID:    d.RoomID,
+					IsPublic:  d.IsPublic,
+					InviteURL: d.InviteURL,
+				})
+			</div>
 
 			<div class="rooms-pending-banner" data-rooms-pending>
 				@RoomsPendingBanner(d.Pending, d.IsAdmin, d.RoomID)
 			</div>
 
-			<div class="rooms-layout-v2">
-				<section class="rooms-video-col" data-rooms-video-col>
-					<div class="rooms-video-stack" data-video-grid></div>
+			<div class="rooms-layout-v3">
+				<section class="rooms-stage-area">
+					<div class="rooms-video-strip" data-video-grid title="Click a participant to focus on them"></div>
+					<div class="rooms-stage" data-rooms-stage>
+						<video data-rooms-stage-video autoplay playsinline></video>
+						<div class="rooms-stage-empty" data-rooms-stage-empty>
+							<p>Click any participant above to bring their video to the center stage.</p>
+						</div>
+						<div class="rooms-stage-label" data-rooms-stage-label></div>
+					</div>
 					<aside class="rooms-people" data-rooms-people>
 						@RoomsParticipants(d.Members, d.Pending, d.IsAdmin, d.RoomID)
 					</aside>
@@ -168,12 +173,13 @@ templ RoomPage(d RoomPageData) {
 						<h2>Chat</h2>
 						<span class="muted" data-text="$rooms_member_count + ' in room'">{ strconv.Itoa(len(d.Members)) } in room</span>
 					</header>
-					<div class="rooms-chat-list" data-rooms-chat>
+					<div class="rooms-chat-list" data-rooms-chat
+						data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
 						@RoomsChatList(d.Chat)
 					</div>
 					<div class="rooms-chat-send">
 						<input type="text" placeholder="message"
-							data-bind:rooms_chat_body
+							data-bind="rooms_chat_body"
 							maxlength="2000"
 							data-on:keydown={ "evt.key === 'Enter' && @post('/rooms/" + d.RoomID + "/chat')" }/>
 						<button class="btn" type="button"
@@ -197,7 +203,7 @@ templ RoomsAdminPanel(d RoomAdminPanelData) {
 		<div class="rooms-admin-section">
 			<h3>Rename room</h3>
 			<div class="rooms-row">
-				<input type="text" placeholder="new room name" data-bind:rooms_new_name maxlength="80"/>
+				<input type="text" placeholder="new room name" data-bind="rooms_new_name" maxlength="80"/>
 				<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/rename')" }>Save</button>
 			</div>
 		</div>
@@ -241,6 +247,7 @@ templ RoomsAdminPanel(d RoomAdminPanelData) {
 }
 
 templ RoomsPendingBanner(pending []RoomParticipantView, viewerIsAdmin bool, roomID string) {
+	<div id="rooms-pending-banner-inner" class="rooms-pending-banner-inner" data-pending-count={ strconv.Itoa(len(pending)) }>
 	if len(pending) > 0 && viewerIsAdmin {
 		<div class="rooms-pending-list">
 			<strong>Waiting to join:</strong>
@@ -258,10 +265,11 @@ templ RoomsPendingBanner(pending []RoomParticipantView, viewerIsAdmin bool, room
 			}
 		</div>
 	}
+	</div>
 }
 
 templ RoomsParticipants(members []RoomParticipantView, pending []RoomParticipantView, viewerIsAdmin bool, roomID string) {
-	<div class="rooms-participants">
+	<div id="rooms-participants" class="rooms-participants">
 		<h3>People ({ strconv.Itoa(len(members)) })</h3>
 		<ul>
 			for _, p := range members {
@@ -289,9 +297,9 @@ templ RoomsParticipants(members []RoomParticipantView, pending []RoomParticipant
 }
 
 templ RoomsChatList(rows []RoomChatView) {
-	<ul class="rooms-chat-msgs">
+	<ul id="rooms-chat-msgs" class="rooms-chat-msgs">
 		for _, m := range rows {
-			<li class={ "rooms-chat-msg", templ.KV("rooms-chat-mine", m.IsMine) }>
+			<li class={ "rooms-chat-msg", templ.KV("rooms-chat-mine", m.IsMine) } id={ "rooms-chat-msg-" + m.ID }>
 				<header>
 					<strong>{ m.AuthorName }</strong>
 					if m.IsGuest {
