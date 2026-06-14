@@ -361,7 +361,11 @@ func run() error {
 		if cfg.ProjectsEnabled {
 			r.Get("/projects", projectsHandler.GetIndex)
 			r.Post("/projects", projectsHandler.PostCreate)
-			r.Get("/projects/{id}", projectsHandler.GetProject)
+			r.Get("/projects/{id}", projectsHandler.GetOverview)
+			r.Get("/projects/{id}/todos", projectsHandler.GetTodosTab)
+			r.Get("/projects/{id}/docs", projectsHandler.GetDocsTab)
+			r.Get("/projects/{id}/comments", projectsHandler.GetCommentsTab)
+			r.Get("/projects/{id}/activity", projectsHandler.GetActivityTab)
 			r.Get("/projects/{id}/stream", projectsHandler.GetStream)
 			r.Post("/projects/{id}/title", projectsHandler.PostTitle)
 			r.Post("/projects/{id}/desc", projectsHandler.PostDescription)

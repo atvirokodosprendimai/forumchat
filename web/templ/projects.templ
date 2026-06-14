@@ -119,25 +119,105 @@ templ ProjectsGrid(d ProjectsGridData) {
 	}
 }
 
-templ ProjectPage(d ProjectPageData) {
+// ProjectTabs renders the persistent tab strip shared by every project
+// sub-page. `active` is one of "overview","todos","docs","issues",
+// "comments","activity" — used to set aria-current on the active tab.
+templ ProjectTabs(slug, projectID, active string) {
+	<nav class="project-tabs" aria-label="Project sections">
+		@projectTab(slug, projectID, "overview", "Overview", active)
+		@projectTab(slug, projectID, "todos", "Todos", active)
+		@projectTab(slug, projectID, "docs", "Docs", active)
+		@projectTab(slug, projectID, "issues", "Issues", active)
+		@projectTab(slug, projectID, "comments", "Comments", active)
+		@projectTab(slug, projectID, "activity", "Activity", active)
+	</nav>
+}
+
+templ projectTab(slug, projectID, key, label, active string) {
+	if key == active {
+		<a class="project-tab project-tab-active"
+			aria-current="page"
+			href={ templ.URL(projectTabHref(slug, projectID, key)) }>{ label }</a>
+	} else {
+		<a class="project-tab"
+			href={ templ.URL(projectTabHref(slug, projectID, key)) }>{ label }</a>
+	}
+}
+
+func projectTabHref(slug, projectID, key string) string {
+	base := "/c/" + slug + "/projects/" + projectID
+	if key == "overview" {
+		return base
+	}
+	return base + "/" + key
+}
+
+// projectShell renders the common chrome — back link, SSE stream
+// opener, tab strip, header. Each tab page wraps its body in this.
+templ projectShell(d ProjectPageData, active string) {
+	<script src={ "/static/projects.js?v=" + AssetVer("projects.js") } defer></script>
+	<section class="project-page">
+		<nav class="project-breadcrumb muted">
+			<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>← back to Projects</a>
+		</nav>
+		<div id="proj-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/stream?tab=" + active + "', {openWhenHidden: true})" }></div>
+		@ProjectHeaderFragment(d.CommunitySlug, d.Project)
+		@ProjectTabs(d.CommunitySlug, d.Project.ID, active)
+		<div class="project-body project-body-single">
+			{ children... }
+		</div>
+	</section>
+}
+
+// ProjectOverviewPage is the landing tab — summary counts + share-link
+// admin section (Phase 3 will populate that).
+templ ProjectOverviewPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Projects", d.Viewer) {
-		<script src={ "/static/projects.js?v=" + AssetVer("projects.js") } defer></script>
-		<section class="project-page">
-			<nav class="project-breadcrumb muted">
-				<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>← back to Projects</a>
-			</nav>
-			// Hidden div opens the SSE stream that drives every fragment
-			// morph on this page. openWhenHidden keeps the stream alive
-			// while the tab is backgrounded.
-			<div id="proj-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/stream', {openWhenHidden: true})" }></div>
-			@ProjectHeaderFragment(d.CommunitySlug, d.Project)
-			<div class="project-body">
-				@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos)
-				@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments)
-				@ProjectCommentsFragment(d.CommunitySlug, d.Project.ID, d.Comments)
-				@ProjectActivityFragment(d.Activity)
-			</div>
-		</section>
+		@projectShell(d, "overview") {
+			<section class="project-panel project-panel-overview">
+				<h3>Overview</h3>
+				<ul class="project-overview-counts">
+					<li>{ strconv.Itoa(len(d.Todos)) } todos</li>
+					<li>{ strconv.Itoa(len(d.Attachments)) } documents</li>
+					<li>{ strconv.Itoa(len(d.Comments)) } comments</li>
+				</ul>
+				if d.Project.DescriptionHTML == "" {
+					<p class="muted">Use the Edit button above to add a description.</p>
+				}
+			</section>
+		}
+	}
+}
+
+templ ProjectTodosPage(d ProjectPageData) {
+	@Layout(d.Project.Title+" — Todos", d.Viewer) {
+		@projectShell(d, "todos") {
+			@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos)
+		}
+	}
+}
+
+templ ProjectDocsPage(d ProjectPageData) {
+	@Layout(d.Project.Title+" — Docs", d.Viewer) {
+		@projectShell(d, "docs") {
+			@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments)
+		}
+	}
+}
+
+templ ProjectCommentsPage(d ProjectPageData) {
+	@Layout(d.Project.Title+" — Comments", d.Viewer) {
+		@projectShell(d, "comments") {
+			@ProjectCommentsFragment(d.CommunitySlug, d.Project.ID, d.Comments)
+		}
+	}
+}
+
+templ ProjectActivityPage(d ProjectPageData) {
+	@Layout(d.Project.Title+" — Activity", d.Viewer) {
+		@projectShell(d, "activity") {
+			@ProjectActivityFragment(d.Activity)
+		}
 	}
 }
 

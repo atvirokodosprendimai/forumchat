@@ -108,59 +108,43 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/c/"+c.Slug+"/projects/"+p.ID, http.StatusSeeOther)
 }
 
-// GetProject renders the project page with all five panel skeletons.
-// Phase 2 only loads the Project row + empty placeholders for the
-// realtime panels; they get populated in Phase 4-6.
-func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
+// loadProjectData resolves the project + (selectively) child rows so
+// each tab handler only fetches what it actually renders. Returns the
+// pre-built ProjectPageData. The `_, ok` shape matches projectFromURL
+// so callers can early-return cleanly.
+func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want struct {
+	Todos, Atts, Comments, Activity bool
+}) (webtempl.ProjectPageData, bool) {
 	c, ok := community.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "no community", http.StatusInternalServerError)
-		return
+		return webtempl.ProjectPageData{}, false
 	}
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
-		return
+		return webtempl.ProjectPageData{}, false
 	}
 	pid := chi.URLParam(r, "id")
 	p, err := h.Repo.ByID(r.Context(), pid)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
-			return
+			return webtempl.ProjectPageData{}, false
 		}
 		h.Log.Error("projects byid", "err", err, "id", pid)
 		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return webtempl.ProjectPageData{}, false
 	}
 	if p.CommunityID != c.ID {
-		// Cross-community lookup — same not-found response so we don't
-		// leak project ids across communities.
 		http.NotFound(w, r)
-		return
+		return webtempl.ProjectPageData{}, false
 	}
 
-	todos, err := h.Repo.ListTodos(r.Context(), p.ID)
-	if err != nil {
-		h.Log.Error("projects todos load", "err", err, "id", pid)
-	}
-	atts, err := h.Repo.ListAttachments(r.Context(), p.ID)
-	if err != nil {
-		h.Log.Error("projects attachments load", "err", err, "id", pid)
-	}
-	comments, err := h.Repo.ListComments(r.Context(), p.ID)
-	if err != nil {
-		h.Log.Error("projects comments load", "err", err, "id", pid)
-	}
-	activity, err := h.Repo.RecentActivity(r.Context(), p.ID, 30)
-	if err != nil {
-		h.Log.Error("projects activity load", "err", err, "id", pid)
-	}
-
+	isAdmin := id.Membership.Role == auth.RoleAdmin
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
 	v.CommunitySlug = c.Slug
-	isAdmin := id.Membership.Role == auth.RoleAdmin
 	data := webtempl.ProjectPageData{
 		Viewer:        v,
 		CommunitySlug: c.Slug,
@@ -173,12 +157,96 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 			IsArchived:      p.IsArchived(),
 			CanDelete:       p.CreatorUserID == id.User.ID || isAdmin,
 		},
-		Todos:       toTodoViews(todos),
-		Attachments: toAttachmentViews(atts, p.CreatorUserID, id.User.ID, isAdmin),
-		Comments:    toCommentViews(comments, id.User.ID, isAdmin, h.Svc.EditGrace, time.Now().UTC()),
-		Activity:    toActivityViews(activity),
 	}
-	_ = webtempl.ProjectPage(data).Render(r.Context(), w)
+	// Overview wants approximate counts (cheap: derived from the loads we
+	// do anyway). We load todos+attachments+comments for the overview
+	// because the panel shows counts of each. Other tabs only load what
+	// they render.
+	if want.Todos {
+		todos, err := h.Repo.ListTodos(r.Context(), p.ID)
+		if err != nil {
+			h.Log.Error("projects todos load", "err", err, "id", pid)
+		}
+		data.Todos = toTodoViews(todos)
+	}
+	if want.Atts {
+		atts, err := h.Repo.ListAttachments(r.Context(), p.ID)
+		if err != nil {
+			h.Log.Error("projects attachments load", "err", err, "id", pid)
+		}
+		data.Attachments = toAttachmentViews(atts, p.CreatorUserID, id.User.ID, isAdmin)
+	}
+	if want.Comments {
+		comments, err := h.Repo.ListComments(r.Context(), p.ID)
+		if err != nil {
+			h.Log.Error("projects comments load", "err", err, "id", pid)
+		}
+		data.Comments = toCommentViews(comments, id.User.ID, isAdmin, h.Svc.EditGrace, time.Now().UTC())
+	}
+	if want.Activity {
+		activity, err := h.Repo.RecentActivity(r.Context(), p.ID, 30)
+		if err != nil {
+			h.Log.Error("projects activity load", "err", err, "id", pid)
+		}
+		data.Activity = toActivityViews(activity)
+	}
+	return data, true
+}
+
+// GetOverview renders the Overview tab (the default landing page for
+// a project). Loads todos/attachments/comments only for the count pills.
+func (h *Handler) GetOverview(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Todos: true, Atts: true, Comments: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectOverviewPage(data).Render(r.Context(), w)
+}
+
+// GetTodosTab renders the Todos tab.
+func (h *Handler) GetTodosTab(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Todos: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectTodosPage(data).Render(r.Context(), w)
+}
+
+// GetDocsTab renders the Docs (attachments) tab.
+func (h *Handler) GetDocsTab(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Atts: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectDocsPage(data).Render(r.Context(), w)
+}
+
+// GetCommentsTab renders the project-wide Comments tab.
+func (h *Handler) GetCommentsTab(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Comments: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectCommentsPage(data).Render(r.Context(), w)
+}
+
+// GetActivityTab renders the Activity tab.
+func (h *Handler) GetActivityTab(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Activity: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectActivityPage(data).Render(r.Context(), w)
 }
 
 // PostTitle accepts an inline title edit and propagates via SSE.

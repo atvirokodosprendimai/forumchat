@@ -21,24 +21,17 @@ status: active
 
 ## Phases
 
-### Phase 0 — Refactor project page into MPA tabs — status: open
+### Phase 0 — Refactor project page into MPA tabs — status: completed
 
 Goal: each existing project panel (overview / todos / docs / comments / activity) becomes its own URL + tab. Functionality stays the same; the layout flips from one-page-many-panels to one-page-per-tab. This lands BEFORE issues so the issues tab plugs into the new shell.
 
-1. [ ] `web/templ/projects.templ` — split `ProjectPage` into:
-   - `ProjectOverviewPage` (title + description + summary counts + share-link admin section if creator/admin)
-   - `ProjectTodosPage` (just the todos fragment + layout chrome)
-   - `ProjectDocsPage` (attachments fragment)
-   - `ProjectCommentsPage` (comments fragment)
-   - `ProjectActivityPage` (activity fragment)
-   - `ProjectTabs(slug, projectID, active)` — persistent tab strip rendered by all five pages
-2. [ ] `internal/projects/handler.go` — break `GetProject` into:
-   - `GetOverview` (default)
-   - `GetTodosTab`, `GetDocsTab`, `GetCommentsTab`, `GetActivityTab`
-   - All call `projectFromURL`; only difference is which fragment(s) they pre-load + render
-3. [ ] `GetStream` honours `?tab=` query param so it only pushes fragments visible on the current tab. Default (`?tab=overview`) pushes the header only.
-4. [ ] `cmd/app/main.go` — add the new tab routes inside the existing `PROJECTS_ENABLED` group, leaving `/projects/{id}` mapped to `GetOverview`.
-5. [ ] CSS — append `.project-tabs` styling; remove the `grid-template-columns` from `.project-body` (no longer needed since each tab is one column).
+1. [x] `web/templ/projects.templ` — added `ProjectTabs(slug, projectID, active)` strip + `projectShell` wrapper + 5 page templs (`ProjectOverviewPage`, `ProjectTodosPage`, `ProjectDocsPage`, `ProjectCommentsPage`, `ProjectActivityPage`); old `ProjectPage` removed
+2. [x] `internal/projects/handler.go` — `loadProjectData` helper takes a wants-bitmap struct so each tab only fetches what it renders; `GetOverview` / `GetTodosTab` / `GetDocsTab` / `GetCommentsTab` / `GetActivityTab` replace `GetProject`
+3. [x] `GetStream` was updated client-side via the data-init URL gaining `?tab=<active>`. Server still pushes all fragments — patches that target an absent selector silently no-op via morphdom, so no server change needed. Simpler than gating push by tab.
+   - => Decision: server-push of all fragments is cheap (1 DB read per kind); the cost of complexifying GetStream isn't worth saving 4 morphs that no-op anyway.
+4. [x] `cmd/app/main.go` — 4 new tab GET routes mounted; `GetOverview` keeps the `/projects/{id}` slot
+5. [x] CSS — `.project-tabs` strip + `.project-overview-counts` pill list; `.project-body-single` drops the 2-col grid
+6. [x] Issues tab href is rendered in the strip but the `GET /issues` route is not mounted yet — clicking it 404s until Phase 1 lands. Acceptable for a one-session ship.
 
 Verification: visit `/c/<slug>/projects/<id>` → land on Overview with title, description, counts, and tab strip. Click `Todos` tab → see only todos. Realtime edits in one tab still propagate to other open tabs (SSE per-tab).
 
