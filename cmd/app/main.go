@@ -443,6 +443,9 @@ func run() error {
 				r.Get("/{id}/discussions/{did}", projectsHandler.GetDiscussionThread)
 				r.Post("/{id}/discussions/{did}", projectsHandler.PostEditDiscussionThread)
 				r.Post("/{id}/discussions/{did}/delete", projectsHandler.PostDeleteDiscussionThread)
+				r.Post("/{id}/discussions/{did}/reply", projectsHandler.PostDiscussionReply)
+				r.Post("/{id}/discussions/{did}/reply/{rid}", projectsHandler.PostDiscussionReplyEdit)
+				r.Post("/{id}/discussions/{did}/reply/{rid}/delete", projectsHandler.PostDiscussionReplyDelete)
 			})
 
 			// Member-only — index, create, edits, lifecycle, share mint,

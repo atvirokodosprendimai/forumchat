@@ -74,6 +74,101 @@ func (s *Service) UpdateDiscussionThread(ctx context.Context, projectID, threadI
 	return s.Repo.UpdateDiscussionThread(ctx, threadID, subject, strings.TrimSpace(bodyMD), html, time.Now().UTC())
 }
 
+// AddDiscussionReply adds a new reply to a thread + bumps the thread's
+// last_activity_at so it floats up in the list.
+func (s *Service) AddDiscussionReply(ctx context.Context, projectID, threadID, quotedReplyID, bodyMD string, author Identity) (DiscussionReply, error) {
+	t, err := s.Repo.DiscussionThreadByID(ctx, threadID)
+	if err != nil {
+		return DiscussionReply{}, fmt.Errorf("thread lookup: %w", err)
+	}
+	if t.ProjectID != projectID || t.IsDeleted() {
+		return DiscussionReply{}, ErrNotFound
+	}
+	bodyMD = strings.TrimSpace(bodyMD)
+	if bodyMD == "" {
+		return DiscussionReply{}, ErrEmptyTitle
+	}
+	html, err := render.RenderMarkdown(bodyMD)
+	if err != nil {
+		return DiscussionReply{}, fmt.Errorf("render: %w", err)
+	}
+	// Validate quoted_reply_id is in the same thread (no cross-thread quoting).
+	if quotedReplyID != "" {
+		q, err := s.Repo.DiscussionReplyByID(ctx, quotedReplyID)
+		if err != nil || q.ThreadID != threadID || q.IsDeleted() {
+			quotedReplyID = ""
+		}
+	}
+	now := time.Now().UTC()
+	rr := DiscussionReply{
+		ID:            uuid.NewString(),
+		ThreadID:      threadID,
+		QuotedReplyID: quotedReplyID,
+		AuthorUserID:  author.UserID,
+		AuthorGuestID: author.GuestID,
+		AuthorName:    author.Name,
+		BodyMD:        bodyMD,
+		BodyHTML:      html,
+		CreatedAt:     now,
+	}
+	if err := s.Repo.InsertDiscussionReply(ctx, rr); err != nil {
+		return DiscussionReply{}, fmt.Errorf("insert reply: %w", err)
+	}
+	_ = s.Repo.BumpDiscussionThreadActivity(ctx, threadID, now)
+	return rr, nil
+}
+
+// UpdateDiscussionReply enforces grace window + author-or-admin.
+func (s *Service) UpdateDiscussionReply(ctx context.Context, projectID, threadID, replyID, bodyMD string, caller Identity, callerIsAdmin bool) error {
+	rr, err := s.Repo.DiscussionReplyByID(ctx, replyID)
+	if err != nil {
+		return fmt.Errorf("reply lookup: %w", err)
+	}
+	if rr.ThreadID != threadID || rr.IsDeleted() {
+		return ErrNotFound
+	}
+	t, err := s.Repo.DiscussionThreadByID(ctx, threadID)
+	if err != nil || t.ProjectID != projectID || t.IsDeleted() {
+		return ErrNotFound
+	}
+	now := time.Now().UTC()
+	isAuthor := (caller.UserID != "" && rr.AuthorUserID == caller.UserID) ||
+		(caller.GuestID != "" && rr.AuthorGuestID == caller.GuestID)
+	if !(callerIsAdmin || (isAuthor && now.Sub(rr.CreatedAt) <= s.EditGrace)) {
+		return ErrForbidden
+	}
+	bodyMD = strings.TrimSpace(bodyMD)
+	if bodyMD == "" {
+		return ErrEmptyTitle
+	}
+	html, err := render.RenderMarkdown(bodyMD)
+	if err != nil {
+		return fmt.Errorf("render: %w", err)
+	}
+	return s.Repo.UpdateDiscussionReply(ctx, replyID, bodyMD, html, now)
+}
+
+// DeleteDiscussionReply soft-deletes. Author (anytime) OR admin.
+func (s *Service) DeleteDiscussionReply(ctx context.Context, projectID, threadID, replyID string, caller Identity, callerIsAdmin bool) error {
+	rr, err := s.Repo.DiscussionReplyByID(ctx, replyID)
+	if err != nil {
+		return fmt.Errorf("reply lookup: %w", err)
+	}
+	if rr.ThreadID != threadID || rr.IsDeleted() {
+		return ErrNotFound
+	}
+	t, err := s.Repo.DiscussionThreadByID(ctx, threadID)
+	if err != nil || t.ProjectID != projectID || t.IsDeleted() {
+		return ErrNotFound
+	}
+	isAuthor := (caller.UserID != "" && rr.AuthorUserID == caller.UserID) ||
+		(caller.GuestID != "" && rr.AuthorGuestID == caller.GuestID)
+	if !(callerIsAdmin || isAuthor) {
+		return ErrForbidden
+	}
+	return s.Repo.SoftDeleteDiscussionReply(ctx, replyID, time.Now().UTC())
+}
+
 // DeleteDiscussionThread soft-deletes. Author OR admin.
 func (s *Service) DeleteDiscussionThread(ctx context.Context, projectID, threadID string, caller Identity, callerIsAdmin bool) error {
 	t, err := s.Repo.DiscussionThreadByID(ctx, threadID)

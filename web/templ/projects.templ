@@ -454,12 +454,66 @@ templ ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVi
 							data-on:click="$projects_discussion_edit_open = false">Cancel</button>
 					</div>
 				</div>
-				if len(replies) > 0 {
-					<section class="project-discussion-replies">
-						<h3>Replies</h3>
-						<p class="muted">Replies render in PD2.</p>
-					</section>
-				}
+				<section class="project-discussion-replies">
+					<h3>Replies</h3>
+					if len(replies) == 0 {
+						<p class="muted">No replies yet.</p>
+					} else {
+						<ul class="project-discussion-reply-list">
+							for _, rr := range replies {
+								<li class="project-discussion-reply" id={ "dr-" + rr.ID }>
+									if rr.QuotedReplyID != "" {
+										<blockquote class="project-discussion-quote">
+											<header class="muted">{ rr.QuotedAuthor } wrote:</header>
+											<p>{ rr.QuotedSnippet }</p>
+										</blockquote>
+									}
+									<div class="project-discussion-reply-meta muted">
+										<strong>{ rr.AuthorName }</strong>
+										if rr.IsGuestAuthored {
+											<span class="projects-pill projects-pill-guest">guest</span>
+										}
+										· <time>{ rr.CreatedAt.Local().Format("2006-01-02 15:04") }</time>
+										if rr.Edited {
+											<span>(edited)</span>
+										}
+									</div>
+									<div class="project-discussion-reply-body"
+										data-show={ "$projects_discussion_reply_edit_id !== '" + rr.ID + "'" }>@templ.Raw(rr.BodyHTML)</div>
+									<textarea class="project-discussion-reply-edit-input"
+										rows="3"
+										data-show={ "$projects_discussion_reply_edit_id === '" + rr.ID + "'" }
+										data-bind="projects_discussion_reply_edit"
+										data-on:keydown={ "evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault(), @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "/reply/" + rr.ID + "'), $projects_discussion_reply_edit_id = '')" }></textarea>
+									<div class="project-discussion-reply-actions">
+										<button class="btn ghost"
+											data-on:click={ "$projects_discussion_quote_id = '" + rr.ID + "'" }>Quote</button>
+										if rr.CanEdit {
+											<button class="btn ghost"
+												data-on:click={ "$projects_discussion_reply_edit_id = '" + rr.ID + "'; $projects_discussion_reply_edit = '" + jsQuoteAttr(rr.BodyMD) + "'" }>Edit</button>
+										}
+										if rr.CanDelete {
+											<button class="btn ghost"
+												data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "/reply/" + rr.ID + "/delete')" }>Delete</button>
+										}
+									</div>
+								</li>
+							}
+						</ul>
+					}
+					<form class="project-discussion-reply-add"
+						data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "/reply')" }>
+						<div data-show="$projects_discussion_quote_id !== ''" class="project-discussion-quote-pending muted">
+							Quoting reply
+							<button class="btn ghost" type="button"
+								data-on:click="$projects_discussion_quote_id = ''">×</button>
+						</div>
+						<textarea rows="3" placeholder="Reply (markdown supported)…"
+							maxlength="4000"
+							data-bind="projects_discussion_reply_body" required></textarea>
+						<button class="btn" type="submit">Post reply</button>
+					</form>
+				</section>
 			</section>
 		}
 	}

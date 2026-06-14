@@ -30,15 +30,16 @@ Goal: member or guest opens new thread from the Discussions tab, lands on the th
 
 Verification: open Discussions tab → "Where should the API key live?" → land on thread page.
 
-### PD2 — Replies + quoted-reply + edit-grace — status: open
+### PD2 — Replies + quoted-reply + edit-grace — status: completed
 
 Goal: members and guests reply on any thread, quote each other's replies, edit within grace, soft-delete own.
 
-1. [ ] `discussions_repo.go` — ListReplies, ReplyByID, InsertReply, UpdateReply, SoftDeleteReply
-2. [ ] `discussions_service.go` — AddReply, UpdateReply (grace), DeleteReply; bump thread last_activity on add
-3. [ ] `discussions_handler.go` — PostReply, PostReplyEdit, PostReplyDelete; all redirect-after-success (same pattern as issues page)
-4. [ ] Templ — `ProjectDiscussionThreadPage` extended with reply list, reply form, quote-this-reply affordance
-5. [ ] Quoted-reply renders as a `<blockquote>` block above the new reply body — markdown-rendered server-side from the source reply's `body_md`
+1. [x] `discussions_repo.go` — ListDiscussionReplies, DiscussionReplyByID, InsertDiscussionReply, UpdateDiscussionReply, SoftDeleteDiscussionReply
+2. [x] `discussions_service.go` — AddDiscussionReply (validates quoted_reply_id belongs to the same thread; bumps last_activity), UpdateDiscussionReply (edit-grace + author/admin), DeleteDiscussionReply (author/admin, no grace)
+3. [x] `discussions_handler.go` — PostDiscussionReply, PostDiscussionReplyEdit, PostDiscussionReplyDelete; all redirect-on-success
+4. [x] Templ — ProjectDiscussionThreadPage extended with reply list (quoted snippet rendered as a `<blockquote>` above the body), inline edit, delete, quote-this-reply button, reply form pinned at the bottom with a "Quoting reply ×" pill when a quote is in progress
+5. [x] toDiscussionReplyViews builds a viewer-scoped permission map (CanEdit honors EditGrace; quoted snippet falls back to first 140 chars of the source body)
+6. [x] CSS — quoted blockquote, reply rows, reply form, quote-pending pill
 
 Verification: guest replies to admin's reply → quoted block visible above the new reply.
 

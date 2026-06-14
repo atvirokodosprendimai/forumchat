@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar-go/datastar"
@@ -16,9 +17,12 @@ import (
 
 // discussionSignals is the datastar bag for the discussions tab + thread page.
 type discussionSignals struct {
-	Subject string `json:"projects_discussion_subject"`
-	Body    string `json:"projects_discussion_body"`
-	Edit    string `json:"projects_discussion_edit"`
+	Subject     string `json:"projects_discussion_subject"`
+	Body        string `json:"projects_discussion_body"`
+	Edit        string `json:"projects_discussion_edit"`
+	ReplyBody   string `json:"projects_discussion_reply_body"`
+	ReplyEdit   string `json:"projects_discussion_reply_edit"`
+	QuoteID     string `json:"projects_discussion_quote_id"`
 }
 
 // GetDiscussionsTab renders the Discussions list tab.
@@ -67,7 +71,150 @@ func (h *Handler) GetDiscussionThread(w http.ResponseWriter, r *http.Request) {
 	id, _ := h.callerIdentity(r)
 	isAdmin := id.Role == auth.RoleAdmin
 	view := toDiscussionThreadView(t, id, isAdmin)
-	_ = webtempl.ProjectDiscussionThreadPage(data, view, nil).Render(r.Context(), w)
+
+	replies, err := h.Repo.ListDiscussionReplies(r.Context(), did)
+	if err != nil {
+		h.Log.Warn("projects discussion replies", "err", err, "thread", did)
+	}
+	replyViews := toDiscussionReplyViews(replies, id, isAdmin, h.Svc.EditGrace)
+	_ = webtempl.ProjectDiscussionThreadPage(data, view, replyViews).Render(r.Context(), w)
+}
+
+// PostDiscussionReply adds a reply to a thread.
+func (h *Handler) PostDiscussionReply(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	did := chi.URLParam(r, "did")
+	c, _ := community.FromContext(r.Context())
+	id, ok := h.callerIdentity(r)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	var in discussionSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Svc.AddDiscussionReply(r.Context(), pid, did, in.QuoteID, in.ReplyBody, id); err != nil {
+		if errors.Is(err, ErrEmptyTitle) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		h.Log.Warn("projects discussion reply add", "err", err, "thread", did)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions/" + did)
+}
+
+// PostDiscussionReplyEdit replaces a reply body within the grace window.
+func (h *Handler) PostDiscussionReplyEdit(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	did := chi.URLParam(r, "did")
+	rid := chi.URLParam(r, "rid")
+	c, _ := community.FromContext(r.Context())
+	id, ok := h.callerIdentity(r)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	var in discussionSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	isAdmin := id.Role == auth.RoleAdmin
+	if err := h.Svc.UpdateDiscussionReply(r.Context(), pid, did, rid, in.ReplyEdit, id, isAdmin); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Warn("projects discussion reply edit", "err", err, "reply", rid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions/" + did)
+}
+
+// PostDiscussionReplyDelete soft-deletes a reply.
+func (h *Handler) PostDiscussionReplyDelete(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	did := chi.URLParam(r, "did")
+	rid := chi.URLParam(r, "rid")
+	c, _ := community.FromContext(r.Context())
+	id, ok := h.callerIdentity(r)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	isAdmin := id.Role == auth.RoleAdmin
+	if err := h.Svc.DeleteDiscussionReply(r.Context(), pid, did, rid, id, isAdmin); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Warn("projects discussion reply delete", "err", err, "reply", rid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/discussions/" + did)
+}
+
+func toDiscussionReplyViews(replies []DiscussionReply, viewer Identity, viewerIsAdmin bool, grace time.Duration) []webtempl.ProjectDiscussionReplyView {
+	// Build a lookup so we can render a quoted snippet inline.
+	byID := map[string]DiscussionReply{}
+	for _, rr := range replies {
+		byID[rr.ID] = rr
+	}
+	out := make([]webtempl.ProjectDiscussionReplyView, 0, len(replies))
+	now := time.Now().UTC()
+	for _, rr := range replies {
+		if rr.IsDeleted() {
+			continue
+		}
+		isAuthor := (viewer.UserID != "" && rr.AuthorUserID == viewer.UserID) ||
+			(viewer.GuestID != "" && rr.AuthorGuestID == viewer.GuestID)
+		canEdit := viewerIsAdmin || (isAuthor && now.Sub(rr.CreatedAt) <= grace)
+		canDelete := viewerIsAdmin || isAuthor
+		view := webtempl.ProjectDiscussionReplyView{
+			ID:              rr.ID,
+			AuthorName:      rr.AuthorName,
+			IsGuestAuthored: rr.IsGuestAuthored(),
+			BodyMD:          rr.BodyMD,
+			BodyHTML:        rr.BodyHTML,
+			CreatedAt:       rr.CreatedAt,
+			Edited:          rr.EditedAt != nil,
+			CanEdit:         canEdit,
+			CanDelete:       canDelete,
+		}
+		if rr.QuotedReplyID != "" {
+			if q, ok := byID[rr.QuotedReplyID]; ok && !q.IsDeleted() {
+				view.QuotedReplyID = q.ID
+				view.QuotedAuthor = q.AuthorName
+				snip := q.BodyMD
+				if len(snip) > 140 {
+					snip = snip[:140] + "…"
+				}
+				view.QuotedSnippet = snip
+			}
+		}
+		out = append(out, view)
+	}
+	return out
 }
 
 // PostCreateDiscussionThread opens a new thread.

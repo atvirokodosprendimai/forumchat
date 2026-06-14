@@ -1342,3 +1342,44 @@ img.thread-announce-img {
 .project-discussion-edit label { display: block; margin-bottom: .75rem; }
 .project-discussion-edit input,
 .project-discussion-edit textarea { display: block; width: 100%; margin-top: .25rem; }
+
+/* Replies inside a discussion thread */
+.project-discussion-replies { margin-top: 1.5rem; }
+.project-discussion-reply-list { list-style: none; padding: 0; margin: 0 0 1rem 0; }
+.project-discussion-reply {
+  border-bottom: 1px solid var(--border);
+  padding: .85rem 0;
+}
+.project-discussion-reply:last-child { border-bottom: none; }
+.project-discussion-quote {
+  border-left: 3px solid var(--accent);
+  padding: .25rem .75rem;
+  margin: 0 0 .5rem 0;
+  background: var(--accent-soft);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.project-discussion-quote header { font-size: .75rem; margin-bottom: .25rem; }
+.project-discussion-quote p { margin: 0; font-size: .9rem; opacity: .8; }
+.project-discussion-reply-meta { font-size: .8rem; margin-bottom: .35rem; }
+.project-discussion-reply-body { margin-bottom: .35rem; }
+.project-discussion-reply-edit-input { width: 100%; }
+.project-discussion-reply-actions { display: flex; gap: .35rem; }
+.project-discussion-reply-add {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  background: var(--accent-soft);
+  padding: .75rem;
+  border-radius: var(--radius);
+}
+.project-discussion-reply-add textarea { width: 100%; }
+.project-discussion-quote-pending {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  font-size: .85rem;
+  padding: .35rem .5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
