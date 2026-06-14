@@ -166,7 +166,11 @@ templ Layout(title string, v Viewer) {
 							}
 						}
 						<h3 class="sidebar-group">You</h3>
-						<a href="/messages" class="pm-nav-link"><span class="sb-icon" aria-hidden="true">✉</span>Messages @MessagesBadge(0)</a>
+						<a href="/messages" class="pm-nav-link">
+							<span class="sb-icon" aria-hidden="true">✉</span>
+							<span>Messages</span>
+							@MessagesBadge(0)
+						</a>
 						<a href="/explore"><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
 						<a href="/"><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
 						<a href="/profile" class="sidebar-profile">
