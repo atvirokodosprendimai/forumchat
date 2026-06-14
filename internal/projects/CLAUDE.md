@@ -7,6 +7,12 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3598 | 2:35 PM | 🟣 | Added activity view transformation for project activity log display | ~369 |
+| #3597 | " | 🟣 | Added activity log push to every project event for real-time audit trail | ~403 |
+| #3596 | " | 🟣 | Added archive, unarchive, and delete project handlers with permission checks | ~409 |
+| #3595 | " | 🟣 | Added RecentActivity method deriving audit log from existing table timestamps via UNION ALL | ~514 |
+| #3594 | " | 🟣 | Added Archive, Unarchive, and DeleteProject service methods with permission enforcement | ~476 |
+| #3593 | 2:34 PM | 🟣 | Completed Phase 6 forum-style comments with 391 lines across 7 files | ~389 |
 | #3583 | 2:33 PM | 🟣 | Added comments loading to GetProject handler for initial page render | ~357 |
 | #3582 | " | 🟣 | Implemented comments SSE fragment push with edit grace period and permission controls | ~473 |
 | #3581 | " | 🟣 | Added Phase 6 comment handlers for forum-style commenting on projects | ~592 |

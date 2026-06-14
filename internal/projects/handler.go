@@ -152,6 +152,10 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.Log.Error("projects comments load", "err", err, "id", pid)
 	}
+	activity, err := h.Repo.RecentActivity(r.Context(), p.ID, 30)
+	if err != nil {
+		h.Log.Error("projects activity load", "err", err, "id", pid)
+	}
 
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
@@ -172,6 +176,7 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 		Todos:       toTodoViews(todos),
 		Attachments: toAttachmentViews(atts, p.CreatorUserID, id.User.ID, isAdmin),
 		Comments:    toCommentViews(comments, id.User.ID, isAdmin, h.Svc.EditGrace, time.Now().UTC()),
+		Activity:    toActivityViews(activity),
 	}
 	_ = webtempl.ProjectPage(data).Render(r.Context(), w)
 }
@@ -426,6 +431,72 @@ func (h *Handler) PostAttachmentDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PostArchive toggles archived_at -> now.
+func (h *Handler) PostArchive(w http.ResponseWriter, r *http.Request) {
+	h.archiveOrUnarchive(w, r, true)
+}
+
+// PostUnarchive clears archived_at.
+func (h *Handler) PostUnarchive(w http.ResponseWriter, r *http.Request) {
+	h.archiveOrUnarchive(w, r, false)
+}
+
+func (h *Handler) archiveOrUnarchive(w http.ResponseWriter, r *http.Request, archive bool) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	isAdmin := id.Membership.Role == auth.RoleAdmin
+	var err error
+	if archive {
+		err = h.Svc.Archive(r.Context(), pid, id.User.ID, isAdmin)
+	} else {
+		err = h.Svc.Unarchive(r.Context(), pid, id.User.ID, isAdmin)
+	}
+	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Warn("projects archive toggle", "err", err, "project", pid, "archive", archive)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostDeleteProject hard-deletes a project. Redirects to the index via
+// SSE redirect so the user lands somewhere sensible.
+func (h *Handler) PostDeleteProject(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	c, _ := community.FromContext(r.Context())
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	isAdmin := id.Membership.Role == auth.RoleAdmin
+	if err := h.Svc.DeleteProject(r.Context(), pid, id.User.ID, isAdmin); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Warn("projects delete", "err", err, "project", pid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects")
+}
+
 // PostComment adds a new comment to the project.
 func (h *Handler) PostComment(w http.ResponseWriter, r *http.Request) {
 	pid, ok := h.projectFromURL(w, r)
@@ -562,12 +633,16 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			switch ev.Kind {
 			case "header", "archive":
 				h.pushHeader(r, sse, pid)
+				h.pushActivity(r, sse, pid)
 			case "todos":
 				h.pushTodos(r, sse, pid)
+				h.pushActivity(r, sse, pid)
 			case "attachments":
 				h.pushAttachments(r, sse, pid)
+				h.pushActivity(r, sse, pid)
 			case "comments":
 				h.pushComments(r, sse, pid)
+				h.pushActivity(r, sse, pid)
 			}
 		}
 	}
@@ -578,6 +653,26 @@ func (h *Handler) pushAll(r *http.Request, sse *datastar.ServerSentEventGenerato
 	h.pushTodos(r, sse, pid)
 	h.pushAttachments(r, sse, pid)
 	h.pushComments(r, sse, pid)
+	h.pushActivity(r, sse, pid)
+}
+
+func (h *Handler) pushActivity(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {
+	events, err := h.Repo.RecentActivity(r.Context(), pid, 30)
+	if err != nil {
+		return
+	}
+	views := make([]webtempl.ProjectActivityView, 0, len(events))
+	for _, e := range events {
+		views = append(views, webtempl.ProjectActivityView{
+			Kind: e.Kind,
+			At:   e.At,
+		})
+	}
+	_ = sse.PatchElementTempl(
+		webtempl.ProjectActivityFragment(views),
+		datastar.WithSelector("#proj-activity"),
+		datastar.WithModeOuter(),
+	)
 }
 
 func (h *Handler) pushComments(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {
@@ -594,6 +689,14 @@ func (h *Handler) pushComments(r *http.Request, sse *datastar.ServerSentEventGen
 		datastar.WithSelector("#proj-comments"),
 		datastar.WithModeOuter(),
 	)
+}
+
+func toActivityViews(events []ActivityEvent) []webtempl.ProjectActivityView {
+	out := make([]webtempl.ProjectActivityView, 0, len(events))
+	for _, e := range events {
+		out = append(out, webtempl.ProjectActivityView{Kind: e.Kind, At: e.At})
+	}
+	return out
 }
 
 func toCommentViews(cs []Comment, viewerID string, viewerIsAdmin bool, grace time.Duration, now time.Time) []webtempl.ProjectCommentView {

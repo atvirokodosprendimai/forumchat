@@ -48,6 +48,13 @@ type ProjectPageData struct {
 	Todos         []ProjectTodoView
 	Attachments   []ProjectAttachmentView
 	Comments      []ProjectCommentView
+	Activity      []ProjectActivityView
+}
+
+// ProjectActivityView is one row in the activity sidebar.
+type ProjectActivityView struct {
+	Kind string // comment | attachment | todo | project
+	At   time.Time
 }
 
 // ProjectTodoView is one checklist row.
@@ -128,10 +135,7 @@ templ ProjectPage(d ProjectPageData) {
 				@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos)
 				@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments)
 				@ProjectCommentsFragment(d.CommunitySlug, d.Project.ID, d.Comments)
-				<aside id="proj-activity" class="project-panel project-panel-activity">
-					<h3>Activity</h3>
-					<p class="muted">Activity log appears once edits happen.</p>
-				</aside>
+				@ProjectActivityFragment(d.Activity)
 			</div>
 		</section>
 	}
@@ -157,8 +161,21 @@ templ ProjectHeaderFragment(slug string, p ProjectView) {
 			} else {
 				<p class="project-description-empty muted">No description yet.</p>
 			}
-			<button class="btn ghost project-edit-btn"
-				data-on:click="$projects_edit_header = true">Edit</button>
+			<div class="project-header-actions">
+				<button class="btn ghost project-edit-btn"
+					data-on:click="$projects_edit_header = true">Edit</button>
+				if p.CanDelete {
+					if p.IsArchived {
+						<button class="btn ghost"
+							data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/unarchive')" }>Unarchive</button>
+					} else {
+						<button class="btn ghost"
+							data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/archive')" }>Archive</button>
+					}
+					<button class="btn ghost danger"
+						data-on:click={ "confirm('Hard-delete this project? Documents and comments are gone.') && @post('/c/" + slug + "/projects/" + p.ID + "/delete')" }>Delete</button>
+				}
+			</div>
 		</div>
 		<div class="project-header-edit" data-show="$projects_edit_header" hidden>
 			<label>
@@ -289,6 +306,41 @@ templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentV
 			<button class="btn" type="submit">Post</button>
 		</form>
 	</section>
+}
+
+// ProjectActivityFragment renders the audit sidebar — most recent
+// events first. Each row is rendered as "<kind> · <time>" since we
+// derive from existing timestamps rather than storing per-event detail.
+templ ProjectActivityFragment(events []ProjectActivityView) {
+	<aside id="proj-activity" class="project-panel project-panel-activity">
+		<h3>Activity</h3>
+		if len(events) == 0 {
+			<p class="muted">No activity yet.</p>
+		} else {
+			<ul class="project-activity">
+				for _, e := range events {
+					<li class={ "project-activity-row project-activity-" + e.Kind }>
+						<span class="project-activity-kind">{ activityLabel(e.Kind) }</span>
+						<time class="muted">{ e.At.Local().Format("Mon 15:04") }</time>
+					</li>
+				}
+			</ul>
+		}
+	</aside>
+}
+
+func activityLabel(kind string) string {
+	switch kind {
+	case "comment":
+		return "💬 comment posted"
+	case "attachment":
+		return "📎 file added"
+	case "todo":
+		return "✓ todo added"
+	case "project":
+		return "✎ project edited"
+	}
+	return kind
 }
 
 // humanBytes formats a byte count in IEC units. Inlined to avoid a

@@ -199,6 +199,60 @@ func (s *Service) AddAttachment(ctx context.Context, projectID, communityID, upl
 	return a, nil
 }
 
+// Archive flips archived_at to now. Caller is project creator or
+// community admin. Idempotent (re-archives bump updated_at).
+func (s *Service) Archive(ctx context.Context, projectID, callerUserID string, callerIsAdmin bool) error {
+	return s.toggleArchive(ctx, projectID, callerUserID, callerIsAdmin, true)
+}
+
+// Unarchive clears archived_at.
+func (s *Service) Unarchive(ctx context.Context, projectID, callerUserID string, callerIsAdmin bool) error {
+	return s.toggleArchive(ctx, projectID, callerUserID, callerIsAdmin, false)
+}
+
+func (s *Service) toggleArchive(ctx context.Context, projectID, callerUserID string, callerIsAdmin bool, archive bool) error {
+	p, err := s.Repo.ByID(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("project lookup: %w", err)
+	}
+	if !(callerIsAdmin || p.CreatorUserID == callerUserID) {
+		return ErrForbidden
+	}
+	now := time.Now().UTC()
+	var at *time.Time
+	if archive {
+		at = &now
+	}
+	if err := s.Repo.SetArchived(ctx, projectID, at, now); err != nil {
+		return fmt.Errorf("set archived: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "archive"})
+	return nil
+}
+
+// DeleteProject hard-deletes; FK cascade drops todos/attachments/
+// comments. Each attachment's underlying uploads row is cleaned up
+// first so the file dedupe count stays correct.
+func (s *Service) DeleteProject(ctx context.Context, projectID, callerUserID string, callerIsAdmin bool) error {
+	p, err := s.Repo.ByID(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("project lookup: %w", err)
+	}
+	if !(callerIsAdmin || p.CreatorUserID == callerUserID) {
+		return ErrForbidden
+	}
+	atts, err := s.Repo.ListAttachments(ctx, projectID)
+	if err == nil {
+		for _, a := range atts {
+			_ = s.Uploads.Delete(ctx, a.UploadID)
+		}
+	}
+	if err := s.Repo.Delete(ctx, projectID); err != nil {
+		return fmt.Errorf("delete project: %w", err)
+	}
+	return nil
+}
+
 // AddComment renders markdown and persists one new comment.
 func (s *Service) AddComment(ctx context.Context, projectID, authorID, bodyMD string) (Comment, error) {
 	bodyMD = strings.TrimSpace(bodyMD)

@@ -240,6 +240,48 @@ func (r *Repo) TodoByID(ctx context.Context, id string) (Todo, error) {
 	return t, nil
 }
 
+// ActivityEvent is one entry in the audit panel.
+type ActivityEvent struct {
+	Kind string // "comment" | "attachment" | "todo" | "project"
+	At   time.Time
+}
+
+// RecentActivity returns up to N most-recent timestamps from the
+// project's child tables UNIONed with the project's own updated_at.
+// Used by the activity sidebar — no separate audit table needed.
+func (r *Repo) RecentActivity(ctx context.Context, projectID string, limit int) ([]ActivityEvent, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT * FROM (
+			SELECT 'comment'    AS kind, created_at AS at FROM project_comments     WHERE project_id = ? AND deleted_at IS NULL
+			UNION ALL
+			SELECT 'attachment' AS kind, created_at AS at FROM project_attachments  WHERE project_id = ?
+			UNION ALL
+			SELECT 'todo'       AS kind, created_at AS at FROM project_todos        WHERE project_id = ?
+			UNION ALL
+			SELECT 'project'    AS kind, updated_at AS at FROM projects             WHERE id = ?
+		)
+		ORDER BY at DESC LIMIT ?`,
+		projectID, projectID, projectID, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("activity: %w", err)
+	}
+	defer rows.Close()
+	var out []ActivityEvent
+	for rows.Next() {
+		var ev ActivityEvent
+		var at int64
+		if err := rows.Scan(&ev.Kind, &at); err != nil {
+			return nil, err
+		}
+		ev.At = time.UnixMilli(at).UTC()
+		out = append(out, ev)
+	}
+	return out, rows.Err()
+}
+
 // ListAttachments returns all attachments for a project, most-recent
 // first.
 func (r *Repo) ListAttachments(ctx context.Context, projectID string) ([]Attachment, error) {

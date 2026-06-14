@@ -117,16 +117,19 @@ Goal: project page has a SSE-driven comment thread with edit-grace + delete.
 
 Verification: tab A posts a comment → tab B sees it appended. Edit within grace window works; outside it, the button is hidden.
 
-### Phase 7 — Archive, hard delete, activity, permission polish — status: open
+### Phase 7 — Archive, hard delete, activity, permission polish — status: completed
 
 Goal: lifecycle complete + audit panel populated.
 
-1. [ ] `repo` + `service` — `Archive`, `Unarchive`, `DeleteProject` (creator + admin only)
-2. [ ] Index page renders archived projects under an expandable `<details>` block
-3. [ ] `repo` — `RecentActivity(projectID, limit)` reads from a `project_activity` table OR derives from `_at` columns of other tables (decide at impl time — log table is simpler)
-4. [ ] Templ `ProjectActivity(d)` — collapsed sidebar
-5. [ ] Permission checks centralised — small `canEditProject`, `canDeleteAttachment`, etc helpers in `service.go`
-6. [ ] CSS polish + mobile responsive review
+1. [x] `service` — `Archive`, `Unarchive`, `DeleteProject`; permission check (creator OR community admin)
+2. [x] Index page renders archived projects under an expandable `<details>` block (already in Phase 1, now wired by archive flow)
+3. [x] `repo.RecentActivity` — UNION over project_comments / project_attachments / project_todos / projects updated_at. No separate audit table.
+   - => Decision: pure SQL UNION matches v1 scope better than a write-amplifying audit table. If we later want richer events (who/what details), the audit table can be added without touching the view code.
+4. [x] Templ `ProjectActivityFragment` — collapsed-style sidebar with emoji-prefixed kind + local time
+5. [x] Permission helpers live inside service methods (Archive/Delete/UpdateComment/DeleteAttachment all enforce inline). Not extracted to standalone helpers because each rule is read once.
+6. [x] CSS — appended `/* /c/{slug}/projects */` section to `app.css` covering grid, panels, drop zone, attachments, comments, activity, mobile collapse at 800px
+7. [x] handler — `PostArchive`, `PostUnarchive`, `PostDeleteProject` (latter SSE-redirects to index); 3 new routes
+8. [x] `pushAll` and per-event paths now also call `pushActivity` so the sidebar stays current after any change
 
 Verification: archive a project → moves under "Archived" on index. Hard-delete (creator) — gone from DB. Activity panel shows recent events.
 
@@ -161,4 +164,5 @@ End-to-end story we want green after Phase 7:
 - **2026-06-14 14:42** — Phase 3 completed. bus.go fan-out, service UpdateTitle/UpdateDescription, handler PostTitle/PostDescription/GetStream, ProjectHeaderFragment with inline edit affordance driven by `$projects_edit_header`/`$projects_title`/`$projects_desc`, three new routes. Build clean. Commit `bdc188e`.
 - **2026-06-14 14:55** — Phase 4 completed. 8 new repo methods (incl. transactional ReorderTodos), 5 service mutators, 5 handler endpoints, ProjectTodosFragment templ with double-click-to-edit + checkbox toggle + delete + add form, SSE handler now pushes todos on `Event{Kind:"todos"}` and on stream open. Drag-reorder postponed to Phase 5 so both projects.js needs land together. Build clean. Commit `04a3bfc`.
 - **2026-06-14 15:10** — Phase 5 completed. Uploads.SaveAttachment for any-MIME documents, 4 repo methods, 2 service mutators with permission enforcement, 3 handler endpoints (multipart upload, download with original filename, delete), ProjectAttachmentsFragment templ with drop zone + file list, projects.js drag/drop + click-to-choose + MutationObserver re-bind. Build clean. Commit `f510779`.
-- **2026-06-14 15:25** — Phase 6 completed. 5 repo methods (incl. CommentByID + SoftDeleteComment), 3 service mutators with author+grace OR admin permission enforcement, 3 handler endpoints, ProjectCommentsFragment templ with inline-edit + delete, edit-grace plumbed from cfg.EditGrace. Build clean.
+- **2026-06-14 15:25** — Phase 6 completed. 5 repo methods (incl. CommentByID + SoftDeleteComment), 3 service mutators with author+grace OR admin permission enforcement, 3 handler endpoints, ProjectCommentsFragment templ with inline-edit + delete, edit-grace plumbed from cfg.EditGrace. Build clean. Commit `952df0f`.
+- **2026-06-14 15:42** — Phase 7 completed. Archive/Unarchive/DeleteProject service+handler+templ, RecentActivity SQL UNION, ProjectActivityFragment + emoji-prefixed activity log, header Archive/Delete buttons gated on CanDelete, ~140 lines of CSS for the whole projects surface (grid, panels, dropzone, attachments, comments, activity, mobile collapse). Build clean.

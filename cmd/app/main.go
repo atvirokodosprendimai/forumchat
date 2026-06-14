@@ -376,6 +376,9 @@ func run() error {
 			r.Post("/projects/{id}/comment", projectsHandler.PostComment)
 			r.Post("/projects/{id}/comment/{cid}", projectsHandler.PostCommentEdit)
 			r.Post("/projects/{id}/comment/{cid}/delete", projectsHandler.PostCommentDelete)
+			r.Post("/projects/{id}/archive", projectsHandler.PostArchive)
+			r.Post("/projects/{id}/unarchive", projectsHandler.PostUnarchive)
+			r.Post("/projects/{id}/delete", projectsHandler.PostDeleteProject)
 		}
 
 		r.Group(func(r chi.Router) {
