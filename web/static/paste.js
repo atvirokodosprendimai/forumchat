@@ -38,6 +38,28 @@ window.fcPasteImage = function (evt, signalName) {
   }
 };
 
+// Open the hidden file input that is a sibling of the trigger button, and
+// load the chosen file into `signalName`. Wired from the attach button so
+// the user-gesture passes through to the picker.
+window.fcOpenPicker = function (evt, signalName) {
+  const btn = evt.currentTarget || evt.target;
+  const root = btn.closest('.composer, section, form, .card') || document;
+  const input = root.querySelector('input[type=file][data-pick="' + signalName + '"]');
+  if (input) input.click();
+};
+
+window.fcPickImage = function (evt, signalName) {
+  const f = evt.target.files && evt.target.files[0];
+  if (!f) return;
+  if (!f.type || !f.type.startsWith('image/')) {
+    alert('Only image files are supported.');
+    evt.target.value = '';
+    return;
+  }
+  fcLoadBlob(f, signalName);
+  evt.target.value = ''; // allow re-selecting the same file later
+};
+
 // Close any open <details class="msg-menu"> when the user taps outside it or
 // presses Escape. Single global listener — works for menus added later via SSE.
 document.addEventListener('click', function (evt) {

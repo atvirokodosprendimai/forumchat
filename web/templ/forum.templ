@@ -136,16 +136,22 @@ templ NewThreadPage(v Viewer) {
 				<input type="text" data-bind="subject" maxlength="200" autofocus/>
 			</div>
 			<div class="field">
-				<label>Body (markdown — paste or drop image to attach)</label>
+				<label>Body (markdown — paste, drop or attach image)</label>
 				<textarea data-bind="body" rows="8" maxlength="20000"
 					data-on:paste="window.fcPasteImage(evt,'image_data')"></textarea>
 			</div>
 			<input type="hidden" data-bind="image_data"/>
+			<input type="file" accept="image/*" class="hidden-file" data-pick="image_data"
+				onchange="window.fcPickImage(event,'image_data')"/>
 			<div class="paste-preview" data-show="$image_data">
-				<img alt="pasted image preview" data-attr:src="$image_data"/>
+				<img alt="attached image preview" data-attr:src="$image_data"/>
 				<button class="link" data-on:click="$image_data=''">remove image</button>
 			</div>
-			<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/new')" }>Post thread</button>
+			<div class="composer-actions">
+				<button type="button" class="ghost icon-btn" aria-label="Attach image"
+					onclick="window.fcOpenPicker(event,'image_data')">📎 Attach image</button>
+				<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/new')" }>Post thread</button>
+			</div>
 			<a class="btn ghost" href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>Cancel</a>
 		</section>
 	}
@@ -212,16 +218,22 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 					<button class="link" data-on:click="$quoted_post_id=''; $reply_quote_label=''">clear</button>
 				</div>
 				<div class="field">
-					<label>Markdown body (paste or drop image to attach)</label>
+					<label>Markdown body (paste, drop or attach image)</label>
 					<textarea data-bind="body" rows="4" maxlength="10000"
 						data-on:paste="window.fcPasteImage(evt,'image_data')"></textarea>
 				</div>
 				<input type="hidden" data-bind="image_data"/>
+				<input type="file" accept="image/*" class="hidden-file" data-pick="image_data"
+					onchange="window.fcPickImage(event,'image_data')"/>
 				<div class="paste-preview" data-show="$image_data">
-					<img alt="pasted image preview" data-attr:src="$image_data"/>
+					<img alt="attached image preview" data-attr:src="$image_data"/>
 					<button class="link" data-on:click="$image_data=''">remove image</button>
 				</div>
-				<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/reply')" }>Reply</button>
+				<div class="composer-actions">
+					<button type="button" class="ghost icon-btn" aria-label="Attach image"
+						onclick="window.fcOpenPicker(event,'image_data')">📎 Attach image</button>
+					<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/reply')" }>Reply</button>
+				</div>
 			</section>
 			@ThreadScrollAnchor()
 			@TodoDialog(v.CommunitySlug)
