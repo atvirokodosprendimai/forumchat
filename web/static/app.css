@@ -2416,6 +2416,53 @@ hr {
   .project-upload-label { flex: 1 1 100%; }
 }
 
+/* @mention typeahead popup — floats above the composer textarea. */
+.composer { position: relative; }
+.mention-popup {
+  position: absolute;
+  left: .5rem;
+  right: .5rem;
+  bottom: calc(100% + .25rem);
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  z-index: 50;
+  padding: .25rem;
+}
+.mention-row {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  width: 100%;
+  padding: .4rem .55rem;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--fg);
+  font: inherit;
+}
+.mention-row:hover, .mention-row:focus { background: var(--surface-alt, var(--bg)); color: var(--fg); }
+.mention-dot {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: .85rem;
+  flex: 0 0 auto;
+  text-transform: uppercase;
+}
+.mention-name { font-size: .92rem; }
+
 /* Reduced motion — respect user preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

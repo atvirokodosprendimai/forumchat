@@ -410,6 +410,7 @@ func run() error {
 
 		r.Get("/chat", chatHandler.GetPage)
 		r.Post("/chat/send", chatHandler.PostSend)
+		r.Get("/chat/mention", chatHandler.GetMentionSearch)
 		r.Get("/chat/stream", chatHandler.GetStream)
 
 		r.Get("/presence/stream", presenceHandler.GetStream)

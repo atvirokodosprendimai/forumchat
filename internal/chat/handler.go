@@ -400,6 +400,51 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	h.broadcast(r.Context())
 }
 
+// MentionLimit caps how many suggestions the @mention popup shows. 7 was
+// requested by the user; loose ceiling so the dropdown never grows past
+// a thumb-friendly height on mobile.
+const MentionLimit = 7
+
+type mentionSignals struct {
+	MentionQuery string `json:"mention_query"`
+}
+
+// GetMentionSearch renders the @mention typeahead popup as a Datastar
+// patch. Reads the `mention_query` signal — the partial display-name
+// token after the user's last `@` — and returns up to MentionLimit
+// matches scoped to the current community. Empty / too-short query
+// emits an empty popup (still patched so the dropdown closes cleanly
+// after the user erases the @).
+func (h *Handler) GetMentionSearch(w http.ResponseWriter, r *http.Request) {
+	if _, ok := auth.FromContext(r.Context()); !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in mentionSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	var hits []auth.MemberHit
+	if h.AuthRepo != nil {
+		q := strings.TrimSpace(in.MentionQuery)
+		if len(q) >= 1 {
+			out, err := h.AuthRepo.SearchMembersByDisplayName(r.Context(), h.cid(r.Context()), q, MentionLimit)
+			if err != nil {
+				h.Log.Warn("mention search", "err", err)
+			} else {
+				hits = out
+			}
+		}
+	}
+	views := make([]webtempl.MentionHit, 0, len(hits))
+	for _, h := range hits {
+		views = append(views, webtempl.MentionHit{UserID: h.UserID, DisplayName: h.DisplayName})
+	}
+	_ = sse.PatchElementTempl(webtempl.MentionPopup(views))
+}
+
 func toMsgView(m Message) webtempl.MsgView {
 	v := webtempl.MsgView{
 		ID:               m.ID,

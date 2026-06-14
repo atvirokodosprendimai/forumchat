@@ -365,6 +365,50 @@ func (r *Repo) UserIDsByDisplayName(ctx context.Context, communityID string, nam
 	return out, rows.Err()
 }
 
+// MemberHit is one row returned by SearchMembersByDisplayName, carrying
+// just the columns the @mention popup needs (user id for deterministic
+// telegram-style colouring, display name for the row label).
+type MemberHit struct {
+	UserID      string
+	DisplayName string
+}
+
+// SearchMembersByDisplayName returns up to `limit` memberships in the
+// given community whose display_name starts with the (case-insensitive)
+// prefix. Empty prefix returns no rows — the caller is the @mention
+// typeahead and wants nothing on an empty token. Ordered by name for
+// stable UI.
+func (r *Repo) SearchMembersByDisplayName(ctx context.Context, communityID, prefix string, limit int) ([]MemberHit, error) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 7
+	}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT user_id, display_name
+		FROM memberships
+		WHERE community_id = ?
+		AND lower(display_name) LIKE ? || '%'
+		ORDER BY display_name
+		LIMIT ?`,
+		communityID, strings.ToLower(prefix), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MemberHit
+	for rows.Next() {
+		var h MemberHit
+		if err := rows.Scan(&h.UserID, &h.DisplayName); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 // UpdateAllMembershipProfiles updates display_name + avatar_url on every
 // membership this user holds, so the profile editor reflects across every
 // community at once. Without this, only the membership the user is
