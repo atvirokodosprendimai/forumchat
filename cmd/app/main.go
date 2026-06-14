@@ -792,13 +792,20 @@ var compressibleContentTypes = []string{
 // registered on top of the built-in gzip/deflate. Most-recently-registered
 // encoder wins precedence, so zstd is preferred when the client advertises it.
 //
-// Level 5 is the sweet spot for both encoders on streaming HTML/SSE: noticeably
-// better than gzip default, far cheaper than brotli 9 or zstd 19.
+// chi's constructor level (5) governs zstd. Brotli is pinned to quality 4 with
+// a 1 MiB window (LGWin=20) inside its EncoderFunc: chat fatMorph re-renders
+// ~100 messages per send (~50–200 KB of HTML); brotli q5 + the default 4 MiB
+// window pushed PostSend to ~500 ms. q4 + LGWin=20 trades ~3–5% ratio for
+// roughly half the encode CPU and a smaller per-stream working set, which
+// matters because chi pools encoders per concurrent connection.
 //
 // SSE handlers must call httpx.PrimeSSE(w) before datastar.NewSSE so this
 // compressor's WriteHeader hook picks an encoder and sets Content-Encoding
 // before the SDK's ResponseController.Flush unwraps past the wrapper.
 func newCompressor() *middleware.Compressor {
+	const brotliQuality = 4
+	const brotliLGWin = 20
+
 	c := middleware.NewCompressor(5, compressibleContentTypes...)
 	// Register zstd first, br second — chi's SetEncoder prepends, so the
 	// last-registered encoder wins precedence. br ends up preferred over zstd
@@ -810,8 +817,11 @@ func newCompressor() *middleware.Compressor {
 		}
 		return zw
 	})
-	c.SetEncoder("br", func(w io.Writer, level int) io.Writer {
-		return brotli.NewWriterOptions(w, brotli.WriterOptions{Quality: level})
+	c.SetEncoder("br", func(w io.Writer, _ int) io.Writer {
+		return brotli.NewWriterOptions(w, brotli.WriterOptions{
+			Quality: brotliQuality,
+			LGWin:   brotliLGWin,
+		})
 	})
 	return c
 }
