@@ -14,18 +14,19 @@ status: active
 
 ## Phases
 
-### PD1 — Schema + threads CRUD + tab — status: open
+### PD1 — Schema + threads CRUD + tab — status: completed
 
 Goal: member or guest opens new thread from the Discussions tab, lands on the thread page (with empty replies list).
 
-1. [ ] Migration `00015_project_discussions.sql` — `project_discussion_threads` + `project_discussion_replies`
-2. [ ] `internal/projects/discussions.go` — Thread + Reply types + view structs
-3. [ ] `internal/projects/discussions_repo.go` — ListThreads, ThreadByID, InsertThread, UpdateThread, SoftDeleteThread, BumpThreadActivity
-4. [ ] `internal/projects/discussions_service.go` — CreateThread (member + guest), UpdateThread (author + admin, grace), DeleteThread
-5. [ ] `internal/projects/discussions_handler.go` — GetDiscussionsTab + GetThread + PostCreateThread + PostEditThread + PostDeleteThread; callerIdentity reused
-6. [ ] Templ — `ProjectDiscussionsPage` (list + create form), `ProjectDiscussionThreadPage` (thread head)
-7. [ ] Tab strip — add "Discussions" between Issues and Comments
-8. [ ] Routes — all in the OPEN group inside `r.Route("/c/{slug}/projects")`
+1. [x] Migration 00015_project_discussions.sql — both tables ship together (threads + replies)
+2. [x] discussions.go — DiscussionThread, DiscussionReply, DiscussionThreadRow (with reply count)
+3. [x] discussions_repo.go — ListDiscussionThreads (with reply count subquery), DiscussionThreadByID, InsertDiscussionThread, UpdateDiscussionThread, BumpDiscussionThreadActivity, SoftDeleteDiscussionThread
+4. [x] discussions_service.go — CreateDiscussionThread (member + guest via Identity), UpdateDiscussionThread (author + admin, no grace at thread level), DeleteDiscussionThread (author + admin)
+5. [x] discussions_handler.go — GetDiscussionsTab, GetDiscussionThread, PostCreateDiscussionThread, PostEditDiscussionThread, PostDeleteDiscussionThread; all redirect-on-success
+6. [x] Templ — ProjectDiscussionsPage (list + create form), ProjectDiscussionThreadPage (head + body + edit + delete)
+7. [x] Tab strip — "Discussions" sits between Issues and Comments
+8. [x] Routes — 5 new entries in the OPEN group
+9. [x] CSS — discussion add form + list rows + thread head
 
 Verification: open Discussions tab → "Where should the API key live?" → land on thread page.
 

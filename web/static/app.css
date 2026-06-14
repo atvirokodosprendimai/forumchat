@@ -1306,3 +1306,39 @@ img.thread-announce-img {
 .project-issue-comment-actions { display: flex; gap: .35rem; }
 .project-issue-comment-add { display: flex; flex-direction: column; gap: .5rem; }
 .project-issue-comment-add textarea { width: 100%; }
+
+/* ----- /c/{slug}/projects/{id}/discussions -------------------------------- */
+
+.project-discussion-add {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-bottom: 1rem;
+  padding: .85rem;
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+}
+.project-discussions { list-style: none; padding: 0; margin: 0; }
+.project-discussion-row {
+  border-bottom: 1px solid var(--border);
+  padding: .5rem 0;
+}
+.project-discussion-row:last-child { border-bottom: none; }
+.project-discussion-link {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  text-decoration: none;
+  color: inherit;
+}
+.project-discussion-subject { font-weight: 500; }
+.project-discussion-link:hover .project-discussion-subject { color: var(--accent); }
+.project-discussion-meta { font-size: .8rem; }
+.project-panel-discussion { padding: 1rem 1.25rem; }
+.project-discussion-head { margin-bottom: 1rem; display: flex; flex-direction: column; gap: .25rem; }
+.project-discussion-head h1 { margin: 0; }
+.project-discussion-body { margin-bottom: 1rem; }
+.project-discussion-actions { display: flex; gap: .5rem; }
+.project-discussion-edit label { display: block; margin-bottom: .75rem; }
+.project-discussion-edit input,
+.project-discussion-edit textarea { display: block; width: 100%; margin-top: .25rem; }
