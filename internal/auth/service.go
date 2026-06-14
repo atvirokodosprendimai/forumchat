@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -90,6 +91,81 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 		VerificationToken: token,
 		VerifyURL:         verifyURL,
 	}, nil
+}
+
+type RegisterAsAdminInput struct {
+	Email       string
+	Password    string
+	DisplayName string
+}
+
+type RegisterAsAdminResult struct {
+	UserID      string
+	CommunityID string
+}
+
+// RegisterAsAdmin is the no-invite bootstrap flow used only when the
+// database has zero users. It creates an active (already-verified)
+// admin membership in the supplied community so the operator can sign
+// in immediately and start issuing invites.
+//
+// The caller MUST guard this with a `users == 0` check first; this
+// function re-checks inside the same transaction to close the race
+// window but only by best effort — sqlite locking is enough for a
+// single-process deployment.
+func (s *Service) RegisterAsAdmin(ctx context.Context, in RegisterAsAdminInput, communityID string) (RegisterAsAdminResult, error) {
+	hash, err := HashPassword(in.Password)
+	if err != nil {
+		return RegisterAsAdminResult{}, err
+	}
+	tx, err := s.Repo.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return RegisterAsAdminResult{}, err
+	}
+	defer tx.Rollback()
+
+	var existing int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&existing); err != nil {
+		return RegisterAsAdminResult{}, err
+	}
+	if existing > 0 {
+		return RegisterAsAdminResult{}, ErrInviteInvalid // re-use a generic refusal; caller surfaces it
+	}
+
+	userID := uuid.NewString()
+	now := time.Now().Unix()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO users (id, email, password_hash, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		userID, normEmail(in.Email), hash, string(StatusActive), now, now,
+	); err != nil {
+		if isUniqueViolation(err) {
+			return RegisterAsAdminResult{}, ErrEmailTaken
+		}
+		return RegisterAsAdminResult{}, fmt.Errorf("insert user: %w", err)
+	}
+
+	displayName := strings.TrimSpace(in.DisplayName)
+	if displayName == "" {
+		displayName = localPart(in.Email)
+	}
+	approved := time.Now()
+	m := Membership{
+		ID:          uuid.NewString(),
+		UserID:      userID,
+		CommunityID: communityID,
+		DisplayName: displayName,
+		Role:        RoleAdmin,
+		TrustLevel:  0,
+		ApprovedAt:  &approved,
+	}
+	if err := s.Repo.CreateMembership(ctx, tx, m); err != nil {
+		return RegisterAsAdminResult{}, fmt.Errorf("create membership: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return RegisterAsAdminResult{}, err
+	}
+	return RegisterAsAdminResult{UserID: userID, CommunityID: communityID}, nil
 }
 
 type VerifyResult struct {

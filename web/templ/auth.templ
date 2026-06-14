@@ -23,6 +23,33 @@ templ RegisterPage() {
 	}
 }
 
+// RegisterAsAdminPage is the no-invite bootstrap form shown when the
+// users table is empty. Whoever fills this in becomes admin of the
+// bootstrap community and can hand out invites from /admin afterwards.
+templ RegisterAsAdminPage(communityName string) {
+	@Layout("Set up "+communityName, Viewer{}) {
+		<section class="card narrow">
+			<h1>Welcome to { communityName }</h1>
+			<p class="muted">No users exist yet — set up the first admin account. Skip the email-verification step; you'll be signed in immediately.</p>
+			<div id="auth-error" class="error"></div>
+			<div class="field">
+				<label>Email</label>
+				<input type="email" data-bind="email" autocomplete="email" autofocus/>
+			</div>
+			<div class="field">
+				<label>Password</label>
+				<input type="password" data-bind="password" autocomplete="new-password"/>
+			</div>
+			<div class="field">
+				<label>Display name</label>
+				<input type="text" data-bind="display_name" autocomplete="nickname"/>
+			</div>
+			<button data-on:click="@post('/register-as-admin')">Create admin account</button>
+			<p class="muted">Have an account? <a href="/login">Sign in</a>.</p>
+		</section>
+	}
+}
+
 templ RegisterErrorFragment(msg string) {
 	<div id="auth-error" class="error">{ msg }</div>
 }
