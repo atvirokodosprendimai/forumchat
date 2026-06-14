@@ -183,7 +183,196 @@ Chat updates are **never** "append a bubble." The whole `#messages` container is
 fat-morphed on every event, plus a separate `#scroll-anchor` outer-morph that
 re-triggers `data-init` and scrolls to the bottom. See §6.
 
-### 4.6 templ ↔ domain import cycle
+### 4.6 Don't write bool signals from JS via hidden input
+
+Hidden `<input data-bind="foo"/>` is the right pattern for **string** signals
+that you want to set from JS (`paste.js`, `mention.js`, anything that needs to
+mutate state outside a Datastar expression). The contract is:
+
+```js
+const host = document.querySelector('[data-bind="foo"]');
+host.value = "hello";
+host.dispatchEvent(new Event('input', { bubbles: true }));
+```
+
+This works because Datastar listens for `input`/`change` events on the bound
+element and coerces the string value into the declared signal type.
+
+**Bool signals don't survive this round-trip cleanly.** Setting `host.value =
+"true"` vs `""` and relying on coercion is unreliable across Datastar
+versions. So:
+
+- **String signals from JS:** hidden input + dispatchEvent. Fine.
+- **Bool / number signals from JS:** don't. Flip them inside a Datastar
+  expression instead: `data-on:click="$foo=true"`, `data-on:blur="$bar=false"`,
+  or wrap a JS call: `data-on:click="window.fcThing(); $foo=true"`.
+
+We hit this with `mention_open`. Initial design used a hidden bool input; the
+fix was to keep `mention_query` (string) on the hidden-input bridge but flip
+`mention_open` in the Datastar expression itself (`$mention_open = true` after
+the `fcMentionDetect` call returns).
+
+### 4.7 Live morph via stable-id extract
+
+Once a page has multiple pieces of state that all need to update after one
+server action, **don't** try to PatchElementTempl every individual piece. Extract
+all state-dependent UI into ONE templ component with a stable root id, and
+patch that root after every transition.
+
+Example from `web/templ/lobbies.templ`:
+
+```templ
+templ LobbyHostHeader(slug string, l LobbyView, guestURL string) {
+    <div id="lobby-host-header">
+        <h1>{ l.GuestName } · <span>{ l.Status }</span></h1>
+        ...
+        if l.Status == "open" {
+            <button data-on:click="@post('/.../close')">Close</button>
+        } else {
+            <button data-on:click="@post('/.../reopen')">Reopen</button>
+        }
+        ...
+    </div>
+}
+```
+
+Every state-mutation endpoint (close, archive, reopen, promote, update-guest)
+ends with:
+
+```go
+sse.PatchElementTempl(webtempl.LobbyHostHeader(slug, freshLobby, url))
+```
+
+Properties:
+
+- **Same template covers all states.** Switch on `l.Status` inside; no per-state
+  templates to keep in sync.
+- **Patch is idempotent across pages.** If the host happens to be on the index
+  list instead of the lobby page, the morph is a no-op (no `#lobby-host-header`
+  in the DOM) — no branching needed in the handler.
+- **Beats `sse.Redirect` to the same URL.** Redirect drops scroll position,
+  closes any SSE streams, and flashes blank for ~100ms. Live morph keeps
+  everything else intact.
+- **Beats per-button targeted patches.** Multiple sibling patches (status badge
+  + button row + composer visibility) multiply the patch calls without buying
+  anything; one root patch is cleaner.
+
+Apply the same idea to:
+- A composer that needs to hide when state changes (`if l.Status == "open"
+  { @LobbyComposer(...) }` inside the same wrapper).
+- Edit dialogs where saving needs to refresh both the row and the form.
+
+### 4.8 Debounced input + composer signal-naming
+
+For typeahead / live-search / autocomplete, use `__debounce.Nms` on the input
+event. We use 150ms for chat @mentions:
+
+```templ
+<textarea
+  data-bind="body"
+  data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcMentionDetect(el)){$mention_open=true; @get('/c/" + slug + "/chat/mention')} else {$mention_open=false}" }
+></textarea>
+```
+
+Two attributes (`data-on:input` + `data-on:input__debounce.150ms`) on the same
+element is **not** guaranteed to register two listeners — collapse to ONE
+attribute with all the work inside, debounced together. Resize that's delayed
+by 150ms is imperceptible; a server call per keystroke is not.
+
+**Signal-naming convention** — when a new feature reuses the composer shape
+(paste/drop/textarea), give the signals a feature-specific prefix so they don't
+collide with chat's `body` / `image_data`. The lobbies composer uses
+`lobby_body` / `lobby_image_data`; clearing them via `PatchSignals` after send
+is `{"lobby_body":"","lobby_image_data":""}`. JS helpers (`fcDropImage`,
+`fcPasteImage`) take the signal name as a string parameter — they work for any
+feature.
+
+### 4.9 Server-driven step transitions (multi-step forms)
+
+For multi-step UI where the **server** owns "which step the user is on" (login
+step 1 → step 2, lobby invite wizard, etc.), wrap the step shell in one stable
+id and render a per-step templ inside:
+
+```templ
+templ LoginPage() {
+    @Layout("Sign in", Viewer{}) {
+        <div id="login-card">
+            @LoginStep1()
+        </div>
+    }
+}
+
+templ LoginStep1() {
+    <section id="login-card" class="card narrow">
+        <input data-bind="email" ... />
+        <button data-on:click="@post('/login/check')">Continue</button>
+    </section>
+}
+
+templ LoginStep2(email string) {
+    <section id="login-card" class="card narrow">
+        ...password input...
+        <button data-on:click="@post('/login')">Sign in</button>
+        <button data-on:click="@post('/login/magic')">Email me a link</button>
+        <button data-on:click="@post('/login/back')">use a different email</button>
+    </section>
+}
+```
+
+Both step templates render the **same root id** — `PatchElementTempl` swaps
+them. Signals declared in `InitialSignals` carry between steps, so step-1's
+email is still in the bag when step 2 renders.
+
+Server-driven steps beat client-driven (`data-show="$step===1"`) when:
+- Step transitions depend on a DB lookup (login: does this email exist?
+  doesn't matter, we don't reveal it anyway).
+- You want the URL/back-button to behave like the server is in charge.
+- You don't want to ship the step-2 markup until step 1 has been submitted.
+
+### 4.10 Anti-enumeration in signal-driven handlers
+
+Whenever a handler's response shape could reveal "does this row exist", make
+the shape **identical** across hit / miss. Two patterns:
+
+1. **PostLoginCheck never queries the DB.** Every non-empty email gets the
+   same `LoginStep2` fragment. The DB check happens at the next step
+   (`PostLogin` errors with the generic "invalid email or password" message,
+   identical for "no such user" and "wrong password").
+
+2. **PostLoginMagic always renders "check your email".** `Service.IssueMagicLink`
+   returns nil silently when the email is unknown, AND when the mailer fails.
+   The handler doesn't branch on the result — always renders the same
+   terminal page.
+
+The wording matters too. "If `<email>` is a registered address, a one-time
+link is on its way" confirms NOTHING and reads natural.
+
+### 4.11 Per-lobby / per-X Bus over per-community Bus
+
+`chat.Bus` is community-wide: every Send call wakes every open chat SSE in the
+process. Fine for chat because every member sees the same channel.
+
+`lobbies.Bus` is **per-lobby** — Subscribe takes a `lobbyID` and only that
+lobby's broadcast wakes its subscribers. The map is `map[string]map[chan]`.
+First sub on a new id creates the inner set; last unsub deletes it. Idle
+lobbies have no entry, no memory cost.
+
+Use per-X Bus whenever:
+- A single page only cares about one row's events (one lobby, one project,
+  one room).
+- Many rows can exist in parallel (don't fan out to all of them on every
+  write).
+
+Stick to a single shared Bus when:
+- Every viewer is on the same surface and broadcast-to-all is the actual
+  semantic (chat, presence).
+
+NATS subjects follow the same shape:
+- `community.<cid>.chat` — community-wide
+- `community.<cid>.lobby.<lid>` — per-lobby
+- `community.<cid>.forum.thread.<tid>` — per-thread
+
+### 4.12 templ ↔ domain import cycle
 
 `web/templ` is a leaf package — it **must not** import any `internal/<domain>`
 package. Domain handlers import `web/templ`, never the other way around.
@@ -379,12 +568,133 @@ Don't bring them back without rethinking the whole pattern.
 
 ---
 
+## 6b. CQRS in this codebase — what writes and reads actually look like
+
+We don't have separate `commands/` and `queries/` directories like a textbook
+CQRS layout. The same shape shows up in a less formal version that's worth
+naming so future you doesn't reinvent it.
+
+### Shape per feature package (`chat`, `forum`, `lobbies`, `projects`, …)
+
+| File | Role |
+|---|---|
+| `repo.go` | All SQL. Read methods (`Recent`, `ByID`, `ListByCommunity`, `SearchMembersByDisplayName`, `RecentMessages`) AND write methods (`Create`, `AppendMessage`, `UpdateStatus`). Repo is stateless; everything is via `*sql.DB`. |
+| `service.go` | Write-side orchestration. Validates input, renders markdown via `internal/render`, calls Repo write methods, returns the persisted thing. **Single writer per concept.** `chat.Service.Send`, `lobbies.Service.Mint`, `auth.Service.IssueMagicLink`. |
+| `handler.go` | HTTP boundary. Reads signals, calls Service for writes, calls Repo directly for reads, patches SSE. |
+| `bus.go` *(optional)* | In-process per-X fan-out for SSE streams. See §4.11. |
+
+### The "command" side — single writer
+
+Every state-mutating path goes through one `Service.<Verb>` that:
+
+1. Validates input (returns typed sentinel errors: `ErrEmptyBody`,
+   `ErrClosedOrExpired`, `ErrPromoteNeedsEmail`).
+2. Renders any user-supplied markdown into stored HTML at write time
+   (`render.RenderMarkdown` is the gateway; pre-rendering on write keeps the
+   read path cheap and bluemonday's sanitizer doesn't run on every render).
+3. Calls Repo write methods inside a transaction when multiple rows are
+   touched together (see `auth.Service.Register` for the canonical example
+   with users + verification_tokens + invite consume in one tx).
+4. Returns the persisted row.
+5. **Does not** broadcast — that's the handler's job. Keeps the service
+   testable without a Bus/NATS mock.
+
+### The "query" side — many readers
+
+Reads go straight from handler → Repo, with no Service hop unless there's a
+viewer-aware step (e.g. promote-to-member needs auth.Service):
+
+```go
+// chat/handler.go
+func (h *Handler) GetPage(...) {
+    views, _ := h.loadRecent(r.Context())  // → Repo.Recent
+    _ = webtempl.ChatPage(...).Render(r.Context(), w)
+}
+```
+
+The same handler can run many concurrent reads (one per open SSE stream, one
+per page load) and they never block writes. SQLite's WAL mode (default) gives
+us reader/writer concurrency, so this works fine at the scale we target.
+
+### Read-model fan-out via Bus + NATS
+
+Writes broadcast via the handler's `broadcast()` helper, NOT the service:
+
+```go
+// lobbies/handler.go
+func (h *Handler) broadcast(ctx context.Context, lobbyID string) {
+    if h.Bus != nil {
+        h.Bus.Broadcast(lobbyID)
+    }
+    if h.NATS != nil && h.NATS.IsConnected() {
+        _ = h.NATS.Publish(natsx.LobbySubject(h.cid(ctx), lobbyID), []byte("changed"))
+    }
+}
+```
+
+- `Bus.Broadcast` is in-process — wakes every SSE stream in the same process
+  that subscribed to this id. Same-machine multi-tab, multi-pane.
+- NATS payload is always `"changed"` — subscribers re-query the Repo, don't
+  try to decode the event payload. Keeps the wire format trivial and the
+  refresh logic identical between local and remote events.
+
+SSE streams re-query and re-PatchElementTempl on every wake:
+
+```go
+for {
+    select {
+    case <-r.Context().Done(): return
+    case <-local:  // Bus
+    case <-natsCh: // NATS
+    }
+    msgs, _ := repo.RecentMessages(ctx, lobbyID, RecentLimit)
+    sse.PatchElementTempl(webtempl.LobbyMessages(messagesToView(msgs)))
+}
+```
+
+This is the "fat-morph" pattern §6 calls out for chat. Same shape applies to
+lobbies, forum, project discussions. Don't try to be clever and send only the
+diff — re-rendering the whole list with templ is cheap enough and morph keeps
+the DOM in sync.
+
+### When to add a Service vs put logic in Repo
+
+- **Repo**: just SQL. No business rules, no rendering, no IDs minted (caller
+  supplies). One file per feature.
+- **Service**: needs more than one Repo call, or owns rendering, or mints
+  IDs/tokens, or has a state-machine validation. Write the simplest version
+  first and graduate Repo → Service when a second write path needs the same
+  validation.
+
+`internal/admin/admin.go` is the boundary case — admin handlers call
+`auth.Repo` directly because the operations are one-shot SQL (approve / ban /
+remove). When the third one needed a guard (`CountAdmins` for last-admin
+removal), the guard went into the handler, not into a new `admin.Service`.
+That's fine — feature surface stays light. Promote it later if it grows.
+
+### Anti-patterns
+
+- **No "smart" Repo**: don't put markdown rendering, validation, or push
+  notification inside repo methods. They run inside transactions and you'll
+  end up holding the DB lock across a network call.
+- **No silent writes from queries**: a `GetThing` handler must not write
+  (don't auto-bump activity timestamps from a GET). Side-effects belong on
+  POST/PUT/DELETE so caching, CSRF, and rate-limiting work as expected.
+- **No service-to-service direct imports**: if `lobbies.Service` needs
+  `auth.Service.IssueInvite`, declare a local `InviteIssuer` interface in
+  `lobbies/service.go` and depend on the interface. Wire concrete types in
+  `cmd/app/main.go`. See `lobbies/service.go` for the canonical pattern.
+
+---
+
 ## 7. NATS subjects
 
 ```
-community.<id>.chat       chat fan-out  (payload: "changed", subscribers refetch)
-community.<id>.forum      forum events  (reserved; not actively used by chat fat-morph)
-community.<id>.presence   presence updates (reserved; presence currently uses in-process Tracker)
+community.<id>.chat            chat fan-out  (payload: "changed", subscribers refetch)
+community.<id>.forum           forum events  (reserved; not actively used by chat fat-morph)
+community.<id>.forum.thread.<tid>  per-thread fan-out (forum thread page)
+community.<id>.presence        presence updates (reserved; presence currently uses in-process Tracker)
+community.<id>.lobby.<lid>     per-lobby fan-out (guest access, see §4.11)
 ```
 
 Connection is best-effort: if NATS is unreachable the app boots fine, chat
