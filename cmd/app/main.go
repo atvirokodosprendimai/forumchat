@@ -30,6 +30,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
+	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -264,6 +265,23 @@ func run() error {
 		Log:      log,
 	}
 
+	roomsRepo := rooms.NewRepo(db)
+	roomsBus := rooms.NewBus()
+	roomsState := rooms.NewState()
+	roomsSvc := rooms.NewService(roomsRepo, roomsBus, roomsState)
+	roomsHandler := &rooms.Handler{
+		Svc:      roomsSvc,
+		Repo:     roomsRepo,
+		Bus:      roomsBus,
+		State:    roomsState,
+		AuthRepo: aRepo,
+		Sessions: sessions,
+		Log:      log,
+		ChatSvc:  chatSvc,
+		ChatRepo: chatRepo,
+		ChatBus:  chatBus,
+	}
+
 	// Per-community JOIN landing — LoadCommunity runs so the templ can render
 	// the community name, but RequireMember does NOT (this is the path that
 	// admits new members). Mounted before the main /c/{slug} group so it
@@ -362,6 +380,19 @@ func run() error {
 		r.Use(auth.RequireAuth)
 		pmHandler.Routes(r)
 	})
+
+	// Rooms grid + admin invite ops are auth-required. Per-room interaction
+	// routes are auth-or-guest (handler.caller() resolves either). Public
+	// invite landing pages are wide open so a logged-out user can claim a
+	// guest slot via the share-link.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		roomsHandler.AuthRoutes(r)
+	})
+	roomsHandler.OpenRoutes(r)
+	roomsHandler.PublicRoutes(r)
+
+	go roomsState.RunJanitor(ctx, log)
 
 	r.Get("/", dashboardHandler.GetIndex)
 	r.Get("/explore", exploreHandler.GetIndex)
