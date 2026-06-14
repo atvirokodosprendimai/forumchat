@@ -65,14 +65,18 @@ templ ChatComposer(slug string) {
 			<button class="link" data-on:click="$reply_to_id = ''">cancel</button>
 		</div>
 		<input type="hidden" data-bind="image_data"/>
+		<input type="file" accept="image/*" class="hidden-file" data-pick="image_data"
+			onchange="window.fcPickImage(event,'image_data')"/>
 		<div class="paste-preview" data-show="$image_data">
-			<img alt="pasted image preview" data-attr:src="$image_data"/>
+			<img alt="attached image preview" data-attr:src="$image_data"/>
 			<button class="link" data-on:click="$image_data=''">remove image</button>
 		</div>
 		<div class="composer-row">
+			<button type="button" class="ghost icon-btn" aria-label="Attach image"
+				onclick="window.fcOpenPicker(event,'image_data')">📎</button>
 			<input type="text"
 				data-bind="body"
-				placeholder="Say something — markdown ok (paste or drop an image)"
+				placeholder="Say something — markdown ok (paste, drop or attach an image)"
 				autocomplete="off"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
 				data-on:keydown={ "evt.key === 'Enter' && @post('/c/" + slug + "/chat/send')" }/>
