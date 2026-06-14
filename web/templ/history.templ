@@ -50,12 +50,12 @@ type HistoryPageData struct {
 	Events       []HistoryEvent
 }
 
-func histDayHref(day time.Time, calendarBase time.Time) string {
-	return fmt.Sprintf("/history?d=%s&m=%s", day.Format("2006-01-02"), calendarBase.Format("2006-01"))
+func histDayHref(slug string, day time.Time, calendarBase time.Time) string {
+	return fmt.Sprintf("/c/%s/history?d=%s&m=%s", slug, day.Format("2006-01-02"), calendarBase.Format("2006-01"))
 }
 
-func histMonthHref(month time.Time, selected time.Time) string {
-	return fmt.Sprintf("/history?d=%s&m=%s", selected.Format("2006-01-02"), month.Format("2006-01"))
+func histMonthHref(slug string, month time.Time, selected time.Time) string {
+	return fmt.Sprintf("/c/%s/history?d=%s&m=%s", slug, selected.Format("2006-01-02"), month.Format("2006-01"))
 }
 
 func histDayCellClass(d HistoryDay) string {
@@ -106,9 +106,9 @@ templ HistoryPage(d HistoryPageData) {
 			<div class="history-grid">
 				<aside class="history-cal">
 					<header class="cal-head">
-						<a class="btn ghost" href={ templ.URL(histMonthHref(d.PrevMonth, d.SelectedDay)) }>‹</a>
+						<a class="btn ghost" href={ templ.URL(histMonthHref(d.Viewer.CommunitySlug, d.PrevMonth, d.SelectedDay)) }>‹</a>
 						<strong>{ d.CalendarBase.Format("January 2006") }</strong>
-						<a class="btn ghost" href={ templ.URL(histMonthHref(d.NextMonth, d.SelectedDay)) }>›</a>
+						<a class="btn ghost" href={ templ.URL(histMonthHref(d.Viewer.CommunitySlug, d.NextMonth, d.SelectedDay)) }>›</a>
 					</header>
 					<table class="cal-grid">
 						<thead>
@@ -122,7 +122,7 @@ templ HistoryPage(d HistoryPageData) {
 									for _, day := range w.Days {
 										<td class={ histDayCellClass(day) }>
 											if day.HasActive {
-												<a href={ templ.URL(histDayHref(day.Date, d.CalendarBase)) }>{ fmt.Sprintf("%d", day.Date.Day()) }</a>
+												<a href={ templ.URL(histDayHref(d.Viewer.CommunitySlug, day.Date, d.CalendarBase)) }>{ fmt.Sprintf("%d", day.Date.Day()) }</a>
 											} else {
 												<span>{ fmt.Sprintf("%d", day.Date.Day()) }</span>
 											}
@@ -137,9 +137,9 @@ templ HistoryPage(d HistoryPageData) {
 
 				<section class="history-day">
 					<header class="day-head">
-						<a class="btn ghost" href={ templ.URL(histDayHref(d.PrevDay, d.CalendarBase)) }>← Prev day</a>
+						<a class="btn ghost" href={ templ.URL(histDayHref(d.Viewer.CommunitySlug, d.PrevDay, d.CalendarBase)) }>← Prev day</a>
 						<h2>{ d.SelectedDay.Format("Monday, Jan 2, 2006") }</h2>
-						<a class="btn ghost" href={ templ.URL(histDayHref(d.NextDay, d.CalendarBase)) }>Next day →</a>
+						<a class="btn ghost" href={ templ.URL(histDayHref(d.Viewer.CommunitySlug, d.NextDay, d.CalendarBase)) }>Next day →</a>
 					</header>
 					if len(d.Events) == 0 {
 						<p class="muted">No chat on this day.</p>
