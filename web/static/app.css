@@ -786,12 +786,29 @@ img.thread-announce-img {
   .bubble { padding: .55rem .7rem; }
   .bubble .body img { height: 90px; }
 
-  .composer-row { flex-wrap: wrap; }
-  .composer-row input { flex: 1 1 60%; min-width: 0; }
-  .composer-row .icon-btn { flex: 0 0 auto; width: auto; }
-  .composer-row button:not(.icon-btn) { width: 100%; order: 99; }
-  .composer-actions { flex-direction: column; align-items: stretch; }
-  .composer-actions button { width: 100%; }
+  /* Mobile composer — single row: 📎 attach + textarea + Send.
+     Pre-2026 layout dropped Send onto its own full-width row below;
+     now that the textarea autogrows we keep everything inline so the
+     Send button stays where the thumb expects it. */
+  .composer-row {
+    flex-wrap: nowrap; gap: .35rem; align-items: stretch;
+  }
+  .composer-row input,
+  .composer-row .composer-text {
+    flex: 1 1 auto; min-width: 0;
+  }
+  .composer-row .icon-btn {
+    flex: 0 0 auto; width: auto; padding: .55rem .65rem;
+  }
+  .composer-row button:not(.icon-btn) {
+    flex: 0 0 auto;
+    width: auto;
+    order: 0;
+    padding: .65rem 1rem;
+    min-height: 42px;
+  }
+  .composer-actions { flex-direction: row; align-items: center; }
+  .composer-actions button { width: auto; }
 
   .forum-toolbar { gap: .5rem; }
   .forum-filters { flex-wrap: wrap; }
@@ -1753,19 +1770,30 @@ img.thread-announce-img {
 
 .presence-fab {
   position: fixed;
-  right: 1rem;
-  bottom: 1rem;
-  width: 48px;
-  height: 48px;
+  /* Top-right corner, anchored just below the mobile topbar (~56px),
+     so it never overlaps the composer regardless of textarea height.
+     A bottom-anchored FAB collided with the Send button as the
+     composer textarea grew. */
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  right: .75rem;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: var(--bg);
-  font-size: 1.4rem;
+  background: linear-gradient(135deg, var(--surface), var(--surface-alt));
+  color: var(--fg);
+  font-size: 1.05rem;
   cursor: pointer;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-md);
   z-index: 25;
   display: none;
+  transition: transform var(--t-fast) var(--ease-out), opacity var(--t-fast) var(--ease-out);
 }
+.presence-fab:active { transform: scale(.94); }
+/* Hide the FAB while the presence drawer is open — its overlay button
+   handles dismissal, and keeping the FAB visible just lands the user
+   tapping on it through the drawer animation. */
+body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 .presence-overlay {
   position: fixed;
   inset: 0;
