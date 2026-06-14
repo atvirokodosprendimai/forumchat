@@ -129,7 +129,7 @@ func (h *Handler) PostDiscussionReply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in discussionSignals
 	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -163,7 +163,7 @@ func (h *Handler) PostDiscussionReplyEdit(w http.ResponseWriter, r *http.Request
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in discussionSignals
 	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -266,7 +266,7 @@ func (h *Handler) PostCreateDiscussionThread(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in discussionSignals
 	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -296,7 +296,7 @@ func (h *Handler) PostEditDiscussionThread(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in discussionSignals
 	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
