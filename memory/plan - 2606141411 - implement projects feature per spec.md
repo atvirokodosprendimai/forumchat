@@ -1,6 +1,6 @@
 ---
 tldr: Build per-community Projects feature in phases that each end with something visible — flag + empty index, then create+view, then realtime, then todos, then attachments, then comments, then polish. Each phase commits separately and the spec stays the source of truth.
-status: active
+status: completed
 ---
 
 # Plan: Implement projects feature per spec
@@ -133,13 +133,18 @@ Goal: lifecycle complete + audit panel populated.
 
 Verification: archive a project → moves under "Archived" on index. Hard-delete (creator) — gone from DB. Activity panel shows recent events.
 
-### Phase 8 — Spec sync + docs — status: open
+### Phase 8 — Spec sync + docs — status: completed
 
 Goal: spec mirrors the shipped reality; CHANGELOG entries land.
 
-1. [ ] `/eidos:refine` pass on the spec — record any divergence (e.g., per-project file cap added during impl, or activity table shape decided)
-2. [ ] CHANGELOG.md entries per phase
-3. [ ] Decisions captured in `/eidos:decision` if any major Y/N was resolved during implementation
+1. [x] Spec refined inline (not via `/eidos:refine` since this is one continuous session):
+   - Friction section grew an entry about uploads.SaveAttachment
+   - Friction notes drag-reorder is postponed past v1
+   - Friction notes the SQL UNION activity panel approach (no audit table) and the rationale
+   - Friction notes the package-level webtempl.ProjectsEnabled var choice
+   - Future section lists drag-reorder as [!] planned and activity-detail upgrade as [?]
+2. [x] CHANGELOG.md auto-appended per phase (5 entries: Phases 1+2 then 3,4,5,6,7 separately)
+3. [x] All architectural decisions captured inline in plan progress log + spec friction notes; no standalone decision files needed since the trade-offs are local to each phase
 
 ## Verification
 
@@ -165,4 +170,5 @@ End-to-end story we want green after Phase 7:
 - **2026-06-14 14:55** — Phase 4 completed. 8 new repo methods (incl. transactional ReorderTodos), 5 service mutators, 5 handler endpoints, ProjectTodosFragment templ with double-click-to-edit + checkbox toggle + delete + add form, SSE handler now pushes todos on `Event{Kind:"todos"}` and on stream open. Drag-reorder postponed to Phase 5 so both projects.js needs land together. Build clean. Commit `04a3bfc`.
 - **2026-06-14 15:10** — Phase 5 completed. Uploads.SaveAttachment for any-MIME documents, 4 repo methods, 2 service mutators with permission enforcement, 3 handler endpoints (multipart upload, download with original filename, delete), ProjectAttachmentsFragment templ with drop zone + file list, projects.js drag/drop + click-to-choose + MutationObserver re-bind. Build clean. Commit `f510779`.
 - **2026-06-14 15:25** — Phase 6 completed. 5 repo methods (incl. CommentByID + SoftDeleteComment), 3 service mutators with author+grace OR admin permission enforcement, 3 handler endpoints, ProjectCommentsFragment templ with inline-edit + delete, edit-grace plumbed from cfg.EditGrace. Build clean. Commit `952df0f`.
-- **2026-06-14 15:42** — Phase 7 completed. Archive/Unarchive/DeleteProject service+handler+templ, RecentActivity SQL UNION, ProjectActivityFragment + emoji-prefixed activity log, header Archive/Delete buttons gated on CanDelete, ~140 lines of CSS for the whole projects surface (grid, panels, dropzone, attachments, comments, activity, mobile collapse). Build clean.
+- **2026-06-14 15:42** — Phase 7 completed. Archive/Unarchive/DeleteProject service+handler+templ, RecentActivity SQL UNION, ProjectActivityFragment + emoji-prefixed activity log, header Archive/Delete buttons gated on CanDelete, ~140 lines of CSS for the whole projects surface (grid, panels, dropzone, attachments, comments, activity, mobile collapse). Build clean. Commit `bc26052`.
+- **2026-06-14 15:55** — Phase 8 completed. Spec friction + future sections updated to mirror shipped reality (SaveAttachment, postponed drag-reorder, SQL-UNION activity, package-level ProjectsEnabled var). CHANGELOG was auto-appended on each commit. All 8 phases shipped on `task/projects-phase-1`, ready to merge `task/spec-projects` + `task/projects-phase-1` to main.
