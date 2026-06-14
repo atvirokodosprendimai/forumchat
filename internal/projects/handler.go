@@ -25,10 +25,13 @@ type Handler struct {
 }
 
 // projectSignals carries the editable values posted from the project
-// page (inline header edits).
+// page. One bag for everything so we don't need a struct per endpoint.
 type projectSignals struct {
-	Title       string `json:"projects_title"`
-	Description string `json:"projects_desc"`
+	Title       string   `json:"projects_title"`
+	Description string   `json:"projects_desc"`
+	TodoBody    string   `json:"projects_todo_body"`
+	TodoEdit    string   `json:"projects_todo_edit"`
+	TodoOrder   []string `json:"projects_todo_order"`
 }
 
 // GetIndex renders /c/{slug}/projects: active projects on top, archived
@@ -131,6 +134,11 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	todos, err := h.Repo.ListTodos(r.Context(), p.ID)
+	if err != nil {
+		h.Log.Error("projects todos load", "err", err, "id", pid)
+	}
+
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
 	v.CommunitySlug = c.Slug
@@ -146,6 +154,7 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 			IsArchived:      p.IsArchived(),
 			CanDelete:       p.CreatorUserID == id.User.ID || id.Membership.Role == auth.RoleAdmin,
 		},
+		Todos: toTodoViews(todos),
 	}
 	_ = webtempl.ProjectPage(data).Render(r.Context(), w)
 }
@@ -191,6 +200,104 @@ func (h *Handler) PostDescription(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PostTodoAdd appends a checklist row.
+func (h *Handler) PostTodoAdd(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Svc.AddTodo(r.Context(), pid, id.User.ID, in.TodoBody); err != nil {
+		h.Log.Warn("projects todo add", "err", err, "project", pid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"projects_todo_body":""}`))
+}
+
+// PostTodoEdit replaces the body of one todo.
+func (h *Handler) PostTodoEdit(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	tid := chi.URLParam(r, "tid")
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.Svc.UpdateTodoBody(r.Context(), pid, tid, in.TodoEdit); err != nil {
+		h.Log.Warn("projects todo edit", "err", err, "project", pid, "todo", tid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostTodoToggle flips done.
+func (h *Handler) PostTodoToggle(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	tid := chi.URLParam(r, "tid")
+	if err := h.Svc.ToggleTodo(r.Context(), pid, tid); err != nil {
+		h.Log.Warn("projects todo toggle", "err", err, "project", pid, "todo", tid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostTodoDelete removes one row.
+func (h *Handler) PostTodoDelete(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	tid := chi.URLParam(r, "tid")
+	if err := h.Svc.DeleteTodo(r.Context(), pid, tid); err != nil {
+		h.Log.Warn("projects todo delete", "err", err, "project", pid, "todo", tid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostTodoReorder accepts the new ordering as `projects_todo_order`
+// (string array of todo IDs). Client-side drag emits it.
+func (h *Handler) PostTodoReorder(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.Svc.ReorderTodos(r.Context(), pid, in.TodoOrder); err != nil {
+		h.Log.Warn("projects todo reorder", "err", err, "project", pid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // GetStream is the long-lived per-project SSE relay. On every Event the
 // handler re-renders the affected fragment with WithModeOuter() so
 // morphdom swaps the subtree in place.
@@ -220,11 +327,12 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			_ = sse.PatchSignals([]byte(`{}`))
 		case ev := <-events:
 			switch ev.Kind {
-			case "header":
+			case "header", "archive":
 				h.pushHeader(r, sse, pid)
-			case "todos", "attachments", "comments", "archive":
-				// Phase 4-6 will pushwhichever fragment matches.
-				// For now resync the header to cover archive flips.
+			case "todos":
+				h.pushTodos(r, sse, pid)
+			case "attachments", "comments":
+				// Phase 5-6 will fill these in.
 				h.pushHeader(r, sse, pid)
 			}
 		}
@@ -233,6 +341,32 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) pushAll(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {
 	h.pushHeader(r, sse, pid)
+	h.pushTodos(r, sse, pid)
+}
+
+func (h *Handler) pushTodos(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {
+	todos, err := h.Repo.ListTodos(r.Context(), pid)
+	if err != nil {
+		return
+	}
+	c, _ := community.FromContext(r.Context())
+	_ = sse.PatchElementTempl(
+		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos)),
+		datastar.WithSelector("#proj-todos"),
+		datastar.WithModeOuter(),
+	)
+}
+
+func toTodoViews(ts []Todo) []webtempl.ProjectTodoView {
+	out := make([]webtempl.ProjectTodoView, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, webtempl.ProjectTodoView{
+			ID:   t.ID,
+			Body: t.Body,
+			Done: t.Done,
+		})
+	}
+	return out
 }
 
 func (h *Handler) pushHeader(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {

@@ -139,3 +139,126 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 	_, err := r.DB.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
 	return err
 }
+
+// ListTodos returns a project's checklist in sort_order, then create
+// order, ascending.
+func (r *Repo) ListTodos(ctx context.Context, projectID string) ([]Todo, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT id, project_id, body, done, sort_order, created_by, created_at, updated_at
+		FROM project_todos
+		WHERE project_id = ?
+		ORDER BY sort_order ASC, created_at ASC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list todos: %w", err)
+	}
+	defer rows.Close()
+	var out []Todo
+	for rows.Next() {
+		var t Todo
+		var done int
+		var cAt, uAt int64
+		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Body, &done, &t.SortOrder,
+			&t.CreatedBy, &cAt, &uAt); err != nil {
+			return nil, err
+		}
+		t.Done = done == 1
+		t.CreatedAt = time.UnixMilli(cAt).UTC()
+		t.UpdatedAt = time.UnixMilli(uAt).UTC()
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// MaxTodoSortOrder returns the highest sort_order in a project, or -1
+// if there are none. New rows append at max+1 so they land at the end.
+func (r *Repo) MaxTodoSortOrder(ctx context.Context, projectID string) (int, error) {
+	var n sql.NullInt64
+	err := r.DB.QueryRowContext(ctx,
+		`SELECT MAX(sort_order) FROM project_todos WHERE project_id = ?`,
+		projectID).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	if !n.Valid {
+		return -1, nil
+	}
+	return int(n.Int64), nil
+}
+
+// InsertTodo persists a fresh checklist row.
+func (r *Repo) InsertTodo(ctx context.Context, t Todo) error {
+	done := 0
+	if t.Done {
+		done = 1
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO project_todos (id, project_id, body, done, sort_order, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.ProjectID, t.Body, done, t.SortOrder, t.CreatedBy,
+		t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli())
+	return err
+}
+
+// UpdateTodoBody changes the text and bumps updated_at.
+func (r *Repo) UpdateTodoBody(ctx context.Context, id, body string, now time.Time) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE project_todos SET body = ?, updated_at = ? WHERE id = ?`,
+		body, now.UnixMilli(), id)
+	return err
+}
+
+// ToggleTodoDone flips the done flag for one row and bumps updated_at.
+func (r *Repo) ToggleTodoDone(ctx context.Context, id string, now time.Time) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE project_todos SET done = CASE done WHEN 0 THEN 1 ELSE 0 END, updated_at = ? WHERE id = ?`,
+		now.UnixMilli(), id)
+	return err
+}
+
+// DeleteTodo removes a row outright.
+func (r *Repo) DeleteTodo(ctx context.Context, id string) error {
+	_, err := r.DB.ExecContext(ctx, `DELETE FROM project_todos WHERE id = ?`, id)
+	return err
+}
+
+// TodoByID loads one row.
+func (r *Repo) TodoByID(ctx context.Context, id string) (Todo, error) {
+	var t Todo
+	var done int
+	var cAt, uAt int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id, project_id, body, done, sort_order, created_by, created_at, updated_at
+		FROM project_todos WHERE id = ?`, id).Scan(
+		&t.ID, &t.ProjectID, &t.Body, &done, &t.SortOrder,
+		&t.CreatedBy, &cAt, &uAt)
+	if err != nil {
+		return Todo{}, err
+	}
+	t.Done = done == 1
+	t.CreatedAt = time.UnixMilli(cAt).UTC()
+	t.UpdatedAt = time.UnixMilli(uAt).UTC()
+	return t, nil
+}
+
+// ReorderTodos applies a new (id -> sort_order) mapping inside one
+// transaction. Callers pass the full desired order so we don't need to
+// fiddle with fractional indexes.
+func (r *Repo) ReorderTodos(ctx context.Context, projectID string, order []string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.PrepareContext(ctx,
+		`UPDATE project_todos SET sort_order = ? WHERE id = ? AND project_id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for i, id := range order {
+		if _, err := stmt.ExecContext(ctx, i, id, projectID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

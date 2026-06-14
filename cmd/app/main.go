@@ -359,6 +359,11 @@ func run() error {
 			r.Get("/projects/{id}/stream", projectsHandler.GetStream)
 			r.Post("/projects/{id}/title", projectsHandler.PostTitle)
 			r.Post("/projects/{id}/desc", projectsHandler.PostDescription)
+			r.Post("/projects/{id}/todo", projectsHandler.PostTodoAdd)
+			r.Post("/projects/{id}/todo/{tid}", projectsHandler.PostTodoEdit)
+			r.Post("/projects/{id}/todo/{tid}/toggle", projectsHandler.PostTodoToggle)
+			r.Post("/projects/{id}/todo/{tid}/delete", projectsHandler.PostTodoDelete)
+			r.Post("/projects/{id}/todo/reorder", projectsHandler.PostTodoReorder)
 		}
 
 		r.Group(func(r chi.Router) {

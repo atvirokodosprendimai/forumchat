@@ -45,6 +45,14 @@ type ProjectPageData struct {
 	CommunitySlug string
 	CommunityName string
 	Project       ProjectView
+	Todos         []ProjectTodoView
+}
+
+// ProjectTodoView is one checklist row.
+type ProjectTodoView struct {
+	ID   string
+	Body string
+	Done bool
 }
 
 templ ProjectsGrid(d ProjectsGridData) {
@@ -93,10 +101,7 @@ templ ProjectPage(d ProjectPageData) {
 			<div id="proj-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/stream', {openWhenHidden: true})" }></div>
 			@ProjectHeaderFragment(d.CommunitySlug, d.Project)
 			<div class="project-body">
-				<section id="proj-todos" class="project-panel project-panel-todos">
-					<h3>Checklist</h3>
-					<p class="muted">No todos yet. (Realtime checklist arrives in Phase 4.)</p>
-				</section>
+				@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos)
 				<section id="proj-attachments" class="project-panel project-panel-attachments">
 					<h3>Attachments</h3>
 					<p class="muted">No attachments yet. (Drag-and-drop arrives in Phase 5.)</p>
@@ -121,7 +126,7 @@ templ ProjectPage(d ProjectPageData) {
 // when either field changes anywhere.
 templ ProjectHeaderFragment(slug string, p ProjectView) {
 	<section id="proj-header" class="project-header"
-		data-signals={ "{projects_edit_header:false,projects_title:'" + jsQuoteAttr(p.Title) + "',projects_desc:'" + jsQuoteAttr(p.DescriptionMD) + "'}" }>
+		data-signals={ "{projects_edit_header:false,projects_title:'" + jsQuoteAttr(p.Title) + "',projects_desc:'" + jsQuoteAttr(p.DescriptionMD) + "',projects_todo_body:'',projects_todo_edit:'',projects_todo_edit_id:''}" }>
 		<div class="project-header-display" data-show="!$projects_edit_header">
 			<h1 class="project-title">
 				{ p.Title }
@@ -152,6 +157,39 @@ templ ProjectHeaderFragment(slug string, p ProjectView) {
 				<button class="btn ghost" data-on:click="$projects_edit_header = false">Cancel</button>
 			</div>
 		</div>
+	</section>
+}
+
+// ProjectTodosFragment renders the entire checklist panel. SSE morphs
+// this whole `<section id="proj-todos">` on every add/edit/toggle/delete/
+// reorder event, which keeps the implementation simple — no diffing.
+templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView) {
+	<section id="proj-todos" class="project-panel project-panel-todos">
+		<h3>Checklist</h3>
+		<ul class="project-todos">
+			for _, t := range todos {
+				<li class={ "project-todo", templ.KV("project-todo-done", t.Done) } data-todo-id={ t.ID }>
+					<input type="checkbox" checked?={ t.Done }
+						data-on:change={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/toggle')" }/>
+					<span class="project-todo-body"
+						data-on:dblclick={ "$projects_todo_edit_id = '" + t.ID + "'; $projects_todo_edit = '" + jsQuoteAttr(t.Body) + "'" }
+						data-show={ "$projects_todo_edit_id !== '" + t.ID + "'" }>{ t.Body }</span>
+					<input type="text" class="project-todo-edit-input"
+						data-show={ "$projects_todo_edit_id === '" + t.ID + "'" } hidden
+						data-bind="projects_todo_edit"
+						data-on:keydown={ "evt.key === 'Enter' && (@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "'), $projects_todo_edit_id = '')" }
+						data-on:blur="$projects_todo_edit_id = ''"/>
+					<button class="btn ghost project-todo-delete"
+						title="Delete this todo"
+						data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/delete')" }>×</button>
+				</li>
+			}
+		</ul>
+		<form class="project-todo-add" data-on:submit__prevent={ "@post('/c/" + slug + "/projects/" + projectID + "/todo')" }>
+			<input type="text" maxlength="500" placeholder="Add a todo…"
+				data-bind="projects_todo_body"/>
+			<button class="btn" type="submit">Add</button>
+		</form>
 	</section>
 }
 

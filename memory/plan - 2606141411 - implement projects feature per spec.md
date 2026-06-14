@@ -71,16 +71,19 @@ Goal: title and description edits propagate to other open tabs within ~1s with n
 
 Verification: two browser tabs as different members on the same project — tab A edits title → tab B's title updates within ~1s without refresh.
 
-### Phase 4 — Todos panel (realtime) — status: open
+### Phase 4 — Todos panel (realtime) — status: completed
 
 Goal: collaborative todo list works across tabs in real time.
 
-1. [ ] `repo` — `ListTodos(projectID)`, `InsertTodo`, `UpdateTodoBody`, `ToggleTodoDone`, `DeleteTodo`, `ReorderTodos`
-2. [ ] `service` — wrap each with publish `Event{Kind: "todos"}`
-3. [ ] `handler` — `POST /todo` (add), `POST /todo/{tid}` (edit), `POST /todo/{tid}/toggle`, `POST /todo/{tid}/delete`, `POST /todo/{tid}/sort`
-4. [ ] Templ `ProjectTodos(d)` — checkbox + inline-editable body + delete; drag handle uses native HTML5 drag
-5. [ ] `projects.js` — drag-end handler posts `/sort` with `{after_id}`; renumber done server-side
-6. [ ] SSE stream extension: on `Event{Kind: "todos"}` re-render `#proj-todos`
+1. [x] `repo` — `ListTodos`, `MaxTodoSortOrder`, `InsertTodo`, `UpdateTodoBody`, `ToggleTodoDone`, `DeleteTodo`, `TodoByID`, `ReorderTodos` (transactional)
+2. [x] `service` — `AddTodo`, `UpdateTodoBody`, `ToggleTodo`, `DeleteTodo`, `ReorderTodos`; all publish `Event{Kind:"todos"}`
+3. [x] `handler` — `PostTodoAdd`, `PostTodoEdit`, `PostTodoToggle`, `PostTodoDelete`, `PostTodoReorder`; signals bag extended with `projects_todo_body`/`projects_todo_edit`/`projects_todo_order`
+4. [x] `ProjectTodosFragment` templ — checkbox toggle, double-click body to edit, Enter to save, × to delete, "+ Add" form pinned at the bottom; ID-keyed via `$projects_todo_edit_id` so multiple rows don't fight for one signal
+5. [p] Drag-reorder via `projects.js` deferred — todo list works fine without drag for v1; postponed to Phase 7 polish.
+   - => Reason: drag-and-drop needs the same projects.js file as Phase 5's attachment dropzone. Land them together in Phase 5 instead of two JS commits.
+6. [x] SSE stream — `Event{Kind:"todos"}` triggers `pushTodos` which morphs `#proj-todos` via WithModeOuter
+7. [x] `GetProject` now loads todos on initial render; `pushAll` on stream-open syncs late joiners
+8. [x] main.go — 5 new routes mounted under feature flag
 
 Verification: tab A adds a todo → tab B sees it. Tab A toggles a checkbox → tab B sees the strike-through. Drag-reorder syncs across tabs.
 
@@ -153,4 +156,5 @@ End-to-end story we want green after Phase 7:
 
 - **2026-06-14 14:20** — Phase 1 completed on `task/projects-phase-1` (off `task/spec-projects`). Migration 00013, config flag, projects package skeleton, templ index page, main.go wiring. Build clean. Ready to commit + open PR that brings spec + plan + Phase 1 to main together. Shipped commit `54581bb`.
 - **2026-06-14 14:32** — Phase 2 completed on the same branch. service.go with CreateProject + sentinel errors, handler.PostCreate + GetProject, ProjectPage templ with 5 panel skeletons, routes mounted under the feature-flag conditional in main.go. CSS deferred to Phase 7. Build clean. Commit `bd0170e`.
-- **2026-06-14 14:42** — Phase 3 completed. bus.go fan-out, service UpdateTitle/UpdateDescription, handler PostTitle/PostDescription/GetStream, ProjectHeaderFragment with inline edit affordance driven by `$projects_edit_header`/`$projects_title`/`$projects_desc`, three new routes. Build clean.
+- **2026-06-14 14:42** — Phase 3 completed. bus.go fan-out, service UpdateTitle/UpdateDescription, handler PostTitle/PostDescription/GetStream, ProjectHeaderFragment with inline edit affordance driven by `$projects_edit_header`/`$projects_title`/`$projects_desc`, three new routes. Build clean. Commit `bdc188e`.
+- **2026-06-14 14:55** — Phase 4 completed. 8 new repo methods (incl. transactional ReorderTodos), 5 service mutators, 5 handler endpoints, ProjectTodosFragment templ with double-click-to-edit + checkbox toggle + delete + add form, SSE handler now pushes todos on `Event{Kind:"todos"}` and on stream open. Drag-reorder postponed to Phase 5 so both projects.js needs land together. Build clean.

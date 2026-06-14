@@ -91,3 +91,76 @@ func (s *Service) UpdateDescription(ctx context.Context, projectID, descMD strin
 	s.Bus.PublishProject(projectID, Event{Kind: "header"})
 	return nil
 }
+
+// AddTodo appends a row at the end of the checklist.
+func (s *Service) AddTodo(ctx context.Context, projectID, creatorID, body string) (Todo, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Todo{}, ErrEmptyTitle
+	}
+	if len(body) > 500 {
+		body = body[:500]
+	}
+	maxOrder, err := s.Repo.MaxTodoSortOrder(ctx, projectID)
+	if err != nil {
+		return Todo{}, fmt.Errorf("max sort: %w", err)
+	}
+	now := time.Now().UTC()
+	t := Todo{
+		ID:        uuid.NewString(),
+		ProjectID: projectID,
+		Body:      body,
+		SortOrder: maxOrder + 1,
+		CreatedBy: creatorID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := s.Repo.InsertTodo(ctx, t); err != nil {
+		return Todo{}, fmt.Errorf("insert todo: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
+	return t, nil
+}
+
+// UpdateTodoBody replaces the text of one todo.
+func (s *Service) UpdateTodoBody(ctx context.Context, projectID, todoID, body string) error {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ErrEmptyTitle
+	}
+	if len(body) > 500 {
+		body = body[:500]
+	}
+	if err := s.Repo.UpdateTodoBody(ctx, todoID, body, time.Now().UTC()); err != nil {
+		return fmt.Errorf("update todo body: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
+	return nil
+}
+
+// ToggleTodo flips done and publishes.
+func (s *Service) ToggleTodo(ctx context.Context, projectID, todoID string) error {
+	if err := s.Repo.ToggleTodoDone(ctx, todoID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("toggle todo: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
+	return nil
+}
+
+// DeleteTodo removes one row.
+func (s *Service) DeleteTodo(ctx context.Context, projectID, todoID string) error {
+	if err := s.Repo.DeleteTodo(ctx, todoID); err != nil {
+		return fmt.Errorf("delete todo: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
+	return nil
+}
+
+// ReorderTodos applies a new ordering.
+func (s *Service) ReorderTodos(ctx context.Context, projectID string, order []string) error {
+	if err := s.Repo.ReorderTodos(ctx, projectID, order); err != nil {
+		return fmt.Errorf("reorder todos: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
+	return nil
+}
