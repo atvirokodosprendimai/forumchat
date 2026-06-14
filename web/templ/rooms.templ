@@ -79,8 +79,12 @@ type GuestJoinPageData struct {
 templ RoomsGrid(d RoomsGridData) {
 	@Layout("Rooms", d.Viewer) {
 		<section class="rooms-grid-section">
-			<h1>Rooms</h1>
-			<p class="muted">Eight always-on meeting rooms. First person in a room becomes its admin and decides who else joins.</p>
+			<header class="page-head">
+				<div>
+					<h1>Rooms</h1>
+					<p class="muted">Eight always-on meeting rooms. First person to join becomes its admin.</p>
+				</div>
+			</header>
 			<ul class="rooms-grid">
 				for _, row := range d.Rows {
 					<li class={ "rooms-card", templ.KV("rooms-card-public", row.IsPublic), templ.KV("rooms-card-busy", row.MemberCount > 0) }>
@@ -94,11 +98,13 @@ templ RoomsGrid(d RoomsGridData) {
 							</div>
 							<div class="rooms-card-body">
 								if row.MemberCount == 0 {
+									<span class="rooms-card-dot rooms-card-dot-idle" aria-hidden="true"></span>
 									<span class="muted">empty — join to claim admin</span>
 								} else {
-									<span class="rooms-card-count">{ strconv.Itoa(row.MemberCount) } in room</span>
+									<span class="rooms-card-dot rooms-card-dot-live" aria-hidden="true"></span>
+									<span class="rooms-card-count"><strong>{ strconv.Itoa(row.MemberCount) }</strong> in room</span>
 									if row.AdminName != "" {
-										<span class="muted"> · admin: { row.AdminName }</span>
+										<span class="muted">· { row.AdminName }</span>
 									}
 								}
 								if row.PendingCount > 0 {

@@ -8,6 +8,31 @@ type Viewer struct {
 	CommunitySlug string // empty when no community is in scope (dashboard, login pages)
 }
 
+// themeColor picks a hex from a small accent palette using a stable
+// hash of the community slug, so each community gets its own tab
+// chrome tint on mobile browsers. Empty slug → the default brand color.
+func themeColor(slug string) string {
+	palette := []string{
+		"#6366f1", // indigo (default brand)
+		"#8b5cf6", // violet
+		"#06b6d4", // cyan
+		"#10b981", // emerald
+		"#f59e0b", // amber
+		"#ef4444", // rose
+		"#ec4899", // pink
+		"#3b82f6", // blue
+	}
+	if slug == "" {
+		return palette[0]
+	}
+	var h uint32 = 2166136261
+	for i := 0; i < len(slug); i++ {
+		h ^= uint32(slug[i])
+		h *= 16777619
+	}
+	return palette[int(h%uint32(len(palette)))]
+}
+
 // initial returns the first visible rune of a display name, uppercased,
 // for the sidebar avatar placeholder. Empty input → "?".
 func initial(s string) string {
@@ -102,7 +127,7 @@ templ Layout(title string, v Viewer) {
 				<link rel="manifest" href={ "/static/manifest.webmanifest?v=" + AssetVer("manifest.webmanifest") }/>
 				<link rel="icon" type="image/svg+xml" href="/static/icon.svg"/>
 				<link rel="apple-touch-icon" href="/static/icon-192.png"/>
-				<meta name="theme-color" content="#6366f1"/>
+				<meta name="theme-color" content={ themeColor(v.CommunitySlug) }/>
 				<meta name="mobile-web-app-capable" content="yes"/>
 				<meta name="apple-mobile-web-app-capable" content="yes"/>
 				<meta name="apple-mobile-web-app-title" content="forumchat"/>
