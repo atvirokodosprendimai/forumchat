@@ -95,7 +95,11 @@ templ Layout(title string, v Viewer) {
 			<script src={ "/static/nav.js?v=" + AssetVer("nav.js") } defer></script>
 			<header class="topbar">
 				<button class="topbar-hamburger" aria-label="Toggle navigation"
-					type="button" data-nav-toggle>☰</button>
+					type="button" data-nav-toggle>
+					<span class="hamburger-bar"></span>
+					<span class="hamburger-bar"></span>
+					<span class="hamburger-bar"></span>
+				</button>
 				<a href="/" class="brand">forumchat</a>
 			</header>
 			<div class="nav-overlay" data-nav-overlay></div>
