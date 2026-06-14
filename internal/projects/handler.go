@@ -9,13 +9,16 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
@@ -45,6 +48,11 @@ type Handler struct {
 	// main.go to the push package's Sender. Used to broadcast new-project,
 	// new-issue and new-comment events to community subscribers.
 	PushNotify func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
+	// ChatRepo + ChatBus power the "Share to chat" buttons on project,
+	// issue and discussion pages. Optional — when nil the share endpoint
+	// returns 503 and the templates can still render the buttons.
+	ChatRepo   *chat.Repo
+	ChatBus    *chat.Bus
 	Log        *slog.Logger
 	commLookup commLookupFn // injected by main.go for the guest-bounce route
 }
@@ -63,6 +71,14 @@ type projectSignals struct {
 	TodoOrder     []string `json:"projects_todo_order"`
 	CommentBody   string   `json:"projects_comment_body"`
 	CommentEdit   string   `json:"projects_comment_edit"`
+}
+
+// shareChatSignals is read on the per-resource share-to-chat POSTs.
+// One shared field name (`share_message`) is enough because each page
+// renders its own composer with its own POST URL — the form below the
+// project / issue / discussion just sends what the user typed.
+type shareChatSignals struct {
+	Message string `json:"share_message"`
 }
 
 // GetIndex renders /c/{slug}/projects: active projects on top, archived
@@ -989,4 +1005,149 @@ func toGridRows(rows []IndexRow) []webtempl.ProjectsGridRow {
 		})
 	}
 	return out
+}
+
+// ----- share to chat -----------------------------------------------------
+//
+// Three endpoints share the same shape: read the project / issue /
+// discussion the URL points at, build a chat message that links to it
+// (with the user's optional one-liner), insert + broadcast, clear the
+// composer signal so the user can immediately type the next update.
+
+func (h *Handler) postShareCore(w http.ResponseWriter, r *http.Request, kind, emoji, title, link string) {
+	if h.ChatRepo == nil || h.ChatBus == nil {
+		http.Error(w, "chat sharing not available", http.StatusServiceUnavailable)
+		return
+	}
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "no community", http.StatusInternalServerError)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in shareChatSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	msgText := strings.TrimSpace(in.Message)
+	if len(msgText) > 800 {
+		msgText = msgText[:800]
+	}
+	name := htmlEscProj(title)
+	href := htmlEscProj(link)
+	var bodyHTML, bodyMD string
+	if msgText != "" {
+		safeText := htmlEscProj(msgText)
+		bodyHTML = emoji + " " + safeText + " — " + kind + ` <strong>` + name + `</strong> · ` +
+			`<a href="` + href + `" target="_blank" rel="noopener">Open</a>`
+		bodyMD = emoji + " " + msgText + " — " + kind + " " + title + " — " + link
+	} else {
+		bodyHTML = emoji + " " + kind + ` <strong>` + name + `</strong> · ` +
+			`<a href="` + href + `" target="_blank" rel="noopener">Open</a>`
+		bodyMD = emoji + " " + kind + " " + title + " — " + link
+	}
+	aid := id.User.ID
+	msg := chat.Message{
+		ID:           uuid.NewString(),
+		CommunityID:  c.ID,
+		AuthorID:     &aid,
+		Kind:         chat.KindUser,
+		BodyMarkdown: bodyMD,
+		BodyHTML:     bodyHTML,
+		CreatedAt:    time.Now(),
+	}
+	if err := h.ChatRepo.Insert(r.Context(), msg); err != nil {
+		http.Error(w, "post failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	h.ChatBus.Broadcast()
+
+	sse := datastar.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"share_message":""}`))
+	_ = sse.PatchElementTempl(webtempl.SuccessFragment("share-status", "Shared to chat."))
+}
+
+func (h *Handler) PostShareProjectToChat(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	p, err := h.Repo.ByID(r.Context(), pid)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	c, _ := community.FromContext(r.Context())
+	scheme, host := publicSchemeHost(r)
+	link := scheme + "://" + host + "/c/" + c.Slug + "/projects/" + p.ID
+	h.postShareCore(w, r, "Project", "📂", p.Title, link)
+}
+
+func (h *Handler) PostShareIssueToChat(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	issueID := chi.URLParam(r, "iid")
+	if issueID == "" {
+		http.Error(w, "missing issue id", http.StatusBadRequest)
+		return
+	}
+	iss, err := h.Repo.IssueByID(r.Context(), issueID)
+	if err != nil || iss.ProjectID != pid {
+		http.NotFound(w, r)
+		return
+	}
+	c, _ := community.FromContext(r.Context())
+	scheme, host := publicSchemeHost(r)
+	link := scheme + "://" + host + "/c/" + c.Slug + "/projects/" + pid + "/issues/" + iss.ID
+	h.postShareCore(w, r, "Issue", "🐞", iss.Title, link)
+}
+
+func (h *Handler) PostShareDiscussionToChat(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	disID := chi.URLParam(r, "did")
+	if disID == "" {
+		http.Error(w, "missing discussion id", http.StatusBadRequest)
+		return
+	}
+	dis, err := h.Repo.DiscussionThreadByID(r.Context(), disID)
+	if err != nil || dis.ProjectID != pid {
+		http.NotFound(w, r)
+		return
+	}
+	c, _ := community.FromContext(r.Context())
+	scheme, host := publicSchemeHost(r)
+	link := scheme + "://" + host + "/c/" + c.Slug + "/projects/" + pid + "/discussions/" + dis.ID
+	h.postShareCore(w, r, "Doc", "📝", dis.Subject, link)
+}
+
+func htmlEscProj(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '&':
+			b.WriteString("&amp;")
+		case '<':
+			b.WriteString("&lt;")
+		case '>':
+			b.WriteString("&gt;")
+		case '"':
+			b.WriteString("&quot;")
+		case '\'':
+			b.WriteString("&#39;")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

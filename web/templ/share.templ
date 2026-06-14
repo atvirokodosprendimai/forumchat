@@ -1,0 +1,25 @@
+package templ
+
+// ShareToChatRow renders the small persistent composer that lets the
+// viewer post a chat message about the current page (project, issue,
+// discussion). postURL is the absolute path to POST; placeholder is the
+// hint text shown when the input is empty — pages pre-fill it with
+// page-appropriate copy ("I've added a new doc — ", "Quick update —").
+//
+// Repeatable by design: after a successful post, the server clears
+// $share_message via SSE PatchSignals, and the row stays visible so the
+// user can immediately type the next update.
+templ ShareToChatRow(postURL, placeholder string) {
+	<div class="share-row">
+		<span class="share-row-icon" aria-hidden="true">💬</span>
+		<input type="text"
+			class="share-row-input"
+			data-bind="share_message"
+			placeholder={ placeholder }
+			data-on:keydown={ "evt.key === 'Enter' && @post('" + postURL + "')" }/>
+		<button class="btn share-row-btn"
+			type="button"
+			data-on:click={ "@post('" + postURL + "')" }>Share to chat</button>
+		<div id="share-status" class="muted share-row-status"></div>
+	</div>
+}

@@ -2349,6 +2349,31 @@ hr {
 .notif-digest select { width: 100%; }
 .notif-digest .notif-digest-note { font-size: .85rem; margin: 0; }
 
+/* Share-to-chat row — small persistent composer on project / issue /
+   discussion pages. Click "Share to chat" after each update. */
+.share-row {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  background: var(--surface-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: .55rem .65rem;
+  margin: .75rem 0 .5rem;
+}
+.share-row-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: .95rem; flex: 0 0 28px;
+}
+.share-row-input {
+  flex: 1 1 220px; min-width: 0;
+  padding: .5rem .7rem;
+}
+.share-row-btn { flex: 0 0 auto; }
+.share-row-status { flex-basis: 100%; font-size: .82rem; margin: 0; min-height: 1.1em; }
+.share-row-status.success { color: var(--success); }
+
 /* Reduced motion — respect user preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
