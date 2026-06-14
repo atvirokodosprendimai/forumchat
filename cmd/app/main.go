@@ -229,7 +229,8 @@ func run() error {
 	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
 
 	projectsRepo := projects.NewRepo(db)
-	projectsHandler := &projects.Handler{Repo: projectsRepo, Log: log}
+	projectsSvc := projects.NewService(projectsRepo)
+	projectsHandler := &projects.Handler{Repo: projectsRepo, Svc: projectsSvc, Log: log}
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
@@ -352,6 +353,8 @@ func run() error {
 		// The flag also gates the nav link via webtempl.ProjectsEnabled.
 		if cfg.ProjectsEnabled {
 			r.Get("/projects", projectsHandler.GetIndex)
+			r.Post("/projects", projectsHandler.PostCreate)
+			r.Get("/projects/{id}", projectsHandler.GetProject)
 		}
 
 		r.Group(func(r chi.Router) {

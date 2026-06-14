@@ -42,15 +42,16 @@ Goal: `PROJECTS_ENABLED=true` shows a Projects nav link and a `/c/{slug}/project
 
 Verification: with `PROJECTS_ENABLED=true`, nav shows "Projects", `/c/main/projects` returns 200 with empty grid. With `=false`, link absent, route 404.
 
-### Phase 2 — Create + view a project (form-driven, no SSE yet) — status: open
+### Phase 2 — Create + view a project (form-driven, no SSE yet) — status: completed
 
 Goal: any approved member can create a project, click into it, see all five panel placeholders rendered server-side. No live updates yet.
 
-1. [ ] `internal/projects/service.go` — `Service` struct, `CreateProject(ctx, communityID, creatorID, title, desc) (Project, error)`; markdown render reuses `internal/render.RenderMarkdown`
-2. [ ] `handler.PostCreate` — POST `/c/{slug}/projects`; ReadSignals `{rooms_target unused, projects_title, projects_desc}` → service.CreateProject → SSE redirect to `/c/{slug}/projects/{id}`
-3. [ ] `handler.GetProject` — GET `/c/{slug}/projects/{id}` → load Project + initial empty todos/attachments/comments → render `ProjectPage(data)`
-4. [ ] `web/templ/projects.templ` — `ProjectPage(data)` with five `<section id="proj-{header,todos,attachments,comments,activity}">` placeholders; each renders an empty-state for now
-5. [ ] CSS shell in `app.css` — minimal panel grid (two columns desktop, stacked mobile)
+1. [x] `internal/projects/service.go` — `Service{Repo}`, `NewService`, `CreateProject(ctx, communityID, creatorID, title, descMD) (Project, error)`; markdown render via `internal/render.RenderMarkdown`. Sentinel errors `ErrEmptyTitle`, `ErrNotFound`, `ErrForbidden`.
+2. [x] `handler.PostCreate` — POST `/c/{slug}/projects` (plain HTML form, no datastar signals — Phase 3 will switch where appropriate); 303-redirects to `/c/{slug}/projects/{id}` so refresh doesn't re-post.
+3. [x] `handler.GetProject` — GET `/c/{slug}/projects/{id}` with cross-community guard (404 on slug mismatch so we don't leak ids), renders `ProjectPage(data)`.
+4. [x] `web/templ/projects.templ` — `ProjectPage` with five `<section id="proj-{header,todos,attachments,comments,activity}">` panels; back-to-projects breadcrumb; `ProjectHeader` split out for later SSE morph reuse.
+5. [ ] CSS shell deferred — page renders with default styling for now; visual polish lands in Phase 7.
+   - => Decision: ship Phase 2 without CSS so phases 3-6 land their own structural HTML first, then one consolidated CSS pass at the end avoids churn.
 
 Verification: enter a title in the index "New project" form → land on `/c/main/projects/<id>` → see all five panel skeletons with the title rendered.
 
@@ -148,4 +149,5 @@ End-to-end story we want green after Phase 7:
 
 ## Progress Log
 
-- **2026-06-14 14:20** — Phase 1 completed on `task/projects-phase-1` (off `task/spec-projects`). Migration 00013, config flag, projects package skeleton, templ index page, main.go wiring. Build clean. Ready to commit + open PR that brings spec + plan + Phase 1 to main together.
+- **2026-06-14 14:20** — Phase 1 completed on `task/projects-phase-1` (off `task/spec-projects`). Migration 00013, config flag, projects package skeleton, templ index page, main.go wiring. Build clean. Ready to commit + open PR that brings spec + plan + Phase 1 to main together. Shipped commit `54581bb`.
+- **2026-06-14 14:32** — Phase 2 completed on the same branch. service.go with CreateProject + sentinel errors, handler.PostCreate + GetProject, ProjectPage templ with 5 panel skeletons, routes mounted under the feature-flag conditional in main.go. CSS deferred to Phase 7. Build clean.

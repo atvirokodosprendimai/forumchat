@@ -27,6 +27,26 @@ type ProjectsGridData struct {
 	Archived      []ProjectsGridRow
 }
 
+// ProjectView is the per-page render struct for one project. The
+// realtime panels (todos, attachments, comments, activity) get added in
+// Phase 4-6; Phase 2 only fills the header.
+type ProjectView struct {
+	ID              string
+	Title           string
+	DescriptionMD   string
+	DescriptionHTML string
+	IsArchived      bool
+	CanDelete       bool
+}
+
+// ProjectPageData is the project-page payload.
+type ProjectPageData struct {
+	Viewer        Viewer
+	CommunitySlug string
+	CommunityName string
+	Project       ProjectView
+}
+
 templ ProjectsGrid(d ProjectsGridData) {
 	@Layout("Projects — "+d.CommunityName, d.Viewer) {
 		<section class="projects-grid-section">
@@ -59,6 +79,56 @@ templ ProjectsGrid(d ProjectsGridData) {
 			}
 		</section>
 	}
+}
+
+templ ProjectPage(d ProjectPageData) {
+	@Layout(d.Project.Title+" — Projects", d.Viewer) {
+		<section class="project-page">
+			<nav class="project-breadcrumb muted">
+				<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>← back to Projects</a>
+			</nav>
+			<section id="proj-header" class="project-header">
+				@ProjectHeader(d.CommunitySlug, d.Project)
+			</section>
+			<div class="project-body">
+				<section id="proj-todos" class="project-panel project-panel-todos">
+					<h3>Checklist</h3>
+					<p class="muted">No todos yet. (Realtime checklist arrives in Phase 4.)</p>
+				</section>
+				<section id="proj-attachments" class="project-panel project-panel-attachments">
+					<h3>Attachments</h3>
+					<p class="muted">No attachments yet. (Drag-and-drop arrives in Phase 5.)</p>
+				</section>
+				<section id="proj-comments" class="project-panel project-panel-comments">
+					<h3>Comments</h3>
+					<p class="muted">No comments yet. (Threaded discussion arrives in Phase 6.)</p>
+				</section>
+				<aside id="proj-activity" class="project-panel project-panel-activity">
+					<h3>Activity</h3>
+					<p class="muted">Activity log appears once edits happen.</p>
+				</aside>
+			</div>
+		</section>
+	}
+}
+
+// ProjectHeader is split out so the Phase 3 SSE stream can re-render
+// just this fragment via WithModeOuter(). Phase 2 only renders it
+// server-side on the initial GET.
+templ ProjectHeader(slug string, p ProjectView) {
+	<div class="project-header-inner">
+		<h1 class="project-title">
+			{ p.Title }
+			if p.IsArchived {
+				<span class="projects-pill projects-pill-archived">archived</span>
+			}
+		</h1>
+		if p.DescriptionHTML != "" {
+			<div class="project-description">@templ.Raw(p.DescriptionHTML)</div>
+		} else {
+			<p class="project-description-empty muted">No description yet.</p>
+		}
+	</div>
 }
 
 templ projectCard(slug string, row ProjectsGridRow) {
