@@ -27,6 +27,10 @@ type ProjectsGridData struct {
 	Archived      []ProjectsGridRow
 }
 
+// IsMember is a convenience accessor — opposite of IsGuestViewer on
+// the parent ProjectPageData. Templ fragments take this flag to gate
+// write affordances.
+
 // ProjectView is the per-page render struct for one project. The
 // realtime panels (todos, attachments, comments, activity) get added in
 // Phase 4-6; Phase 2 only fills the header.
@@ -189,14 +193,22 @@ func projectTabHref(slug, projectID, key string) string {
 
 // projectShell renders the common chrome — back link, SSE stream
 // opener, tab strip, header. Each tab page wraps its body in this.
+// Guests skip the SSE stream (member-only) but still see the static
+// tab strip and header.
 templ projectShell(d ProjectPageData, active string) {
 	<script src={ "/static/projects.js?v=" + AssetVer("projects.js") } defer></script>
 	<section class="project-page">
 		<nav class="project-breadcrumb muted">
-			<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>← back to Projects</a>
+			if d.IsGuestViewer {
+				<span>Project shared with you as guest</span>
+			} else {
+				<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>← back to Projects</a>
+			}
 		</nav>
-		<div id="proj-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/stream?tab=" + active + "', {openWhenHidden: true})" }></div>
-		@ProjectHeaderFragment(d.CommunitySlug, d.Project)
+		if !d.IsGuestViewer {
+			<div id="proj-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/stream?tab=" + active + "', {openWhenHidden: true})" }></div>
+		}
+		@ProjectHeaderFragment(d.CommunitySlug, d.Project, d.IsGuestViewer)
 		@ProjectTabs(d.CommunitySlug, d.Project.ID, active)
 		<div class="project-body project-body-single">
 			{ children... }
@@ -275,7 +287,7 @@ templ projectSharePanel(slug, projectID string, s ProjectShareView) {
 templ ProjectTodosPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Todos", d.Viewer) {
 		@projectShell(d, "todos") {
-			@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos)
+			@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos, d.IsGuestViewer)
 		}
 	}
 }
@@ -283,7 +295,7 @@ templ ProjectTodosPage(d ProjectPageData) {
 templ ProjectDocsPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Docs", d.Viewer) {
 		@projectShell(d, "docs") {
-			@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments)
+			@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments, d.IsGuestViewer)
 		}
 	}
 }
@@ -291,7 +303,7 @@ templ ProjectDocsPage(d ProjectPageData) {
 templ ProjectCommentsPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Comments", d.Viewer) {
 		@projectShell(d, "comments") {
-			@ProjectCommentsFragment(d.CommunitySlug, d.Project.ID, d.Comments)
+			@ProjectCommentsFragment(d.CommunitySlug, d.Project.ID, d.Comments, d.IsGuestViewer)
 		}
 	}
 }
@@ -551,9 +563,10 @@ templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) 
 // ProjectHeaderFragment renders the title + description block with
 // inline-edit affordances driven by datastar signals
 // `$projects_edit_header`, `$projects_title`, and `$projects_desc`.
-// The Phase 3 SSE stream re-renders this fragment via WithModeOuter()
-// when either field changes anywhere.
-templ ProjectHeaderFragment(slug string, p ProjectView) {
+// SSE re-renders this fragment via WithModeOuter on header events.
+// `isGuest` hides every write affordance (members can edit, guests
+// can only read).
+templ ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) {
 	<section id="proj-header" class="project-header"
 		data-signals={ "{projects_edit_header:false,projects_title:'" + jsQuoteAttr(p.Title) + "',projects_desc:'" + jsQuoteAttr(p.DescriptionMD) + "',projects_todo_body:'',projects_todo_edit:'',projects_todo_edit_id:'',projects_comment_body:'',projects_comment_edit:'',projects_comment_edit_id:''}" }>
 		<div class="project-header-display" data-show="!$projects_edit_header">
@@ -568,21 +581,23 @@ templ ProjectHeaderFragment(slug string, p ProjectView) {
 			} else {
 				<p class="project-description-empty muted">No description yet.</p>
 			}
-			<div class="project-header-actions">
-				<button class="btn ghost project-edit-btn"
-					data-on:click="$projects_edit_header = true">Edit</button>
-				if p.CanDelete {
-					if p.IsArchived {
-						<button class="btn ghost"
-							data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/unarchive')" }>Unarchive</button>
-					} else {
-						<button class="btn ghost"
-							data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/archive')" }>Archive</button>
+			if !isGuest {
+				<div class="project-header-actions">
+					<button class="btn ghost project-edit-btn"
+						data-on:click="$projects_edit_header = true">Edit</button>
+					if p.CanDelete {
+						if p.IsArchived {
+							<button class="btn ghost"
+								data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/unarchive')" }>Unarchive</button>
+						} else {
+							<button class="btn ghost"
+								data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/archive')" }>Archive</button>
+						}
+						<button class="btn ghost danger"
+							data-on:click={ "confirm('Hard-delete this project? Documents and comments are gone.') && @post('/c/" + slug + "/projects/" + p.ID + "/delete')" }>Delete</button>
 					}
-					<button class="btn ghost danger"
-						data-on:click={ "confirm('Hard-delete this project? Documents and comments are gone.') && @post('/c/" + slug + "/projects/" + p.ID + "/delete')" }>Delete</button>
-				}
-			</div>
+				</div>
+			}
 		</div>
 		<div class="project-header-edit" data-show="$projects_edit_header">
 			<label>
@@ -604,49 +619,60 @@ templ ProjectHeaderFragment(slug string, p ProjectView) {
 
 // ProjectTodosFragment renders the entire checklist panel. SSE morphs
 // this whole `<section id="proj-todos">` on every add/edit/toggle/delete/
-// reorder event, which keeps the implementation simple — no diffing.
-templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView) {
+// reorder event. `isGuest` hides every write affordance.
+templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView, isGuest bool) {
 	<section id="proj-todos" class="project-panel project-panel-todos">
 		<h3>Checklist</h3>
 		<ul class="project-todos">
 			for _, t := range todos {
 				<li class={ "project-todo", templ.KV("project-todo-done", t.Done) } data-todo-id={ t.ID }>
-					<input type="checkbox" checked?={ t.Done }
-						data-on:change={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/toggle')" }/>
-					<span class="project-todo-body"
-						data-on:dblclick={ "$projects_todo_edit_id = '" + t.ID + "'; $projects_todo_edit = '" + jsQuoteAttr(t.Body) + "'" }
-						data-show={ "$projects_todo_edit_id !== '" + t.ID + "'" }>{ t.Body }</span>
-					<input type="text" class="project-todo-edit-input"
-						data-show={ "$projects_todo_edit_id === '" + t.ID + "'" }
-						data-bind="projects_todo_edit"
-						data-on:keydown={ "evt.key === 'Enter' && (@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "'), $projects_todo_edit_id = '')" }
-						data-on:blur="$projects_todo_edit_id = ''"/>
-					<button class="btn ghost project-todo-delete"
-						title="Delete this todo"
-						data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/delete')" }>×</button>
+					if isGuest {
+						<input type="checkbox" checked?={ t.Done } disabled/>
+						<span class="project-todo-body">{ t.Body }</span>
+					} else {
+						<input type="checkbox" checked?={ t.Done }
+							data-on:change={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/toggle')" }/>
+						<span class="project-todo-body"
+							data-on:dblclick={ "$projects_todo_edit_id = '" + t.ID + "'; $projects_todo_edit = '" + jsQuoteAttr(t.Body) + "'" }
+							data-show={ "$projects_todo_edit_id !== '" + t.ID + "'" }>{ t.Body }</span>
+						<input type="text" class="project-todo-edit-input"
+							data-show={ "$projects_todo_edit_id === '" + t.ID + "'" }
+							data-bind="projects_todo_edit"
+							data-on:keydown={ "evt.key === 'Enter' && (@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "'), $projects_todo_edit_id = '')" }
+							data-on:blur="$projects_todo_edit_id = ''"/>
+						<button class="btn ghost project-todo-delete"
+							title="Delete this todo"
+							data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/delete')" }>×</button>
+					}
 				</li>
 			}
 		</ul>
-		<form class="project-todo-add" data-on:submit__prevent={ "@post('/c/" + slug + "/projects/" + projectID + "/todo')" }>
-			<input type="text" maxlength="500" placeholder="Add a todo…"
-				data-bind="projects_todo_body"/>
-			<button class="btn" type="submit">Add</button>
-		</form>
+		if !isGuest {
+			<form class="project-todo-add" data-on:submit__prevent={ "@post('/c/" + slug + "/projects/" + projectID + "/todo')" }>
+				<input type="text" maxlength="500" placeholder="Add a todo…"
+					data-bind="projects_todo_body"/>
+				<button class="btn" type="submit">Add</button>
+			</form>
+		} else {
+			<p class="muted">Read-only — open an issue if you'd like to suggest a change.</p>
+		}
 	</section>
 }
 
 // ProjectAttachmentsFragment renders the drag-drop zone + file list.
 // The whole `<section id="proj-attachments">` is SSE-morphed on every
 // add/delete event.
-templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmentView) {
+templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmentView, isGuest bool) {
 	<section id="proj-attachments" class="project-panel project-panel-attachments">
 		<h3>Attachments</h3>
-		<div class="project-dropzone"
-			data-on:click="document.getElementById('proj-att-input').click()"
-			data-rooms-projects-dropzone={ "/c/" + slug + "/projects/" + projectID + "/attachment" }>
-			<p>Drop files here or click to choose</p>
-			<input id="proj-att-input" type="file" multiple hidden/>
-		</div>
+		if !isGuest {
+			<div class="project-dropzone"
+				data-on:click="document.getElementById('proj-att-input').click()"
+				data-rooms-projects-dropzone={ "/c/" + slug + "/projects/" + projectID + "/attachment" }>
+				<p>Drop files here or click to choose</p>
+				<input id="proj-att-input" type="file" multiple hidden/>
+			</div>
+		}
 		if len(atts) == 0 {
 			<p class="muted">No attachments yet.</p>
 		} else {
@@ -658,7 +684,7 @@ templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmen
 							<span class="project-attachment-name">{ a.Filename }</span>
 							<span class="project-attachment-size muted">{ humanBytes(a.SizeBytes) }</span>
 						</a>
-						if a.CanDelete {
+						if a.CanDelete && !isGuest {
 							<button class="btn ghost project-attachment-delete"
 								title="Delete this attachment"
 								data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/delete')" }>×</button>
@@ -673,7 +699,7 @@ templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmen
 // ProjectCommentsFragment renders the full comment thread + new-comment
 // textarea. SSE morphs the whole `<section id="proj-comments">` on
 // every add/edit/delete.
-templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentView) {
+templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentView, isGuest bool) {
 	<section id="proj-comments" class="project-panel project-panel-comments">
 		<h3>Comments</h3>
 		<ul class="project-comments">
@@ -705,13 +731,17 @@ templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentV
 				</li>
 			}
 		</ul>
-		<form class="project-comment-add"
-			data-on:submit__prevent={ "@post('/c/" + slug + "/projects/" + projectID + "/comment')" }>
-			<textarea rows="2" placeholder="Write a comment (markdown supported)…"
-				maxlength="4000"
-				data-bind="projects_comment_body"></textarea>
-			<button class="btn" type="submit">Post</button>
-		</form>
+		if isGuest {
+			<p class="muted">Read-only — open an issue if you'd like to suggest a change.</p>
+		} else {
+			<form class="project-comment-add"
+				data-on:submit__prevent={ "@post('/c/" + slug + "/projects/" + projectID + "/comment')" }>
+				<textarea rows="2" placeholder="Write a comment (markdown supported)…"
+					maxlength="4000"
+					data-bind="projects_comment_body"></textarea>
+				<button class="btn" type="submit">Post</button>
+			</form>
+		}
 	</section>
 }
 

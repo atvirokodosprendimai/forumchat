@@ -79,17 +79,17 @@ Goal: admin mints a `24h` token, opens the URL in incognito, picks a display nam
 
 Verification: admin mints link → opens incognito → picks name → lands on project page → no Edit / archive / delete / "add todo" / "post project comment" affordances visible → issues panel still shows the "Open new issue" button.
 
-### Phase 4 — Guest write-path on issues — status: open
+### Phase 4 — Guest write-path on issues — status: completed
 
 Goal: guest creates issues, comments on existing issues, attaches images. All read paths already work after Phase 3.
 
-1. [ ] `caller()` returns guest identity for issue routes; templ renders guest's display name on their posts
-2. [ ] `issues_service.CreateIssue` accepts guest creator (`creator_user_id` NULL, `creator_guest_id` set, `creator_name` snapshot)
-3. [ ] `issues_service.AddIssueComment` accepts guest author
-4. [ ] `issues_service.AddIssueAttachment` accepts guest uploader — synthesises `ownerID = "guest:"+guestID` for the uploads row
-5. [ ] Guests cannot change status / delete issue (handler 403s if `Identity.IsGuest`)
-6. [ ] Guests CAN edit / delete their own comments within the grace window
-7. [ ] Project page hides member-only project actions for guests
+1. [x] `callerIdentity` returns guest identity for issue routes (already from P3) — services accept guest Identity
+2. [x] `CreateIssue` / `AddIssueComment` / `AddIssueAttachment` already accepted Identity in P1+P2 — guest fields propagate to `creator_guest_id`/`author_guest_id`/`uploader_guest_id` columns. Templ shows the "guest" pill on guest-authored rows.
+3. [x] `AddIssueAttachment` synthesises `ownerID = "guest:"+guestID` for uploads — P2 already in place.
+4. [x] `UpdateIssueStatus` rejects guest via `ErrForbidden` (already P1). Templ hides the status dropdown when `!CanChangeStatus`.
+5. [x] Guests CAN edit / delete their own comments within grace — `UpdateIssueComment` permission rule covers it.
+6. [x] Project page hides member-only project actions for guests — added `isGuest` param to ProjectHeaderFragment / ProjectTodosFragment / ProjectAttachmentsFragment / ProjectCommentsFragment; passed true when the viewer is a share-link guest. SSE push call sites pass false (member-only stream).
+7. [x] Per-fragment branches hide Edit/Add/Delete buttons + write forms; replaced with a "Read-only — open an issue if you'd like to suggest a change." muted hint.
 
 Verification: guest opens new issue with a screenshot → admin sees it; admin replies → guest sees it. Guest tries `POST /todo` → 403. Guest reloads after revoke → landing says "invalid invite".
 

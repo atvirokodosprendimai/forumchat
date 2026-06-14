@@ -784,7 +784,7 @@ func (h *Handler) pushComments(r *http.Request, sse *datastar.ServerSentEventGen
 	now := time.Now().UTC()
 	views := toCommentViews(comments, id.User.ID, id.Membership.Role == auth.RoleAdmin, h.Svc.EditGrace, now)
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectCommentsFragment(c.Slug, pid, views),
+		webtempl.ProjectCommentsFragment(c.Slug, pid, views, false),
 		datastar.WithSelector("#proj-comments"),
 		datastar.WithModeOuter(),
 	)
@@ -833,7 +833,7 @@ func (h *Handler) pushAttachments(r *http.Request, sse *datastar.ServerSentEvent
 	id, _ := auth.FromContext(r.Context())
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectAttachmentsFragment(c.Slug, pid, toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role == auth.RoleAdmin)),
+		webtempl.ProjectAttachmentsFragment(c.Slug, pid, toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role == auth.RoleAdmin), false),
 		datastar.WithSelector("#proj-attachments"),
 		datastar.WithModeOuter(),
 	)
@@ -862,7 +862,7 @@ func (h *Handler) pushTodos(r *http.Request, sse *datastar.ServerSentEventGenera
 	}
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos)),
+		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos), false),
 		datastar.WithSelector("#proj-todos"),
 		datastar.WithModeOuter(),
 	)
@@ -896,7 +896,7 @@ func (h *Handler) pushHeader(r *http.Request, sse *datastar.ServerSentEventGener
 	}
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectHeaderFragment(c.Slug, view),
+		webtempl.ProjectHeaderFragment(c.Slug, view, false),
 		datastar.WithSelector("#proj-header"),
 		datastar.WithModeOuter(),
 	)
