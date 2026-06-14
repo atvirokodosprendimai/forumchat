@@ -295,10 +295,14 @@ func (h *Handler) PostProfile(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ProfileStatusFragment("Display name must be 1–40 characters", false))
 		return
 	}
-	if err := h.Repo.UpdateMembershipProfile(r.Context(), id.Membership.ID, displayName, avatarURL); err != nil {
+	// Update every membership the user holds — the profile editor is
+	// "you", not "you in this community". Without this, only the current
+	// community got the new name and others kept the email-localpart
+	// fallback that admin.PostAddMember assigns on invite.
+	if err := h.Repo.UpdateAllMembershipProfiles(r.Context(), id.User.ID, displayName, avatarURL); err != nil {
 		h.Log.Error("update profile", "err", err)
 		_ = sse.PatchElementTempl(webtempl.ProfileStatusFragment("Could not save", false))
 		return
 	}
-	_ = sse.PatchElementTempl(webtempl.ProfileStatusFragment("Saved.", true))
+	_ = sse.PatchElementTempl(webtempl.ProfileStatusFragment("Saved across every community.", true))
 }
