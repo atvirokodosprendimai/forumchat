@@ -215,6 +215,7 @@ templ RoomsAdminPanel(d RoomAdminPanelData) {
 	<div id="rooms-admin-panel" class="rooms-admin-panel">
 		<div class="rooms-admin-section">
 			<h3>Rename room</h3>
+			<p>Pick a short name visible to everyone who joins.</p>
 			<div class="rooms-row">
 				<input type="text" placeholder="new room name" data-bind="rooms_new_name" maxlength="80"/>
 				<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/rename')" }>Save</button>
@@ -224,48 +225,54 @@ templ RoomsAdminPanel(d RoomAdminPanelData) {
 		<div class="rooms-admin-section">
 			<h3>Visibility</h3>
 			if d.IsPublic {
-				<p>This room is <strong>public</strong>. Anyone logged in can join without your approval.</p>
-				<div class="rooms-row">
-					<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/public')" }>Make private</button>
+				<p>Status: <strong>Public</strong> — anyone signed in to this community can join without your approval.</p>
+				<div class="rooms-row rooms-row-actions">
+					<button class="btn ghost" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/public')" }>Make private</button>
 					<button class="btn"
 						data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/share-to-chat')" }
 						title="Post a join link in the community chat">Share to chat</button>
 				</div>
 			} else {
-				<p>This room is <strong>private</strong>. You approve each joiner.</p>
-				<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/public')" }>Make public</button>
+				<p>Status: <strong>Private</strong> — every joiner waits for your approval in the pending banner.</p>
+				<div class="rooms-row rooms-row-actions">
+					<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/public')" }>Make public</button>
+				</div>
 			}
 		</div>
 
 		<div class="rooms-admin-section">
-			<h3>Share link for external guests</h3>
+			<h3>External share link</h3>
 			if d.InviteURL != "" {
-				<p>Anyone with this link enters a display name and joins this meeting only — no account needed.</p>
+				<p>Anyone with this link picks a display name and joins this meeting only — no account required.</p>
 				<div class="rooms-row">
 					<input id="rooms-share-link" type="text" readonly value={ d.InviteURL } onclick="this.select()"/>
 					<button class="btn"
 						type="button"
 						data-on:click="navigator.clipboard.writeText(document.getElementById('rooms-share-link').value)">Copy</button>
 				</div>
-				<div class="rooms-row">
+				<div class="rooms-row rooms-row-actions">
 					<button class="btn ghost" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite')" }>Rotate</button>
 					<button class="btn ghost" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite/revoke')" }>Revoke</button>
 				</div>
 			} else {
 				<p class="muted">No active share link.</p>
-				<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite')" }>Create share link</button>
+				<div class="rooms-row rooms-row-actions">
+					<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite')" }>Create share link</button>
+				</div>
 			}
 		</div>
 
 		<div class="rooms-admin-section">
 			<h3>Invite by email</h3>
-			<p class="muted">One address per line, or comma/semicolon separated. We'll mint the share link if one doesn't exist and email it to each address.</p>
+			<p>One address per line, or comma/semicolon separated. We'll mint the share link if one doesn't exist and email it to each address.</p>
 			<textarea
 				data-bind="rooms_invite_emails"
 				rows="3"
 				placeholder="alice@example.com, bob@example.com"
 				class="rooms-emails"></textarea>
-			<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite/email')" }>Send invites</button>
+			<div class="rooms-row rooms-row-actions">
+				<button class="btn" data-on:click={ "@post('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/invite/email')" }>Send invites</button>
+			</div>
 		</div>
 	</div>
 }
