@@ -481,6 +481,10 @@ func (h *Handler) PostAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no files", http.StatusBadRequest)
 		return
 	}
+	category := strings.TrimSpace(r.FormValue("category"))
+	if category == "" {
+		category = "common"
+	}
 	for _, fh := range files {
 		f, err := fh.Open()
 		if err != nil {
@@ -491,7 +495,7 @@ func (h *Handler) PostAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 		if mime == "" {
 			mime = "application/octet-stream"
 		}
-		if _, err := h.Svc.AddAttachment(r.Context(), pid, c.ID, id.User.ID, mime, fh.Filename, f); err != nil {
+		if _, err := h.Svc.AddAttachment(r.Context(), pid, c.ID, id.User.ID, mime, fh.Filename, category, f); err != nil {
 			h.Log.Warn("projects upload save", "err", err, "name", fh.Filename)
 		}
 		f.Close()
@@ -879,6 +883,7 @@ func toAttachmentViews(atts []Attachment, creatorID, viewerID string, viewerIsAd
 			Filename:  a.Filename,
 			MIME:      a.MIME,
 			SizeBytes: a.SizeBytes,
+			Category:  a.Category,
 			CreatedAt: a.CreatedAt,
 			CanDelete: canDelete,
 		})

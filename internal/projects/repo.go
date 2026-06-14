@@ -283,13 +283,13 @@ func (r *Repo) RecentActivity(ctx context.Context, projectID string, limit int) 
 }
 
 // ListAttachments returns all attachments for a project, most-recent
-// first.
+// first. Carries the category column added in migration 00018.
 func (r *Repo) ListAttachments(ctx context.Context, projectID string) ([]Attachment, error) {
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT id, project_id, upload_id, filename, mime, size_bytes, uploader_id, created_at
+		SELECT id, project_id, upload_id, filename, mime, size_bytes, uploader_id, category, created_at
 		FROM project_attachments
 		WHERE project_id = ?
-		ORDER BY created_at DESC`, projectID)
+		ORDER BY category, created_at DESC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list attachments: %w", err)
 	}
@@ -299,7 +299,7 @@ func (r *Repo) ListAttachments(ctx context.Context, projectID string) ([]Attachm
 		var a Attachment
 		var cAt int64
 		if err := rows.Scan(&a.ID, &a.ProjectID, &a.UploadID, &a.Filename,
-			&a.MIME, &a.SizeBytes, &a.UploaderID, &cAt); err != nil {
+			&a.MIME, &a.SizeBytes, &a.UploaderID, &a.Category, &cAt); err != nil {
 			return nil, err
 		}
 		a.CreatedAt = time.UnixMilli(cAt).UTC()
@@ -310,12 +310,16 @@ func (r *Repo) ListAttachments(ctx context.Context, projectID string) ([]Attachm
 
 // InsertAttachment persists one row pointing at an uploads.id.
 func (r *Repo) InsertAttachment(ctx context.Context, a Attachment) error {
+	cat := a.Category
+	if cat == "" {
+		cat = "common"
+	}
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO project_attachments
-		  (id, project_id, upload_id, filename, mime, size_bytes, uploader_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, project_id, upload_id, filename, mime, size_bytes, uploader_id, category, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.ProjectID, a.UploadID, a.Filename, a.MIME, a.SizeBytes,
-		a.UploaderID, a.CreatedAt.UnixMilli())
+		a.UploaderID, cat, a.CreatedAt.UnixMilli())
 	return err
 }
 
@@ -324,10 +328,10 @@ func (r *Repo) AttachmentByID(ctx context.Context, id string) (Attachment, error
 	var a Attachment
 	var cAt int64
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, project_id, upload_id, filename, mime, size_bytes, uploader_id, created_at
+		SELECT id, project_id, upload_id, filename, mime, size_bytes, uploader_id, category, created_at
 		FROM project_attachments WHERE id = ?`, id).Scan(
 		&a.ID, &a.ProjectID, &a.UploadID, &a.Filename, &a.MIME,
-		&a.SizeBytes, &a.UploaderID, &cAt)
+		&a.SizeBytes, &a.UploaderID, &a.Category, &cAt)
 	if err != nil {
 		return Attachment{}, err
 	}

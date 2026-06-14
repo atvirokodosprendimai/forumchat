@@ -174,9 +174,13 @@ func (s *Service) ReorderTodos(ctx context.Context, projectID string, order []st
 
 // AddAttachment persists a multipart-uploaded file in uploads + a
 // pointer row in project_attachments, then publishes.
-func (s *Service) AddAttachment(ctx context.Context, projectID, communityID, uploaderID, mime, filename string, body io.Reader) (Attachment, error) {
+func (s *Service) AddAttachment(ctx context.Context, projectID, communityID, uploaderID, mime, filename, category string, body io.Reader) (Attachment, error) {
 	if filename = strings.TrimSpace(filename); filename == "" {
 		filename = "file"
+	}
+	category = strings.TrimSpace(category)
+	if category == "" {
+		category = "common"
 	}
 	u, err := s.Uploads.SaveAttachment(ctx, uploaderID, communityID, mime, filename, body)
 	if err != nil {
@@ -190,6 +194,7 @@ func (s *Service) AddAttachment(ctx context.Context, projectID, communityID, upl
 		MIME:       u.MIME,
 		SizeBytes:  u.Size,
 		UploaderID: uploaderID,
+		Category:   category,
 		CreatedAt:  time.Now().UTC(),
 	}
 	if err := s.Repo.InsertAttachment(ctx, a); err != nil {

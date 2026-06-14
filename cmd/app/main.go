@@ -315,6 +315,18 @@ func run() error {
 	forumHandler.PushNotify = pushNotifyFn
 	projectsHandler.PushNotify = pushNotifyFn
 
+	// Project change → chat digest. Posts one system message per
+	// community per tick listing projects with new activity. Disabled
+	// when PROJECT_CHAT_DIGEST_MINUTES = 0.
+	(&projects.ChatDigestWorker{
+		DB:              db,
+		ChatRepo:        chatRepo,
+		ChatBus:         chatBus,
+		BaseURL:         cfg.BaseURL,
+		IntervalMinutes: cfg.ProjectChatDigestMinutes,
+		Log:             log,
+	}).Start(digestCtx)
+
 	// Authenticated but not-yet-approved members: only /, /pending, /logout, /profile.
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
