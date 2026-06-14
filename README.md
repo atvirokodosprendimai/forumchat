@@ -47,8 +47,15 @@ a Discord + forum mix would fit but you want to own the data.
 **Try it in 30 seconds:**
 
 ```bash
-docker run -p 8080:8080 -v $PWD/data:/data ghcr.io/atvirokodosprendimai/forumchat:latest
+docker run -p 8080:8080 \
+  -v $PWD/data:/data \
+  -v $PWD/uploads:/uploads \
+  -e UPLOADS_DIR=/uploads \
+  ghcr.io/atvirokodosprendimai/forumchat:latest
 # → open http://localhost:8080 — first user becomes admin
+#   data/      → sqlite db + persisted VAPID keys
+#   uploads/   → user-uploaded files (kept as a separate folder so backup
+#                policies can treat blobs differently from the metadata db)
 ```
 
 [Quickstart](#local-development) · [What you get](#what-you-get) · [Architecture](#system-architecture) · [Configuration](#configuration) · [Roadmap](#roadmap)
