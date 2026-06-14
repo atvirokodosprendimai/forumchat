@@ -210,10 +210,20 @@ func (s *Service) DeleteIssueComment(ctx context.Context, projectID, issueID, co
 // AddIssueAttachment uploads an image via uploads.Store.Save (the
 // image-whitelist path) and links it to the issue. commentID may be
 // empty to attach to the issue body itself.
+//
+// uploads.owner_id has a NOT NULL FK on users(id) — guests aren't in
+// the users table, so we attribute their uploads to the project
+// creator instead. The real uploader identity (guest or auth) is still
+// captured on project_issue_attachments.uploader_user_id /
+// uploader_guest_id so audit + permission checks aren't lost.
 func (s *Service) AddIssueAttachment(ctx context.Context, projectID, issueID, commentID, communityID, mime string, body io.Reader, uploader Identity) (IssueAttachment, error) {
 	ownerID := uploader.UserID
 	if ownerID == "" {
-		ownerID = "guest:" + uploader.GuestID
+		p, err := s.Repo.ByID(ctx, projectID)
+		if err != nil {
+			return IssueAttachment{}, fmt.Errorf("project lookup: %w", err)
+		}
+		ownerID = p.CreatorUserID
 	}
 	u, err := s.Uploads.Save(ctx, ownerID, communityID, mime, body)
 	if err != nil {
