@@ -257,6 +257,8 @@ func run() error {
 		Bus:      projectsBus,
 		Uploads:  uploadStore,
 		Sessions: sessions,
+		ChatRepo: chatRepo,
+		ChatBus:  chatBus,
 		Log:      log,
 	}
 	projectsHandler.SetCommunityLookup(func(ctx context.Context, id string) (*projects.CommunityRef, error) {
@@ -507,6 +509,13 @@ func run() error {
 				r.Post("/{id}/discussions/{did}/reply", projectsHandler.PostDiscussionReply)
 				r.Post("/{id}/discussions/{did}/reply/{rid}", projectsHandler.PostDiscussionReplyEdit)
 				r.Post("/{id}/discussions/{did}/reply/{rid}/delete", projectsHandler.PostDiscussionReplyDelete)
+
+				// Share-to-chat: per-resource POSTs that emit a chat message
+				// with a clickable link + the user's optional one-liner.
+				// Member-only — guests don't have a chat to write into.
+				r.Post("/{id}/share-to-chat", projectsHandler.PostShareProjectToChat)
+				r.Post("/{id}/issues/{iid}/share-to-chat", projectsHandler.PostShareIssueToChat)
+				r.Post("/{id}/discussions/{did}/share-to-chat", projectsHandler.PostShareDiscussionToChat)
 			})
 
 			// Member-only — index, create, edits, lifecycle, share mint,
