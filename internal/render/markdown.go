@@ -21,11 +21,13 @@ import (
 // handlers so a wrapping <a> is the only viable affordance.
 var uploadsImageRE = regexp.MustCompile(`<img ([^>]*?)src="(/uploads/[^"]+)"([^>]*)>`)
 
-// uploadsImageWrapRE matches the FULL anchor-wrapped image so we can
-// strip it before re-applying the wrap — keeps WrapUploadImages
-// idempotent across multiple render-paths that may have already
-// wrapped the content once.
-var uploadsImageWrapRE = regexp.MustCompile(`<a target="_blank" rel="noopener" href="/uploads/[^"]+" class="upload-img-link"><img ([^>]*?)src="(/uploads/[^"]+)"([^>]*)></a>`)
+// existingImgAnchorRE matches any `<a href="/uploads/..."> <img
+// src="/uploads/..."> </a>` shape — covers both our own
+// WrapUploadImages output AND the chat/forum `[![](u)](u)` markdown
+// pattern that goldmark emits. We strip these before re-wrapping so
+// the final output is always exactly one anchor per img (no nesting,
+// which browsers collapse to an empty outer anchor).
+var existingImgAnchorRE = regexp.MustCompile(`<a[^>]*?href="/uploads/[^"]+"[^>]*?>\s*(<img [^>]*?src="/uploads/[^"]+"[^>]*?>)\s*</a>`)
 
 // uploadsAnchorRE matches anchors pointing at our signed-upload URLs so we
 // can force target="_blank" rel="noopener" on them after sanitization. We
@@ -98,7 +100,11 @@ func RenderMarkdown(src string) (string, error) {
 // without a migration. New writes don't get wrapped at write time —
 // keeps the DB free of presentation HTML.
 func WrapUploadImages(s string) string {
-	s = uploadsImageWrapRE.ReplaceAllString(s, `<img $1src="$2"$3>`)
+	// Step 1: strip any existing anchor-around-img — covers both prior
+	// WrapUploadImages output AND chat/forum's [![](u)](u) markdown
+	// pattern that already emits a link-wrapped img.
+	s = existingImgAnchorRE.ReplaceAllString(s, `$1`)
+	// Step 2: uniformly wrap every img in our own anchor.
 	return uploadsImageRE.ReplaceAllString(s,
 		`<a target="_blank" rel="noopener" href="$2" class="upload-img-link"><img $1src="$2"$3></a>`)
 }
