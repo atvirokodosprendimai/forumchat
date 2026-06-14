@@ -7,6 +7,33 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3572 | 2:31 PM | 🔄 | Removed filepath.Base placeholder from attachment download handler | ~283 |
+| #3571 | " | 🔄 | Removed unused path/filepath import from projects handler | ~322 |
+| #3568 | 2:30 PM | 🟣 | Extended GetProject handler to load and render attachments with permission checks | ~421 |
+| #3562 | 2:29 PM | 🟣 | Added attachment upload, download, and delete handlers for Phase 5 | ~625 |
+| #3561 | " | 🟣 | Added uploads.Store dependency to projects Handler for attachment support | ~361 |
+| #3560 | " | 🟣 | Added AddAttachment and DeleteAttachment service methods for Phase 5 file handling | ~617 |
+| #3559 | " | ✅ | Added imports to projects handler for attachment and file upload support | ~306 |
+| #3558 | 2:28 PM | 🟣 | Added uploads.Store dependency to projects Service for Phase 5 attachment support | ~391 |
+| #3557 | " | 🟣 | Project attachments repository layer for linking uploads to projects | ~417 |
+| #3555 | 2:27 PM | 🟣 | Phase 4 realtime todos panel shipped - collaborative checklist with add, edit, toggle, delete, reorder | ~483 |
+| #3551 | 2:26 PM | 🟣 | Added todos loading to GetProject handler for initial page render | ~360 |
+| #3546 | " | 🟣 | Added SSE todos fragment pushing for Phase 4 realtime checklist updates | ~526 |
+| #3545 | " | 🟣 | Implemented complete CRUD operations for project todos checklist | ~485 |
+| #3544 | 2:25 PM | 🟣 | Extended projectSignals with todo management field bindings | ~354 |
+| #3543 | " | 🟣 | Added five todo management methods to projects Service for Phase 4 checklist functionality | ~506 |
+| #3542 | " | 🟣 | Added complete CRUD repository layer for project todo checklist items | ~465 |
+| #3541 | 2:24 PM | 🟣 | Implemented projects Phase 3 with event bus, SSE streaming, and inline editing | ~434 |
+| #3535 | 2:23 PM | 🟣 | Added real-time SSE streaming and inline editing to projects handler | ~504 |
+| #3534 | " | 🟣 | Added Bus field and projectSignals struct to projects handler for realtime header editing | ~320 |
+| #3533 | 2:22 PM | 🔄 | Projects handler imports extended for Phase 2 create and view implementation | ~381 |
+| #3532 | " | 🟣 | Added UpdateTitle and UpdateDescription service methods with realtime event publishing | ~426 |
+| #3530 | " | 🟣 | Added projects event bus for SSE-based realtime updates | ~466 |
+| #3528 | " | 🟣 | Projects Phase 2 implemented with create and view functionality | ~351 |
+| #3521 | 2:20 PM | 🟣 | Added PostCreate and GetProject handlers for Phase 2 project creation and viewing | ~554 |
+| #3520 | " | 🟣 | Added Service dependency and imports to projects Handler for Phase 2 create/view operations | ~363 |
+| #3519 | " | 🟣 | Created projects service layer with markdown rendering for project creation | ~431 |
+| #3518 | " | 🟣 | Completed Phase 1 of projects feature with flag, schema, and empty index | ~451 |
 | #3509 | 2:17 PM | 🔄 | Removed ProjectsEnabled field from Viewer initialization in projects handler | ~281 |
 | #3508 | " | 🔄 | Removed redundant ProjectsEnabled assignment in projects handler | ~227 |
 | #3505 | 2:16 PM | 🔄 | Removed unused CurrentUserID placeholder from projects handler layoutViewer | ~318 |

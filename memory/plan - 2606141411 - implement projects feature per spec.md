@@ -87,18 +87,19 @@ Goal: collaborative todo list works across tabs in real time.
 
 Verification: tab A adds a todo → tab B sees it. Tab A toggles a checkbox → tab B sees the strike-through. Drag-reorder syncs across tabs.
 
-### Phase 5 — Attachments — upload + download + delete — status: open
+### Phase 5 — Attachments — upload + download + delete — status: completed
 
 Goal: drag any file onto the attachments zone → all tabs see the row appear → click ⬇ → file downloads with original filename.
 
-1. [ ] `internal/uploads` — add `Store.StreamAttachment(w, r, id) error` that sets `Content-Disposition: attachment; filename="<original>"` (or extend existing handler with a `?download=1` toggle, depending on shape — implementation choice)
-2. [ ] `repo` — `InsertAttachment`, `ListAttachments`, `DeleteAttachment`
-3. [ ] `service.AddAttachment(ctx, projectID, uploaderID, multipart.File, header)` — copies into uploads, inserts row, publishes `Event{Kind: "attachments"}`
-4. [ ] `handler` — `POST /attachment` (multipart, possibly multi-file), `GET /attachment/{aid}/download`, `POST /attachment/{aid}/delete`
-5. [ ] Permission check inside `DeleteAttachment`: uploader OR project creator OR community admin
-6. [ ] Templ `ProjectAttachments(d)` — drop zone + file rows
-7. [ ] `projects.js` — `dragover`/`dragleave`/`drop` on the zone; iterate `event.dataTransfer.files`; POST each as multipart
-8. [ ] SSE extension on `Event{Kind: "attachments"}`
+1. [x] `internal/uploads` — `Store.SaveAttachment(ctx, ownerID, communityID, mime, filename, r)` bypasses the image-only MIME whitelist. Extension derived from original filename, fallback to `.bin`.
+2. [x] `repo` — `ListAttachments`, `InsertAttachment`, `AttachmentByID`, `DeleteAttachment`
+3. [x] `service.AddAttachment` and `service.DeleteAttachment` (with permission enforcement). DeleteAttachment also calls `uploads.Store.Delete` which no-ops when other rows still reference the same content hash.
+4. [x] `handler` — `PostAttachmentUpload` (multipart, accepts multiple files under `files[]` or `file`), `GetAttachmentDownload` (streams from disk with `Content-Disposition: attachment; filename=…`), `PostAttachmentDelete`
+5. [x] Permission rule: uploader OR project creator OR community admin. Enforced in service so it's not bypassable from the handler.
+6. [x] Templ `ProjectAttachmentsFragment` — drop zone with click-to-choose, file rows with size pill + download link + delete button
+7. [x] `web/static/projects.js` — drag/drop + click-to-choose handlers; MutationObserver re-binds the zone after every SSE morph
+8. [x] SSE extension — `Event{Kind:"attachments"}` triggers `pushAttachments` which morphs `#proj-attachments`
+9. [x] `humanBytes` inline in templ for size formatting (B/KB/MB/GB)
 
 Verification: drag a PDF onto the zone → row appears in both tabs → click ⬇ → browser saves the file with the original name. Non-owner tab sees no delete button on someone else's file.
 
@@ -157,4 +158,5 @@ End-to-end story we want green after Phase 7:
 - **2026-06-14 14:20** — Phase 1 completed on `task/projects-phase-1` (off `task/spec-projects`). Migration 00013, config flag, projects package skeleton, templ index page, main.go wiring. Build clean. Ready to commit + open PR that brings spec + plan + Phase 1 to main together. Shipped commit `54581bb`.
 - **2026-06-14 14:32** — Phase 2 completed on the same branch. service.go with CreateProject + sentinel errors, handler.PostCreate + GetProject, ProjectPage templ with 5 panel skeletons, routes mounted under the feature-flag conditional in main.go. CSS deferred to Phase 7. Build clean. Commit `bd0170e`.
 - **2026-06-14 14:42** — Phase 3 completed. bus.go fan-out, service UpdateTitle/UpdateDescription, handler PostTitle/PostDescription/GetStream, ProjectHeaderFragment with inline edit affordance driven by `$projects_edit_header`/`$projects_title`/`$projects_desc`, three new routes. Build clean. Commit `bdc188e`.
-- **2026-06-14 14:55** — Phase 4 completed. 8 new repo methods (incl. transactional ReorderTodos), 5 service mutators, 5 handler endpoints, ProjectTodosFragment templ with double-click-to-edit + checkbox toggle + delete + add form, SSE handler now pushes todos on `Event{Kind:"todos"}` and on stream open. Drag-reorder postponed to Phase 5 so both projects.js needs land together. Build clean.
+- **2026-06-14 14:55** — Phase 4 completed. 8 new repo methods (incl. transactional ReorderTodos), 5 service mutators, 5 handler endpoints, ProjectTodosFragment templ with double-click-to-edit + checkbox toggle + delete + add form, SSE handler now pushes todos on `Event{Kind:"todos"}` and on stream open. Drag-reorder postponed to Phase 5 so both projects.js needs land together. Build clean. Commit `04a3bfc`.
+- **2026-06-14 15:10** — Phase 5 completed. Uploads.SaveAttachment for any-MIME documents, 4 repo methods, 2 service mutators with permission enforcement, 3 handler endpoints (multipart upload, download with original filename, delete), ProjectAttachmentsFragment templ with drop zone + file list, projects.js drag/drop + click-to-choose + MutationObserver re-bind. Build clean.

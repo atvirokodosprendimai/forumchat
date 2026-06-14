@@ -230,8 +230,14 @@ func run() error {
 
 	projectsRepo := projects.NewRepo(db)
 	projectsBus := projects.NewBus()
-	projectsSvc := projects.NewService(projectsRepo, projectsBus)
-	projectsHandler := &projects.Handler{Repo: projectsRepo, Svc: projectsSvc, Bus: projectsBus, Log: log}
+	projectsSvc := projects.NewService(projectsRepo, projectsBus, uploadStore)
+	projectsHandler := &projects.Handler{
+		Repo:    projectsRepo,
+		Svc:     projectsSvc,
+		Bus:     projectsBus,
+		Uploads: uploadStore,
+		Log:     log,
+	}
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
@@ -364,6 +370,9 @@ func run() error {
 			r.Post("/projects/{id}/todo/{tid}/toggle", projectsHandler.PostTodoToggle)
 			r.Post("/projects/{id}/todo/{tid}/delete", projectsHandler.PostTodoDelete)
 			r.Post("/projects/{id}/todo/reorder", projectsHandler.PostTodoReorder)
+			r.Post("/projects/{id}/attachment", projectsHandler.PostAttachmentUpload)
+			r.Get("/projects/{id}/attachment/{aid}/download", projectsHandler.GetAttachmentDownload)
+			r.Post("/projects/{id}/attachment/{aid}/delete", projectsHandler.PostAttachmentDelete)
 		}
 
 		r.Group(func(r chi.Router) {

@@ -46,6 +46,7 @@ type ProjectPageData struct {
 	CommunityName string
 	Project       ProjectView
 	Todos         []ProjectTodoView
+	Attachments   []ProjectAttachmentView
 }
 
 // ProjectTodoView is one checklist row.
@@ -53,6 +54,16 @@ type ProjectTodoView struct {
 	ID   string
 	Body string
 	Done bool
+}
+
+// ProjectAttachmentView is one attachment row.
+type ProjectAttachmentView struct {
+	ID        string
+	Filename  string
+	MIME      string
+	SizeBytes int64
+	CreatedAt time.Time
+	CanDelete bool
 }
 
 templ ProjectsGrid(d ProjectsGridData) {
@@ -91,6 +102,7 @@ templ ProjectsGrid(d ProjectsGridData) {
 
 templ ProjectPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Projects", d.Viewer) {
+		<script src={ "/static/projects.js?v=" + AssetVer("projects.js") } defer></script>
 		<section class="project-page">
 			<nav class="project-breadcrumb muted">
 				<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>← back to Projects</a>
@@ -102,10 +114,7 @@ templ ProjectPage(d ProjectPageData) {
 			@ProjectHeaderFragment(d.CommunitySlug, d.Project)
 			<div class="project-body">
 				@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos)
-				<section id="proj-attachments" class="project-panel project-panel-attachments">
-					<h3>Attachments</h3>
-					<p class="muted">No attachments yet. (Drag-and-drop arrives in Phase 5.)</p>
-				</section>
+				@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments)
 				<section id="proj-comments" class="project-panel project-panel-comments">
 					<h3>Comments</h3>
 					<p class="muted">No comments yet. (Threaded discussion arrives in Phase 6.)</p>
@@ -191,6 +200,61 @@ templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView) {
 			<button class="btn" type="submit">Add</button>
 		</form>
 	</section>
+}
+
+// ProjectAttachmentsFragment renders the drag-drop zone + file list.
+// The whole `<section id="proj-attachments">` is SSE-morphed on every
+// add/delete event.
+templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmentView) {
+	<section id="proj-attachments" class="project-panel project-panel-attachments">
+		<h3>Attachments</h3>
+		<div class="project-dropzone"
+			data-on:click="document.getElementById('proj-att-input').click()"
+			data-rooms-projects-dropzone={ "/c/" + slug + "/projects/" + projectID + "/attachment" }>
+			<p>Drop files here or click to choose</p>
+			<input id="proj-att-input" type="file" multiple hidden/>
+		</div>
+		if len(atts) == 0 {
+			<p class="muted">No attachments yet.</p>
+		} else {
+			<ul class="project-attachments">
+				for _, a := range atts {
+					<li class="project-attachment">
+						<a class="project-attachment-link"
+							href={ templ.URL("/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/download") }>
+							<span class="project-attachment-name">{ a.Filename }</span>
+							<span class="project-attachment-size muted">{ humanBytes(a.SizeBytes) }</span>
+						</a>
+						if a.CanDelete {
+							<button class="btn ghost project-attachment-delete"
+								title="Delete this attachment"
+								data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/delete')" }>×</button>
+						}
+					</li>
+				}
+			</ul>
+		}
+	</section>
+}
+
+// humanBytes formats a byte count in IEC units. Inlined to avoid a
+// new util package and to keep the template self-contained.
+func humanBytes(n int64) string {
+	const k = 1024
+	if n < k {
+		return strconv.FormatInt(n, 10) + " B"
+	}
+	units := []string{"K", "M", "G", "T"}
+	v := float64(n) / float64(k)
+	i := 0
+	for v >= float64(k) && i < len(units)-1 {
+		v /= float64(k)
+		i++
+	}
+	if v < 10 {
+		return strconv.FormatFloat(v, 'f', 1, 64) + " " + units[i] + "B"
+	}
+	return strconv.FormatInt(int64(v), 10) + " " + units[i] + "B"
 }
 
 // jsQuoteAttr escapes a string for inclusion inside a single-quoted

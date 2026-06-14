@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 )
 
 var (
@@ -18,17 +20,19 @@ var (
 	ErrForbidden  = errors.New("projects: forbidden")
 )
 
-// Service composes Repo + Bus into the business-level API used by the
-// HTTP handlers. Every mutator publishes a typed Event on success so
-// every open SSE stream re-renders just the affected fragment.
+// Service composes Repo + Bus + uploads.Store into the business-level
+// API used by the HTTP handlers. Every mutator publishes a typed Event
+// on success so every open SSE stream re-renders just the affected
+// fragment.
 type Service struct {
-	Repo *Repo
-	Bus  *Bus
+	Repo    *Repo
+	Bus     *Bus
+	Uploads *uploads.Store
 }
 
-// NewService wraps a repo and bus.
-func NewService(repo *Repo, bus *Bus) *Service {
-	return &Service{Repo: repo, Bus: bus}
+// NewService wraps a repo, bus, and uploads store.
+func NewService(repo *Repo, bus *Bus, store *uploads.Store) *Service {
+	return &Service{Repo: repo, Bus: bus, Uploads: store}
 }
 
 // CreateProject persists a fresh project with rendered description HTML.
@@ -162,5 +166,61 @@ func (s *Service) ReorderTodos(ctx context.Context, projectID string, order []st
 		return fmt.Errorf("reorder todos: %w", err)
 	}
 	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
+	return nil
+}
+
+// AddAttachment persists a multipart-uploaded file in uploads + a
+// pointer row in project_attachments, then publishes.
+func (s *Service) AddAttachment(ctx context.Context, projectID, communityID, uploaderID, mime, filename string, body io.Reader) (Attachment, error) {
+	if filename = strings.TrimSpace(filename); filename == "" {
+		filename = "file"
+	}
+	u, err := s.Uploads.SaveAttachment(ctx, uploaderID, communityID, mime, filename, body)
+	if err != nil {
+		return Attachment{}, fmt.Errorf("upload save: %w", err)
+	}
+	a := Attachment{
+		ID:         uuid.NewString(),
+		ProjectID:  projectID,
+		UploadID:   u.ID,
+		Filename:   filename,
+		MIME:       u.MIME,
+		SizeBytes:  u.Size,
+		UploaderID: uploaderID,
+		CreatedAt:  time.Now().UTC(),
+	}
+	if err := s.Repo.InsertAttachment(ctx, a); err != nil {
+		return Attachment{}, fmt.Errorf("insert attachment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "attachments"})
+	return a, nil
+}
+
+// DeleteAttachment enforces permission then deletes both rows. Caller
+// supplies the requester identity so we can authorize. Returns
+// ErrForbidden if neither uploader, creator, nor admin.
+func (s *Service) DeleteAttachment(ctx context.Context, projectID, attachmentID, callerUserID string, callerIsAdmin bool) error {
+	a, err := s.Repo.AttachmentByID(ctx, attachmentID)
+	if err != nil {
+		return fmt.Errorf("attachment lookup: %w", err)
+	}
+	p, err := s.Repo.ByID(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("project lookup: %w", err)
+	}
+	if a.ProjectID != projectID {
+		return ErrNotFound
+	}
+	if !(callerIsAdmin || a.UploaderID == callerUserID || p.CreatorUserID == callerUserID) {
+		return ErrForbidden
+	}
+	if err := s.Repo.DeleteAttachment(ctx, attachmentID); err != nil {
+		return fmt.Errorf("delete attachment: %w", err)
+	}
+	// Best-effort underlying-file cleanup. uploads.Store.Delete only
+	// removes the file when no other row references the same content
+	// hash, so this is safe to call unconditionally.
+	_ = s.Uploads.Delete(ctx, a.UploadID)
+	s.Bus.PublishProject(projectID, Event{Kind: "attachments"})
 	return nil
 }

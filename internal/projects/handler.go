@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,15 +15,17 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
 // Handler holds the dependencies for the projects HTTP layer.
 type Handler struct {
-	Repo *Repo
-	Svc  *Service
-	Bus  *Bus
-	Log  *slog.Logger
+	Repo    *Repo
+	Svc     *Service
+	Bus     *Bus
+	Uploads *uploads.Store
+	Log     *slog.Logger
 }
 
 // projectSignals carries the editable values posted from the project
@@ -138,10 +142,15 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.Log.Error("projects todos load", "err", err, "id", pid)
 	}
+	atts, err := h.Repo.ListAttachments(r.Context(), p.ID)
+	if err != nil {
+		h.Log.Error("projects attachments load", "err", err, "id", pid)
+	}
 
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
 	v.CommunitySlug = c.Slug
+	isAdmin := id.Membership.Role == auth.RoleAdmin
 	data := webtempl.ProjectPageData{
 		Viewer:        v,
 		CommunitySlug: c.Slug,
@@ -152,9 +161,10 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 			DescriptionMD:   p.DescriptionMD,
 			DescriptionHTML: p.DescriptionHTML,
 			IsArchived:      p.IsArchived(),
-			CanDelete:       p.CreatorUserID == id.User.ID || id.Membership.Role == auth.RoleAdmin,
+			CanDelete:       p.CreatorUserID == id.User.ID || isAdmin,
 		},
-		Todos: toTodoViews(todos),
+		Todos:       toTodoViews(todos),
+		Attachments: toAttachmentViews(atts, p.CreatorUserID, id.User.ID, isAdmin),
 	}
 	_ = webtempl.ProjectPage(data).Render(r.Context(), w)
 }
@@ -298,6 +308,136 @@ func (h *Handler) PostTodoReorder(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// PostAttachmentUpload accepts a multipart upload (one or many files)
+// and creates one project_attachments row per file. Returns 204; the
+// SSE morph drives the UI update.
+func (h *Handler) PostAttachmentUpload(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	c, _ := community.FromContext(r.Context())
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	// Cap the entire request at MaxSize*8 so a multi-file drop can't
+	// blow up memory; each individual file still gets the per-upload
+	// MaxSize cap inside SaveAttachment.
+	r.Body = http.MaxBytesReader(w, r.Body, h.Uploads.MaxSize*8)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "bad multipart: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		// Some clients use the singular "file" name; honour that too.
+		files = r.MultipartForm.File["file"]
+	}
+	if len(files) == 0 {
+		http.Error(w, "no files", http.StatusBadRequest)
+		return
+	}
+	for _, fh := range files {
+		f, err := fh.Open()
+		if err != nil {
+			h.Log.Warn("projects upload open", "err", err, "name", fh.Filename)
+			continue
+		}
+		mime := fh.Header.Get("Content-Type")
+		if mime == "" {
+			mime = "application/octet-stream"
+		}
+		if _, err := h.Svc.AddAttachment(r.Context(), pid, c.ID, id.User.ID, mime, fh.Filename, f); err != nil {
+			h.Log.Warn("projects upload save", "err", err, "name", fh.Filename)
+		}
+		f.Close()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetAttachmentDownload streams the underlying file with a
+// Content-Disposition header so the browser saves it under the
+// original filename instead of the on-disk content-hash name.
+func (h *Handler) GetAttachmentDownload(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	aid := chi.URLParam(r, "aid")
+	a, err := h.Repo.AttachmentByID(r.Context(), aid)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if a.ProjectID != pid {
+		http.NotFound(w, r)
+		return
+	}
+	u, err := h.Uploads.Get(r.Context(), a.UploadID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	path := h.Uploads.PathFor(u)
+	f, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "file missing", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", a.MIME)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(a.Filename)+`"`)
+	w.Header().Set("Content-Length", strconv.FormatInt(a.SizeBytes, 10))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = io.Copy(w, f)
+}
+
+// PostAttachmentDelete removes an attachment after permission check.
+func (h *Handler) PostAttachmentDelete(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	aid := chi.URLParam(r, "aid")
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	isAdmin := id.Membership.Role == auth.RoleAdmin
+	if err := h.Svc.DeleteAttachment(r.Context(), pid, aid, id.User.ID, isAdmin); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Warn("projects attachment delete", "err", err, "project", pid, "attachment", aid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// sanitizeFilename drops the four chars that break a quoted
+// Content-Disposition value, keeping everything else (Unicode is fine
+// inside RFC 6266 quoted-string for modern browsers).
+func sanitizeFilename(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		switch r {
+		case '"', '\\', '\r', '\n':
+			continue
+		default:
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		return "file"
+	}
+	return string(out)
+}
+
 // GetStream is the long-lived per-project SSE relay. On every Event the
 // handler re-renders the affected fragment with WithModeOuter() so
 // morphdom swaps the subtree in place.
@@ -331,8 +471,10 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 				h.pushHeader(r, sse, pid)
 			case "todos":
 				h.pushTodos(r, sse, pid)
-			case "attachments", "comments":
-				// Phase 5-6 will fill these in.
+			case "attachments":
+				h.pushAttachments(r, sse, pid)
+			case "comments":
+				// Phase 6 will fill this in.
 				h.pushHeader(r, sse, pid)
 			}
 		}
@@ -342,6 +484,41 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) pushAll(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {
 	h.pushHeader(r, sse, pid)
 	h.pushTodos(r, sse, pid)
+	h.pushAttachments(r, sse, pid)
+}
+
+func (h *Handler) pushAttachments(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {
+	atts, err := h.Repo.ListAttachments(r.Context(), pid)
+	if err != nil {
+		return
+	}
+	p, err := h.Repo.ByID(r.Context(), pid)
+	if err != nil {
+		return
+	}
+	id, _ := auth.FromContext(r.Context())
+	c, _ := community.FromContext(r.Context())
+	_ = sse.PatchElementTempl(
+		webtempl.ProjectAttachmentsFragment(c.Slug, pid, toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role == auth.RoleAdmin)),
+		datastar.WithSelector("#proj-attachments"),
+		datastar.WithModeOuter(),
+	)
+}
+
+func toAttachmentViews(atts []Attachment, creatorID, viewerID string, viewerIsAdmin bool) []webtempl.ProjectAttachmentView {
+	out := make([]webtempl.ProjectAttachmentView, 0, len(atts))
+	for _, a := range atts {
+		canDelete := viewerIsAdmin || a.UploaderID == viewerID || creatorID == viewerID
+		out = append(out, webtempl.ProjectAttachmentView{
+			ID:        a.ID,
+			Filename:  a.Filename,
+			MIME:      a.MIME,
+			SizeBytes: a.SizeBytes,
+			CreatedAt: a.CreatedAt,
+			CanDelete: canDelete,
+		})
+	}
+	return out
 }
 
 func (h *Handler) pushTodos(r *http.Request, sse *datastar.ServerSentEventGenerator, pid string) {

@@ -240,6 +240,67 @@ func (r *Repo) TodoByID(ctx context.Context, id string) (Todo, error) {
 	return t, nil
 }
 
+// ListAttachments returns all attachments for a project, most-recent
+// first.
+func (r *Repo) ListAttachments(ctx context.Context, projectID string) ([]Attachment, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT id, project_id, upload_id, filename, mime, size_bytes, uploader_id, created_at
+		FROM project_attachments
+		WHERE project_id = ?
+		ORDER BY created_at DESC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list attachments: %w", err)
+	}
+	defer rows.Close()
+	var out []Attachment
+	for rows.Next() {
+		var a Attachment
+		var cAt int64
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.UploadID, &a.Filename,
+			&a.MIME, &a.SizeBytes, &a.UploaderID, &cAt); err != nil {
+			return nil, err
+		}
+		a.CreatedAt = time.UnixMilli(cAt).UTC()
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// InsertAttachment persists one row pointing at an uploads.id.
+func (r *Repo) InsertAttachment(ctx context.Context, a Attachment) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO project_attachments
+		  (id, project_id, upload_id, filename, mime, size_bytes, uploader_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.ProjectID, a.UploadID, a.Filename, a.MIME, a.SizeBytes,
+		a.UploaderID, a.CreatedAt.UnixMilli())
+	return err
+}
+
+// AttachmentByID loads one attachment row.
+func (r *Repo) AttachmentByID(ctx context.Context, id string) (Attachment, error) {
+	var a Attachment
+	var cAt int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id, project_id, upload_id, filename, mime, size_bytes, uploader_id, created_at
+		FROM project_attachments WHERE id = ?`, id).Scan(
+		&a.ID, &a.ProjectID, &a.UploadID, &a.Filename, &a.MIME,
+		&a.SizeBytes, &a.UploaderID, &cAt)
+	if err != nil {
+		return Attachment{}, err
+	}
+	a.CreatedAt = time.UnixMilli(cAt).UTC()
+	return a, nil
+}
+
+// DeleteAttachment removes the project_attachments row. Caller is
+// responsible for cleaning up the underlying uploads row + file via
+// uploads.Store.Delete if the policy calls for it.
+func (r *Repo) DeleteAttachment(ctx context.Context, id string) error {
+	_, err := r.DB.ExecContext(ctx, `DELETE FROM project_attachments WHERE id = ?`, id)
+	return err
+}
+
 // ReorderTodos applies a new (id -> sort_order) mapping inside one
 // transaction. Callers pass the full desired order so we don't need to
 // fiddle with fractional indexes.
