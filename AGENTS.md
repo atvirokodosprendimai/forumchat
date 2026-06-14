@@ -372,7 +372,95 @@ NATS subjects follow the same shape:
 - `community.<cid>.lobby.<lid>` — per-lobby
 - `community.<cid>.forum.thread.<tid>` — per-thread
 
-### 4.12 templ ↔ domain import cycle
+### 4.12 EDA — Datastar is a DOM event bus, so use it like one
+
+Datastar's `data-on:*` accepts **any** DOM event name, not just `click`/`input`.
+`evt` is the actual `Event` object in scope; `evt.detail` carries the
+`CustomEvent` payload. So the whole event-bus / pub-sub pattern from front-end
+EDA is built in — you just don't always see it because we tend to reach for
+per-element `data-on:click` first.
+
+When you have **N similar triggers that all do the same thing**, replace N
+per-element handlers with: one `dispatchEvent` per trigger + one
+`data-on:<event-name>` listener at a common ancestor. Bubbling does the
+routing.
+
+#### The pattern
+
+```templ
+<!-- producers: many of these -->
+<button data-on:click="el.dispatchEvent(new CustomEvent('fc:open-todo',{bubbles:true,detail:{id: 'msg-123', title: 'Pay invoice'}}))">
+    ☑ To-do
+</button>
+<button data-on:click="el.dispatchEvent(new CustomEvent('fc:open-todo',{bubbles:true,detail:{id: 'msg-456', title: 'Reply to client'}}))">
+    ☑ To-do
+</button>
+
+<!-- consumer: one of these, somewhere up the tree -->
+<div data-on:fc:open-todo="$todo_open_source = evt.detail.id; $todo_title = evt.detail.title">
+    @TodoDialog(slug)
+</div>
+```
+
+Now each button knows nothing about which dialog is mounted, the dialog knows
+nothing about how many buttons fire, and adding a new trigger is one line of
+templ.
+
+#### Modifiers stack on custom events too
+
+```templ
+<div data-on:fc:bookmark__debounce.300ms="@post('/bookmark')"></div>
+<div data-on:fc:scroll-bottom__window="document.querySelector('#messages')?.scrollTo({top:1e9})"></div>
+```
+
+`__window` is the big unlock — register a listener globally without caring
+where in the DOM the producer lives. Outside-click handlers, Esc handlers,
+"close all open menus" handlers all live as one `data-on:click__window` /
+`data-on:keydown__window` at the layout level.
+
+#### Where this would have saved code (apply to next refactor)
+
+- **`web/static/paste.js`** still has plain
+  `document.addEventListener('click', ...)` + `document.addEventListener('keydown', ...)`
+  for the close-on-outside-click affordance on `<details class="msg-menu">`.
+  Equivalent Datastar in `layout.templ`:
+  `data-on:click__window="document.querySelectorAll('details.msg-menu[open]').forEach(d => d.contains(evt.target) || (d.open=false))"`.
+  No JS file needed.
+- **`web/templ/chat.templ` per-message menu** has N copies of the same
+  `data-on:click="$bm_open_msg = '<id>'"` etc. Could be:
+  trigger: `data-on:click="el.dispatchEvent(new CustomEvent('fc:bookmark',{bubbles:true,detail:{id: '...'}}))"`,
+  consumer once: `data-on:fc:bookmark="$bm_open_msg = evt.detail.id"`.
+  Same noise per-trigger today; the win is when the consumer logic grows.
+
+#### Signal patches are events too
+
+`data-on-signal-patch` fires whenever ANY signal is patched (server or client):
+
+```templ
+<div data-on-signal-patch="console.log('signals changed', patch)"></div>
+<div data-on-signal-patch-filter="{include: /^todo_/}" data-on-signal-patch="@get('/todos/preview')"></div>
+```
+
+Use for: cross-cutting state observers (analytics, autosave drafts, dirty-flag
+UI). Don't use for normal "I changed signal X so re-fetch" — that's what
+`data-computed` and `data-effect` are for.
+
+#### When to NOT use custom events
+
+- One trigger, one handler, no other listeners — inline `data-on:click="..."`
+  is shorter.
+- The handler needs the producer's surrounding template scope (loop index,
+  parent struct field) that doesn't fit cleanly in `detail`. Then a closure
+  via the inline expression is fine.
+- Cross-tab coordination — that's NATS, not DOM events.
+
+#### Rule of thumb
+
+When two buttons in the same templ would dispatch the **same** `@post` or set
+the **same** signal, that's the moment to refactor: hoist the listener to the
+nearest common ancestor, emit a `bubbles:true` custom event from each button.
+
+### 4.13 templ ↔ domain import cycle
 
 `web/templ` is a leaf package — it **must not** import any `internal/<domain>`
 package. Domain handlers import `web/templ`, never the other way around.
