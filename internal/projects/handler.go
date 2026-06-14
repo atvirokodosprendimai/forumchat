@@ -1,6 +1,7 @@
 package projects
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
@@ -19,14 +21,33 @@ import (
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
+// commLookupFn resolves a community ID to a community record. Injected
+// from main.go so the projects package doesn't need to depend on the
+// community Repo type directly.
+type commLookupFn func(ctx context.Context, id string) (*CommunityRef, error)
+
+// CommunityRef is the slim community shape projects needs (just the
+// slug for redirect URLs).
+type CommunityRef struct {
+	ID   string
+	Slug string
+	Name string
+}
+
 // Handler holds the dependencies for the projects HTTP layer.
 type Handler struct {
-	Repo    *Repo
-	Svc     *Service
-	Bus     *Bus
-	Uploads *uploads.Store
-	Log     *slog.Logger
+	Repo       *Repo
+	Svc        *Service
+	Bus        *Bus
+	Uploads    *uploads.Store
+	Sessions   *scs.SessionManager // for share-link guest sessions
+	Log        *slog.Logger
+	commLookup commLookupFn // injected by main.go for the guest-bounce route
 }
+
+// SetCommunityLookup injects the community-ID-to-slug resolver. Called
+// from main.go where the community.Repo is available.
+func (h *Handler) SetCommunityLookup(fn commLookupFn) { h.commLookup = fn }
 
 // projectSignals carries the editable values posted from the project
 // page. One bag for everything so we don't need a struct per endpoint.
@@ -108,59 +129,55 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/c/"+c.Slug+"/projects/"+p.ID, http.StatusSeeOther)
 }
 
-// GetProject renders the project page with all five panel skeletons.
-// Phase 2 only loads the Project row + empty placeholders for the
-// realtime panels; they get populated in Phase 4-6.
-func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
+// loadProjectData resolves the project + (selectively) child rows so
+// each tab handler only fetches what it actually renders. Returns the
+// pre-built ProjectPageData. Honours both auth members AND share-link
+// guests.
+func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want struct {
+	Todos, Atts, Comments, Activity bool
+}) (webtempl.ProjectPageData, bool) {
 	c, ok := community.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "no community", http.StatusInternalServerError)
-		return
+		return webtempl.ProjectPageData{}, false
 	}
-	id, ok := auth.FromContext(r.Context())
+	caller, ok := h.callerIdentity(r)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
-		return
+		return webtempl.ProjectPageData{}, false
 	}
 	pid := chi.URLParam(r, "id")
 	p, err := h.Repo.ByID(r.Context(), pid)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
-			return
+			return webtempl.ProjectPageData{}, false
 		}
 		h.Log.Error("projects byid", "err", err, "id", pid)
 		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return webtempl.ProjectPageData{}, false
 	}
 	if p.CommunityID != c.ID {
-		// Cross-community lookup — same not-found response so we don't
-		// leak project ids across communities.
 		http.NotFound(w, r)
-		return
+		return webtempl.ProjectPageData{}, false
 	}
 
-	todos, err := h.Repo.ListTodos(r.Context(), p.ID)
-	if err != nil {
-		h.Log.Error("projects todos load", "err", err, "id", pid)
-	}
-	atts, err := h.Repo.ListAttachments(r.Context(), p.ID)
-	if err != nil {
-		h.Log.Error("projects attachments load", "err", err, "id", pid)
-	}
-	comments, err := h.Repo.ListComments(r.Context(), p.ID)
-	if err != nil {
-		h.Log.Error("projects comments load", "err", err, "id", pid)
-	}
-	activity, err := h.Repo.RecentActivity(r.Context(), p.ID, 30)
-	if err != nil {
-		h.Log.Error("projects activity load", "err", err, "id", pid)
-	}
-
+	isAdmin := caller.Role == auth.RoleAdmin
+	isGuest := caller.IsGuest()
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
 	v.CommunitySlug = c.Slug
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	share := webtempl.ProjectShareView{Visible: !isGuest && (p.CreatorUserID == caller.UserID || isAdmin)}
+	if share.Visible {
+		if inv, err := h.Repo.ActiveGuestInviteForProject(r.Context(), p.ID); err == nil {
+			scheme, host := publicSchemeHost(r)
+			share.URL = scheme + "://" + host + "/projects/share/" + inv.Token
+			if inv.ExpiresAt != nil {
+				share.HasExpiry = true
+				share.ExpiresAt = *inv.ExpiresAt
+			}
+		}
+	}
 	data := webtempl.ProjectPageData{
 		Viewer:        v,
 		CommunitySlug: c.Slug,
@@ -171,14 +188,96 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 			DescriptionMD:   p.DescriptionMD,
 			DescriptionHTML: p.DescriptionHTML,
 			IsArchived:      p.IsArchived(),
-			CanDelete:       p.CreatorUserID == id.User.ID || isAdmin,
+			CanDelete:       !isGuest && (p.CreatorUserID == caller.UserID || isAdmin),
 		},
-		Todos:       toTodoViews(todos),
-		Attachments: toAttachmentViews(atts, p.CreatorUserID, id.User.ID, isAdmin),
-		Comments:    toCommentViews(comments, id.User.ID, isAdmin, h.Svc.EditGrace, time.Now().UTC()),
-		Activity:    toActivityViews(activity),
+		Share:         share,
+		IsGuestViewer: isGuest,
 	}
-	_ = webtempl.ProjectPage(data).Render(r.Context(), w)
+	if want.Todos {
+		todos, err := h.Repo.ListTodos(r.Context(), p.ID)
+		if err != nil {
+			h.Log.Error("projects todos load", "err", err, "id", pid)
+		}
+		data.Todos = toTodoViews(todos)
+	}
+	if want.Atts {
+		atts, err := h.Repo.ListAttachments(r.Context(), p.ID)
+		if err != nil {
+			h.Log.Error("projects attachments load", "err", err, "id", pid)
+		}
+		data.Attachments = toAttachmentViews(atts, p.CreatorUserID, caller.UserID, isAdmin)
+	}
+	if want.Comments {
+		comments, err := h.Repo.ListComments(r.Context(), p.ID)
+		if err != nil {
+			h.Log.Error("projects comments load", "err", err, "id", pid)
+		}
+		data.Comments = toCommentViews(comments, caller.UserID, isAdmin, h.Svc.EditGrace, time.Now().UTC())
+	}
+	if want.Activity {
+		activity, err := h.Repo.RecentActivity(r.Context(), p.ID, 30)
+		if err != nil {
+			h.Log.Error("projects activity load", "err", err, "id", pid)
+		}
+		data.Activity = toActivityViews(activity)
+	}
+	return data, true
+}
+
+// GetOverview renders the Overview tab (the default landing page for
+// a project). Loads todos/attachments/comments only for the count pills.
+func (h *Handler) GetOverview(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Todos: true, Atts: true, Comments: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectOverviewPage(data).Render(r.Context(), w)
+}
+
+// GetTodosTab renders the Todos tab.
+func (h *Handler) GetTodosTab(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Todos: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectTodosPage(data).Render(r.Context(), w)
+}
+
+// GetDocsTab renders the Docs (attachments) tab.
+func (h *Handler) GetDocsTab(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Atts: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectDocsPage(data).Render(r.Context(), w)
+}
+
+// GetCommentsTab renders the project-wide Comments tab.
+func (h *Handler) GetCommentsTab(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Comments: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectCommentsPage(data).Render(r.Context(), w)
+}
+
+// GetActivityTab renders the Activity tab.
+func (h *Handler) GetActivityTab(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.loadProjectData(w, r, struct {
+		Todos, Atts, Comments, Activity bool
+	}{Activity: true})
+	if !ok {
+		return
+	}
+	_ = webtempl.ProjectActivityPage(data).Render(r.Context(), w)
 }
 
 // PostTitle accepts an inline title edit and propagates via SSE.
@@ -685,7 +784,7 @@ func (h *Handler) pushComments(r *http.Request, sse *datastar.ServerSentEventGen
 	now := time.Now().UTC()
 	views := toCommentViews(comments, id.User.ID, id.Membership.Role == auth.RoleAdmin, h.Svc.EditGrace, now)
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectCommentsFragment(c.Slug, pid, views),
+		webtempl.ProjectCommentsFragment(c.Slug, pid, views, false),
 		datastar.WithSelector("#proj-comments"),
 		datastar.WithModeOuter(),
 	)
@@ -734,7 +833,7 @@ func (h *Handler) pushAttachments(r *http.Request, sse *datastar.ServerSentEvent
 	id, _ := auth.FromContext(r.Context())
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectAttachmentsFragment(c.Slug, pid, toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role == auth.RoleAdmin)),
+		webtempl.ProjectAttachmentsFragment(c.Slug, pid, toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role == auth.RoleAdmin), false),
 		datastar.WithSelector("#proj-attachments"),
 		datastar.WithModeOuter(),
 	)
@@ -763,7 +862,7 @@ func (h *Handler) pushTodos(r *http.Request, sse *datastar.ServerSentEventGenera
 	}
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos)),
+		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos), false),
 		datastar.WithSelector("#proj-todos"),
 		datastar.WithModeOuter(),
 	)
@@ -797,10 +896,27 @@ func (h *Handler) pushHeader(r *http.Request, sse *datastar.ServerSentEventGener
 	}
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectHeaderFragment(c.Slug, view),
+		webtempl.ProjectHeaderFragment(c.Slug, view, false),
 		datastar.WithSelector("#proj-header"),
 		datastar.WithModeOuter(),
 	)
+}
+
+// publicSchemeHost returns the canonical scheme + host for building
+// share URLs that work behind a reverse proxy.
+func publicSchemeHost(r *http.Request) (string, string) {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		scheme = p
+	}
+	host := r.Host
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		host = h
+	}
+	return scheme, host
 }
 
 // projectFromURL resolves the {id} param, scopes to the current

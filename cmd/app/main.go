@@ -232,12 +232,20 @@ func run() error {
 	projectsBus := projects.NewBus()
 	projectsSvc := projects.NewService(projectsRepo, projectsBus, uploadStore, cfg.EditGrace)
 	projectsHandler := &projects.Handler{
-		Repo:    projectsRepo,
-		Svc:     projectsSvc,
-		Bus:     projectsBus,
-		Uploads: uploadStore,
-		Log:     log,
+		Repo:     projectsRepo,
+		Svc:      projectsSvc,
+		Bus:      projectsBus,
+		Uploads:  uploadStore,
+		Sessions: sessions,
+		Log:      log,
 	}
+	projectsHandler.SetCommunityLookup(func(ctx context.Context, id string) (*projects.CommunityRef, error) {
+		c, err := cRepo.ByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return &projects.CommunityRef{ID: c.ID, Slug: c.Slug, Name: c.Name}, nil
+	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
@@ -357,11 +365,15 @@ func run() error {
 		r.Post("/todos/{id}/delete", todosHandler.PostDelete)
 
 		// Projects feature is mounted only when PROJECTS_ENABLED=true.
-		// The flag also gates the nav link via webtempl.ProjectsEnabled.
+		// The OPEN routes (tab GETs + issue write-paths) admit guests and
+		// live in a separate Route block below the community group — they
+		// can't share auth.RequireAuth with the rest of the community
+		// surface. The flag also gates the nav link via webtempl.ProjectsEnabled.
 		if cfg.ProjectsEnabled {
+			// Member-only project routes — edits / lifecycle / share-mint
+			// stay inside the auth group.
 			r.Get("/projects", projectsHandler.GetIndex)
 			r.Post("/projects", projectsHandler.PostCreate)
-			r.Get("/projects/{id}", projectsHandler.GetProject)
 			r.Get("/projects/{id}/stream", projectsHandler.GetStream)
 			r.Post("/projects/{id}/title", projectsHandler.PostTitle)
 			r.Post("/projects/{id}/desc", projectsHandler.PostDescription)
@@ -379,6 +391,9 @@ func run() error {
 			r.Post("/projects/{id}/archive", projectsHandler.PostArchive)
 			r.Post("/projects/{id}/unarchive", projectsHandler.PostUnarchive)
 			r.Post("/projects/{id}/delete", projectsHandler.PostDeleteProject)
+			r.Post("/projects/{id}/share", projectsHandler.PostShareMint)
+			r.Post("/projects/{id}/share/revoke", projectsHandler.PostShareRevoke)
+			r.Post("/projects/{id}/issues/{iid}/status", projectsHandler.PostIssueStatus)
 		}
 
 		r.Group(func(r chi.Router) {
@@ -410,6 +425,34 @@ func run() error {
 		r.Use(auth.RequireRole(auth.RoleAdmin))
 		r.Post("/admin/create-community", adminHandler.PostCreateCommunity)
 	})
+
+	// Projects OPEN routes — auth member OR share-link guest. Mounted
+	// outside the auth-required community group so guests aren't
+	// bounced to /login.
+	if cfg.ProjectsEnabled {
+		r.Route("/c/{slug}/projects", func(r chi.Router) {
+			r.Use(community.LoadCommunity(cRepo))
+			r.Get("/{id}", projectsHandler.GetOverview)
+			r.Get("/{id}/todos", projectsHandler.GetTodosTab)
+			r.Get("/{id}/docs", projectsHandler.GetDocsTab)
+			r.Get("/{id}/comments", projectsHandler.GetCommentsTab)
+			r.Get("/{id}/activity", projectsHandler.GetActivityTab)
+			r.Get("/{id}/issues", projectsHandler.GetIssuesTab)
+			r.Post("/{id}/issues", projectsHandler.PostCreateIssue)
+			r.Get("/{id}/issues/{iid}", projectsHandler.GetIssue)
+			r.Post("/{id}/issues/{iid}", projectsHandler.PostIssueEdit)
+			r.Post("/{id}/issues/{iid}/delete", projectsHandler.PostIssueDelete)
+			r.Post("/{id}/issues/{iid}/comment", projectsHandler.PostIssueComment)
+			r.Post("/{id}/issues/{iid}/comment/{cid}", projectsHandler.PostIssueCommentEdit)
+			r.Post("/{id}/issues/{iid}/comment/{cid}/delete", projectsHandler.PostIssueCommentDelete)
+			r.Post("/{id}/issues/{iid}/attachment", projectsHandler.PostIssueAttachmentUpload)
+			r.Post("/{id}/issues/{iid}/attachment/{aid}/delete", projectsHandler.PostIssueAttachmentDelete)
+		})
+		// Public guest-landing routes — no community context.
+		r.Get("/projects/share/{token}", projectsHandler.GetGuestLanding)
+		r.Post("/projects/share/{token}/join", projectsHandler.PostGuestJoin)
+		r.Get("/projects/share/{token}/go", projectsHandler.GetGuestBounce)
+	}
 
 	// Uploads GET lives at root so stored /uploads/{id}?sig=... URLs survive
 	// the multi-community route restructure. The HMAC signature already
