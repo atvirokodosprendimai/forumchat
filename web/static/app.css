@@ -1982,15 +1982,67 @@ img.thread-announce-img {
 }
 
 /* Rooms — speaker stage rounder, label modern pill */
-.rooms-stage { border-radius: var(--radius-lg); }
+.rooms-stage { border-radius: var(--radius-lg); position: relative; }
 .rooms-stage-label {
   background: oklch(0% 0 0 / 0.55);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   border-radius: var(--radius-pill); padding: 4px 10px; font-size: .78em;
 }
-.rooms-video-tile { border-radius: var(--radius); }
+.rooms-video-tile { border-radius: var(--radius); position: relative; }
 .rooms-people, .rooms-video-strip, .rooms-chat-col, .rooms-video-stack {
   border-radius: var(--radius-lg);
+}
+
+/* Stage fullscreen button — fades in on hover, always visible in fs */
+.rooms-stage-fullscreen {
+  position: absolute; top: 10px; right: 10px;
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: oklch(0% 0 0 / 0.5);
+  color: white;
+  border: 1px solid oklch(100% 0 0 / 0.18);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 1.1rem; line-height: 1;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--t-fast) var(--ease-out), opacity var(--t-fast) var(--ease-out);
+  opacity: 0; pointer-events: none;
+  z-index: 3;
+}
+.rooms-stage:hover .rooms-stage-fullscreen,
+.rooms-stage:focus-within .rooms-stage-fullscreen,
+.rooms-stage-fullscreen:focus-visible {
+  opacity: 1; pointer-events: auto;
+}
+.rooms-stage-fullscreen:hover { background: oklch(0% 0 0 / 0.7); }
+.rooms-stage:fullscreen,
+.rooms-stage:-webkit-full-screen {
+  border-radius: 0;
+  background: #000;
+  width: 100vw; height: 100vh;
+}
+.rooms-stage:fullscreen video,
+.rooms-stage:-webkit-full-screen video {
+  width: 100vw; height: 100vh; object-fit: contain;
+}
+.rooms-stage:fullscreen .rooms-stage-fullscreen,
+.rooms-stage:-webkit-full-screen .rooms-stage-fullscreen { opacity: 1; pointer-events: auto; }
+.rooms-stage:fullscreen .rooms-stage-label,
+.rooms-stage:-webkit-full-screen .rooms-stage-label { font-size: 1rem; padding: 6px 12px; }
+
+/* Screen-share tile distinction — amber outline + corner monitor icon */
+.rooms-video-tile-screen { outline: 2px solid var(--warning); }
+.rooms-video-screen-icon {
+  position: absolute; top: 4px; left: 4px;
+  background: oklch(0% 0 0 / 0.55);
+  color: white;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .8rem;
+  z-index: 2;
+  pointer-events: none;
 }
 
 /* Calendar today-ish polish */
