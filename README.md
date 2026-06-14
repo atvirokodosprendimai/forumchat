@@ -25,6 +25,15 @@ a Discord + forum mix would fit but you want to own the data.
 > single tab the client can bookmark, and keep the whole history when
 > the project ends.
 
+> **Sweet spot:** a solo freelancer or two-person studio with a
+> handful of long-term clients — three to ten communities, a few
+> contacts each, conversations measured in months not minutes. The
+> SQLite + single-binary model is cheap to host and trivial to back
+> up (one file), the forum keeps low-frequency context where you'll
+> actually find it years later, and per-community push digests stop
+> your phone buzzing every time a client types. No seat pricing, no
+> tier upsell, no "your free workspace will be archived" emails.
+
 **Pick forumchat if you want:**
 
 - **One binary, one DB file.** SQLite (CGO-free), no Postgres/Redis/queue to babysit. NATS optional.
