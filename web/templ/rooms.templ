@@ -1,0 +1,340 @@
+package templ
+
+import (
+	"strconv"
+	"time"
+)
+
+// RoomsGridRow is one room card on the /rooms grid.
+type RoomsGridRow struct {
+	ID           string
+	Slot         int
+	Name         string
+	IsPublic     bool
+	MemberCount  int
+	PendingCount int
+	AdminName    string
+}
+
+type RoomsGridData struct {
+	Viewer Viewer
+	Rows   []RoomsGridRow
+}
+
+type RoomChatView struct {
+	ID         string
+	AuthorName string
+	BodyHTML   string
+	CreatedAt  time.Time
+	IsMine     bool
+	IsGuest    bool
+}
+
+type RoomParticipantView struct {
+	Key     string
+	Name    string
+	IsAdmin bool
+	IsGuest bool
+	IsMe    bool
+}
+
+// RoomAdminPanelData is the slice of room metadata the admin panel needs.
+// Lives on its own so the SSE stream can re-render this fragment alone
+// after invite/visibility changes without forcing a page reload.
+type RoomAdminPanelData struct {
+	RoomID    string
+	IsPublic  bool
+	InviteURL string
+}
+
+type RoomPageData struct {
+	Viewer         Viewer
+	RoomID         string
+	RoomName       string
+	IsPublic       bool
+	IsAdmin        bool
+	IsGuest        bool
+	MyKey          string
+	MyName         string
+	Members        []RoomParticipantView
+	Pending        []RoomParticipantView
+	Chat           []RoomChatView
+	InviteURL      string
+	VideoCapHit    bool
+	HasIceServers  bool
+	IceServersJSON string
+}
+
+type GuestJoinPageData struct {
+	RoomName string
+	Token    string
+	Error    string
+}
+
+templ RoomsGrid(d RoomsGridData) {
+	@Layout("Rooms", d.Viewer) {
+		<section class="rooms-grid-section">
+			<h1>Rooms</h1>
+			<p class="muted">Eight always-on meeting rooms. First person in a room becomes its admin and decides who else joins.</p>
+			<ul class="rooms-grid">
+				for _, row := range d.Rows {
+					<li class={ "rooms-card", templ.KV("rooms-card-public", row.IsPublic), templ.KV("rooms-card-busy", row.MemberCount > 0) }>
+						<a class="rooms-card-link" href={ templ.URL("/rooms/" + row.ID) }>
+							<div class="rooms-card-head">
+								<span class="rooms-card-slot">#{ strconv.Itoa(row.Slot) }</span>
+								<strong class="rooms-card-name">{ row.Name }</strong>
+								if row.IsPublic {
+									<span class="rooms-pill rooms-pill-public">public</span>
+								}
+							</div>
+							<div class="rooms-card-body">
+								if row.MemberCount == 0 {
+									<span class="muted">empty — join to claim admin</span>
+								} else {
+									<span class="rooms-card-count">{ strconv.Itoa(row.MemberCount) } in room</span>
+									if row.AdminName != "" {
+										<span class="muted"> · admin: { row.AdminName }</span>
+									}
+								}
+								if row.PendingCount > 0 {
+									<span class="rooms-pill rooms-pill-pending">{ strconv.Itoa(row.PendingCount) } waiting</span>
+								}
+							</div>
+						</a>
+					</li>
+				}
+			</ul>
+		</section>
+	}
+}
+
+templ RoomPage(d RoomPageData) {
+	@Layout("Room: "+d.RoomName, d.Viewer) {
+		<section
+			class="rooms-room"
+			data-room-id={ d.RoomID }
+			data-my-key={ d.MyKey }
+			data-my-name={ d.MyName }
+			data-am-admin={ boolStr(d.IsAdmin) }
+			data-am-guest={ boolStr(d.IsGuest) }
+			data-video-cap="8"
+			data-ice-servers={ d.IceServersJSON }
+			data-signals={ "{\"rooms_am_admin\":" + boolStr(d.IsAdmin) + "}" }
+		>
+			<div id="rooms-stream-open" hidden data-init={ "@get('/rooms/" + d.RoomID + "/stream', {openWhenHidden: true})" }></div>
+			<header class="rooms-room-head">
+				<a class="btn ghost rooms-back" href="/rooms">← Rooms</a>
+				<h1 class="rooms-room-title" data-rooms-title>{ d.RoomName }</h1>
+				if d.IsPublic {
+					<span class="rooms-pill rooms-pill-public">public</span>
+				}
+				<span class="rooms-room-spacer"></span>
+				<div class="rooms-room-controls">
+					<button class="btn rooms-ctl rooms-ctl-mic" data-rooms-mic title="Microphone (off)">🎙 off</button>
+					<button class="btn rooms-ctl rooms-ctl-cam" data-rooms-cam title="Camera (off)">🎥 off</button>
+					<button class="btn rooms-ctl rooms-ctl-screen" data-rooms-screen title="Share screen">🖥</button>
+					<button class="btn ghost rooms-ctl"
+						data-show="$rooms_am_admin"
+						data-on:click="$rooms_admin_open = !$rooms_admin_open"
+						title="Admin controls">⚙</button>
+					<button class="btn rooms-ctl rooms-ctl-leave" data-rooms-leave>Leave</button>
+				</div>
+			</header>
+
+			<div class="rooms-admin-tray" data-show="$rooms_admin_open">
+				@RoomsAdminPanel(RoomAdminPanelData{
+					RoomID:    d.RoomID,
+					IsPublic:  d.IsPublic,
+					InviteURL: d.InviteURL,
+				})
+			</div>
+
+			<div class="rooms-pending-banner" data-rooms-pending>
+				@RoomsPendingBanner(d.Pending, d.IsAdmin, d.RoomID)
+			</div>
+
+			<div class="rooms-layout-v3">
+				<section class="rooms-stage-area">
+					<div class="rooms-video-strip" data-video-grid title="Click a participant to focus on them"></div>
+					<div class="rooms-stage" data-rooms-stage>
+						<video data-rooms-stage-video autoplay playsinline></video>
+						<div class="rooms-stage-empty" data-rooms-stage-empty>
+							<p>Click any participant above to bring their video to the center stage.</p>
+						</div>
+						<div class="rooms-stage-label" data-rooms-stage-label></div>
+					</div>
+					<aside class="rooms-people" data-rooms-people>
+						@RoomsParticipants(d.Members, d.Pending, d.IsAdmin, d.RoomID)
+					</aside>
+				</section>
+
+				<aside class="rooms-chat-col">
+					<header class="rooms-chat-head">
+						<h2>Chat</h2>
+						<span class="muted" data-text="$rooms_member_count + ' in room'">{ strconv.Itoa(len(d.Members)) } in room</span>
+					</header>
+					<div class="rooms-chat-list" data-rooms-chat
+						data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
+						@RoomsChatList(d.Chat)
+					</div>
+					<div class="rooms-chat-send">
+						<input type="text" placeholder="message"
+							data-bind="rooms_chat_body"
+							maxlength="2000"
+							data-on:keydown={ "evt.key === 'Enter' && @post('/rooms/" + d.RoomID + "/chat')" }/>
+						<button class="btn" type="button"
+							data-on:click={ "@post('/rooms/" + d.RoomID + "/chat')" }>Send</button>
+					</div>
+				</aside>
+			</div>
+
+			if d.VideoCapHit {
+				<div class="rooms-vidcap-note muted">Audio-only — video cap reached.</div>
+			}
+		</section>
+		<script src={ "/static/rooms.js?v=" + AssetVer("rooms.js") } defer></script>
+	}
+}
+
+// RoomsAdminPanel is its own templ so the SSE stream can re-render JUST the
+// admin tray after invite/visibility actions without reloading the page.
+templ RoomsAdminPanel(d RoomAdminPanelData) {
+	<div id="rooms-admin-panel" class="rooms-admin-panel">
+		<div class="rooms-admin-section">
+			<h3>Rename room</h3>
+			<div class="rooms-row">
+				<input type="text" placeholder="new room name" data-bind="rooms_new_name" maxlength="80"/>
+				<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/rename')" }>Save</button>
+			</div>
+		</div>
+
+		<div class="rooms-admin-section">
+			<h3>Visibility</h3>
+			if d.IsPublic {
+				<p>This room is <strong>public</strong>. Anyone logged in can join without your approval.</p>
+				<div class="rooms-row">
+					<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/public')" }>Make private</button>
+					<button class="btn"
+						data-on:click={ "@post('/rooms/" + d.RoomID + "/share-to-chat')" }
+						title="Post a join link in the community chat">Share to chat</button>
+				</div>
+			} else {
+				<p>This room is <strong>private</strong>. You approve each joiner.</p>
+				<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/public')" }>Make public</button>
+			}
+		</div>
+
+		<div class="rooms-admin-section">
+			<h3>Share link for external guests</h3>
+			if d.InviteURL != "" {
+				<p>Anyone with this link enters a display name and joins this meeting only — no account needed.</p>
+				<div class="rooms-row">
+					<input id="rooms-share-link" type="text" readonly value={ d.InviteURL } onclick="this.select()"/>
+					<button class="btn"
+						type="button"
+						data-on:click="navigator.clipboard.writeText(document.getElementById('rooms-share-link').value)">Copy</button>
+				</div>
+				<div class="rooms-row">
+					<button class="btn ghost" data-on:click={ "@post('/rooms/" + d.RoomID + "/invite')" }>Rotate</button>
+					<button class="btn ghost" data-on:click={ "@post('/rooms/" + d.RoomID + "/invite/revoke')" }>Revoke</button>
+				</div>
+			} else {
+				<p class="muted">No active share link.</p>
+				<button class="btn" data-on:click={ "@post('/rooms/" + d.RoomID + "/invite')" }>Create share link</button>
+			}
+		</div>
+	</div>
+}
+
+templ RoomsPendingBanner(pending []RoomParticipantView, viewerIsAdmin bool, roomID string) {
+	<div id="rooms-pending-banner-inner" class="rooms-pending-banner-inner" data-pending-count={ strconv.Itoa(len(pending)) }>
+	if len(pending) > 0 && viewerIsAdmin {
+		<div class="rooms-pending-list">
+			<strong>Waiting to join:</strong>
+			for _, p := range pending {
+				<span class="rooms-pending-row" data-key={ p.Key }>
+					<span>{ p.Name }</span>
+					if p.IsGuest {
+						<span class="rooms-pill rooms-pill-guest">guest</span>
+					}
+					<button class="btn"
+						data-on:click={ "$rooms_target='" + p.Key + "'; @post('/rooms/" + roomID + "/approve')" }>Approve</button>
+					<button class="btn ghost"
+						data-on:click={ "$rooms_target='" + p.Key + "'; @post('/rooms/" + roomID + "/decline')" }>Decline</button>
+				</span>
+			}
+		</div>
+	}
+	</div>
+}
+
+templ RoomsParticipants(members []RoomParticipantView, pending []RoomParticipantView, viewerIsAdmin bool, roomID string) {
+	<div id="rooms-participants" class="rooms-participants">
+		<h3>People ({ strconv.Itoa(len(members)) })</h3>
+		<ul>
+			for _, p := range members {
+				<li data-key={ p.Key }>
+					<span class="rooms-people-name">{ p.Name }</span>
+					if p.IsAdmin {
+						<span class="rooms-pill rooms-pill-admin">admin</span>
+					}
+					if p.IsGuest {
+						<span class="rooms-pill rooms-pill-guest">guest</span>
+					}
+					if p.IsMe {
+						<span class="muted">(you)</span>
+					}
+					if viewerIsAdmin && !p.IsMe && !p.IsAdmin && !p.IsGuest {
+						<button class="btn ghost rooms-people-promote"
+							data-on:click={ "$rooms_target='" + p.Key + "'; @post('/rooms/" + roomID + "/promote')" }>
+							Make admin
+						</button>
+					}
+				</li>
+			}
+		</ul>
+	</div>
+}
+
+templ RoomsChatList(rows []RoomChatView) {
+	<ul id="rooms-chat-msgs" class="rooms-chat-msgs">
+		for _, m := range rows {
+			<li class={ "rooms-chat-msg", templ.KV("rooms-chat-mine", m.IsMine) } id={ "rooms-chat-msg-" + m.ID }>
+				<header>
+					<strong>{ m.AuthorName }</strong>
+					if m.IsGuest {
+						<span class="rooms-pill rooms-pill-guest">guest</span>
+					}
+					<span class="muted">{ m.CreatedAt.Local().Format("15:04") }</span>
+				</header>
+				<div class="rooms-chat-body">@templ.Raw(m.BodyHTML)</div>
+			</li>
+		}
+	</ul>
+}
+
+templ RoomGuestJoinPage(d GuestJoinPageData) {
+	@Layout("Join: "+d.RoomName, Viewer{}) {
+		<section class="card narrow rooms-guest-join">
+			<h1>Join { d.RoomName }</h1>
+			<p class="muted">You were invited as a guest. Pick a display name and join the meeting. No account needed.</p>
+			if d.Error != "" {
+				<p class="error">{ d.Error }</p>
+			}
+			<form method="post" action={ templ.URL("/rooms/invite/" + d.Token + "/join") }>
+				<label>
+					Display name
+					<input type="text" name="name" required minlength="1" maxlength="40" autofocus/>
+				</label>
+				<button class="btn" type="submit">Join meeting</button>
+			</form>
+		</section>
+	}
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
+}

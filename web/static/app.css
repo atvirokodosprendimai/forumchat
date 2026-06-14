@@ -723,3 +723,252 @@ img.thread-announce-img {
   body { padding-bottom: env(safe-area-inset-bottom); }
   .topbar { padding-left: max(1.2rem, env(safe-area-inset-left)); padding-right: max(1.2rem, env(safe-area-inset-right)); }
 }
+
+/* ============================================================
+   Rooms — 8-slot WebRTC meeting rooms
+   ============================================================ */
+
+/* Grid landing — 8 cards in a responsive grid */
+.rooms-grid-section { padding: 0; }
+.rooms-grid {
+  list-style: none; padding: 0; margin: 1rem 0 0;
+  display: grid; gap: .75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.rooms-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color .12s, box-shadow .12s;
+}
+.rooms-card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.rooms-card-busy { background: var(--accent-soft); }
+.rooms-card-public { border-left: 4px solid #29a05c; }
+.rooms-card-link {
+  display: block; padding: .9rem 1rem; text-decoration: none; color: inherit;
+}
+.rooms-card-head { display: flex; align-items: baseline; gap: .5rem; margin-bottom: .35rem; }
+.rooms-card-slot { color: var(--fg-muted); font-variant-numeric: tabular-nums; font-size: .85em; }
+.rooms-card-name { font-size: 1.05em; }
+.rooms-card-body { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.rooms-card-count { color: var(--fg); }
+
+/* Shared pill style */
+.rooms-pill {
+  display: inline-block; font-size: .72em; text-transform: uppercase;
+  letter-spacing: .03em; padding: .12rem .4rem; border-radius: 999px;
+  background: var(--surface-alt); color: var(--fg-muted); white-space: nowrap;
+}
+.rooms-pill-public  { background: #d8f1e3; color: #1f6b3d; }
+.rooms-pill-pending { background: #ffe7ad; color: #6b4f00; }
+.rooms-pill-admin   { background: #ffd9d3; color: #8a2418; }
+.rooms-pill-guest   { background: #d4e0ff; color: #2a3c8a; }
+
+/* Room page shell */
+.rooms-room {
+  display: flex; flex-direction: column;
+  height: calc(100dvh - 120px);   /* leave room for topbar+footer */
+  min-height: 0;
+}
+.rooms-room-head {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .35rem .25rem .55rem;
+  border-bottom: 1px solid var(--border);
+}
+.rooms-back { padding: .25rem .55rem; }
+.rooms-room-title { margin: 0; font-size: 1.15rem; }
+.rooms-room-spacer { flex: 1; }
+.rooms-room-controls { display: flex; gap: .35rem; flex-wrap: wrap; }
+.rooms-ctl { padding: .35rem .65rem; }
+.rooms-ctl-mic.on, .rooms-ctl-cam.on, .rooms-ctl-screen.on {
+  background: #29a05c; color: white; border-color: #1c7a44;
+}
+.rooms-ctl-leave { background: #c63838; color: white; border-color: #8a2418; }
+
+/* Admin tray (slide-down panel under the header) */
+.rooms-admin-tray {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: .6rem .8rem;
+}
+.rooms-admin-panel {
+  display: grid; gap: .9rem;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.rooms-admin-section h3 {
+  margin: 0 0 .35rem; font-size: .8em; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--fg-muted);
+}
+.rooms-admin-section p { margin: .15rem 0 .45rem; }
+.rooms-admin-section input[type="text"] {
+  width: 100%; padding: .4rem .55rem; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface);
+}
+.rooms-row { display: flex; gap: .35rem; align-items: center; margin: .25rem 0; flex-wrap: wrap; }
+.rooms-row > input[type="text"] { flex: 1 1 200px; }
+
+/* Pending banner above the layout (admins only) */
+.rooms-pending-banner:not(:empty) {
+  padding: .35rem .6rem;
+  background: #fff5e6; border-bottom: 1px solid var(--sys-border);
+}
+.rooms-pending-list { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+.rooms-pending-row { display: inline-flex; align-items: center; gap: .35rem; padding: .15rem .4rem; background: var(--surface); border-radius: var(--radius-sm); }
+
+/* Room layout v3: top strip of small video thumbnails, big center stage
+   below them showing whoever was last clicked (the "speaker"), thin chat
+   sidebar on the right. The stage stays empty until a viewer picks a
+   participant — we don't pick for them so audio focus stays explicit. */
+.rooms-layout-v3 {
+  flex: 1; min-height: 0;
+  display: grid; gap: .55rem;
+  grid-template-columns: minmax(320px, 1fr) minmax(240px, 320px);
+  padding: .55rem 0;
+}
+.rooms-stage-area {
+  display: grid; gap: .5rem; min-height: 0;
+  grid-template-rows: auto 1fr auto;
+}
+.rooms-video-strip {
+  display: flex; gap: .4rem; overflow-x: auto; overflow-y: hidden;
+  padding: .3rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  min-height: 88px;
+}
+.rooms-video-strip .rooms-video-tile {
+  flex: 0 0 auto;
+  width: 100px; height: 70px;
+  aspect-ratio: auto;
+  cursor: pointer;
+  transition: outline-color .12s;
+}
+.rooms-video-strip .rooms-video-tile:hover { outline: 2px solid var(--accent); }
+.rooms-video-strip .rooms-video-tile.focused { outline: 2px solid #29a05c; }
+.rooms-video-strip .rooms-video-label { font-size: .65em; padding: 0 4px; }
+
+.rooms-stage {
+  position: relative; min-height: 0;
+  background: #0c0c0c; border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.rooms-stage video {
+  width: 100%; height: 100%; object-fit: contain;
+  background: #000;
+}
+.rooms-stage video.empty { display: none; }
+.rooms-stage-empty {
+  color: rgba(255,255,255,.55); padding: 1rem; text-align: center;
+  font-size: .95em;
+}
+.rooms-stage-empty.hidden { display: none; }
+.rooms-stage-label {
+  position: absolute; left: 10px; bottom: 10px;
+  background: rgba(0,0,0,.55); color: white;
+  padding: 3px 8px; border-radius: 6px; font-size: .85em;
+  pointer-events: none;
+}
+.rooms-stage-label:empty { display: none; }
+
+/* Chat column */
+.rooms-chat-col {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.rooms-chat-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: .5rem .75rem; border-bottom: 1px solid var(--border);
+}
+.rooms-chat-head h2 { margin: 0; font-size: 1rem; }
+.rooms-chat-list { flex: 1; overflow-y: auto; padding: .5rem .75rem; min-height: 0; }
+.rooms-chat-msgs { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .45rem; }
+.rooms-chat-msg {
+  background: var(--surface-alt); border-radius: var(--radius-sm);
+  padding: .35rem .55rem; max-width: 88%; align-self: flex-start;
+}
+.rooms-chat-msg header { display: flex; align-items: baseline; gap: .35rem; font-size: .85em; }
+.rooms-chat-msg .rooms-chat-body { font-size: .96em; }
+.rooms-chat-mine { background: var(--accent-soft); align-self: flex-end; }
+.rooms-chat-send {
+  display: flex; gap: .35rem; padding: .5rem .55rem;
+  border-top: 1px solid var(--border); background: var(--surface);
+}
+.rooms-chat-send input[type="text"] {
+  flex: 1; padding: .45rem .6rem; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface);
+}
+
+/* Video column: vertical stack of small squares + people list pinned bottom */
+.rooms-video-col {
+  display: flex; flex-direction: column; gap: .55rem; min-height: 0;
+}
+.rooms-video-stack {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .25rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.rooms-video-tile {
+  position: relative;
+  width: 100%; aspect-ratio: 16 / 10;
+  background: #111; border-radius: var(--radius-sm); overflow: hidden;
+}
+.rooms-video-tile video { width: 100%; height: 100%; object-fit: cover; }
+.rooms-video-tile-self { outline: 2px solid var(--accent); }
+.rooms-video-label {
+  position: absolute; left: 6px; bottom: 6px;
+  background: rgba(0,0,0,.5); color: #fff; padding: 1px 6px;
+  border-radius: 6px; font-size: .75em;
+}
+.rooms-video-tile-empty {
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,.6); font-size: .85em;
+}
+
+/* People list under the stage. Sized to read at a glance without
+   crowding the video — wraps participants into a horizontal flow row
+   that grows vertically when more arrive. */
+.rooms-people {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: .55rem .75rem;
+  min-height: 100px; max-height: 30dvh;
+  overflow-y: auto;
+}
+.rooms-participants h3 {
+  margin: .15rem 0 .25rem; font-size: .78em; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--fg-muted);
+}
+.rooms-participants ul {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-wrap: wrap; gap: .35rem;
+}
+.rooms-participants li {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .3rem .55rem;
+  background: var(--surface-alt); border-radius: 999px;
+  font-size: .95em;
+}
+.rooms-people-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rooms-people-promote { padding: .1rem .4rem; font-size: .8em; }
+
+/* Audio-only note */
+.rooms-vidcap-note { padding: .25rem .6rem; font-size: .85em; }
+
+/* Guest landing page */
+.rooms-guest-join input[name="name"] {
+  width: 100%; padding: .5rem .7rem; margin-top: .25rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+
+/* Narrow screens: stack chat below stage */
+@media (max-width: 760px) {
+  .rooms-layout-v3 {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 50dvh) auto;
+  }
+  .rooms-room-controls { gap: .25rem; }
+  .rooms-ctl { padding: .3rem .5rem; font-size: .9em; }
+}
