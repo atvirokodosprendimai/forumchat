@@ -73,18 +73,26 @@
 
   // The issue dropzone is a thinner variant — same listener set, but
   // the data attribute is different so we have a separate select.
+  // Issue page has no SSE subscription (per-issue stream is postponed),
+  // so we reload after a successful upload to surface the new image.
   function bindIssueZone(zone) {
     if (boundZones.has(zone)) return;
     boundZones.add(zone);
     const url = zone.dataset.roomsProjectsIssueDropzone;
     if (!url) return;
     const input = zone.querySelector('input[type="file"]');
+    const onDone = (resp) => {
+      if (resp && resp.ok) window.location.reload();
+    };
     if (input && !boundInputs.has(input)) {
       boundInputs.add(input);
       input.addEventListener('change', async () => {
         if (!input.files || input.files.length === 0) return;
         flashUploading(zone, true);
-        try { await postFiles(url, input.files); }
+        try {
+          const r = await postFiles(url, input.files);
+          onDone(r);
+        }
         finally { flashUploading(zone, false); input.value = ''; }
       });
     }
@@ -99,7 +107,10 @@
       const files = ev.dataTransfer?.files;
       if (!files || files.length === 0) return;
       flashUploading(zone, true);
-      try { await postFiles(url, files); }
+      try {
+        const r = await postFiles(url, files);
+        onDone(r);
+      }
       finally { flashUploading(zone, false); }
     });
   }

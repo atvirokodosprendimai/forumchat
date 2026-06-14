@@ -230,8 +230,11 @@ func (h *Handler) PostIssueComment(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Issue page has no per-issue SSE stream — redirect to the same URL
+	// via datastar SSE so the page re-renders with the new comment.
+	c, _ := community.FromContext(r.Context())
 	sse := datastar.NewSSE(w, r)
-	_ = sse.PatchSignals([]byte(`{"projects_issue_comment_body":""}`))
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
 // PostIssueCommentEdit replaces a comment body.
@@ -263,7 +266,9 @@ func (h *Handler) PostIssueCommentEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	c, _ := community.FromContext(r.Context())
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
 // PostIssueCommentDelete soft-deletes a comment.
@@ -289,7 +294,9 @@ func (h *Handler) PostIssueCommentDelete(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	c, _ := community.FromContext(r.Context())
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
 // PostIssueAttachmentUpload accepts a multipart image upload, scoped
@@ -361,7 +368,9 @@ func (h *Handler) PostIssueAttachmentDelete(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	c, _ := community.FromContext(r.Context())
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
 // GetIssue renders the single-issue page.
@@ -546,7 +555,9 @@ func (h *Handler) PostIssueStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	c, _ := community.FromContext(r.Context())
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
 // PostIssueDelete removes an issue. Author OR admin (creator-guest can
@@ -576,6 +587,11 @@ func (h *Handler) PostIssueDelete(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues")
 }
+
+// PostIssueAttachmentDelete trigger reload too — fragments aren't on the
+// project SSE stream. (PostIssueAttachmentUpload is fetch-driven, the JS
+// already reloads on success.) Moved above PostIssueEdit so the new
+// helpers all live in the same neighbourhood.
 
 // PostIssueEdit replaces title + body in one shot.
 func (h *Handler) PostIssueEdit(w http.ResponseWriter, r *http.Request) {
@@ -610,7 +626,9 @@ func (h *Handler) PostIssueEdit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	w.WriteHeader(http.StatusNoContent)
+	c, _ := community.FromContext(r.Context())
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
 func toIssueView(i Issue, viewer Identity, viewerIsAdmin bool) webtempl.ProjectIssueView {
