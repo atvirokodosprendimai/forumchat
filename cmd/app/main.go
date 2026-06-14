@@ -28,6 +28,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/invites"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
+	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -247,6 +248,18 @@ func run() error {
 		Log:           log,
 	}
 
+	pmRepo := privatemsg.NewRepo(db)
+	pmBus := privatemsg.NewBus()
+	pmSvc := &privatemsg.Service{Repo: pmRepo, Bus: pmBus}
+	pmHandler := &privatemsg.Handler{
+		Svc:      pmSvc,
+		Repo:     pmRepo,
+		Bus:      pmBus,
+		AuthRepo: aRepo,
+		Sessions: sessions,
+		Log:      log,
+	}
+
 	// Per-community JOIN landing — LoadCommunity runs so the templ can render
 	// the community name, but RequireMember does NOT (this is the path that
 	// admits new members). Mounted before the main /c/{slug} group so it
@@ -336,6 +349,13 @@ func run() error {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Get("/uploads/{id}", uploadHandler.GetFile)
+	})
+
+	// Private messages are global — no community membership required.
+	// The handler authenticates via the session directly.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		pmHandler.Routes(r)
 	})
 
 	r.Get("/", dashboardHandler.GetIndex)

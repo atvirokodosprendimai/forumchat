@@ -46,7 +46,14 @@ const InitialSignals = `{
 	"todo_open_source":"",
 	"todo_title":"",
 	"todo_category":"",
-	"todo_note":""
+	"todo_note":"",
+	"pm_open_to_user":"",
+	"pm_open_to_name":"",
+	"pm_to_user":"",
+	"pm_body":"",
+	"pm_source_community_id":"",
+	"pm_source_chat_id":"",
+	"pm_send_body":""
 }`
 
 templ Layout(title string, v Viewer) {
@@ -82,6 +89,10 @@ templ Layout(title string, v Viewer) {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") }>Admin</a>
 							}
 						}
+						<a href="/messages" class="pm-nav-link">
+							Messages
+							@MessagesBadge(0)
+						</a>
 						<a href="/">Communities</a>
 						<a href="/profile">{ v.DisplayName }</a>
 						<button class="ghost" data-on:click="@post('/logout')">Sign out</button>
@@ -94,6 +105,9 @@ templ Layout(title string, v Viewer) {
 			<main>
 				{ children... }
 			</main>
+			if v.IsAuthed {
+				<div id="pm-stream-open" hidden data-init="@get('/messages/stream', {openWhenHidden: true})"></div>
+			}
 			<footer class="site-footer">
 				<span class="muted">Built by <a href="https://ituoga.lt" target="_blank" rel="noopener">ituoga.lt</a> and Claude</span>
 			</footer>
