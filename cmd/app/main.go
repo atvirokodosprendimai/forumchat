@@ -292,6 +292,12 @@ func run() error {
 		Log:       log,
 	}
 	pushHandler.Mount(r)
+	// Digest worker: scans push_pending every 30s, batches buffered
+	// events into one consolidated notification per (user, community)
+	// when their interval has elapsed.
+	digestCtx, cancelDigest := context.WithCancel(context.Background())
+	defer cancelDigest()
+	(&push.DigestWorker{Repo: pushRepo, Sender: pushSender, Log: log}).Start(digestCtx)
 	// Wire the sender so other packages (chat, forum, projects) can call
 	// notify helpers without importing each other. Each package owns the
 	// "what counts as a notifiable event" logic.

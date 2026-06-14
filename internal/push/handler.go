@@ -58,12 +58,13 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 type subscribeIn struct {
-	CommunityID string       `json:"community_id"`
-	Endpoint    string       `json:"endpoint"`
-	P256dh      string       `json:"p256dh"`
-	AuthKey     string       `json:"auth_key"`
-	UserAgent   string       `json:"user_agent"`
-	Settings    Settings     `json:"settings"`
+	CommunityID   string   `json:"community_id"`
+	Endpoint      string   `json:"endpoint"`
+	P256dh        string   `json:"p256dh"`
+	AuthKey       string   `json:"auth_key"`
+	UserAgent     string   `json:"user_agent"`
+	Settings      Settings `json:"settings"`
+	DigestMinutes int      `json:"digest_minutes"`
 }
 
 // PostSubscribe persists a browser PushSubscription for the current
@@ -88,15 +89,23 @@ func (h *Handler) PostSubscribe(w http.ResponseWriter, r *http.Request) {
 	if in.Settings == nil {
 		in.Settings = Settings{}
 	}
+	digest := in.DigestMinutes
+	if digest < 0 {
+		digest = 0
+	}
+	if digest > 1440 {
+		digest = 1440
+	}
 	err := h.Repo.Upsert(r.Context(), Subscription{
-		ID:          uuid.NewString(),
-		UserID:      id.User.ID,
-		CommunityID: in.CommunityID,
-		Endpoint:    in.Endpoint,
-		P256dh:      in.P256dh,
-		AuthKey:     in.AuthKey,
-		UserAgent:   in.UserAgent,
-		Settings:    in.Settings,
+		ID:            uuid.NewString(),
+		UserID:        id.User.ID,
+		CommunityID:   in.CommunityID,
+		Endpoint:      in.Endpoint,
+		P256dh:        in.P256dh,
+		AuthKey:       in.AuthKey,
+		UserAgent:     in.UserAgent,
+		Settings:      in.Settings,
+		DigestMinutes: digest,
 	})
 	if err != nil {
 		h.Log.Error("push subscribe upsert", "err", err)
@@ -147,6 +156,16 @@ func (h *Handler) GetSettingsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load failed", http.StatusInternalServerError)
 		return
 	}
+	// Pull digest_minutes from any existing subscription for this
+	// (user, community) so the dropdown reflects saved state. UpdateSettings
+	// writes it uniformly so picking the first row is correct.
+	digestMin := 0
+	if has {
+		subs, sErr := h.Repo.SubsForUserCommunity(r.Context(), id.User.ID, c.ID)
+		if sErr == nil && len(subs) > 0 {
+			digestMin = subs[0].DigestMinutes
+		}
+	}
 	v := webtempl.Viewer{
 		IsAuthed:      true,
 		DisplayName:   id.Membership.DisplayName,
@@ -159,19 +178,22 @@ func (h *Handler) GetSettingsPage(w http.ResponseWriter, r *http.Request) {
 		PublicKey:   h.PublicKey,
 		CommunityID: c.ID,
 		Has:         has,
-		Settings:    toTempl(settings),
+		Settings:    toTempl(settings, digestMin),
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = page.Render(r.Context(), w)
 }
 
 type saveSignals struct {
-	Mention    bool `json:"notif_mention"`
-	Report     bool `json:"notif_report"`
-	ProjectNew bool `json:"notif_project_new"`
-	IssueNew   bool `json:"notif_issue_new"`
-	CommentNew bool `json:"notif_comment_new"`
-	ThreadNew  bool `json:"notif_thread_new"`
+	Mention       bool `json:"notif_mention"`
+	Report        bool `json:"notif_report"`
+	ProjectNew    bool `json:"notif_project_new"`
+	IssueNew      bool `json:"notif_issue_new"`
+	CommentNew    bool `json:"notif_comment_new"`
+	ThreadNew     bool `json:"notif_thread_new"`
+	// 0 = immediate. Bigger values bucket events into a digest sent
+	// at most every N minutes. Clamped server-side to [0, 1440].
+	DigestMinutes int  `json:"notif_digest_minutes"`
 }
 
 func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +220,14 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		"comment_new": in.CommentNew,
 		"thread_new":  in.ThreadNew,
 	}
-	if err := h.Repo.UpdateSettings(r.Context(), id.User.ID, c.ID, s); err != nil {
+	digest := in.DigestMinutes
+	if digest < 0 {
+		digest = 0
+	}
+	if digest > 1440 {
+		digest = 1440
+	}
+	if err := h.Repo.UpdateSettings(r.Context(), id.User.ID, c.ID, s, digest); err != nil {
 		h.Log.Error("push settings save", "err", err)
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
@@ -207,7 +236,7 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchElementTempl(webtempl.SuccessFragment("notif-status", "Saved."))
 }
 
-func toTempl(s Settings) webtempl.NotificationSettings {
+func toTempl(s Settings, digestMinutes int) webtempl.NotificationSettings {
 	get := func(k string) bool {
 		if v, ok := s[k]; ok {
 			return v
@@ -215,11 +244,12 @@ func toTempl(s Settings) webtempl.NotificationSettings {
 		return true // opt-in by default
 	}
 	return webtempl.NotificationSettings{
-		Mention:    get("mention"),
-		Report:     get("report"),
-		ProjectNew: get("project_new"),
-		IssueNew:   get("issue_new"),
-		CommentNew: get("comment_new"),
-		ThreadNew:  get("thread_new"),
+		Mention:       get("mention"),
+		Report:        get("report"),
+		ProjectNew:    get("project_new"),
+		IssueNew:      get("issue_new"),
+		CommentNew:    get("comment_new"),
+		ThreadNew:     get("thread_new"),
+		DigestMinutes: digestMinutes,
 	}
 }

@@ -2345,6 +2345,9 @@ hr {
 .notif-master > div:first-child { flex: 1 1 220px; }
 .notif-master p { margin: .15rem 0 0; font-size: .85rem; color: var(--fg-muted); }
 .notif-card h3 { margin-top: 1rem; }
+.notif-digest { display: flex; flex-direction: column; gap: .35rem; margin: .25rem 0 .75rem; }
+.notif-digest select { width: 100%; }
+.notif-digest .notif-digest-note { font-size: .85rem; margin: 0; }
 
 /* Reduced motion — respect user preference */
 @media (prefers-reduced-motion: reduce) {

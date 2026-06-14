@@ -90,6 +90,13 @@
     };
   }
 
+  function readDigestMinutes() {
+    const sel = document.querySelector('select[data-bind="notif_digest_minutes"]');
+    if (!sel) return 0;
+    const n = parseInt(sel.value, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+
   async function enable() {
     try {
       showError('');
@@ -113,6 +120,7 @@
         auth_key: bufToBase64Url(sub.getKey('auth')),
         user_agent: navigator.userAgent || '',
         settings: await readCurrentSettings(),
+        digest_minutes: readDigestMinutes(),
       };
       const res = await fetch('/push/subscribe', {
         method: 'POST',
