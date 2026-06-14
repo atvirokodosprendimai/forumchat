@@ -87,9 +87,11 @@ templ ProjectPage(d ProjectPageData) {
 			<nav class="project-breadcrumb muted">
 				<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>← back to Projects</a>
 			</nav>
-			<section id="proj-header" class="project-header">
-				@ProjectHeader(d.CommunitySlug, d.Project)
-			</section>
+			// Hidden div opens the SSE stream that drives every fragment
+			// morph on this page. openWhenHidden keeps the stream alive
+			// while the tab is backgrounded.
+			<div id="proj-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/stream', {openWhenHidden: true})" }></div>
+			@ProjectHeaderFragment(d.CommunitySlug, d.Project)
 			<div class="project-body">
 				<section id="proj-todos" class="project-panel project-panel-todos">
 					<h3>Checklist</h3>
@@ -112,23 +114,65 @@ templ ProjectPage(d ProjectPageData) {
 	}
 }
 
-// ProjectHeader is split out so the Phase 3 SSE stream can re-render
-// just this fragment via WithModeOuter(). Phase 2 only renders it
-// server-side on the initial GET.
-templ ProjectHeader(slug string, p ProjectView) {
-	<div class="project-header-inner">
-		<h1 class="project-title">
-			{ p.Title }
-			if p.IsArchived {
-				<span class="projects-pill projects-pill-archived">archived</span>
+// ProjectHeaderFragment renders the title + description block with
+// inline-edit affordances driven by datastar signals
+// `$projects_edit_header`, `$projects_title`, and `$projects_desc`.
+// The Phase 3 SSE stream re-renders this fragment via WithModeOuter()
+// when either field changes anywhere.
+templ ProjectHeaderFragment(slug string, p ProjectView) {
+	<section id="proj-header" class="project-header"
+		data-signals={ "{projects_edit_header:false,projects_title:'" + jsQuoteAttr(p.Title) + "',projects_desc:'" + jsQuoteAttr(p.DescriptionMD) + "'}" }>
+		<div class="project-header-display" data-show="!$projects_edit_header">
+			<h1 class="project-title">
+				{ p.Title }
+				if p.IsArchived {
+					<span class="projects-pill projects-pill-archived">archived</span>
+				}
+			</h1>
+			if p.DescriptionHTML != "" {
+				<div class="project-description">@templ.Raw(p.DescriptionHTML)</div>
+			} else {
+				<p class="project-description-empty muted">No description yet.</p>
 			}
-		</h1>
-		if p.DescriptionHTML != "" {
-			<div class="project-description">@templ.Raw(p.DescriptionHTML)</div>
-		} else {
-			<p class="project-description-empty muted">No description yet.</p>
+			<button class="btn ghost project-edit-btn"
+				data-on:click="$projects_edit_header = true">Edit</button>
+		</div>
+		<div class="project-header-edit" data-show="$projects_edit_header" hidden>
+			<label>
+				Title
+				<input type="text" maxlength="200" data-bind="projects_title"
+					data-on:keydown={ "evt.key === 'Enter' && @post('/c/" + slug + "/projects/" + p.ID + "/title')" }/>
+			</label>
+			<label>
+				Description (markdown)
+				<textarea rows="5" data-bind="projects_desc"></textarea>
+			</label>
+			<div class="project-edit-actions">
+				<button class="btn" data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/title'); @post('/c/" + slug + "/projects/" + p.ID + "/desc'); $projects_edit_header = false" }>Save</button>
+				<button class="btn ghost" data-on:click="$projects_edit_header = false">Cancel</button>
+			</div>
+		</div>
+	</section>
+}
+
+// jsQuoteAttr escapes a string for inclusion inside a single-quoted
+// JSON value rendered into a data-signals attribute. Only the four
+// chars that break the literal need escaping.
+func jsQuoteAttr(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		switch r {
+		case '\\', '\'':
+			out = append(out, '\\', r)
+		case '\n':
+			out = append(out, '\\', 'n')
+		case '\r':
+			out = append(out, '\\', 'r')
+		default:
+			out = append(out, r)
 		}
-	</div>
+	}
+	return string(out)
 }
 
 templ projectCard(slug string, row ProjectsGridRow) {

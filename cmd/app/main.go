@@ -229,8 +229,9 @@ func run() error {
 	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
 
 	projectsRepo := projects.NewRepo(db)
-	projectsSvc := projects.NewService(projectsRepo)
-	projectsHandler := &projects.Handler{Repo: projectsRepo, Svc: projectsSvc, Log: log}
+	projectsBus := projects.NewBus()
+	projectsSvc := projects.NewService(projectsRepo, projectsBus)
+	projectsHandler := &projects.Handler{Repo: projectsRepo, Svc: projectsSvc, Bus: projectsBus, Log: log}
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
@@ -355,6 +356,9 @@ func run() error {
 			r.Get("/projects", projectsHandler.GetIndex)
 			r.Post("/projects", projectsHandler.PostCreate)
 			r.Get("/projects/{id}", projectsHandler.GetProject)
+			r.Get("/projects/{id}/stream", projectsHandler.GetStream)
+			r.Post("/projects/{id}/title", projectsHandler.PostTitle)
+			r.Post("/projects/{id}/desc", projectsHandler.PostDescription)
 		}
 
 		r.Group(func(r chi.Router) {

@@ -55,17 +55,19 @@ Goal: any approved member can create a project, click into it, see all five pane
 
 Verification: enter a title in the index "New project" form → land on `/c/main/projects/<id>` → see all five panel skeletons with the title rendered.
 
-### Phase 3 — Datastar realtime: Bus + SSE + title/desc inline edit — status: open
+### Phase 3 — Datastar realtime: Bus + SSE + title/desc inline edit — status: completed
 
 Goal: title and description edits propagate to other open tabs within ~1s with no refresh.
 
-1. [ ] `internal/projects/bus.go` — `Bus` with `SubscribeProject(projectID) (<-chan Event, func())` + `PublishProject(projectID, Event)`; copy structure from `internal/rooms/bus.go`
-2. [ ] `handler.GetStream` — GET `/c/{slug}/projects/{id}/stream` returns SSE; subscribes to Bus, on each `Event` re-renders the affected fragment via `sse.PatchElementTempl(..., WithModeOuter())`
-3. [ ] `service.UpdateTitle`, `service.UpdateDescription` + `handler.PostTitle`, `handler.PostDesc`; both publish `Event{Kind: "header"}`
-4. [ ] Templ helpers `ProjectHeader(d)` and `ProjectDescription(d)` (called from `ProjectPage` and from SSE pushes)
-5. [ ] Inline edit affordance in `projects.templ`: click title → editable input bound to `$projects_title` + datastar `data-on:keydown` on Enter → POST
-6. [ ] Same affordance for description (textarea, markdown preview rendered server-side)
-7. [ ] `web/static/projects.js` — bootstrap room-id from `data-init`; no per-element JS yet
+1. [x] `internal/projects/bus.go` — `Bus` with `SubscribeProject` + `PublishProject`; same shape as rooms/forum buses
+2. [x] `handler.GetStream` — GET `/c/{slug}/projects/{id}/stream`, pushes header on open then on each Bus Event; 25s keepalive via empty PatchSignals
+3. [x] `service.UpdateTitle`, `service.UpdateDescription` — both publish `Event{Kind: "header"}`
+4. [x] `handler.PostTitle`, `handler.PostDescription` — datastar.ReadSignals into `projectSignals{Title, Description}`, return 204
+5. [x] Templ — single `ProjectHeaderFragment(slug, p)` covers both the in-page initial render AND the SSE morph; data-show toggles edit/display via `$projects_edit_header`; Enter on title and a "Save" button both POST
+6. [x] Description editing uses a textarea bound to `$projects_desc`; same Save button POSTs both endpoints sequentially and clears the edit flag
+7. [ ] Skipped `web/static/projects.js` for Phase 3 — datastar `data-init=@get(...)` opens the SSE stream directly, no extra JS needed yet
+   - => Decision: JS only lands when a per-element interaction (drag-drop, keyboard reorder) needs it. Phase 5 will introduce projects.js for drag-and-drop attachments.
+8. [x] `cmd/app/main.go` — `projectsBus := projects.NewBus()` constructed and wired into Service+Handler; three new routes mounted (`/stream`, `/title`, `/desc`).
 
 Verification: two browser tabs as different members on the same project — tab A edits title → tab B's title updates within ~1s without refresh.
 
@@ -150,4 +152,5 @@ End-to-end story we want green after Phase 7:
 ## Progress Log
 
 - **2026-06-14 14:20** — Phase 1 completed on `task/projects-phase-1` (off `task/spec-projects`). Migration 00013, config flag, projects package skeleton, templ index page, main.go wiring. Build clean. Ready to commit + open PR that brings spec + plan + Phase 1 to main together. Shipped commit `54581bb`.
-- **2026-06-14 14:32** — Phase 2 completed on the same branch. service.go with CreateProject + sentinel errors, handler.PostCreate + GetProject, ProjectPage templ with 5 panel skeletons, routes mounted under the feature-flag conditional in main.go. CSS deferred to Phase 7. Build clean.
+- **2026-06-14 14:32** — Phase 2 completed on the same branch. service.go with CreateProject + sentinel errors, handler.PostCreate + GetProject, ProjectPage templ with 5 panel skeletons, routes mounted under the feature-flag conditional in main.go. CSS deferred to Phase 7. Build clean. Commit `bd0170e`.
+- **2026-06-14 14:42** — Phase 3 completed. bus.go fan-out, service UpdateTitle/UpdateDescription, handler PostTitle/PostDescription/GetStream, ProjectHeaderFragment with inline edit affordance driven by `$projects_edit_header`/`$projects_title`/`$projects_desc`, three new routes. Build clean.
