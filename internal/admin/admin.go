@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -23,6 +24,13 @@ type Handler struct {
 	Svc           *auth.Service
 	Chat          *chat.Handler
 	Communities   *community.Repo
+	// Mail is optional. When set, "Add member by email" can email the
+	// join link directly to the recipient (existing or invited user).
+	Mail auth.Mailer
+	// BaseURL is the configured public URL of the instance. When the
+	// incoming request lacks usable scheme/host headers (e.g. background
+	// flows), we fall back to this for absolute URLs in emails.
+	BaseURL       string
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
@@ -332,8 +340,9 @@ var slugRE = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 func validSlug(s string) bool { return slugRE.MatchString(s) }
 
 type addMemberSignals struct {
-	Email string `json:"am_email"`
-	Role  string `json:"am_role"`
+	Email     string `json:"am_email"`
+	Role      string `json:"am_role"`
+	SendEmail bool   `json:"am_send_email"`
 }
 
 // PostAddMember is the admin "click click edit and done" add-by-email handler.
@@ -366,6 +375,8 @@ func (h *Handler) PostAddMember(w http.ResponseWriter, r *http.Request) {
 	cid := h.cid(r)
 	cslug := h.cslug(r)
 
+	cname := h.cname(r)
+
 	user, err := h.Repo.UserByEmail(r.Context(), email)
 	now := time.Now()
 	if err == nil {
@@ -389,8 +400,18 @@ func (h *Handler) PostAddMember(w http.ResponseWriter, r *http.Request) {
 			_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", err.Error()))
 			return
 		}
+		msg := "Added " + email + " — they will see this community on next sign-in."
+		if in.SendEmail {
+			deepLink := h.absoluteURL(r, "/c/"+cslug+"/chat")
+			emailErr := h.sendCommunityWelcomeEmail(r.Context(), email, cname, deepLink)
+			if emailErr != nil {
+				msg = "Added " + email + ", but the email failed: " + emailErr.Error()
+			} else {
+				msg = "Added " + email + " and emailed them the link."
+			}
+		}
 		_ = sse.PatchSignals([]byte(`{"am_email":""}`))
-		_ = sse.PatchElementTempl(webtempl.SuccessFragment("am-result", "Added "+email+" — they will see this community on next sign-in."))
+		_ = sse.PatchElementTempl(webtempl.SuccessFragment("am-result", msg))
 		return
 	}
 	if !errors.Is(err, auth.ErrNotFound) {
@@ -424,9 +445,67 @@ func (h *Handler) PostAddMember(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result", err.Error()))
 		return
 	}
-	url := "/c/" + cslug + "/join?code=" + token
+	joinPath := "/c/" + cslug + "/join?code=" + token
 	_ = sse.PatchSignals([]byte(`{"am_email":""}`))
-	_ = sse.PatchElementTempl(webtempl.InviteURLFragment("am-result", email, url))
+
+	if in.SendEmail {
+		joinURL := h.absoluteURL(r, joinPath)
+		if err := h.sendCommunityJoinEmail(r.Context(), email, cname, joinURL); err != nil {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("am-result",
+				"Invite created, but the email failed: "+err.Error()+" — copy this link instead: "+joinPath))
+			return
+		}
+		_ = sse.PatchElementTempl(webtempl.SuccessFragment("am-result",
+			"Invited "+email+" — join link emailed."))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.InviteURLFragment("am-result", email, joinPath))
+}
+
+// absoluteURL turns a path into an absolute URL using the incoming
+// request's scheme/host (honouring X-Forwarded-* headers) so the link
+// works behind a reverse proxy. Falls back to the configured BaseURL
+// when the request lacks host info.
+func (h *Handler) absoluteURL(r *http.Request, path string) string {
+	scheme := "http"
+	if r != nil && r.TLS != nil {
+		scheme = "https"
+	}
+	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		scheme = p
+	}
+	host := r.Host
+	if hdr := r.Header.Get("X-Forwarded-Host"); hdr != "" {
+		host = hdr
+	}
+	if host == "" {
+		if h.BaseURL != "" {
+			return strings.TrimRight(h.BaseURL, "/") + path
+		}
+		return path
+	}
+	return scheme + "://" + host + path
+}
+
+func (h *Handler) sendCommunityJoinEmail(ctx context.Context, to, communityName, joinURL string) error {
+	if h.Mail == nil {
+		return errors.New("email not configured on this instance")
+	}
+	subject := communityName + " — your join link"
+	body := "You've been invited to join " + communityName + " on forumchat.\n\n" +
+		"Click to set up your account and join:\n" + joinURL + "\n\n" +
+		"This link is good for 7 days.\n"
+	return h.Mail.Send(ctx, to, subject, body)
+}
+
+func (h *Handler) sendCommunityWelcomeEmail(ctx context.Context, to, communityName, deepLink string) error {
+	if h.Mail == nil {
+		return errors.New("email not configured on this instance")
+	}
+	subject := "You've been added to " + communityName
+	body := "You've been added to the community " + communityName + " on forumchat.\n\n" +
+		"Sign in and jump straight in:\n" + deepLink + "\n"
+	return h.Mail.Send(ctx, to, subject, body)
 }
 
 func memberRowsToAdminMembers(rows []auth.MemberRow, now time.Time) []webtempl.AdminMember {

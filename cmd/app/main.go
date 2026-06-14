@@ -223,6 +223,8 @@ func run() error {
 		Svc:           svc,
 		Chat:          chatHandler,
 		Communities:   cRepo,
+		Mail:          mailer,
+		BaseURL:       cfg.BaseURL,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
