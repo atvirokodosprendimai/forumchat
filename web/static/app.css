@@ -243,7 +243,7 @@ button.link:hover { text-decoration: underline; }
 .chat-layout {
   display: grid; grid-template-columns: 1fr 220px; gap: 1.25rem;
   align-items: stretch;
-  height: 100%;
+  height: 100%; margin-bottom: 0;
 }
 .chat-layout > div:first-child {
   display: flex; flex-direction: column; min-height: 0;
