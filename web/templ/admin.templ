@@ -23,10 +23,11 @@ type AdminMember struct {
 }
 
 type AdminPageData struct {
-	Viewer  Viewer
-	Pending []AdminMember
-	Members []AdminMember
-	Invites []AdminInvite
+	Viewer   Viewer
+	IsPublic bool
+	Pending  []AdminMember
+	Members  []AdminMember
+	Invites  []AdminInvite
 }
 
 templ AdminPage(d AdminPageData) {
@@ -34,6 +35,17 @@ templ AdminPage(d AdminPageData) {
 		<section>
 			<h1>Admin — { d.Viewer.CommunityName }</h1>
 			<p class="muted"><a href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin") }>refresh</a></p>
+
+			<section class="card narrow">
+				<h2>Visibility</h2>
+				if d.IsPublic {
+					<p>This community is <strong>public</strong> — it appears on <a href="/explore">/explore</a> and signed-in users can request to join.</p>
+					<button class="ghost" data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/admin/toggle-public')" }>Make private</button>
+				} else {
+					<p>This community is <strong>private</strong> — invite-only.</p>
+					<button data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/admin/toggle-public')" }>Make public</button>
+				}
+			</section>
 
 			<section class="card narrow">
 				<h2>Add member by email</h2>

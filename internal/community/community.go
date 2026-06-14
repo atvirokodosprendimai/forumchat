@@ -13,6 +13,7 @@ type Community struct {
 	ID        string
 	Slug      string
 	Name      string
+	IsPublic  bool
 	CreatedAt time.Time
 }
 
@@ -23,17 +24,73 @@ func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 func (r *Repo) BySlug(ctx context.Context, slug string) (Community, error) {
 	var c Community
 	var created int64
+	var isPublic int
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, slug, name, created_at FROM communities WHERE slug = ?`, slug).
-		Scan(&c.ID, &c.Slug, &c.Name, &created)
+		SELECT id, slug, name, COALESCE(is_public,0), created_at FROM communities WHERE slug = ?`, slug).
+		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Community{}, sql.ErrNoRows
 	}
 	if err != nil {
 		return Community{}, err
 	}
+	c.IsPublic = isPublic != 0
 	c.CreatedAt = time.Unix(created, 0)
 	return c, nil
+}
+
+// SetPublic flips the discoverability flag on a community.
+func (r *Repo) SetPublic(ctx context.Context, id string, public bool) error {
+	v := 0
+	if public {
+		v = 1
+	}
+	_, err := r.DB.ExecContext(ctx, `UPDATE communities SET is_public = ? WHERE id = ?`, v, id)
+	return err
+}
+
+// PublicListing is one row of the explore page.
+type PublicListing struct {
+	Community
+	MemberCount int
+	IsMember    bool
+	IsPending   bool
+}
+
+// ListPublic returns public communities annotated with the viewer's
+// membership state so the explore page can pick the right CTA.
+// viewerID may be empty for anonymous browsing (everything reads as "not a member").
+func (r *Repo) ListPublic(ctx context.Context, viewerID string) ([]PublicListing, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT c.id, c.slug, c.name, c.created_at,
+		       (SELECT COUNT(*) FROM memberships mb2
+		          WHERE mb2.community_id = c.id AND mb2.approved_at IS NOT NULL) AS member_count,
+		       mb.approved_at IS NOT NULL AS is_member,
+		       mb.id IS NOT NULL AND mb.approved_at IS NULL AS is_pending
+		FROM communities c
+		LEFT JOIN memberships mb ON mb.community_id = c.id AND mb.user_id = ?
+		WHERE c.is_public = 1
+		ORDER BY member_count DESC, c.name`, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PublicListing
+	for rows.Next() {
+		var row PublicListing
+		var created int64
+		var isMember, isPending int
+		if err := rows.Scan(&row.Community.ID, &row.Community.Slug, &row.Community.Name, &created,
+			&row.MemberCount, &isMember, &isPending); err != nil {
+			return nil, err
+		}
+		row.Community.IsPublic = true
+		row.Community.CreatedAt = time.Unix(created, 0)
+		row.IsMember = isMember != 0
+		row.IsPending = isPending != 0
+		out = append(out, row)
+	}
+	return out, rows.Err()
 }
 
 // Create inserts a new community. Returns ErrSlugTaken when the slug is

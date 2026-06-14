@@ -23,6 +23,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
+	"github.com/atvirokodosprendimai/forumchat/internal/explore"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/history"
 	"github.com/atvirokodosprendimai/forumchat/internal/invites"
@@ -221,6 +222,7 @@ func run() error {
 	}
 
 	dashboardHandler := &dashboard.Handler{Communities: cRepo, Log: log}
+	exploreHandler := &explore.Handler{Communities: cRepo, AuthRepo: aRepo, Sessions: sessions, Log: log}
 
 	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
 
@@ -331,6 +333,7 @@ func run() error {
 			r.Post("/admin/invite", adminHandler.PostInvite)
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
 			r.Post("/admin/add-member", adminHandler.PostAddMember)
+			r.Post("/admin/toggle-public", adminHandler.PostTogglePublic)
 			r.Post("/forum/{id}/hard-delete", forumHandler.PostHardDeleteThread)
 		})
 	})
@@ -361,6 +364,11 @@ func run() error {
 	})
 
 	r.Get("/", dashboardHandler.GetIndex)
+	r.Get("/explore", exploreHandler.GetIndex)
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Post("/explore/{slug}/request", exploreHandler.PostRequestJoin)
+	})
 
 	r.Get("/_debug/clock", func(w http.ResponseWriter, req *http.Request) {
 		_ = webtempl.DebugClock().Render(req.Context(), w)

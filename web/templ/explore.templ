@@ -1,0 +1,49 @@
+package templ
+
+type ExploreRow struct {
+	Slug        string
+	Name        string
+	MemberCount int
+	IsMember    bool
+	IsPending   bool
+}
+
+type ExploreData struct {
+	Viewer Viewer
+	Rows   []ExploreRow
+}
+
+templ ExplorePage(d ExploreData) {
+	@Layout("Explore communities", d.Viewer) {
+		<section>
+			<h1>Explore communities</h1>
+			<p class="muted">Public communities you can request to join. Admins review every request.</p>
+			if len(d.Rows) == 0 {
+				<p class="muted">No public communities yet.</p>
+			}
+			<ul class="explore-list">
+				for _, row := range d.Rows {
+					<li class="explore-card">
+						<div class="explore-head">
+							<strong>{ row.Name }</strong>
+							<span class="muted explore-count">{ itoa(row.MemberCount) } members</span>
+						</div>
+						<div class="explore-actions">
+							if row.IsMember {
+								<a class="btn ghost" href={ templ.URL("/c/" + row.Slug + "/chat") }>Open</a>
+							} else if row.IsPending {
+								<span class="pm-pill pm-pill-pending-out">request pending</span>
+							} else if d.Viewer.IsAuthed {
+								<form method="post" action={ templ.URL("/explore/" + row.Slug + "/request") }>
+									<button>Request to join</button>
+								</form>
+							} else {
+								<a class="btn" href="/login">Sign in to join</a>
+							}
+						</div>
+					</li>
+				}
+			</ul>
+		</section>
+	}
+}
