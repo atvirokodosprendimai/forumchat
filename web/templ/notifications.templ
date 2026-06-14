@@ -1,0 +1,108 @@
+package templ
+
+// NotificationSettings is the per-community opt-in map rendered into
+// the form. Defaults to true on the server when a key is missing.
+type NotificationSettings struct {
+	Mention    bool
+	Report     bool
+	ProjectNew bool
+	IssueNew   bool
+	CommentNew bool
+	ThreadNew  bool
+}
+
+type NotificationsPageData struct {
+	Viewer      Viewer
+	PublicKey   string
+	CommunityID string
+	Has         bool // user has at least one subscription in this community
+	Settings    NotificationSettings
+}
+
+templ NotificationsPage(d NotificationsPageData) {
+	@Layout("Notifications — "+d.Viewer.CommunityName, d.Viewer) {
+		<section
+			class="card narrow notif-card"
+			data-vapid-pubkey={ d.PublicKey }
+			data-community-id={ d.CommunityID }
+			data-signals={ notifSignalsJSON(d.Settings) }
+		>
+			<header class="page-head">
+				<div>
+					<h1>Notifications</h1>
+					<p class="muted">{ d.Viewer.CommunityName } — choose what wakes your phone.</p>
+				</div>
+			</header>
+
+			<div id="notif-status" class="muted"></div>
+			<div id="notif-error" class="error"></div>
+
+			<div class="notif-master">
+				<div>
+					<strong>Enable push for this community</strong>
+					<p class="muted">Background notifications even when the app is closed. Asks for permission the first time.</p>
+				</div>
+				if d.Has {
+					<button class="btn ghost" type="button" data-notif-disable>Disable on this device</button>
+				} else {
+					<button class="btn" type="button" data-notif-enable>Enable</button>
+				}
+			</div>
+
+			<hr/>
+
+			<h3>Send me a notification when…</h3>
+
+			<label class="check-row">
+				<input type="checkbox" data-bind="notif_mention"/>
+				<span><strong>mentioned by name</strong> in chat or a forum post</span>
+			</label>
+			<label class="check-row">
+				<input type="checkbox" data-bind="notif_report"/>
+				<span><strong>moderation</strong> — a message is reported as spam or flagged</span>
+			</label>
+			<label class="check-row">
+				<input type="checkbox" data-bind="notif_thread_new"/>
+				<span><strong>new forum thread</strong> in this community</span>
+			</label>
+			<label class="check-row">
+				<input type="checkbox" data-bind="notif_project_new"/>
+				<span><strong>new project</strong> created</span>
+			</label>
+			<label class="check-row">
+				<input type="checkbox" data-bind="notif_issue_new"/>
+				<span><strong>new issue</strong> in any project</span>
+			</label>
+			<label class="check-row">
+				<input type="checkbox" data-bind="notif_comment_new"/>
+				<span><strong>new comment</strong> on an issue or discussion</span>
+			</label>
+
+			<div class="profile-actions">
+				<button type="button" data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/notifications/save')" }>Save</button>
+				<a class="btn ghost" href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/chat") }>Back</a>
+			</div>
+		</section>
+		<script src={ "/static/push.js?v=" + AssetVer("push.js") } defer></script>
+	}
+}
+
+// notifSignalsJSON serializes the form defaults so the data-signals
+// attribute can prime the checkboxes from server state. Booleans go in
+// as bare true/false.
+func notifSignalsJSON(s NotificationSettings) string {
+	bs := func(b bool) string {
+		if b {
+			return "true"
+		}
+		return "false"
+	}
+	return "{" +
+		"\"notif_mention\":" + bs(s.Mention) + "," +
+		"\"notif_report\":" + bs(s.Report) + "," +
+		"\"notif_project_new\":" + bs(s.ProjectNew) + "," +
+		"\"notif_issue_new\":" + bs(s.IssueNew) + "," +
+		"\"notif_comment_new\":" + bs(s.CommentNew) + "," +
+		"\"notif_thread_new\":" + bs(s.ThreadNew) +
+		"}"
+}

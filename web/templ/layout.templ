@@ -162,6 +162,7 @@ templ Layout(title string, v Viewer) {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") }><span class="sb-icon" aria-hidden="true">📂</span>Projects</a>
 							}
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/notifications") }><span class="sb-icon" aria-hidden="true">🔔</span>Notifications</a>
 							if v.Role == "admin" {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
 							}

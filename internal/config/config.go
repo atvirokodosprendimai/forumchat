@@ -49,6 +49,16 @@ type Config struct {
 	// The DB tables always exist so flipping the flag never needs a
 	// schema migration.
 	ProjectsEnabled bool `env:"PROJECTS_ENABLED" envDefault:"false"`
+
+	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate
+	// on first boot and persist to VAPID_KEYS_FILE so subsequent boots
+	// keep the same key pair (otherwise every browser subscription would
+	// stop working after a restart). VAPID_SUBJECT is the mailto: or URL
+	// the push service shows in dispatch logs.
+	VAPIDPublic   string `env:"VAPID_PUBLIC" envDefault:""`
+	VAPIDPrivate  string `env:"VAPID_PRIVATE" envDefault:""`
+	VAPIDSubject  string `env:"VAPID_SUBJECT" envDefault:"mailto:admin@example.com"`
+	VAPIDKeysFile string `env:"VAPID_KEYS_FILE" envDefault:"./data/vapid.json"`
 }
 
 func (c Config) IsProd() bool { return strings.EqualFold(c.Env, "prod") }

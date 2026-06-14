@@ -24,14 +24,18 @@ import (
 )
 
 type Handler struct {
-	Svc           *Service
-	Repo          *Repo
-	Chat          *chat.Service
-	ChatRepo      *chat.Repo
-	ChatBus       *chat.Bus
-	Bus           *Bus
-	NATS          *nats.Conn
-	Uploads       *uploads.Store
+	Svc      *Service
+	Repo     *Repo
+	Chat     *chat.Service
+	ChatRepo *chat.Repo
+	ChatBus  *chat.Bus
+	Bus      *Bus
+	NATS     *nats.Conn
+	Uploads  *uploads.Store
+	// PushNotify dispatches a web-push notification. Optional. Wired
+	// in main.go to the push package's Sender so this package doesn't
+	// import push.
+	PushNotify    func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
 	CommunityID   string
 	CommunityName string
 	BaseURL       string
@@ -212,6 +216,25 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 			// from the DB (which now includes the thread_announce row).
 			_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
 		}
+	}
+
+	// Background push: broadcast the new thread to every community
+	// subscriber opted in to thread_new. Runs detached so the redirect
+	// isn't blocked by the push services.
+	if h.PushNotify != nil {
+		cid := h.cid(r.Context())
+		cslug := h.cslug(r.Context())
+		authorName := id.Membership.DisplayName
+		threadURL := "/c/" + cslug + "/forum/" + t.ID
+		subjectCopy := t.Subject
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			h.PushNotify(ctx, cid, "thread_new", nil,
+				"New thread: "+subjectCopy,
+				authorName+" started a new forum thread.",
+				threadURL)
+		}()
 	}
 
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)
