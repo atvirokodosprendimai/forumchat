@@ -1,28 +1,39 @@
 # forumchat
 
-A self-hosted, single-binary community platform that bundles realtime chat, a
-forum, video meeting rooms, projects with issues/comments, private messages,
-push notifications, and per-community settings into one Go server with a
-SQLite database.
+> **Self-hosted community platform in a single Go binary.** Realtime chat,
+> a durable forum, WebRTC video rooms, projects with issues, private
+> messages, web push, and per-community moderation — one process backed
+> by SQLite. AGPL-3.0.
 
-The intent: a Discord-style "present" feel combined with the durable memory of a
-classic forum, plus the workspace pieces (issues, todos, attachments, video
-rooms) you usually have to bolt on later. Multi-community out of the box.
+If you've ever wanted **Discord + Discourse + Jitsi + Linear-lite rolled
+into one `docker run`**, that's the project. No SaaS lock-in, no SPA
+build pipeline, no Kubernetes. Server-rendered HTML over
+[Datastar](https://data-star.dev) SSE, ~70 MB image, runs on a $5 VPS or
+a Raspberry Pi.
 
+**Built for:** indie hacker communities, study cohorts, family/club
+servers, classroom backchannels, open-source project lounges, internal
+team spaces — anywhere a Discord + forum mix would fit but you want to
+own the data.
+
+**Pick forumchat if you want:**
+
+- **One binary, one DB file.** SQLite (CGO-free), no Postgres/Redis/queue to babysit. NATS optional.
+- **Realtime *and* searchable.** Chat is durable; threads promote into the forum; messages link into todos and bookmarks.
+- **Built-in video rooms.** Mesh WebRTC, screen + camera as independent tiles, no Jitsi sidecar.
+- **Push notifications that don't spam.** Per-event toggles + 5 / 15 / 60 / 240-min digest mode.
+- **Two-step sign-in with magic link.** Email-then-password OR email-me-a-link, anti-enumeration by default.
+- **Multi-community by default.** Every row is `community_id`-scoped; public communities discoverable under `/explore`.
+- **Boring stack.** Go 1.26 · chi · templ · Datastar · scs sessions · SQLite + goose migrations. No JS framework.
+
+**Try it in 30 seconds:**
+
+```bash
+docker run -p 8080:8080 -v $PWD/data:/data ghcr.io/atvirokodosprendimai/forumchat:latest
+# → open http://localhost:8080 — first user becomes admin
 ```
-                          ┌──────────────────────────┐
-                          │   forumchat single bin   │
-   user ─── HTTPS ──────► │  Go · chi · templ ·      │ ──► SQLite (./data)
-                          │  datastar SSE · NATS     │ ──► NATS (optional)
-                          │  Web Push (VAPID)        │ ──► SMTP (optional)
-                          └────────────┬─────────────┘
-                                       │
-                       ┌───────────────┼────────────────────┐
-                       ▼               ▼                    ▼
-                  Mesh WebRTC      Service Worker       Background workers
-                  (rooms peers)    (push notifications) (presence sweep,
-                                                        digest dispatcher)
-```
+
+[Quickstart](#local-development) · [What you get](#what-you-get) · [Architecture](#system-architecture) · [Configuration](#configuration) · [Roadmap](#roadmap)
 
 ---
 
