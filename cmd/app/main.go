@@ -270,18 +270,19 @@ func run() error {
 	roomsState := rooms.NewState()
 	roomsSvc := rooms.NewService(roomsRepo, roomsBus, roomsState)
 	roomsHandler := &rooms.Handler{
-		Svc:      roomsSvc,
-		Repo:     roomsRepo,
-		Bus:      roomsBus,
-		State:    roomsState,
-		AuthRepo: aRepo,
-		CommRepo: cRepo,
-		Sessions: sessions,
-		Log:      log,
-		ChatSvc:  chatSvc,
-		ChatRepo: chatRepo,
-		ChatBus:  chatBus,
-		Mailer:   mailer,
+		Svc:        roomsSvc,
+		Repo:       roomsRepo,
+		Bus:        roomsBus,
+		State:      roomsState,
+		AuthRepo:   aRepo,
+		CommRepo:   cRepo,
+		Sessions:   sessions,
+		Log:        log,
+		ChatSvc:    chatSvc,
+		ChatRepo:   chatRepo,
+		ChatBus:    chatBus,
+		Mailer:     mailer,
+		IceServers: buildIceServers(cfg),
 	}
 	// Seed the bootstrap community's 8 rooms on boot. Other communities
 	// get lazy-seeded on first GET /c/{slug}/rooms.
@@ -493,4 +494,31 @@ func clockStream(w http.ResponseWriter, req *http.Request, nc *nats.Conn, log *s
 			_ = render.PatchTempl(sse, webtempl.ClockFragment(time.Now().Format(time.RFC3339)))
 		}
 	}
+}
+
+// buildIceServers turns the parsed config into the slice the rooms
+// handler forwards to RTCPeerConnection. STUN-only is fine for same-LAN
+// peers; symmetric-NAT guests need TURN or the connection silently
+// stalls (no media despite signaling completing).
+func buildIceServers(cfg config.Config) []rooms.ICEServer {
+	var out []rooms.ICEServer
+	if len(cfg.STUNURLs) > 0 {
+		urls := make([]string, 0, len(cfg.STUNURLs))
+		for _, u := range cfg.STUNURLs {
+			if u != "" {
+				urls = append(urls, u)
+			}
+		}
+		if len(urls) > 0 {
+			out = append(out, rooms.ICEServer{URLs: urls})
+		}
+	}
+	if cfg.TURNURL != "" {
+		out = append(out, rooms.ICEServer{
+			URLs:       []string{cfg.TURNURL},
+			Username:   cfg.TURNUsername,
+			Credential: cfg.TURNPassword,
+		})
+	}
+	return out
 }

@@ -34,6 +34,15 @@ type Config struct {
 	CommunityName  string        `env:"COMMUNITY_NAME" envDefault:"The Community"`
 	PresenceTTL    time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`
 	EditGrace      time.Duration `env:"EDIT_GRACE" envDefault:"15m"`
+
+	// WebRTC ICE config for /rooms. Without TURN, guests behind symmetric
+	// NAT (mobile carriers, corporate, CGNAT) cannot establish peer
+	// connections — STUN alone is insufficient. Multiple STUN URLs may be
+	// comma-separated. TURN is a single entry: leave URL empty to omit.
+	STUNURLs     []string `env:"ROOMS_STUN_URLS" envSeparator:"," envDefault:"stun:stun.l.google.com:19302"`
+	TURNURL      string   `env:"ROOMS_TURN_URL" envDefault:""`
+	TURNUsername string   `env:"ROOMS_TURN_USERNAME" envDefault:""`
+	TURNPassword string   `env:"ROOMS_TURN_PASSWORD" envDefault:""`
 }
 
 func (c Config) IsProd() bool { return strings.EqualFold(c.Env, "prod") }

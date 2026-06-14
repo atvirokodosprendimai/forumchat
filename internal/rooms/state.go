@@ -9,10 +9,11 @@ import (
 )
 
 // staleAfter is how long a member can go without a heartbeat ping before
-// the janitor evicts them. Tight enough that a closed tab disappears
-// quickly, loose enough to survive a brief network blip between pings
-// (clients ping every 10s — three missed pings triggers eviction).
-const staleAfter = 25 * time.Second
+// the janitor evicts them. Browsers throttle background-tab setInterval,
+// transient HTTPS blips swallow individual pings, and any eviction kills
+// the room's WebRTC signal routes for that key — so we keep it generous
+// and rely on EnsureMember to re-admit on the next user action.
+const staleAfter = 60 * time.Second
 
 // liveRoom holds the in-memory live state for one room.
 type liveRoom struct {
