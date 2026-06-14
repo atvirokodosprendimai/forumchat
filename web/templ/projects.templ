@@ -374,8 +374,15 @@ templ ProjectDiscussionsPage(d ProjectPageData, threads []ProjectDiscussionRowVi
 						data-on:paste="fcPasteImage(evt, 'projects_discussion_body_image')"
 						data-bind="projects_discussion_body"></textarea>
 					<input type="hidden" data-bind="projects_discussion_body_image"/>
+					<div class="composer-row">
+						<label class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">
+							📎 Attach image
+							<input type="file" accept="image/*" style="display:none"
+								data-on:change="fcPickImage(evt, 'projects_discussion_body_image')"/>
+						</label>
+						<button class="btn" type="submit">Start thread</button>
+					</div>
 					<div data-show="$projects_discussion_body_image" class="muted">📎 Image attached — submits with the thread.</div>
-					<button class="btn" type="submit">Start thread</button>
 				</form>
 				if len(threads) == 0 {
 					<p class="muted">No discussion threads yet. Start the first one above.</p>
@@ -516,8 +523,15 @@ templ ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVi
 							data-on:paste="fcPasteImage(evt, 'projects_discussion_reply_image')"
 							data-bind="projects_discussion_reply_body" required></textarea>
 						<input type="hidden" data-bind="projects_discussion_reply_image"/>
+						<div class="composer-row">
+							<label class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">
+								📎 Attach image
+								<input type="file" accept="image/*" style="display:none"
+									data-on:change="fcPickImage(evt, 'projects_discussion_reply_image')"/>
+							</label>
+							<button class="btn" type="submit">Post reply</button>
+						</div>
 						<div data-show="$projects_discussion_reply_image" class="muted">📎 Image attached — submits with the reply.</div>
-						<button class="btn" type="submit">Post reply</button>
 					</form>
 				</section>
 			</section>

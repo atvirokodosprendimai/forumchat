@@ -127,6 +127,9 @@ func (s *Store) Get(ctx context.Context, id string) (Upload, error) {
 	return u, nil
 }
 
+// Sign computes the HMAC over (upload_id || viewer_id || exp). Used for
+// per-viewer URLs. The shared variant below omits viewer_id so any
+// authenticated viewer can verify the signature.
 func (s *Store) Sign(id, viewerID string, exp time.Time) string {
 	mac := hmac.New(sha256.New, s.SignKey)
 	mac.Write([]byte(id))
@@ -137,21 +140,45 @@ func (s *Store) Sign(id, viewerID string, exp time.Time) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// SignShared computes the HMAC over (upload_id || exp). The resulting
+// URL is viewable by any caller that GetFile admits — i.e. any auth
+// user or any active share-link guest. This is what we want for
+// chat / forum / discussion image embeds where every member should be
+// able to see the same image.
+func (s *Store) SignShared(id string, exp time.Time) string {
+	mac := hmac.New(sha256.New, s.SignKey)
+	mac.Write([]byte(id))
+	mac.Write([]byte{0})
+	mac.Write([]byte(strconv.FormatInt(exp.Unix(), 10)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// Verify accepts either the new shared format (preferred) or the
+// legacy per-viewer format (still in existing URLs). The handler
+// passes its current viewerID so legacy URLs continue to work for
+// the originally-signed viewer until they expire.
 func (s *Store) Verify(id, viewerID, sig string, expUnix int64) error {
 	if time.Now().Unix() > expUnix {
 		return ErrBadSig
 	}
-	expected := s.Sign(id, viewerID, time.Unix(expUnix, 0))
-	if !hmac.Equal([]byte(expected), []byte(sig)) {
-		return ErrBadSig
+	expShared := s.SignShared(id, time.Unix(expUnix, 0))
+	if hmac.Equal([]byte(expShared), []byte(sig)) {
+		return nil
 	}
-	return nil
+	expPer := s.Sign(id, viewerID, time.Unix(expUnix, 0))
+	if hmac.Equal([]byte(expPer), []byte(sig)) {
+		return nil
+	}
+	return ErrBadSig
 }
 
-// SignedURL builds a relative URL for the given viewer with a TTL.
+// SignedURL builds a relative URL that any authenticated viewer can
+// load. viewerID is intentionally unused — kept in the signature for
+// backward compatibility with existing call sites.
 func (s *Store) SignedURL(id, viewerID string, ttl time.Duration) string {
+	_ = viewerID
 	exp := time.Now().Add(ttl)
-	sig := s.Sign(id, viewerID, exp)
+	sig := s.SignShared(id, exp)
 	return fmt.Sprintf("/uploads/%s?exp=%d&sig=%s", id, exp.Unix(), sig)
 }
 
