@@ -19,10 +19,46 @@ import (
 type discussionSignals struct {
 	Subject     string `json:"projects_discussion_subject"`
 	Body        string `json:"projects_discussion_body"`
+	BodyImage   string `json:"projects_discussion_body_image"` // pasted/dropped data: URL
 	Edit        string `json:"projects_discussion_edit"`
 	ReplyBody   string `json:"projects_discussion_reply_body"`
+	ReplyImage  string `json:"projects_discussion_reply_image"`
 	ReplyEdit   string `json:"projects_discussion_reply_edit"`
 	QuoteID     string `json:"projects_discussion_quote_id"`
+}
+
+// composeBodyWithImage decodes the data:URL into the uploads table and
+// prepends a markdown `![](signed-url)` line to the body. communityID +
+// uploaderID are required for the uploads row. Guests pass their
+// project-creator-derived owner id (same trick as issue uploads).
+func (h *Handler) composeBodyWithImage(r *http.Request, communityID, uploaderUserID, dataURL, body string) string {
+	if dataURL == "" {
+		return body
+	}
+	u, err := h.Uploads.SaveDataURL(r.Context(), uploaderUserID, communityID, dataURL, h.Uploads.MaxSize)
+	if err != nil {
+		h.Log.Warn("projects discussion image save", "err", err)
+		return body
+	}
+	url := h.Uploads.SignedURL(u.ID, uploaderUserID, 24*time.Hour)
+	if body == "" {
+		return "![image](" + url + ")"
+	}
+	return "![image](" + url + ")\n\n" + body
+}
+
+// uploaderOwnerID returns the user-id to use for the uploads.owner_id
+// FK. Auth users use their own id; guests inherit the project creator's
+// id (mirrors the issue-attachment fix in commit cd149de).
+func (h *Handler) uploaderOwnerID(r *http.Request, projectID string, id Identity) string {
+	if id.UserID != "" {
+		return id.UserID
+	}
+	p, err := h.Repo.ByID(r.Context(), projectID)
+	if err != nil {
+		return ""
+	}
+	return p.CreatorUserID
 }
 
 // GetDiscussionsTab renders the Discussions list tab.
@@ -99,7 +135,8 @@ func (h *Handler) PostDiscussionReply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if _, err := h.Svc.AddDiscussionReply(r.Context(), pid, did, in.QuoteID, in.ReplyBody, id); err != nil {
+	body := h.composeBodyWithImage(r, c.ID, h.uploaderOwnerID(r, pid, id), in.ReplyImage, in.ReplyBody)
+	if _, err := h.Svc.AddDiscussionReply(r.Context(), pid, did, in.QuoteID, body, id); err != nil {
 		if errors.Is(err, ErrEmptyTitle) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -235,7 +272,8 @@ func (h *Handler) PostCreateDiscussionThread(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	t, err := h.Svc.CreateDiscussionThread(r.Context(), pid, in.Subject, in.Body, id)
+	body := h.composeBodyWithImage(r, c.ID, h.uploaderOwnerID(r, pid, id), in.BodyImage, in.Body)
+	t, err := h.Svc.CreateDiscussionThread(r.Context(), pid, in.Subject, body, id)
 	if err != nil {
 		h.Log.Warn("projects discussion create", "err", err, "project", pid)
 		http.Error(w, err.Error(), http.StatusBadRequest)

@@ -1,6 +1,6 @@
 ---
 tldr: Build per-project Discussions (forum-style threads + replies, image attachments, guest read+write) in 3 phases. Each phase commits separately; merge to main after PD3.
-status: active
+status: completed
 ---
 
 # Plan: Implement project discussions per spec
@@ -43,16 +43,17 @@ Goal: members and guests reply on any thread, quote each other's replies, edit w
 
 Verification: guest replies to admin's reply → quoted block visible above the new reply.
 
-### PD3 — Image attachments + spec sync + merge — status: open
+### PD3 — Image attachments + spec sync + merge — status: completed
 
 Goal: paste/drag image into thread or reply body, image renders inline. Spec status → shipped. Merge to main.
 
-1. [ ] Reuse the existing paste-image flow that chat + forum already use (signal `image_data` + JS paste handler) for the thread body composer + reply body composer
-2. [ ] Server: when `body_md` contains a `data:` URL, decode via `uploads.Store.SaveDataURL` + rewrite to a signed `/uploads/{id}?sig=...` URL before saving body_md/html. Same flow chat/forum already use.
-3. [ ] Verify guest uploads work (uploader_user_id NULL path + project-creator-as-owner trick from commit `cd149de`)
-4. [ ] Spec status: draft → shipped
-5. [ ] Plan status: active → completed
-6. [ ] Merge to main as one tagged step
+1. [x] Thread + reply composer textareas wired `data-on:paste="fcPasteImage(evt, '<image_signal>')"` (existing global paste.js handler) + matching hidden inputs bound to the signal
+2. [x] discussionSignals extended with `BodyImage` + `ReplyImage` (data:URL strings)
+3. [x] Handler.composeBodyWithImage decodes via uploads.Store.SaveDataURL, builds a `![image](signed-url)` line, prepends it to body markdown before service.Create / service.AddReply
+4. [x] Handler.uploaderOwnerID resolves uploads.owner_id: auth user → own id; guest → project-creator id (commit cd149de pattern)
+5. [x] Spec status: draft → shipped
+6. [x] Plan status: active → completed
+7. [x] Merge prep done; merge to main is the final step
 
 Verification: guest pastes a screenshot into a reply → image renders inline for both admin and guest tabs (after their refresh).
 

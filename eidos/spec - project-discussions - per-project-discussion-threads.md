@@ -1,6 +1,6 @@
 ---
 name: spec-project-discussions-per-project-threads
-status: draft
+status: shipped
 type: spec
 tldr: Forum-style discussion threads scoped to one project. Subject + body + replies with quoted-reply support, image attachments, edit-grace + soft-delete. Members + share-link guests both read and write. Renders as a new "Discussions" tab between Issues and Comments.
 ---

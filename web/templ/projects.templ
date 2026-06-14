@@ -363,15 +363,18 @@ templ ProjectDiscussionsPage(d ProjectPageData, threads []ProjectDiscussionRowVi
 	@Layout(d.Project.Title+" — Discussions", d.Viewer) {
 		@projectShell(d, "discussions") {
 			<section class="project-panel project-panel-discussions"
-				data-signals="{projects_discussion_subject:'',projects_discussion_body:''}">
+				data-signals="{projects_discussion_subject:'',projects_discussion_body:'',projects_discussion_body_image:''}">
 				<h3>Discussions</h3>
 				<form class="project-discussion-add"
 					data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions')" }>
 					<input type="text" maxlength="200" placeholder="Thread subject"
 						data-bind="projects_discussion_subject" required/>
-					<textarea rows="3" placeholder="Start the conversation (markdown)…"
+					<textarea rows="3" placeholder="Start the conversation (markdown supported, paste images here)…"
 						maxlength="10000"
+						data-on:paste="fcPasteImage(evt, 'projects_discussion_body_image')"
 						data-bind="projects_discussion_body"></textarea>
+					<input type="hidden" data-bind="projects_discussion_body_image"/>
+					<div data-show="$projects_discussion_body_image" class="muted">📎 Image attached — submits with the thread.</div>
 					<button class="btn" type="submit">Start thread</button>
 				</form>
 				if len(threads) == 0 {
@@ -407,7 +410,7 @@ templ ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVi
 	@Layout(t.Subject+" — Discussion", d.Viewer) {
 		@projectShell(d, "discussions") {
 			<section class="project-panel project-panel-discussion"
-				data-signals={ "{projects_discussion_subject:'" + jsQuoteAttr(t.Subject) + "',projects_discussion_edit:'" + jsQuoteAttr(t.BodyMD) + "',projects_discussion_edit_open:false,projects_discussion_reply_body:'',projects_discussion_reply_edit:'',projects_discussion_reply_edit_id:'',projects_discussion_quote_id:''}" }>
+				data-signals={ "{projects_discussion_subject:'" + jsQuoteAttr(t.Subject) + "',projects_discussion_edit:'" + jsQuoteAttr(t.BodyMD) + "',projects_discussion_edit_open:false,projects_discussion_reply_body:'',projects_discussion_reply_image:'',projects_discussion_reply_edit:'',projects_discussion_reply_edit_id:'',projects_discussion_quote_id:''}" }>
 				<nav class="project-breadcrumb muted">
 					<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions") }>← all discussions</a>
 				</nav>
@@ -508,9 +511,12 @@ templ ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVi
 							<button class="btn ghost" type="button"
 								data-on:click="$projects_discussion_quote_id = ''">×</button>
 						</div>
-						<textarea rows="3" placeholder="Reply (markdown supported)…"
+						<textarea rows="3" placeholder="Reply (markdown supported, paste images here)…"
 							maxlength="4000"
+							data-on:paste="fcPasteImage(evt, 'projects_discussion_reply_image')"
 							data-bind="projects_discussion_reply_body" required></textarea>
+						<input type="hidden" data-bind="projects_discussion_reply_image"/>
+						<div data-show="$projects_discussion_reply_image" class="muted">📎 Image attached — submits with the reply.</div>
 						<button class="btn" type="submit">Post reply</button>
 					</form>
 				</section>
