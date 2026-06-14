@@ -104,7 +104,7 @@ func (h *Handler) PublicRoutes(r chi.Router) {
 // instead of ":". The session, the DB row, and the State map all use
 // the decoded form, so we normalize here once at the boundary.
 func roomIDParam(r *http.Request) string {
-	raw := roomIDParam(r)
+	raw := chi.URLParam(r, "id")
 	if dec, err := url.PathUnescape(raw); err == nil {
 		return dec
 	}
