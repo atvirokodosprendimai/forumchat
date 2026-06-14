@@ -23,8 +23,11 @@ html, body {
   font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
-  overflow-x: hidden;
 }
+/* App shell: viewport-locked column with internal-scrolling main.
+   No browser scrollbar, header + footer always visible. */
+html, body { height: 100%; overflow: hidden; }
+body { display: flex; flex-direction: column; min-height: 100dvh; height: 100dvh; }
 img, video { max-width: 100%; height: auto; }
 
 a { color: var(--accent); text-decoration: none; }
@@ -35,14 +38,19 @@ a:hover { text-decoration: underline; }
   padding: .8rem 1.2rem;
   background: var(--surface); border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
-  position: sticky; top: 0; z-index: 30;
+  flex: 0 0 auto; z-index: 30;
 }
 .brand { font-weight: 700; letter-spacing: -0.01em; color: var(--fg); }
 .topbar nav { display: flex; gap: .9rem; align-items: center; flex-wrap: wrap; }
 .topbar nav a, .topbar nav .ghost { color: var(--fg-muted); font-weight: 500; }
 .topbar nav a:hover { color: var(--fg); text-decoration: none; }
 
-main { padding: 1.25rem; max-width: 1080px; margin: 0 auto; }
+main {
+  padding: 1.25rem; max-width: 1080px; margin: 0 auto;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  width: 100%;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+}
 section { margin-bottom: 1.5rem; }
 
 h1 { font-size: 1.55rem; letter-spacing: -0.01em; margin: .25rem 0 1rem; }
@@ -226,7 +234,7 @@ button.link:hover { text-decoration: underline; }
 }
 
 .muted { color: var(--fg-muted); font-size: .88em; }
-.site-footer { text-align: center; padding: 1.25rem 1rem; margin-top: 2rem; border-top: 1px solid var(--surface-alt); }
+.site-footer { text-align: center; padding: .65rem 1rem; margin-top: 0; border-top: 1px solid var(--border); background: var(--surface); flex: 0 0 auto; font-size: .85rem; }
 .site-footer a { color: var(--accent); text-decoration: none; }
 .site-footer a:hover { text-decoration: underline; }
 .error { color: var(--danger); font-size: .92em; min-height: 1.2em; }
@@ -234,8 +242,14 @@ button.link:hover { text-decoration: underline; }
 
 .chat-layout {
   display: grid; grid-template-columns: 1fr 220px; gap: 1.25rem;
-  align-items: start;
+  align-items: stretch;
+  height: 100%;
 }
+.chat-layout > div:first-child {
+  display: flex; flex-direction: column; min-height: 0;
+}
+.chat-layout > div:first-child > h1 { flex: 0 0 auto; margin-top: 0; }
+.chat-layout > div:first-child > .composer { flex: 0 0 auto; }
 @media (max-width: 760px) {
   .chat-layout { grid-template-columns: 1fr; }
   .presence { display: none; }
@@ -243,7 +257,7 @@ button.link:hover { text-decoration: underline; }
 .messages {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: .75rem;
-  min-height: 50vh; max-height: 65vh; overflow-y: auto;
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
   box-shadow: var(--shadow);
 }
 /* Composer is a vertical stack: optional reply hint, then the input row.
@@ -526,7 +540,7 @@ img.thread-announce-img {
   button, .btn { padding: .65rem .9rem; min-height: 40px; }
   button.link, .link-button { padding: 0; min-height: 0; }
 
-  .messages { max-height: 58vh; min-height: 40vh; padding: .5rem; }
+  .messages { padding: .5rem; }
   .bubble { padding: .55rem .7rem; }
   .bubble .body img { max-height: 180px; }
 
