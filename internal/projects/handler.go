@@ -1,6 +1,7 @@
 package projects
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
@@ -19,14 +21,33 @@ import (
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
+// commLookupFn resolves a community ID to a community record. Injected
+// from main.go so the projects package doesn't need to depend on the
+// community Repo type directly.
+type commLookupFn func(ctx context.Context, id string) (*CommunityRef, error)
+
+// CommunityRef is the slim community shape projects needs (just the
+// slug for redirect URLs).
+type CommunityRef struct {
+	ID   string
+	Slug string
+	Name string
+}
+
 // Handler holds the dependencies for the projects HTTP layer.
 type Handler struct {
-	Repo    *Repo
-	Svc     *Service
-	Bus     *Bus
-	Uploads *uploads.Store
-	Log     *slog.Logger
+	Repo       *Repo
+	Svc        *Service
+	Bus        *Bus
+	Uploads    *uploads.Store
+	Sessions   *scs.SessionManager // for share-link guest sessions
+	Log        *slog.Logger
+	commLookup commLookupFn // injected by main.go for the guest-bounce route
 }
+
+// SetCommunityLookup injects the community-ID-to-slug resolver. Called
+// from main.go where the community.Repo is available.
+func (h *Handler) SetCommunityLookup(fn commLookupFn) { h.commLookup = fn }
 
 // projectSignals carries the editable values posted from the project
 // page. One bag for everything so we don't need a struct per endpoint.
@@ -110,8 +131,8 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 
 // loadProjectData resolves the project + (selectively) child rows so
 // each tab handler only fetches what it actually renders. Returns the
-// pre-built ProjectPageData. The `_, ok` shape matches projectFromURL
-// so callers can early-return cleanly.
+// pre-built ProjectPageData. Honours both auth members AND share-link
+// guests.
 func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want struct {
 	Todos, Atts, Comments, Activity bool
 }) (webtempl.ProjectPageData, bool) {
@@ -120,7 +141,7 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 		http.Error(w, "no community", http.StatusInternalServerError)
 		return webtempl.ProjectPageData{}, false
 	}
-	id, ok := auth.FromContext(r.Context())
+	caller, ok := h.callerIdentity(r)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return webtempl.ProjectPageData{}, false
@@ -141,10 +162,22 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 		return webtempl.ProjectPageData{}, false
 	}
 
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	isAdmin := caller.Role == auth.RoleAdmin
+	isGuest := caller.IsGuest()
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
 	v.CommunitySlug = c.Slug
+	share := webtempl.ProjectShareView{Visible: !isGuest && (p.CreatorUserID == caller.UserID || isAdmin)}
+	if share.Visible {
+		if inv, err := h.Repo.ActiveGuestInviteForProject(r.Context(), p.ID); err == nil {
+			scheme, host := publicSchemeHost(r)
+			share.URL = scheme + "://" + host + "/projects/share/" + inv.Token
+			if inv.ExpiresAt != nil {
+				share.HasExpiry = true
+				share.ExpiresAt = *inv.ExpiresAt
+			}
+		}
+	}
 	data := webtempl.ProjectPageData{
 		Viewer:        v,
 		CommunitySlug: c.Slug,
@@ -155,13 +188,11 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 			DescriptionMD:   p.DescriptionMD,
 			DescriptionHTML: p.DescriptionHTML,
 			IsArchived:      p.IsArchived(),
-			CanDelete:       p.CreatorUserID == id.User.ID || isAdmin,
+			CanDelete:       !isGuest && (p.CreatorUserID == caller.UserID || isAdmin),
 		},
+		Share:         share,
+		IsGuestViewer: isGuest,
 	}
-	// Overview wants approximate counts (cheap: derived from the loads we
-	// do anyway). We load todos+attachments+comments for the overview
-	// because the panel shows counts of each. Other tabs only load what
-	// they render.
 	if want.Todos {
 		todos, err := h.Repo.ListTodos(r.Context(), p.ID)
 		if err != nil {
@@ -174,14 +205,14 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 		if err != nil {
 			h.Log.Error("projects attachments load", "err", err, "id", pid)
 		}
-		data.Attachments = toAttachmentViews(atts, p.CreatorUserID, id.User.ID, isAdmin)
+		data.Attachments = toAttachmentViews(atts, p.CreatorUserID, caller.UserID, isAdmin)
 	}
 	if want.Comments {
 		comments, err := h.Repo.ListComments(r.Context(), p.ID)
 		if err != nil {
 			h.Log.Error("projects comments load", "err", err, "id", pid)
 		}
-		data.Comments = toCommentViews(comments, id.User.ID, isAdmin, h.Svc.EditGrace, time.Now().UTC())
+		data.Comments = toCommentViews(comments, caller.UserID, isAdmin, h.Svc.EditGrace, time.Now().UTC())
 	}
 	if want.Activity {
 		activity, err := h.Repo.RecentActivity(r.Context(), p.ID, 30)
@@ -869,6 +900,23 @@ func (h *Handler) pushHeader(r *http.Request, sse *datastar.ServerSentEventGener
 		datastar.WithSelector("#proj-header"),
 		datastar.WithModeOuter(),
 	)
+}
+
+// publicSchemeHost returns the canonical scheme + host for building
+// share URLs that work behind a reverse proxy.
+func publicSchemeHost(r *http.Request) (string, string) {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		scheme = p
+	}
+	host := r.Host
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		host = h
+	}
+	return scheme, host
 }
 
 // projectFromURL resolves the {id} param, scopes to the current

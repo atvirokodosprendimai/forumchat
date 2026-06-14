@@ -49,12 +49,47 @@ type ProjectPageData struct {
 	Attachments   []ProjectAttachmentView
 	Comments      []ProjectCommentView
 	Activity      []ProjectActivityView
+	Share         ProjectShareView
+	IsGuestViewer bool
 }
 
 // ProjectActivityView is one row in the activity sidebar.
 type ProjectActivityView struct {
 	Kind string // comment | attachment | todo | project
 	At   time.Time
+}
+
+// ProjectGuestLandingData is the share-link landing page payload.
+type ProjectGuestLandingData struct {
+	Token       string
+	ProjectName string
+	Error       string
+}
+
+// ProjectGuestLandingPage is shown to anyone hitting a share URL.
+templ ProjectGuestLandingPage(d ProjectGuestLandingData) {
+	@Layout("Join "+d.ProjectName, Viewer{}) {
+		<section class="card narrow projects-guest-join">
+			<h1>Join { d.ProjectName }</h1>
+			<p class="muted">You were invited as a guest. Pick a display name, then you can read the project, file issues, and attach screenshots — no account required.</p>
+			if d.Error != "" {
+				<p class="error">{ d.Error }</p>
+			}
+			<form method="post" action={ templ.URL("/projects/share/" + d.Token + "/join") }>
+				<input type="text" name="name" placeholder="Your name" maxlength="80" required autofocus/>
+				<button class="btn" type="submit">Join project</button>
+			</form>
+		</section>
+	}
+}
+
+// ProjectShareView holds the per-page share-admin state.
+type ProjectShareView struct {
+	Visible   bool   // true for project creator + community admin
+	URL       string // current active token URL
+	ExpiresAt time.Time
+	HasExpiry bool
+	Revoked   bool
 }
 
 // ProjectTodoView is one checklist row.
@@ -170,7 +205,7 @@ templ projectShell(d ProjectPageData, active string) {
 }
 
 // ProjectOverviewPage is the landing tab — summary counts + share-link
-// admin section (Phase 3 will populate that).
+// admin section.
 templ ProjectOverviewPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Projects", d.Viewer) {
 		@projectShell(d, "overview") {
@@ -185,8 +220,56 @@ templ ProjectOverviewPage(d ProjectPageData) {
 					<p class="muted">Use the Edit button above to add a description.</p>
 				}
 			</section>
+			if d.Share.Visible {
+				@projectSharePanel(d.CommunitySlug, d.Project.ID, d.Share)
+			}
 		}
 	}
+}
+
+templ projectSharePanel(slug, projectID string, s ProjectShareView) {
+	<section class="project-panel project-panel-share"
+		data-signals="{projects_share_ttl:'24h'}">
+		<h3>Guest share link</h3>
+		if s.URL != "" {
+			<p>Anyone with this link picks a display name and joins as a read-only guest, with permission to open issues and attach screenshots.</p>
+			<div class="rooms-row">
+				<input type="text" readonly value={ s.URL } onclick="this.select()"/>
+				<button class="btn"
+					type="button"
+					data-on:click="navigator.clipboard.writeText(this.previousElementSibling.value)">Copy</button>
+			</div>
+			if s.HasExpiry {
+				<p class="muted">Expires { s.ExpiresAt.Local().Format("2006-01-02 15:04") }</p>
+			} else {
+				<p class="muted">Never expires (revoke manually).</p>
+			}
+			<div class="rooms-row">
+				<select data-bind="projects_share_ttl">
+					<option value="1h">1 hour</option>
+					<option value="24h" selected>24 hours</option>
+					<option value="7d">7 days</option>
+					<option value="0">No expiry</option>
+				</select>
+				<button class="btn ghost"
+					data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/share')" }>Rotate</button>
+				<button class="btn ghost"
+					data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/share/revoke')" }>Revoke</button>
+			</div>
+		} else {
+			<p class="muted">No active share link.</p>
+			<div class="rooms-row">
+				<select data-bind="projects_share_ttl">
+					<option value="1h">1 hour</option>
+					<option value="24h" selected>24 hours</option>
+					<option value="7d">7 days</option>
+					<option value="0">No expiry</option>
+				</select>
+				<button class="btn"
+					data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/share')" }>Create share link</button>
+			</div>
+		}
+	</section>
 }
 
 templ ProjectTodosPage(d ProjectPageData) {

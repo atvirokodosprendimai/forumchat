@@ -25,8 +25,9 @@ type issueSignals struct {
 	CommentEdit string `json:"projects_issue_comment_edit"`
 }
 
-// callerIdentity builds an Identity from the request. Phase 1 only
-// handles auth users; Phase 3 extends to share-link guests.
+// callerIdentity builds an Identity from the request. Auth users win
+// first; otherwise a share-link guest session is honoured, but only
+// for the project ID the guest was admitted to.
 func (h *Handler) callerIdentity(r *http.Request) (Identity, bool) {
 	if id, ok := auth.FromContext(r.Context()); ok {
 		return Identity{
@@ -35,7 +36,152 @@ func (h *Handler) callerIdentity(r *http.Request) (Identity, bool) {
 			Role:   id.Membership.Role,
 		}, true
 	}
+	if h.Sessions == nil {
+		return Identity{}, false
+	}
+	gid := h.Sessions.GetString(r.Context(), sessKeyProjectGuestID)
+	gpid := h.Sessions.GetString(r.Context(), sessKeyProjectGuestProjectID)
+	pid := chi.URLParam(r, "id")
+	if gid != "" && gpid == pid {
+		name := h.Sessions.GetString(r.Context(), sessKeyProjectGuestName)
+		return Identity{GuestID: gid, Name: name, Role: auth.RoleMember}, true
+	}
 	return Identity{}, false
+}
+
+// PostShareMint creates / rotates a guest share token for a project.
+type shareSignals struct {
+	TTL string `json:"projects_share_ttl"`
+}
+
+func (h *Handler) PostShareMint(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	var in shareSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	ttl, err := ParseGuestTTL(in.TTL)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	isAdmin := id.Membership.Role == auth.RoleAdmin
+	if _, err := h.Svc.MintGuestInvite(r.Context(), pid, id.User.ID, ttl, id.User.ID, isAdmin); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Warn("projects share mint", "err", err, "project", pid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	c, _ := community.FromContext(r.Context())
+	sse := datastar.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid)
+}
+
+// PostShareRevoke cancels the active token.
+func (h *Handler) PostShareRevoke(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	isAdmin := id.Membership.Role == auth.RoleAdmin
+	if err := h.Svc.RevokeActiveGuestInvite(r.Context(), pid, id.User.ID, isAdmin); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetGuestLanding shows the form for a share-link guest to pick a name.
+func (h *Handler) GetGuestLanding(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	inv, err := h.Repo.GuestInviteByToken(r.Context(), token)
+	if err != nil || !inv.Active(time.Now().UTC()) {
+		http.Error(w, "invite is no longer valid", http.StatusNotFound)
+		return
+	}
+	p, err := h.Repo.ByID(r.Context(), inv.ProjectID)
+	if err != nil {
+		http.Error(w, "project missing", http.StatusNotFound)
+		return
+	}
+	_ = webtempl.ProjectGuestLandingPage(webtempl.ProjectGuestLandingData{
+		Token:       token,
+		ProjectName: p.Title,
+	}).Render(r.Context(), w)
+}
+
+// PostGuestJoin redeems the invite, sets session keys, redirects.
+func (h *Handler) PostGuestJoin(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	name := r.FormValue("name")
+	if len(name) > 80 {
+		name = name[:80]
+	}
+	p, gid, err := h.Svc.RedeemGuestInvite(r.Context(), token, name)
+	if err != nil {
+		_ = webtempl.ProjectGuestLandingPage(webtempl.ProjectGuestLandingData{
+			Token: token, Error: err.Error(),
+		}).Render(r.Context(), w)
+		return
+	}
+	h.Sessions.Put(r.Context(), sessKeyProjectGuestID, gid.GuestID)
+	h.Sessions.Put(r.Context(), sessKeyProjectGuestName, gid.Name)
+	h.Sessions.Put(r.Context(), sessKeyProjectGuestProjectID, p.ID)
+	http.Redirect(w, r, "/projects/share/"+token+"/go", http.StatusSeeOther)
+}
+
+// GetGuestBounce resolves a redeemed token to /c/{slug}/projects/{id}.
+// Lets the public-root /projects/share/{token}/join route not need to
+// resolve the community slug itself.
+func (h *Handler) GetGuestBounce(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	inv, err := h.Repo.GuestInviteByToken(r.Context(), token)
+	if err != nil {
+		http.Error(w, "invalid invite", http.StatusNotFound)
+		return
+	}
+	p, err := h.Repo.ByID(r.Context(), inv.ProjectID)
+	if err != nil {
+		http.Error(w, "project missing", http.StatusNotFound)
+		return
+	}
+	// Look up the community slug for the redirect URL.
+	if h.commLookup == nil {
+		http.Error(w, "community lookup unavailable", http.StatusInternalServerError)
+		return
+	}
+	c, err := h.commLookup(r.Context(), p.CommunityID)
+	if err != nil {
+		http.Error(w, "community missing", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/c/"+c.Slug+"/projects/"+p.ID, http.StatusSeeOther)
 }
 
 // GetIssuesTab renders the Issues list tab.

@@ -65,16 +65,17 @@ Goal: members can comment on issues and attach inline images.
 
 Verification: member opens an issue → drags a screenshot → tab B sees it. Comments thread with edit-grace works identically to project comments.
 
-### Phase 3 — Guest share-link mint + landing + session — status: open
+### Phase 3 — Guest share-link mint + landing + read-gating — status: completed
 
 Goal: admin mints a `24h` token, opens the URL in incognito, picks a display name, lands on the project page as a guest. Guest sees the project (read-only) and the issues panel (with "Open new issue" button).
 
-1. [ ] `issues_repo.go` (or new `guest_repo.go` file) — `CreateGuestInvite`, `RevokeGuestInvite`, `GuestInviteByToken`, `ActiveGuestInviteForProject`
-2. [ ] `guest.go` — `Identity` resolver (caller-style helper), session keys `project_guest_id` / `project_guest_name` / `project_guest_project_id`, TTL parser (`1h` / `24h` / `7d` / `0` for no-expire)
-3. [ ] `issues_service.go` — `MintGuestInvite(projectID, ttl)` revokes the prior active token + inserts new
-4. [ ] Public routes `GET /projects/share/{token}` + `POST /projects/share/{token}/join` (landing page + display-name form, sets session, redirects)
-5. [ ] Admin actions on project page: "Share with a guest" panel — TTL select + `Mint` / `Revoke` buttons; only renders for project creator + admin
-6. [ ] Read-gating pass: every project-area handler that needs guest support uses the package-level `caller(r, projectID)` to resolve identity; templ branches on `IsGuest` to hide member-only affordances
+1. [x] `issues_repo.go` — ActiveGuestInviteForProject, GuestInviteByToken, CreateGuestInvite, RevokeGuestInvite
+2. [x] `guest.go` — session keys constants, ParseGuestTTL (`1h`/`24h`/`7d`/`0`), MintGuestInvite, RevokeActiveGuestInvite, RedeemGuestInvite, randToken + newGuestID helpers
+3. [x] `issues_handler.go` — PostShareMint, PostShareRevoke, GetGuestLanding, PostGuestJoin, GetGuestBounce; callerIdentity now also resolves guest sessions (with project-ID scope check)
+4. [x] `ProjectGuestLandingPage` templ + `projectSharePanel` rendered inside ProjectOverviewPage (creator+admin only)
+5. [x] `handler.Handler` now has Sessions + commLookup deps; main.go injects via SetCommunityLookup
+6. [x] Route restructure in main.go: project OPEN routes (tab GETs + issue write-paths) moved to a new `r.Route("/c/{slug}/projects")` block OUTSIDE the auth-required community group, with only LoadCommunity middleware. Member-only routes (edit/lifecycle/share-mint/issue-status) stay inside the auth group.
+7. [x] Read-gating: loadProjectData calls callerIdentity (instead of auth.FromContext), so guest sessions flow through cleanly. `Project.CanDelete` is false for guests; `Share.Visible` is false for guests. Templ hides member-only affordances via these booleans.
 
 Verification: admin mints link → opens incognito → picks name → lands on project page → no Edit / archive / delete / "add todo" / "post project comment" affordances visible → issues panel still shows the "Open new issue" button.
 

@@ -124,3 +124,72 @@ func (r *Repo) CountOpenIssues(ctx context.Context, projectID string) (int, erro
 	}
 	return n, nil
 }
+
+// ActiveGuestInviteForProject returns the currently-active token for
+// a project (one at a time per spec). sql.ErrNoRows if none.
+func (r *Repo) ActiveGuestInviteForProject(ctx context.Context, projectID string) (GuestInvite, error) {
+	var g GuestInvite
+	var exp, rev sql.NullInt64
+	var cAt int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT token, project_id, created_by, expires_at, revoked_at, created_at
+		FROM project_guest_invites
+		WHERE project_id = ? AND revoked_at IS NULL
+		ORDER BY created_at DESC LIMIT 1`,
+		projectID).Scan(&g.Token, &g.ProjectID, &g.CreatedBy, &exp, &rev, &cAt)
+	if err != nil {
+		return GuestInvite{}, err
+	}
+	g.CreatedAt = time.UnixMilli(cAt).UTC()
+	if exp.Valid {
+		t := time.UnixMilli(exp.Int64).UTC()
+		g.ExpiresAt = &t
+	}
+	return g, nil
+}
+
+// GuestInviteByToken loads one invite by token (active or revoked).
+func (r *Repo) GuestInviteByToken(ctx context.Context, token string) (GuestInvite, error) {
+	var g GuestInvite
+	var exp, rev sql.NullInt64
+	var cAt int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT token, project_id, created_by, expires_at, revoked_at, created_at
+		FROM project_guest_invites WHERE token = ?`,
+		token).Scan(&g.Token, &g.ProjectID, &g.CreatedBy, &exp, &rev, &cAt)
+	if err != nil {
+		return GuestInvite{}, err
+	}
+	g.CreatedAt = time.UnixMilli(cAt).UTC()
+	if exp.Valid {
+		t := time.UnixMilli(exp.Int64).UTC()
+		g.ExpiresAt = &t
+	}
+	if rev.Valid {
+		t := time.UnixMilli(rev.Int64).UTC()
+		g.RevokedAt = &t
+	}
+	return g, nil
+}
+
+// CreateGuestInvite persists a fresh invite row.
+func (r *Repo) CreateGuestInvite(ctx context.Context, g GuestInvite) error {
+	var exp any
+	if g.ExpiresAt != nil {
+		exp = g.ExpiresAt.UnixMilli()
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO project_guest_invites
+		  (token, project_id, created_by, expires_at, created_at)
+		VALUES (?,?,?,?,?)`,
+		g.Token, g.ProjectID, g.CreatedBy, exp, g.CreatedAt.UnixMilli())
+	return err
+}
+
+// RevokeGuestInvite stamps revoked_at on a token.
+func (r *Repo) RevokeGuestInvite(ctx context.Context, token string, now time.Time) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE project_guest_invites SET revoked_at = ? WHERE token = ? AND revoked_at IS NULL`,
+		now.UnixMilli(), token)
+	return err
+}
