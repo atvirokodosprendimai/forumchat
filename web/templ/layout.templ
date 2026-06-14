@@ -53,7 +53,9 @@ const InitialSignals = `{
 	"pm_body":"",
 	"pm_source_community_id":"",
 	"pm_source_chat_id":"",
-	"pm_send_body":""
+	"pm_send_body":"",
+	"pm_toast_text":"",
+	"pm_toast_href":""
 }`
 
 templ Layout(title string, v Viewer) {
@@ -107,6 +109,15 @@ templ Layout(title string, v Viewer) {
 			</main>
 			if v.IsAuthed {
 				<div id="pm-stream-open" hidden data-init="@get('/messages/stream', {openWhenHidden: true})"></div>
+				<div class="pm-toast" data-show="$pm_toast_text !== ''"
+					data-on:animationend="$pm_toast_text=''; $pm_toast_href=''">
+					<a class="pm-toast-link" data-attr:href="$pm_toast_href || '/messages'">
+						<span class="pm-toast-icon">✓</span>
+						<span class="pm-toast-text" data-text="$pm_toast_text"></span>
+						<span class="pm-toast-cta">open</span>
+					</a>
+					<button class="pm-toast-close" aria-label="dismiss" data-on:click="$pm_toast_text=''; $pm_toast_href=''">✕</button>
+				</div>
 			}
 			<footer class="site-footer">
 				<span class="muted">Built by <a href="https://ituoga.lt" target="_blank" rel="noopener">ituoga.lt</a> and Claude</span>
