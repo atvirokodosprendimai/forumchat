@@ -111,6 +111,32 @@ func TestSearchMembersByDisplayName_EmptyQuery(t *testing.T) {
 	}
 }
 
+func TestCountAdmins(t *testing.T) {
+	t.Parallel()
+	repo, cid := setupRepo(t)
+	ctx := context.Background()
+	if n, err := repo.CountAdmins(ctx, cid); err != nil || n != 0 {
+		t.Fatalf("baseline want 0 admins, got %d (err=%v)", n, err)
+	}
+	// seed two members, promote one to admin
+	uA := seedMember(t, repo, cid, "Alice")
+	_ = seedMember(t, repo, cid, "Bob")
+	mA, err := repo.MembershipFor(ctx, uA, cid)
+	if err != nil {
+		t.Fatalf("membershipFor: %v", err)
+	}
+	if err := repo.UpdateMembershipRole(ctx, mA.ID, auth.RoleAdmin); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	n, err := repo.CountAdmins(ctx, cid)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("want 1 admin after promotion, got %d", n)
+	}
+}
+
 func TestSearchMembersByDisplayName_OtherCommunityExcluded(t *testing.T) {
 	t.Parallel()
 	repo, cidA := setupRepo(t)
