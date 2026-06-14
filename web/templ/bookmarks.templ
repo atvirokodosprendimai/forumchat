@@ -72,7 +72,11 @@ templ BookmarksPage(d BookmarksPageData) {
 templ BookmarksList(rows []BookmarkRow, slug string) {
 	<div id="bookmarks-list">
 		if len(rows) == 0 {
-			<p class="muted">No bookmarks match.</p>
+			<div class="empty-state">
+				<div class="empty-icon" aria-hidden="true">★</div>
+				<p><strong>No bookmarks match.</strong></p>
+				<p>Star a chat message or forum post to keep it here.</p>
+			</div>
 		}
 		<ul class="thread-list">
 			for _, b := range rows {

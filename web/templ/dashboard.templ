@@ -11,13 +11,18 @@ type DashboardCard struct {
 templ Dashboard(v Viewer, cards []DashboardCard, isGlobalAdmin bool) {
 	@Layout("Your communities", v) {
 		<section>
-			<h1>Welcome back, { v.DisplayName }</h1>
-			<p class="muted">Pick a community to enter.</p>
+			<header class="page-head">
+				<div>
+					<h1>Welcome back, { v.DisplayName }</h1>
+					<p class="muted">Pick a community to enter.</p>
+				</div>
+			</header>
 
 			if len(cards) == 0 {
-				<div class="card">
-					<p>You don't belong to any community yet.</p>
-					<p class="muted">Ask an admin to invite you, or paste an invite code on the <a href="/register">register page</a>.</p>
+				<div class="empty-state">
+					<div class="empty-icon" aria-hidden="true">🏠</div>
+					<p><strong>You don't belong to any community yet.</strong></p>
+					<p>Ask an admin to invite you, or paste an invite code on the <a href="/register">register page</a>.</p>
 				</div>
 			}
 

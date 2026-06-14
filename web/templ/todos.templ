@@ -72,7 +72,11 @@ templ TodosPage(d TodosPageData) {
 templ TodosList(slug string, rows []TodoRow) {
 	<div id="todos-list">
 		if len(rows) == 0 {
-			<p class="muted">No todos here yet. Add one from a chat message or forum post.</p>
+			<div class="empty-state">
+				<div class="empty-icon" aria-hidden="true">☑</div>
+				<p><strong>No todos here yet.</strong></p>
+				<p>Add one from a chat message or forum post.</p>
+			</div>
 		}
 		<ul class="todos-list">
 			for _, t := range rows {

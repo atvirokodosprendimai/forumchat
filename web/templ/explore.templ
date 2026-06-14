@@ -16,10 +16,18 @@ type ExploreData struct {
 templ ExplorePage(d ExploreData) {
 	@Layout("Explore communities", d.Viewer) {
 		<section>
-			<h1>Explore communities</h1>
-			<p class="muted">Public communities you can request to join. Admins review every request.</p>
+			<header class="page-head">
+				<div>
+					<h1>Explore communities</h1>
+					<p class="muted">Public communities you can request to join. Admins review every request.</p>
+				</div>
+			</header>
 			if len(d.Rows) == 0 {
-				<p class="muted">No public communities yet.</p>
+				<div class="empty-state">
+					<div class="empty-icon" aria-hidden="true">🔭</div>
+					<p><strong>No public communities yet.</strong></p>
+					<p>Check back later, or ask an admin to publish one.</p>
+				</div>
 			}
 			<ul class="explore-list">
 				for _, row := range d.Rows {
