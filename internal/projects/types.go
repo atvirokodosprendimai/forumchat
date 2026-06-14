@@ -37,7 +37,7 @@ type Todo struct {
 
 // Attachment links an uploads row to a project. Files themselves live
 // in internal/uploads — this table only carries the per-project metadata
-// (display filename, who uploaded, when).
+// (display filename, who uploaded, when, what bucket).
 type Attachment struct {
 	ID         string
 	ProjectID  string
@@ -46,6 +46,7 @@ type Attachment struct {
 	MIME       string
 	SizeBytes  int64
 	UploaderID string
+	Category   string // free text; UI suggests common / api_docs / design / other
 	CreatedAt  time.Time
 }
 

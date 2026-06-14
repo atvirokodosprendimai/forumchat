@@ -50,6 +50,14 @@ type Config struct {
 	// schema migration.
 	ProjectsEnabled bool `env:"PROJECTS_ENABLED" envDefault:"false"`
 
+	// Project-change → chat digest cadence (minutes). 0 disables the
+	// worker. When > 0, every N minutes the worker checks each community
+	// for projects with new attachments/issues/discussions/comments/replies
+	// since the last digest and posts ONE system message in the
+	// community chat with links to the changed projects. Quiet if nothing
+	// changed.
+	ProjectChatDigestMinutes int `env:"PROJECT_CHAT_DIGEST_MINUTES" envDefault:"5"`
+
 	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate
 	// on first boot and persist to VAPID_KEYS_FILE so subsequent boots
 	// keep the same key pair (otherwise every browser subscription would

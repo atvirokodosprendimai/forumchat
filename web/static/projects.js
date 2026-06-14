@@ -10,14 +10,25 @@
 // to remove it on failure. The dropzone shows a brief "Uploading…"
 // state instead.
 (() => {
-  function postFiles(url, files) {
+  function postFiles(url, files, category) {
     const fd = new FormData();
     for (const f of files) fd.append('files', f, f.name);
+    if (category) fd.append('category', category);
     return fetch(url, {
       method: 'POST',
       body: fd,
       credentials: 'same-origin',
     });
+  }
+
+  // Resolve the category to send alongside files. The dropzone may
+  // declare a sibling <select> via data-rooms-projects-dropzone-cat
+  // pointing at its element id. Falls back to "common".
+  function categoryFor(zone) {
+    const id = zone.dataset.roomsProjectsDropzoneCat;
+    if (!id) return '';
+    const sel = document.getElementById(id);
+    return sel?.value || '';
   }
 
   function flashUploading(zone, on) {
@@ -50,7 +61,7 @@
       input.addEventListener('change', async () => {
         if (!input.files || input.files.length === 0) return;
         flashUploading(zone, true);
-        try { await postFiles(url, input.files); }
+        try { await postFiles(url, input.files, categoryFor(zone)); }
         finally { flashUploading(zone, false); input.value = ''; }
       });
     }

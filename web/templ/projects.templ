@@ -111,6 +111,7 @@ type ProjectAttachmentView struct {
 	Filename  string
 	MIME      string
 	SizeBytes int64
+	Category  string // common / api_docs / design / other / ...
 	CreatedAt time.Time
 	CanDelete bool
 }
@@ -913,18 +914,46 @@ templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmen
 	<section id="proj-attachments" class="project-panel project-panel-attachments">
 		<h3>Attachments</h3>
 		if !isGuest {
-			<div class="project-dropzone"
-				data-on:click="document.getElementById('proj-att-input').click()"
-				data-rooms-projects-dropzone={ "/c/" + slug + "/projects/" + projectID + "/attachment" }>
-				<p>Drop files here or click to choose</p>
-				<input id="proj-att-input" type="file" multiple hidden/>
+			<div class="project-upload-bar">
+				<label class="project-upload-label">
+					<span class="muted">Category</span>
+					<select id="proj-att-category" name="category">
+						<option value="common">Common</option>
+						<option value="api_docs">API docs</option>
+						<option value="design">Design</option>
+						<option value="specs">Specs</option>
+						<option value="other">Other</option>
+					</select>
+				</label>
+				<div class="project-dropzone"
+					data-on:click="document.getElementById('proj-att-input').click()"
+					data-rooms-projects-dropzone={ "/c/" + slug + "/projects/" + projectID + "/attachment" }
+					data-rooms-projects-dropzone-cat="proj-att-category">
+					<p>Drop files here or click to choose</p>
+					<input id="proj-att-input" type="file" multiple hidden/>
+				</div>
 			</div>
 		}
 		if len(atts) == 0 {
 			<p class="muted">No attachments yet.</p>
 		} else {
+			@projectAttachmentsByCategory(slug, projectID, atts, isGuest)
+		}
+	</section>
+}
+
+// projectAttachmentsByCategory groups the rows by category and renders
+// one bucket per category, in alphabetical order with common pinned
+// first so it stays the obvious default landing spot.
+templ projectAttachmentsByCategory(slug, projectID string, atts []ProjectAttachmentView, isGuest bool) {
+	for _, grp := range groupAttachmentsByCategory(atts) {
+		<div class="project-attachment-group">
+			<header class="project-attachment-group-head">
+				<span class="project-attachment-cat">{ categoryLabel(grp.Category) }</span>
+				<span class="muted project-attachment-cat-count">{ itoa(len(grp.Items)) }</span>
+			</header>
 			<ul class="project-attachments">
-				for _, a := range atts {
+				for _, a := range grp.Items {
 					<li class="project-attachment">
 						<a class="project-attachment-link"
 							href={ templ.URL("/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/download") }>
@@ -939,8 +968,61 @@ templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmen
 					</li>
 				}
 			</ul>
+		</div>
+	}
+}
+
+// AttachmentGroup is one bucket rendered by projectAttachmentsByCategory.
+type AttachmentGroup struct {
+	Category string
+	Items    []ProjectAttachmentView
+}
+
+func groupAttachmentsByCategory(atts []ProjectAttachmentView) []AttachmentGroup {
+	bucket := map[string][]ProjectAttachmentView{}
+	order := []string{}
+	for _, a := range atts {
+		cat := a.Category
+		if cat == "" {
+			cat = "common"
 		}
-	</section>
+		if _, ok := bucket[cat]; !ok {
+			order = append(order, cat)
+		}
+		bucket[cat] = append(bucket[cat], a)
+	}
+	// Pin common first if present, then the rest in insertion order.
+	sorted := make([]string, 0, len(order))
+	if _, ok := bucket["common"]; ok {
+		sorted = append(sorted, "common")
+	}
+	for _, k := range order {
+		if k != "common" {
+			sorted = append(sorted, k)
+		}
+	}
+	out := make([]AttachmentGroup, 0, len(sorted))
+	for _, k := range sorted {
+		out = append(out, AttachmentGroup{Category: k, Items: bucket[k]})
+	}
+	return out
+}
+
+func categoryLabel(c string) string {
+	switch c {
+	case "common":
+		return "Common"
+	case "api_docs":
+		return "API docs"
+	case "design":
+		return "Design"
+	case "specs":
+		return "Specs"
+	case "other":
+		return "Other"
+	default:
+		return c
+	}
 }
 
 // ProjectCommentsFragment renders the full comment thread + new-comment
