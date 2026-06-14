@@ -501,7 +501,7 @@ label.icon-btn {
 .community-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
 .community-link { display: flex; flex-direction: column; gap: .35rem; padding: 1rem; color: var(--fg); text-decoration: none; }
 .community-link:hover { background: var(--surface-alt); }
-.community-link.disabled { color: var(--muted); cursor: not-allowed; }
+.community-link.disabled { color: var(--fg-muted); cursor: not-allowed; }
 .role-tag { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; }
 
 .resolved-badge {
@@ -708,7 +708,7 @@ img.thread-announce-img {
 .cal-grid {
   width: 100%; border-collapse: collapse; text-align: center;
 }
-.cal-grid th { font-size: .75rem; color: var(--muted); padding: .25rem 0; }
+.cal-grid th { font-size: .75rem; color: var(--fg-muted); padding: .25rem 0; }
 .cal-grid td.cal-day {
   padding: 0; height: 2rem; width: 2rem; font-size: .9rem;
 }
@@ -717,7 +717,7 @@ img.thread-announce-img {
   width: 1.8rem; height: 1.8rem; border-radius: 50%;
   color: var(--fg); text-decoration: none;
 }
-.cal-out span, .cal-out a { color: var(--muted); opacity: .5; }
+.cal-out span, .cal-out a { color: var(--fg-muted); opacity: .5; }
 .cal-active a { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
 .cal-active a:hover { background: color-mix(in srgb, var(--accent) 32%, transparent); }
 .cal-selected a, .cal-selected span { outline: 2px solid var(--accent); }
@@ -735,7 +735,7 @@ img.thread-announce-img {
   display: grid; grid-template-columns: auto auto 1fr; column-gap: .6rem;
   align-items: baseline;
 }
-.ev-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .85rem; }
+.ev-time { color: var(--fg-muted); font-variant-numeric: tabular-nums; font-size: .85rem; }
 .history-event:target {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   outline: 2px solid var(--accent); outline-offset: 2px;
@@ -744,14 +744,14 @@ img.thread-announce-img {
 .ev-source {
   font-size: .7rem; text-transform: uppercase; letter-spacing: .04em;
   padding: .05rem .4rem; border-radius: 999px; color: var(--bg);
-  background: var(--muted);
+  background: var(--fg-muted);
 }
 .ev-source-chat   { background: #4a90d9; }
 .ev-source-thread { background: #c47914; }
 .ev-source-reply  { background: #6f9f3a; }
 .ev-author { font-weight: 600; }
 .ev-title { font-weight: 600; grid-column: 1 / -1; }
-.ev-context { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); }
+.ev-context { grid-column: 1 / -1; font-size: .85rem; color: var(--fg-muted); }
 .ev-body { grid-column: 1 / -1; margin-top: .25rem; }
 .ev-body p:first-child { margin-top: 0; }
 .ev-body p:last-child { margin-bottom: 0; }
@@ -1719,4 +1719,263 @@ img.thread-announce-img {
 
 @media (min-width: 900px) {
   .presence-fab, .presence-overlay { display: none !important; }
+}
+
+/* ============================================================
+   2026 refresh — per-component polish
+   Layered on top of the legacy rules above. Adjusts hover lift,
+   pill colors, list-item polish, dialog backdrop blur, and a
+   handful of subtle modernizations. Pure additive; reuses tokens.
+   ============================================================ */
+
+/* Lists & cards — gentle hover lift, modern transitions */
+.thread-list li,
+.community-card,
+.explore-card,
+.rooms-card,
+.projects-card,
+.pm-inbox-row {
+  transition: transform var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out);
+}
+.thread-list li:hover,
+.community-card:hover,
+.explore-card:hover,
+.pm-inbox-row:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.rooms-card:hover, .projects-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Filter pills — tighter, modern */
+.forum-filters { gap: .4rem; }
+.forum-filters .filter {
+  padding: .35rem .9rem;
+  font-weight: 500;
+  font-size: .85rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  transition: background var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out);
+}
+.forum-filters .filter:hover {
+  background: var(--surface-alt);
+  color: var(--fg);
+  border-color: var(--border-strong);
+}
+.forum-filters .filter.active {
+  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  color: var(--accent-fg);
+  border-color: transparent;
+  box-shadow: var(--shadow-xs), inset 0 1px 0 rgb(255 255 255 / 0.15);
+}
+
+/* Forum search — pill-shape input */
+.forum-search input[type="search"] {
+  padding: .45rem .85rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+}
+
+/* Status pills — refined chroma */
+.pill-open  { background: oklch(58% 0.18 250); }
+.pill-doing { background: oklch(65% 0.18 70); }
+.pill-done  { background: oklch(62% 0.18 150); }
+.resolved-badge { background: oklch(62% 0.18 150); }
+
+/* PM status colors via tokens */
+.pm-pill-pending-in  { background: oklch(65% 0.18 70); }
+.pm-pill-pending-out { background: oklch(55% 0.02 260); }
+.pm-pill-accepted    { background: oklch(62% 0.18 150); }
+.pm-pill-declined    { background: var(--danger); }
+.pm-inbox-row.pm-status-pending  { border-left: 3px solid oklch(65% 0.18 70); }
+.pm-inbox-row.pm-status-accepted { border-left: 3px solid oklch(62% 0.18 150); }
+
+/* Event source pills (history) */
+.ev-source-chat   { background: oklch(58% 0.18 250); }
+.ev-source-thread { background: oklch(65% 0.18 70); }
+.ev-source-reply  { background: oklch(62% 0.18 150); }
+
+/* Todo row polish */
+.todo-row {
+  transition: border-color var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out);
+}
+.todo-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+
+/* Bubble system style refresh — softer warm */
+.bubble.system {
+  background: linear-gradient(180deg, var(--sys), oklch(98% 0.04 80));
+  border-color: var(--sys-border);
+  border-radius: var(--radius);
+}
+
+/* Inline reply quote inside bubble */
+.bubble .quote {
+  background: var(--surface-alt);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* Composer field — bigger, more inviting */
+.composer-row input {
+  padding: .7rem 1rem;
+  border-radius: var(--radius);
+}
+.composer-row button {
+  border-radius: var(--radius);
+  padding: .7rem 1.2rem;
+}
+
+/* Dialogs — backdrop blur + larger radius */
+.bm-dialog-backdrop, .pm-dialog-backdrop {
+  background: oklch(20% 0.04 260 / 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.bm-dialog, .pm-dialog {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 1.25rem;
+}
+
+/* Toast polish */
+.pm-toast {
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-lg);
+  border-left-color: var(--success);
+}
+.pm-toast-icon { color: var(--success); }
+
+/* Presence list — modern green dot */
+.presence li::before { background: var(--success); box-shadow: 0 0 0 3px oklch(62% 0.18 150 / 0.18); }
+.presence h3 { margin-bottom: .65rem; }
+
+/* Badges */
+.badge {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border: 1px solid var(--accent-soft-strong);
+  padding: .15rem .55rem;
+  border-radius: var(--radius-pill);
+  font-size: .72em;
+  letter-spacing: 0.01em;
+}
+
+/* Card narrow polish (login/register cards get a touch more presence) */
+.card.narrow { box-shadow: var(--shadow-md); border-radius: var(--radius-xl); padding: 1.75rem; }
+.card.narrow h1 { margin-top: 0; }
+
+/* Projects header card subtle gradient */
+.project-header {
+  background: linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  border-radius: var(--radius-lg);
+}
+.project-panel {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+}
+
+/* Dropzone — modern dashed border + hover */
+.project-dropzone {
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-alt);
+  color: var(--fg-muted);
+  transition: border-color var(--t-fast) var(--ease-out),
+              background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+.project-dropzone:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+/* Rooms — speaker stage rounder, label modern pill */
+.rooms-stage { border-radius: var(--radius-lg); }
+.rooms-stage-label {
+  background: oklch(0% 0 0 / 0.55);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  border-radius: var(--radius-pill); padding: 4px 10px; font-size: .78em;
+}
+.rooms-video-tile { border-radius: var(--radius); }
+.rooms-people, .rooms-video-strip, .rooms-chat-col, .rooms-video-stack {
+  border-radius: var(--radius-lg);
+}
+
+/* Calendar today-ish polish */
+.cal-active a { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.cal-active a:hover { background: var(--accent-soft-strong); }
+.cal-selected a, .cal-selected span {
+  background: var(--accent); color: var(--accent-fg) !important;
+  outline: none; box-shadow: var(--shadow-sm);
+}
+
+/* History event card lift */
+.history-event {
+  border-radius: var(--radius-lg);
+  transition: border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+}
+.history-event:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+
+/* Code blocks in markdown content */
+.body pre, .body code, .ev-body pre, .ev-body code,
+.project-discussion-body pre, .project-discussion-body code {
+  font-family: var(--font-mono);
+}
+.body pre, .ev-body pre, .project-discussion-body pre {
+  background: oklch(96% 0.008 260);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: .7rem .85rem;
+  overflow-x: auto;
+  font-size: .85em;
+}
+.body :not(pre) > code, .ev-body :not(pre) > code,
+.project-discussion-body :not(pre) > code {
+  background: var(--surface-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 0 .35em;
+  font-size: .9em;
+}
+
+/* Tables — modern */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+table th, table td {
+  text-align: left; padding: .5rem .7rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+table th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted); }
+
+/* Inputs in dialogs grow comfortable */
+.bm-dialog input, .pm-dialog input, .pm-dialog textarea {
+  padding: .65rem .85rem;
+}
+
+/* hr modernize */
+hr {
+  border: none; height: 1px;
+  background: var(--border-subtle);
+  margin: 1.25rem 0;
+}
+
+/* Reduced motion — respect user preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
