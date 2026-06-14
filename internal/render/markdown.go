@@ -90,6 +90,37 @@ func RenderMarkdown(src string) (string, error) {
 	return out, nil
 }
 
+// mentionTokenRE matches an `@name` token that's NOT preceded by an
+// identifier-like char (so `email@host` won't match) and whose name is
+// 1..32 chars of the same alphabet allowed by the typeahead popup.
+var mentionTokenRE = regexp.MustCompile(`(^|[^A-Za-z0-9_\-])@([A-Za-z0-9_\-]{1,32})`)
+
+// HighlightMentions wraps every `@token` in the rendered chat HTML with
+// a `<span class="mention">` so CSS can style mentions; tokens that
+// match the viewer's display name (case-insensitive) get an extra `.me`
+// class so the viewer's own pings stand out. Runs at display time
+// (viewer-aware), so two viewers reading the same message see different
+// classes.
+//
+// Caveat: the regex doesn't try to skip mentions inside <code>/<pre>;
+// in practice goldmark escapes `@` outside fenced code anyway, and a
+// stray highlight inside a code block is purely cosmetic.
+func HighlightMentions(htmlBody, viewerDisplayName string) string {
+	if htmlBody == "" {
+		return htmlBody
+	}
+	viewer := strings.ToLower(strings.TrimSpace(viewerDisplayName))
+	return mentionTokenRE.ReplaceAllStringFunc(htmlBody, func(m string) string {
+		sub := mentionTokenRE.FindStringSubmatch(m)
+		prefix, name := sub[1], sub[2]
+		cls := "mention"
+		if viewer != "" && strings.ToLower(name) == viewer {
+			cls = "mention me"
+		}
+		return prefix + `<span class="` + cls + `">@` + name + `</span>`
+	})
+}
+
 // WrapUploadImages wraps every `<img src="/uploads/...">` in an anchor
 // that opens the original in a new tab. Idempotent: it first strips
 // any existing wrap then re-applies one, so running twice (or on

@@ -86,9 +86,9 @@ func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
 // fatMorph emits the chat patches the UI expects:
 //   1. #messages outer-morph → full latest-N list.
 //   2. ExecuteScript → scroll #messages to its own bottom.
-func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool, currentUserID, slug string) error {
+func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool, currentUserID, viewerName, slug string) error {
 	if err := sse.PatchElementTempl(
-		webtempl.MessagesContainer(views, isMod, currentUserID, slug),
+		webtempl.MessagesContainer(views, isMod, currentUserID, viewerName, slug),
 		datastar.WithModeOuter(),
 	); err != nil {
 		return err
@@ -220,7 +220,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 
 	views, err := h.loadRecent(r.Context())
 	if err == nil {
-		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, h.cslug(r.Context()))
+		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
 	// Clear composer signals.
 	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":""}`))
@@ -336,7 +336,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	// Without this, a reconnecting client would see stale messages until the
 	// next chat event fires.
 	if views, err := h.loadRecent(r.Context()); err == nil {
-		_ = fatMorph(sse, views, isMod, id.User.ID, h.cslug(r.Context()))
+		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
 
 	local, unsubscribe := h.Bus.Subscribe()
@@ -370,7 +370,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		if err := fatMorph(sse, views, isMod, id.User.ID, h.cslug(r.Context())); err != nil {
+		if err := fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context())); err != nil {
 			return
 		}
 	}
@@ -395,7 +395,7 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	views, err := h.loadRecent(r.Context())
 	if err == nil {
-		_ = fatMorph(sse, views, true, id.User.ID, h.cslug(r.Context()))
+		_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
 	h.broadcast(r.Context())
 }
