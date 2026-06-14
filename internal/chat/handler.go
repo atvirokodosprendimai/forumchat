@@ -90,6 +90,41 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 	)
 }
 
+// Welcome posts a one-shot "👋 Say hello to <name>" system message into
+// the chat for the given community and broadcasts it. Best-effort: any
+// error is logged and swallowed so callers don't have to roll back the
+// caller's primary action (approve, join confirm, etc).
+func (h *Handler) Welcome(ctx context.Context, communityID, displayName string) {
+	name := strings.TrimSpace(displayName)
+	if name == "" || communityID == "" || h.Svc == nil {
+		return
+	}
+	body := "👋 Say hello to <strong>" + htmlEscape(name) + "</strong>!"
+	if _, err := h.Svc.PostSystem(ctx, communityID, body, KindSystem, nil); err != nil {
+		h.Log.Warn("welcome system msg", "err", err)
+		return
+	}
+	if h.Bus != nil {
+		h.Bus.Broadcast()
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.ChatSubject(communityID), []byte("changed"))
+	}
+}
+
+// htmlEscape is a tiny stand-in for html.EscapeString so chat doesn't
+// have to pull in the whole `html` package for this single use.
+func htmlEscape(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		"'", "&#39;",
+	)
+	return r.Replace(s)
+}
+
 // broadcast fans out a chat-changed signal locally (this process) AND over
 // NATS (other processes). Either may be down; the other still works.
 func (h *Handler) broadcast(ctx context.Context) {

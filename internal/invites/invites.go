@@ -15,12 +15,14 @@ import (
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
 type Handler struct {
 	AuthRepo *auth.Repo
+	Chat     *chat.Handler
 	Sessions *scs.SessionManager
 	Log      *slog.Logger
 }
@@ -101,6 +103,10 @@ func (h *Handler) PostJoinConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = h.AuthRepo.ConsumeSignupToken(r.Context(), code)
+	// Welcome ping — existing-user invitee just arrived.
+	if h.Chat != nil {
+		h.Chat.Welcome(r.Context(), c.ID, id.Membership.DisplayName)
+	}
 	sse := datastar.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/chat")
 }
@@ -156,5 +162,11 @@ func (h *Handler) PostJoinSetPassword(w http.ResponseWriter, r *http.Request) {
 	_ = h.AuthRepo.ConsumeSignupToken(r.Context(), code)
 	// Log them in.
 	auth.PutLogin(r.Context(), h.Sessions, target.ID, c.ID)
+	// Welcome ping — new placeholder invitee just activated and joined.
+	if h.Chat != nil {
+		if m, err := h.AuthRepo.MembershipFor(r.Context(), target.ID, c.ID); err == nil {
+			h.Chat.Welcome(r.Context(), c.ID, m.DisplayName)
+		}
+	}
 	_ = sse.Redirect("/c/" + c.Slug + "/chat")
 }
