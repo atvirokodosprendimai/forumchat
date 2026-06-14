@@ -61,23 +61,65 @@ templ RegisterDoneFragment(email string) {
 	</section>
 }
 
+// LoginPage is the two-step sign-in card. Step 1 (this template) asks
+// only for the email. Submitting morphs #login-card into LoginStep2
+// (password OR magic-link choice) — server-driven so the page state is
+// authoritative. The card div has stable id so SSE patches replace it.
 templ LoginPage() {
 	@Layout("Sign in", Viewer{}) {
-		<section class="card narrow">
-			<h1>Sign in</h1>
-			<div id="auth-error" class="error"></div>
-			<div class="field">
-				<label>Email</label>
-				<input type="email" data-bind="email" autocomplete="email" autofocus/>
-			</div>
-			<div class="field">
-				<label>Password</label>
-				<input type="password" data-bind="password" autocomplete="current-password"/>
-			</div>
-			<button data-on:click="@post('/login')">Sign in</button>
-			<p class="muted">No account? <a href="/register">Register with invite code</a>.</p>
-		</section>
+		<div id="login-card">
+			@LoginStep1()
+		</div>
 	}
+}
+
+templ LoginStep1() {
+	<section id="login-card" class="card narrow">
+		<h1>Sign in</h1>
+		<div id="auth-error" class="error"></div>
+		<div class="field">
+			<label>Email</label>
+			<input type="email" data-bind="email" autocomplete="email" autofocus
+				data-on:keydown="evt.key==='Enter' && (evt.preventDefault(), @post('/login/check'))"/>
+		</div>
+		<button data-on:click="@post('/login/check')">Continue</button>
+		<p class="muted">No account? <a href="/register">Register with invite code</a>.</p>
+	</section>
+}
+
+// LoginStep2 — picked between password OR magic-link sign-in. The
+// email signal still carries from step 1; we just read-only-echo it
+// here. A "use a different email" link patches the card back to
+// step 1 without losing what the user typed.
+templ LoginStep2(email string) {
+	<section id="login-card" class="card narrow">
+		<h1>Sign in</h1>
+		<div id="auth-error" class="error"></div>
+		<div class="field">
+			<label>Email</label>
+			<input type="email" value={ email } readonly autocomplete="email" tabindex="-1"/>
+			<button class="link" data-on:click="@post('/login/back')">use a different email</button>
+		</div>
+		<div class="field">
+			<label>Password</label>
+			<input type="password" data-bind="password" autocomplete="current-password" autofocus
+				data-on:keydown="evt.key==='Enter' && (evt.preventDefault(), @post('/login'))"/>
+		</div>
+		<button data-on:click="@post('/login')">Sign in with password</button>
+		<div class="login-divider"><span>or</span></div>
+		<button class="btn ghost" data-on:click="@post('/login/magic')">Email me a magic link</button>
+	</section>
+}
+
+// LoginMagicSent — terminal step after the user requested a magic
+// link. Replaces #login-card. No "didn't get it?" affordance yet;
+// they can refresh and start over.
+templ LoginMagicSent(email string) {
+	<section id="login-card" class="card narrow">
+		<h1>Check your email</h1>
+		<p>If <strong>{ email }</strong> is a registered address, a one-time sign-in link is on its way.</p>
+		<p class="muted">The link expires in 30 minutes. You can close this tab.</p>
+	</section>
 }
 
 templ VerifyPage(message string, ok bool) {

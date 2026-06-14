@@ -244,6 +244,82 @@ func (h *Handler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	_ = sse.Redirect("/")
 }
 
+// --- step-1: email check ---
+
+type loginCheckSignals struct {
+	Email string `json:"email"`
+}
+
+// PostLoginCheck advances the two-step login from "enter email" to
+// "pick a method". We never reveal whether the email maps to an
+// account here — pretending the user exists keeps account enumeration
+// off the table; the real check happens at password submit or magic-
+// link consume time.
+func (h *Handler) PostLoginCheck(w http.ResponseWriter, r *http.Request) {
+	var in loginCheckSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	email := strings.TrimSpace(in.Email)
+	if email == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("auth-error", "Enter your email"))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.LoginStep2(email))
+}
+
+// PostLoginBack rewinds the card to step 1, letting the user correct
+// a mistyped address without losing the email signal.
+func (h *Handler) PostLoginBack(w http.ResponseWriter, r *http.Request) {
+	sse := datastar.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.LoginStep1())
+}
+
+// PostLoginMagic mails a one-shot sign-in link to the address from the
+// email signal. Always renders "check your email" — including when the
+// address is unknown — so the response shape can't be used to probe
+// membership.
+func (h *Handler) PostLoginMagic(w http.ResponseWriter, r *http.Request) {
+	var in loginCheckSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	email := strings.TrimSpace(in.Email)
+	if email == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("auth-error", "Enter your email first"))
+		return
+	}
+	if err := h.Svc.IssueMagicLink(r.Context(), email); err != nil {
+		h.Log.Error("issue magic link", "err", err)
+		// fall through to the same "check your email" page — the user
+		// can't act on the failure and we won't expose it.
+	}
+	_ = sse.PatchElementTempl(webtempl.LoginMagicSent(email))
+}
+
+// GetLoginMagic consumes a magic-login token, mints the session and
+// redirects home. Renders the verify-page error look when the token
+// is missing or burnt.
+func (h *Handler) GetLoginMagic(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		_ = webtempl.VerifyPage("Missing sign-in token", false).Render(r.Context(), w)
+		return
+	}
+	res, err := h.Svc.ConsumeMagicLink(r.Context(), token, h.CommunityID)
+	if err != nil {
+		_ = webtempl.VerifyPage("Sign-in link is invalid or expired", false).Render(r.Context(), w)
+		return
+	}
+	PutLogin(r.Context(), h.Sessions, res.User.ID, res.Membership.CommunityID)
+	commitSession(h.Sessions, w, r)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 // --- logout ---
 
 func (h *Handler) PostLogout(w http.ResponseWriter, r *http.Request) {

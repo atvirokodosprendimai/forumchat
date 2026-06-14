@@ -2525,6 +2525,22 @@ hr {
 }
 .mention-name { font-size: .92rem; }
 
+/* Login "or" divider between password and magic-link CTAs. */
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: .85rem 0;
+  color: var(--fg-muted);
+  font-size: .85rem;
+}
+.login-divider::before, .login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
 /* Reduced motion — respect user preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
