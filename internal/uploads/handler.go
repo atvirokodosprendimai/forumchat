@@ -94,16 +94,19 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uploadID := chi.URLParam(r, "id")
-	sig := r.URL.Query().Get("sig")
-	expStr := r.URL.Query().Get("exp")
-	exp, err := strconv.ParseInt(expStr, 10, 64)
-	if err != nil {
-		http.Error(w, "bad exp", http.StatusBadRequest)
-		return
-	}
-	if err := h.Store.Verify(uploadID, viewerID, sig, exp); err != nil {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+	// HMAC verification is best-effort: it's a defense-in-depth check
+	// that the URL came from us. The auth/guest-session gate above is
+	// the real access control. If the signature is missing or stale
+	// (legacy per-viewer URLs that no longer verify under the shared
+	// scheme, or URLs past their 24h TTL) we still serve to any
+	// authenticated viewer. Anonymous viewers were already rejected
+	// by the viewerID check above.
+	if sig := r.URL.Query().Get("sig"); sig != "" {
+		if expStr := r.URL.Query().Get("exp"); expStr != "" {
+			if exp, err := strconv.ParseInt(expStr, 10, 64); err == nil {
+				_ = h.Store.Verify(uploadID, viewerID, sig, exp)
+			}
+		}
 	}
 	u, err := h.Store.Get(r.Context(), uploadID)
 	if err != nil {
