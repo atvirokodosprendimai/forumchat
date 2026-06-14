@@ -103,8 +103,12 @@ func WrapUploadImages(s string) string {
 	// Step 1: strip any existing anchor-around-img — covers both prior
 	// WrapUploadImages output AND chat/forum's [![](u)](u) markdown
 	// pattern that already emits a link-wrapped img.
-	s = existingImgAnchorRE.ReplaceAllString(s, `$1`)
-	// Step 2: uniformly wrap every img in our own anchor.
+	s = existingImgAnchorRE.ReplaceAllString(s, `${1}`)
+	// Step 2: uniformly wrap every img in our own anchor. Brace the
+	// group refs (${1}, ${2}, ${3}) so Go's regexp template doesn't
+	// greedy-parse `$1src` as a group named "1src" (undefined → empty,
+	// which silently drops the `src=` literal and produces a broken
+	// <img> tag).
 	return uploadsImageRE.ReplaceAllString(s,
-		`<a target="_blank" rel="noopener" href="$2" class="upload-img-link"><img $1src="$2"$3></a>`)
+		`<a target="_blank" rel="noopener" href="${2}" class="upload-img-link"><img ${1}src="${2}"${3}></a>`)
 }
