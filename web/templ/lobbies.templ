@@ -143,7 +143,7 @@ templ LobbiesList(slug, status string, rows []LobbyView) {
 						if l.Status == "open" {
 							<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/archive')" }>Archive</button>
 							<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/close')" }>Close</button>
-						} else if l.Status == "archived" {
+						} else if l.Status == "archived" || l.Status == "closed" {
 							<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/reopen')" }>Reopen</button>
 						}
 					</div>
@@ -158,23 +158,74 @@ templ LobbiesList(slug, status string, rows []LobbyView) {
 templ LobbyHostView(d LobbyHostViewData) {
 	@Layout("Lobby with " + guestNameOrFallback(d.Lobby.GuestName), d.Viewer) {
 		<section>
-			<h1>{ guestNameOrFallback(d.Lobby.GuestName) } · <span class="muted">{ d.Lobby.Status }</span></h1>
-			<div class="card narrow">
-				<p class="muted">Share URL:</p>
-				<input type="text" readonly value={ d.GuestURL } onfocus="this.select()" style="width:100%"/>
-				<div class="primary-nav" style="margin-top:.4rem">
-					if d.Lobby.GuestEmail != "" {
-						<button class="ghost" data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/lobbies/" + d.Lobby.ID + "/promote')" }>Promote guest to member</button>
-					}
-					<button class="ghost" data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/lobbies/" + d.Lobby.ID + "/close')" }>Close lobby</button>
-				</div>
-				<div id="lobby-promote-result"></div>
-			</div>
+			@LobbyHostHeader(d.Viewer.CommunitySlug, d.Lobby, d.GuestURL)
 			<div id="lobby-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/lobbies/" + d.Lobby.ID + "/stream', {openWhenHidden: true})" }></div>
 			@LobbyMessages(d.Messages)
-			@LobbyComposer(d.Viewer.CommunitySlug, d.Lobby.ID)
+			if d.Lobby.Status == "open" {
+				@LobbyComposer(d.Viewer.CommunitySlug, d.Lobby.ID)
+			} else {
+				<p class="muted">This lobby is { d.Lobby.Status }. Reopen it to send new messages.</p>
+			}
 		</section>
 	}
+}
+
+// LobbyHostHeader carries every UI element that has to morph after a
+// state change: status badge, action buttons (visibility flips on
+// status), share URL, guest-profile edit form, promote-result slot.
+// Stable id #lobby-host-header lets PostClose / PostReopen /
+// PostArchive / PostPromote / PostUpdateGuest all PatchElementTempl
+// the same root without a full page reload.
+templ LobbyHostHeader(slug string, l LobbyView, guestURL string) {
+	<div id="lobby-host-header">
+		<h1>{ guestNameOrFallback(l.GuestName) } · <span class={ lobbyStatusClass(l.Status) }>{ l.Status }</span></h1>
+		<div class="card narrow"
+			data-signals={ "{lobby_edit_name:'" + jsString(l.GuestName) + "',lobby_edit_email:'" + jsString(l.GuestEmail) + "'}" }>
+			<p class="muted">Share URL:</p>
+			<input type="text" readonly value={ guestURL } onfocus="this.select()" style="width:100%"/>
+			<details style="margin-top:.45rem">
+				<summary class="link-button" style="cursor:pointer">Edit guest profile</summary>
+				<div style="margin-top:.45rem">
+					<div class="field">
+						<label>Display name</label>
+						<input type="text" data-bind="lobby_edit_name" placeholder="Casey"/>
+					</div>
+					<div class="field">
+						<label>Email (required for Promote)</label>
+						<input type="email" data-bind="lobby_edit_email" placeholder="casey@acme.com"/>
+					</div>
+					<button data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/update')" }>Save</button>
+				</div>
+			</details>
+			<div class="primary-nav" style="margin-top:.5rem">
+				if l.Status == "open" {
+					if l.GuestEmail != "" {
+						<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/promote')" }>Promote guest to member</button>
+					}
+					<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/archive')" }>Archive</button>
+					<button class="ghost danger" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/close')" }>Close lobby</button>
+				} else if l.Status == "archived" {
+					<button class="ghost" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/reopen')" }>Reopen</button>
+					<button class="ghost danger" data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/close')" }>Close lobby</button>
+				} else if l.Status == "closed" {
+					<button data-on:click={ "@post('/c/" + slug + "/lobbies/" + l.ID + "/reopen')" }>Reopen</button>
+				}
+			</div>
+			<div id="lobby-promote-result"></div>
+		</div>
+	</div>
+}
+
+func lobbyStatusClass(status string) string {
+	switch status {
+	case "open":
+		return "muted"
+	case "archived":
+		return "muted"
+	case "closed":
+		return "error"
+	}
+	return "muted"
 }
 
 templ LobbyMessages(msgs []LobbyMsgView) {
