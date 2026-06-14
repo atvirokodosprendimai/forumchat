@@ -69,7 +69,8 @@ const InitialSignals = `{
 	"rooms_member_count":0,
 	"rooms_room_name":"",
 	"rooms_am_admin":false,
-	"rooms_invite_emails":""
+	"rooms_invite_emails":"",
+	"nav_open":false
 }`
 
 templ Layout(title string, v Viewer) {
@@ -92,7 +93,14 @@ templ Layout(title string, v Viewer) {
 		</head>
 		<body data-signals={ InitialSignals }>
 			<header class="topbar">
+				<button class="topbar-hamburger" aria-label="Toggle navigation"
+					data-on:click="$nav_open = !$nav_open">☰</button>
 				<a href="/" class="brand">forumchat</a>
+			</header>
+			<div class="nav-overlay" data-show="$nav_open"
+				data-on:click="$nav_open = false"></div>
+			<aside class={ "sidebar", templ.KV("sidebar-open", false) } data-class-sidebar-open="$nav_open">
+				<a href="/" class="sidebar-brand">forumchat</a>
 				<nav>
 					if v.IsAuthed {
 						if v.CommunitySlug != "" {
@@ -124,7 +132,7 @@ templ Layout(title string, v Viewer) {
 						<a href="/register">Register</a>
 					}
 				</nav>
-			</header>
+			</aside>
 			<main>
 				{ children... }
 			</main>
