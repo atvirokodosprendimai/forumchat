@@ -94,6 +94,51 @@ func (s *Service) JoinGuest(ctx context.Context, token, displayName string) (Roo
 	return rm, id, nil
 }
 
+// EnsureMember re-admits a caller who is no longer in the room's live
+// state. The janitor evicts on stale heartbeats (background-tab throttling,
+// transient network blips) but the user is still on the page — every
+// active POST should self-heal instead of returning a hard 400.
+//
+// Auth users go through JoinAuth so the persisted admin slot follows the
+// room policy. Guests are re-added directly to State because their invite
+// token was already redeemed at /rooms/invite/{token}/join — we only need
+// their session-scoped identity to bring them back online.
+//
+// Returns (admitted, nil) when the caller is now a member; (false, err)
+// on hard refusal (room full, etc.). No error if already a member.
+func (s *Service) EnsureMember(ctx context.Context, roomID string, id Identity) (bool, error) {
+	if s.State.IsMember(roomID, id.Key()) {
+		return true, nil
+	}
+	if id.UserID != "" {
+		res, err := s.JoinAuth(ctx, roomID, id.UserID, id.Name)
+		if err != nil {
+			return false, err
+		}
+		return res.Admitted, nil
+	}
+	if id.GuestID == "" {
+		return false, ErrNotMember
+	}
+	rm, err := s.Repo.RoomByID(ctx, roomID)
+	if err != nil {
+		return false, err
+	}
+	// viaInvite=true mirrors the original JoinGuest path — re-admit
+	// directly without re-checking the invite token (the session cookie
+	// is the proof; if it's missing the caller() lookup would've failed
+	// upstream and we'd never reach here).
+	res := s.State.Join(roomID, id, rm.IsPublic, true, time.Now().UTC())
+	if !res.Admitted {
+		if res.Reason == "full" {
+			return false, ErrRoomFull
+		}
+		return false, fmt.Errorf("guest readmit failed: %s", res.Reason)
+	}
+	s.Bus.PublishRoom(roomID, Event{Kind: "presence"})
+	return true, nil
+}
+
 func (s *Service) Approve(ctx context.Context, roomID, byKey, targetKey string) error {
 	if _, ok := s.State.Approve(roomID, byKey, targetKey); !ok {
 		return ErrNotAdmin

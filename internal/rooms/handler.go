@@ -499,6 +499,16 @@ func (h *Handler) PostSignal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
+	// Self-heal stale eviction: signaling fires continuously (ICE
+	// candidates, periodic offer/answer) so a single eviction would
+	// otherwise produce a flood of 400s and kill every active PC.
+	if _, err := h.Svc.EnsureMember(r.Context(), roomID, id); err != nil {
+		h.Log.Warn("rooms signal: ensure member failed",
+			"err", err, "room", roomID, "from", id.Key())
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	h.State.Touch(roomID, id.Key(), time.Now().UTC())
 	if err := h.Svc.RouteSignal(roomID, id.Key(), raw); err != nil {
 		h.Log.Warn("rooms signal route failed",
 			"err", err, "room", roomID, "from", id.Key(),
@@ -607,17 +617,19 @@ func (h *Handler) PostChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	// Self-heal: the janitor evicts idle members after staleAfter. If an
-	// auth user was just evicted, transparently rejoin them and retry —
-	// they're still on the room page, they just paused. Guests aren't
-	// auto-readmitted because their invite cookie + identity verification
-	// already happens at /rooms/invite/{token}/join time.
-	_, err := h.Svc.PostChat(r.Context(), roomID, id, in.Body)
-	if errors.Is(err, ErrNotMember) && id.UserID != "" {
-		if _, jerr := h.Svc.JoinAuth(r.Context(), roomID, id.UserID, id.Name); jerr == nil {
-			_, err = h.Svc.PostChat(r.Context(), roomID, id, in.Body)
-		}
+	// Self-heal stale eviction. EnsureMember re-admits auth users via
+	// JoinAuth and guests via the session-scoped identity (no need to
+	// re-validate the invite token — the cookie already proves it). Any
+	// successful POST also refreshes the last-seen ping so an idle user
+	// who is actively typing doesn't get re-evicted on the next sweep.
+	if _, jerr := h.Svc.EnsureMember(r.Context(), roomID, id); jerr != nil {
+		h.Log.Warn("rooms chat: ensure member failed",
+			"err", jerr, "room", roomID, "user", id.UserID, "guest", id.GuestID)
+		http.Error(w, jerr.Error(), http.StatusBadRequest)
+		return
 	}
+	h.State.Touch(roomID, id.Key(), time.Now().UTC())
+	_, err := h.Svc.PostChat(r.Context(), roomID, id, in.Body)
 	if err != nil {
 		h.Log.Warn("rooms chat: send failed",
 			"err", err, "room", roomID, "user", id.UserID, "guest", id.GuestID,

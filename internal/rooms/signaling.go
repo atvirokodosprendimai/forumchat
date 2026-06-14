@@ -31,13 +31,11 @@ func (s *Service) RouteSignal(roomID, fromKey string, raw []byte) error {
 	if !s.State.IsMember(roomID, fromKey) {
 		return fmt.Errorf("%w (from=%s)", ErrNotMember, fromKey)
 	}
-	// Recipient may not have subscribed yet — we still queue the envelope
-	// so the very first SDP exchange survives the race between
-	// JoinAuth/presence-push and the new peer's signal stream opening.
-	// We only refuse delivery when the recipient is *not even a member*.
-	if !s.State.IsMember(roomID, in.To) {
-		return fmt.Errorf("recipient not in room: %s", in.To)
-	}
+	// We don't gate on recipient-membership: the bus queues envelopes for
+	// peers whose mailbox isn't subscribed yet, and the janitor can evict
+	// the recipient between the sender's ICE candidate and the recipient's
+	// next ping. Queuing here lets a transient eviction self-heal on the
+	// recipient's next EnsureMember without losing the burst of candidates.
 	s.Bus.SendSignal(roomID, in.To, SignalEnvelope{
 		FromKey: fromKey,
 		Kind:    in.Kind,

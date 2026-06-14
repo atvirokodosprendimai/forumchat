@@ -125,12 +125,21 @@
 
   async function enableMedia(kind) {
     if (local[kind]) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      // Almost always means the page is on http:// with a non-localhost
+      // host (insecure context). Surface it instead of failing silently —
+      // the toggle button will just stay "off" without this, leaving the
+      // user with no idea why their camera/mic won't engage.
+      flashMediaError(kind, 'Camera/microphone require HTTPS (or localhost).');
+      return false;
+    }
     let stream;
     try {
       const constraints = kind === 'audio' ? { audio: true } : { video: { width: 640, height: 480 } };
       stream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (e) {
       console.warn('[rooms] getUserMedia denied', kind, e);
+      flashMediaError(kind, e?.name ? `${e.name}: ${e.message || ''}` : String(e));
       return false;
     }
     const track = stream.getTracks().find(t => t.kind === kind);
@@ -240,6 +249,14 @@
   }
 
   // ----- heartbeat ---------------------------------------------------------
+  //
+  // Background tabs get setInterval throttled to ~1Hz at best, and
+  // anything that breaks one HTTPS round-trip silently swallows a ping
+  // (the catch is a noop). Three missed pings used to evict the member,
+  // which broke every active PC for that key — now staleAfter is 60s on
+  // the server, EnsureMember self-heals on the next POST, and we also
+  // re-ping on tab-focus / visibility / connectivity recovery to be
+  // belt-and-braces about it.
 
   function startHeartbeat() {
     const ping = () => fetch(`${roomBase}/ping`, {
@@ -247,6 +264,11 @@
     }).catch(() => {});
     ping();
     heartbeatTimer = setInterval(ping, 10000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') ping();
+    });
+    window.addEventListener('focus', ping);
+    window.addEventListener('online', ping);
   }
 
   // ----- peer plumbing -----------------------------------------------------
@@ -350,6 +372,21 @@
     pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
       sendSignal(key, 'ice', JSON.stringify(ev.candidate));
+    };
+    // Diagnostic logging — silent failures were the #1 cause of "guest
+    // exists but no video". The browser console now shows the actual ICE
+    // verdict: relay-required without TURN, NAT type mismatch, etc.
+    pc.oniceconnectionstatechange = () => {
+      console.log('[rooms] ice state', key, pc.iceConnectionState);
+      if (pc.iceConnectionState === 'failed') {
+        try { pc.restartIce?.(); } catch {}
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      console.log('[rooms] pc state', key, pc.connectionState);
+    };
+    pc.onicegatheringstatechange = () => {
+      console.log('[rooms] gather state', key, pc.iceGatheringState);
     };
     pc.onnegotiationneeded = async () => {
       try {
@@ -464,6 +501,22 @@
     document.addEventListener('click', replay, { once: false });
     document.addEventListener('keydown', replay, { once: false });
     document.addEventListener('touchstart', replay, { once: false });
+  }
+
+  // flashMediaError briefly surfaces a gUM / device error next to the
+  // toolbar so users see why a camera/mic toggle did nothing.
+  function flashMediaError(kind, msg) {
+    const host = root.querySelector('.rooms-toolbar') || root;
+    let banner = root.querySelector('.rooms-media-error');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.className = 'rooms-media-error';
+      banner.style.cssText = 'color:#b00;background:#fee;border:1px solid #f99;padding:6px 10px;margin:6px 0;border-radius:6px;font-size:13px;';
+      host.parentNode?.insertBefore(banner, host.nextSibling);
+    }
+    banner.textContent = `${kind === 'audio' ? 'Microphone' : 'Camera'} unavailable — ${msg}`;
+    clearTimeout(banner._t);
+    banner._t = setTimeout(() => { banner.remove(); }, 8000);
   }
 
   function makeTile(key, name, isLocal) {
