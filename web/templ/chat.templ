@@ -53,6 +53,7 @@ templ ChatPage(d ChatPageData) {
 		<div id="chat-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/chat/stream', {openWhenHidden: true})" }></div>
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
+		@MessagesComposeDialog(d.Viewer.CommunitySlug)
 	}
 }
 
@@ -133,6 +134,12 @@ templ MessageView(m MsgView, isMod bool, currentUserID string, slug string) {
 						data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false" }>
 						<span class="mi-icon">☑</span><span class="mi-label">To-do</span>
 					</button>
+					if m.AuthorID != currentUserID {
+						<button class="msg-menu-item" role="menuitem"
+							data-on:click={ "$pm_open_to_user='" + m.AuthorID + "'; $pm_open_to_name='" + jsString(m.AuthorName) + "'; $pm_source_chat_id='" + m.ID + "'; el.closest('details').open=false" }>
+							<span class="mi-icon">✉</span><span class="mi-label">Message</span>
+						</button>
+					}
 					if m.PromotedThreadID != "" {
 						<a class="msg-menu-item" role="menuitem" href={ templ.URL("/c/" + slug + "/forum/" + m.PromotedThreadID) }>
 							<span class="mi-icon">→</span><span class="mi-label">Thread</span>
