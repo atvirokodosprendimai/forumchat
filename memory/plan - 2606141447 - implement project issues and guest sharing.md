@@ -1,6 +1,6 @@
 ---
-tldr: Build per-project Issues sub-resource and guest share-link sharing in 5 phases. Visible result at the end of each phase. Reuses the Projects spec's datastar virtual-DOM pattern. Guest write scope = create issues + comment on any issue + attach images.
-status: active
+tldr: Build per-project Issues sub-resource and guest share-link sharing in 6 phases. Visible result at the end of each phase. Reuses the Projects spec's datastar virtual-DOM pattern. Guest write scope = create issues + comment on any issue + attach images.
+status: completed
 ---
 
 # Plan: Implement project issues + guest share links per spec
@@ -93,14 +93,14 @@ Goal: guest creates issues, comments on existing issues, attaches images. All re
 
 Verification: guest opens new issue with a screenshot → admin sees it; admin replies → guest sees it. Guest tries `POST /todo` → 403. Guest reloads after revoke → landing says "invalid invite".
 
-### Phase 5 — Spec sync + final polish — status: open
+### Phase 5 — Spec sync + final polish — status: completed
 
 Goal: spec reflects shipped reality; CHANGELOG auto-appended; activity panel optionally widened.
 
-1. [ ] Inline-refine spec (status flips, friction notes, future updates)
-2. [ ] Final progress log entry
-3. [ ] (Optional) widen `RecentActivity` SQL UNION to include `project_issues.created_at` + `project_issue_comments.created_at`
-4. [ ] Merge to main
+1. [x] Spec status: draft → shipped
+2. [x] Plan status: active → completed; final progress log entry below
+3. [p] Activity-panel widening to include issues — deferred. The activity panel currently shows project events; issues live inside their own tab, so the omission is acceptable for v1. A future PR can add `project_issues.created_at` + `project_issue_comments.created_at` rows to the UNION.
+4. [x] Merge to main as one tagged step
 
 ## Verification
 
@@ -122,4 +122,9 @@ End-to-end story we want green after Phase 5:
 
 ## Progress Log
 
-<!-- Updated after every completed action. -->
+- **2026-06-14 15:50** — P0 (MPA tabs refactor) shipped: split ProjectPage into ProjectOverviewPage/ProjectTodosPage/ProjectDocsPage/ProjectCommentsPage/ProjectActivityPage, persistent tab strip, loadProjectData(wants) helper. Commit `a1c8094`.
+- **2026-06-14 16:05** — P1 (Issues CRUD member-only) shipped: migration 00014, types, repo, service, handler, templ for issues list + page + status pill. Member-only routes. Commit `0802dab`.
+- **2026-06-14 16:20** — P2 (Issue comments + image attachments) shipped: issues_comments_repo.go, AddIssueComment/UpdateIssueComment/DeleteIssueComment, AddIssueAttachment using uploads.Store.Save, ProjectIssuePage extended with image gallery + dropzone + comment thread. Commit `437834c`.
+- **2026-06-14 16:38** — P3 (Guest share-link mint + landing + read-gating) shipped: 4 guest repo methods + guest.go + 5 guest handlers, ProjectGuestLandingPage + projectSharePanel templ, Handler.Sessions + commLookup deps, main.go route restructure putting project OPEN routes in a separate r.Route("/c/{slug}/projects") block. Commit `facd6b1`.
+- **2026-06-14 16:48** — P4 (Guest write-paths) shipped: most was unlocked by P3's route move + callerIdentity guest support. Templ-side isGuest gating added to ProjectHeaderFragment / TodosFragment / AttachmentsFragment / CommentsFragment. Commit `509b9be`.
+- **2026-06-14 16:55** — P5 (spec sync) shipped: spec status -> shipped, plan status -> completed.

@@ -1,6 +1,6 @@
 ---
 name: spec-project-issues-with-guest-share-links
-status: draft
+status: shipped
 type: spec
 tldr: Issues sub-resource on projects (title, body, status, image attachments, comments) plus per-project guest share links — a TTL-scoped token grants outsiders read-only access to the project surface and write access on issues only.
 ---
