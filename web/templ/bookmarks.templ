@@ -100,8 +100,12 @@ templ BookmarksList(rows []BookmarkRow, slug string) {
 					if b.Note != "" {
 						<div class="muted">note: { b.Note }</div>
 					}
-					<div style="margin-top:.4rem">
-						<button class="ghost"
+					<div class="bm-row-actions">
+						<a class="link"
+							href={ templ.URL("/c/" + slug + "/history?d=" + b.MessageCreatedAt.Local().Format("2006-01-02") + "#msg-" + b.ChatMessageID) }>
+							open in history
+						</a>
+						<button class="link danger"
 							data-on:click={ "@post('/c/" + slug + "/bookmarks/delete?id=" + b.ID + "')" }>delete</button>
 					</div>
 				</li>

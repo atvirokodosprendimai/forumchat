@@ -2374,6 +2374,14 @@ hr {
 .share-row-status { flex-basis: 100%; font-size: .82rem; margin: 0; min-height: 1.1em; }
 .share-row-status.success { color: var(--success); }
 
+/* Bookmark row actions — open in history + delete sit on one line */
+.bm-row-actions {
+  display: flex; gap: 1rem; align-items: center;
+  margin-top: .4rem;
+  font-size: .9rem;
+}
+.bm-row-actions .danger { margin-left: auto; }
+
 /* Attachment categories — bucket header + upload bar that carries the
    category select next to the dropzone. */
 .project-upload-bar {
