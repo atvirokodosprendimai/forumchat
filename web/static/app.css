@@ -2316,6 +2316,22 @@ hr {
   margin-right: .2rem;
 }
 
+/* Inline checkbox row — accent checkbox + label flush left */
+.check-row {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .35rem 0; margin: .35rem 0 .75rem;
+  cursor: pointer;
+  font-size: .92rem; color: var(--fg);
+  user-select: none;
+}
+.check-row input[type="checkbox"] {
+  width: 18px; height: 18px;
+  margin: 0; flex: 0 0 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.check-row span { line-height: 1.3; }
+
 /* Reduced motion — respect user preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

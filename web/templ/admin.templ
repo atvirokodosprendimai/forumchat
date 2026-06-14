@@ -49,7 +49,7 @@ templ AdminPage(d AdminPageData) {
 
 			<section class="card narrow">
 				<h2>Add member by email</h2>
-				<p class="muted">Existing accounts get pre-approved instantly. New emails get a join URL you can share.</p>
+				<p class="muted">Existing accounts get pre-approved instantly. New emails get a join URL — tick the box below to send it by email.</p>
 				<div id="am-result"></div>
 				<div class="field">
 					<label>Email</label>
@@ -62,6 +62,10 @@ templ AdminPage(d AdminPageData) {
 						<option value="moderator">moderator</option>
 					</select>
 				</div>
+				<label class="check-row">
+					<input type="checkbox" data-bind="am_send_email"/>
+					<span>Email them the join link</span>
+				</label>
 				<button data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/admin/add-member')" }>Add</button>
 			</section>
 
