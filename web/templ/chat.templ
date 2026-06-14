@@ -65,14 +65,16 @@ templ ChatComposer(slug string) {
 			<button class="link" data-on:click="$reply_to_id = ''">cancel</button>
 		</div>
 		<input type="hidden" data-bind="image_data"/>
-		<input type="file" accept="image/*" id="attach-chat" class="hidden-file"
-			onchange="window.fcPickImage(event,'image_data')"/>
 		<div class="paste-preview" data-show="$image_data">
 			<img alt="attached image preview" data-attr:src="$image_data"/>
 			<button class="link" data-on:click="$image_data=''">remove image</button>
 		</div>
 		<div class="composer-row">
-			<label for="attach-chat" class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">📎</label>
+			<label class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">
+				📎
+				<input type="file" accept="image/*" style="display:none"
+					data-on:change="window.fcPickImage(evt,'image_data')"/>
+			</label>
 			<input type="text"
 				data-bind="body"
 				placeholder="Say something — markdown ok (paste, drop or attach an image)"
