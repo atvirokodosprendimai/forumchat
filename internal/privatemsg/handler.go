@@ -192,10 +192,37 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	toName := h.resolveName(r.Context(), to)
 	sse := datastar.NewSSE(w, r)
-	// Clear compose signals and bounce to the thread.
-	_ = sse.PatchSignals([]byte(`{"pm_to_user":"","pm_body":"","pm_open_to_user":"","pm_open_to_name":"","pm_source_community_id":"","pm_source_chat_id":""}`))
-	_ = sse.Redirect("/messages/" + t.ID)
+	// Close the modal, clear inputs, show a success toast pointing at the new
+	// thread. User stays on the page they were on (chat / forum / wherever).
+	payload := `{"pm_to_user":"","pm_body":"","pm_open_to_user":"","pm_open_to_name":"",` +
+		`"pm_source_community_id":"","pm_source_chat_id":"",` +
+		`"pm_toast_text":"Request sent to ` + jsEscape(toName) + `",` +
+		`"pm_toast_href":"/messages/` + t.ID + `"}`
+	_ = sse.PatchSignals([]byte(payload))
+}
+
+// jsEscape encodes a user-controlled string so it can be embedded inside
+// a JSON string literal without breaking the surrounding quotes.
+func jsEscape(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\\', '"':
+			b.WriteRune('\\')
+			b.WriteRune(r)
+		case '\n':
+			b.WriteString("\\n")
+		case '\r':
+			b.WriteString("\\r")
+		case '\t':
+			b.WriteString("\\t")
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 type sendSignals struct {
