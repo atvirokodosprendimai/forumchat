@@ -500,6 +500,7 @@ func run() error {
 				r.Post("/lobbies/{id}/archive", lobbiesHandler.PostArchive)
 				r.Post("/lobbies/{id}/reopen", lobbiesHandler.PostReopen)
 				r.Post("/lobbies/{id}/promote", lobbiesHandler.PostPromote)
+				r.Post("/lobbies/{id}/update", lobbiesHandler.PostUpdateGuest)
 				r.Post("/lobbies/{id}/delete", lobbiesHandler.PostDelete)
 			}
 		})

@@ -283,14 +283,60 @@ func (h *Handler) transition(w http.ResponseWriter, r *http.Request, status stri
 	}
 	h.broadcast(r.Context(), l.ID)
 	sse := datastar.NewSSE(w, r)
+	// Patch the host-side header so the open lobby page swaps buttons
+	// (Close→Reopen etc.) and status badge in place. Harmless when the
+	// host happens to be on the list page instead — datastar morph is
+	// a no-op when #lobby-host-header isn't in the DOM.
+	fresh, err := h.Repo.ByID(r.Context(), l.ID)
+	if err == nil {
+		_ = sse.PatchElementTempl(webtempl.LobbyHostHeader(h.cslug(r.Context()), lobbyToView(fresh), guestURL(r, fresh.GuestToken)))
+	}
 	listStatus := StatusOpen
 	if status == StatusArchived {
 		listStatus = StatusArchived
+	} else if status == StatusClosed {
+		listStatus = StatusClosed
 	}
 	rows, err := h.Repo.ListByCommunity(r.Context(), h.cid(r.Context()), listStatus)
 	if err == nil {
 		_ = sse.PatchElementTempl(webtempl.LobbiesList(h.cslug(r.Context()), listStatus, rowsToView(rows)))
 	}
+}
+
+type updateGuestSignals struct {
+	Name  string `json:"lobby_edit_name"`
+	Email string `json:"lobby_edit_email"`
+}
+
+// PostUpdateGuest lets the host fix the captured display name / email
+// after mint — needed when Promote requires an email that wasn't
+// supplied originally, or when the guest typo'd their own name on
+// join. Patches the header so the new fields show immediately.
+func (h *Handler) PostUpdateGuest(w http.ResponseWriter, r *http.Request) {
+	lobbyID := chi.URLParam(r, "id")
+	l, err := h.Repo.ByID(r.Context(), lobbyID)
+	if err != nil || l.CommunityID != h.cid(r.Context()) {
+		http.NotFound(w, r)
+		return
+	}
+	var in updateGuestSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := strings.TrimSpace(in.Name)
+	email := strings.TrimSpace(in.Email)
+	if err := h.Repo.UpdateGuestProfile(r.Context(), l.ID, name, email); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fresh, err := h.Repo.ByID(r.Context(), l.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.LobbyHostHeader(h.cslug(r.Context()), lobbyToView(fresh), guestURL(r, fresh.GuestToken)))
 }
 
 // PostPromote issues an invite code bound to the lobby's stored guest
@@ -305,9 +351,9 @@ func (h *Handler) PostPromote(w http.ResponseWriter, r *http.Request) {
 	sse := datastar.NewSSE(w, r)
 	code, err := h.Svc.Promote(r.Context(), l.ID)
 	if err != nil {
-		msg := "promote failed"
+		msg := "Promote failed."
 		if errors.Is(err, ErrPromoteNeedsEmail) {
-			msg = "set a guest email first"
+			msg = "Set a guest email first (Edit guest profile above)."
 		}
 		_ = sse.PatchElementTempl(webtempl.LobbyPromoteResult("", msg))
 		return
