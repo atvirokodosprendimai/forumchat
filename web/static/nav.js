@@ -6,6 +6,9 @@
   function setOpen(open) {
     document.body.classList.toggle('nav-open', open);
   }
+  function setPresenceOpen(open) {
+    document.body.classList.toggle('presence-open', open);
+  }
   document.addEventListener('click', (ev) => {
     const t = ev.target;
     if (!(t instanceof Element)) return;
@@ -22,9 +25,21 @@
       setOpen(false);
       return;
     }
+    if (t.closest('[data-presence-toggle]')) {
+      ev.preventDefault();
+      setPresenceOpen(!document.body.classList.contains('presence-open'));
+      return;
+    }
+    if (t.closest('[data-presence-overlay]')) {
+      setPresenceOpen(false);
+      return;
+    }
   });
   // Close on Escape — handy for keyboard users + accidental opens.
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') setOpen(false);
+    if (ev.key === 'Escape') {
+      setOpen(false);
+      setPresenceOpen(false);
+    }
   });
 })();

@@ -252,10 +252,10 @@ button.link:hover { text-decoration: underline; }
 .chat-layout > div:first-child > .composer { flex: 0 0 auto; }
 @media (max-width: 899px) {
   /* Match the nav breakpoint so the chat fills the screen everywhere
-     the sidebar collapses. Presence panel hides — users can still see
-     it on desktop (>=900px) where there's room. */
+     the sidebar collapses. Presence panel hides from the chat flow
+     but stays available as a slide-in right drawer via the floating
+     FAB (handled by .presence-fab + .presence right-drawer rules below). */
   .chat-layout { grid-template-columns: 1fr; }
-  .presence { display: none; }
 }
 .messages {
   background: var(--surface); border: 1px solid var(--border);
@@ -1514,4 +1514,61 @@ img.thread-announce-img {
     transition: opacity .15s;
   }
   body.nav-open .nav-overlay { opacity: 1; pointer-events: auto; }
+}
+
+/* ===== Mobile presence right-drawer ====================================== */
+/* Mirrors the left-nav drawer pattern but for the chat presence panel.
+   Desktop (>=900px) keeps the panel inline; mobile slides it in from
+   the right when the user taps the FAB. */
+
+.presence-fab {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 1.4rem;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  z-index: 25;
+  display: none;
+}
+.presence-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.3);
+  z-index: 30;
+  display: none;
+}
+
+@media (max-width: 899px) {
+  .presence-fab { display: inline-flex; align-items: center; justify-content: center; }
+  /* Right-drawer presence: turn the existing .presence into a fixed
+     right-side panel. Pulled off-screen by default, slides in when
+     body.presence-open is set. */
+  .presence {
+    display: flex !important;
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: min(80vw, 320px);
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    box-shadow: -2px 0 12px rgba(0,0,0,.15);
+    z-index: 35;
+    padding: 1rem;
+    transform: translateX(100%);
+    transition: transform .2s ease-out;
+    overflow-y: auto;
+  }
+  body.presence-open .presence { transform: translateX(0); }
+  body.presence-open .presence-overlay {
+    display: block;
+  }
+}
+
+@media (min-width: 900px) {
+  .presence-fab, .presence-overlay { display: none !important; }
 }

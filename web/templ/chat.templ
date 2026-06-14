@@ -54,6 +54,11 @@ templ ChatPage(d ChatPageData) {
 				<div id="presence-list"><p class="muted">connecting…</p></div>
 			</aside>
 		</section>
+		// Mobile-only floating button (>=900px hides via CSS). Toggles
+		// the presence panel into a right-side drawer on small screens.
+		<button class="presence-fab" aria-label="Show online users"
+			type="button" data-presence-toggle>👥</button>
+		<div class="presence-overlay" data-presence-overlay></div>
 		<div id="chat-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/chat/stream', {openWhenHidden: true})" }></div>
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
