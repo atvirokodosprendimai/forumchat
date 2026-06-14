@@ -14,6 +14,13 @@ import (
 	"github.com/yuin/goldmark/renderer/html"
 )
 
+// uploadsImageRE matches `<img src="/uploads/..."` so we can wrap each
+// image in an anchor that opens the original full-size file in a new
+// tab. Without this, images render as thumbnails with no way to view
+// the full-size original. The bluemonday sanitizer drops onClick
+// handlers so a wrapping <a> is the only viable affordance.
+var uploadsImageRE = regexp.MustCompile(`<img ([^>]*?)src="(/uploads/[^"]+)"([^>]*)>`)
+
 // uploadsAnchorRE matches anchors pointing at our signed-upload URLs so we
 // can force target="_blank" rel="noopener" on them after sanitization. We
 // run this AFTER bluemonday so the added attributes are trusted output.
@@ -72,5 +79,7 @@ func RenderMarkdown(src string) (string, error) {
 	}
 	out := policy.Sanitize(buf.String())
 	out = uploadsAnchorRE.ReplaceAllString(out, `<a target="_blank" rel="noopener" $1`)
+	out = uploadsImageRE.ReplaceAllString(out,
+		`<a target="_blank" rel="noopener" href="$2" class="upload-img-link"><img $1src="$2"$3></a>`)
 	return out, nil
 }
