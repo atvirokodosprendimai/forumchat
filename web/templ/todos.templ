@@ -166,9 +166,9 @@ func todoBacklinkLabel(t TodoRow) string {
 // Per-bubble / per-post buttons set $todo_open_source = '<kind>:<id>' and
 // optionally prefill $todo_title from the source body.
 templ TodoDialog(slug string) {
-	<div class="bm-dialog-backdrop" data-show="$todo_open_source !== ''"
+	<div class="bm-dialog-backdrop" data-cloak data-show="$todo_open_source !== ''"
 		data-on:click="$todo_open_source=''; $todo_title=''; $todo_category=''; $todo_note=''"></div>
-	<div class="bm-dialog" data-show="$todo_open_source !== ''">
+	<div class="bm-dialog" data-cloak data-show="$todo_open_source !== ''">
 		<h3>Add to todos</h3>
 		<input type="text" placeholder="title" data-bind="todo_title"/>
 		<input type="text" placeholder="category (optional)" data-bind="todo_category"/>

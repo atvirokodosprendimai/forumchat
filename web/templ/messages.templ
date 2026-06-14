@@ -158,9 +158,9 @@ templ MessagesBadge(count int) {
 //   $pm_open_to_name — name to show in the dialog header
 //   $pm_body — the body input
 templ MessagesComposeDialog(sourceCommunityID string) {
-	<div class="pm-dialog-backdrop" data-show="$pm_open_to_user !== ''"
+	<div class="pm-dialog-backdrop" data-cloak data-show="$pm_open_to_user !== ''"
 		data-on:click="$pm_open_to_user=''; $pm_open_to_name=''; $pm_body=''"></div>
-	<div class="pm-dialog" data-show="$pm_open_to_user !== ''">
+	<div class="pm-dialog" data-cloak data-show="$pm_open_to_user !== ''">
 		<h3>Message <span data-text="$pm_open_to_name"></span></h3>
 		<input type="hidden" data-bind="pm_to_user"/>
 		<input type="hidden" data-bind="pm_source_community_id" value={ sourceCommunityID }/>
