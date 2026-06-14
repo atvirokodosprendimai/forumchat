@@ -17,6 +17,16 @@ func normEmail(e string) string { return strings.ToLower(strings.TrimSpace(e)) }
 
 // --- users ---
 
+// CountUsers returns the total number of rows in `users`. Used by the
+// bootstrap-admin flow to detect a brand-new install.
+func (r *Repo) CountUsers(ctx context.Context) (int, error) {
+	var n int
+	if err := r.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 func (r *Repo) CreateUser(ctx context.Context, u User) error {
 	now := time.Now().Unix()
 	_, err := r.DB.ExecContext(ctx, `

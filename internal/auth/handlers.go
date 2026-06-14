@@ -52,6 +52,8 @@ type chiMux interface {
 func (h *Handler) Mount(r chiMux) {
 	r.Get("/register", h.GetRegister)
 	r.Post("/register", h.PostRegister)
+	r.Get("/register-as-admin", h.GetRegisterAsAdmin)
+	r.Post("/register-as-admin", h.PostRegisterAsAdmin)
 	r.Get("/verify", h.GetVerify)
 	r.Get("/login", h.GetLogin)
 	r.Post("/login", h.PostLogin)
@@ -72,7 +74,64 @@ func (h *Handler) Viewer(r *http.Request) webtempl.Viewer {
 // --- register ---
 
 func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
+	// Zero-users install: bootstrap the first admin without an invite code.
+	if n, err := h.Repo.CountUsers(r.Context()); err == nil && n == 0 {
+		http.Redirect(w, r, "/register-as-admin", http.StatusSeeOther)
+		return
+	}
 	_ = webtempl.RegisterPage().Render(r.Context(), w)
+}
+
+// --- register-as-admin (zero-users bootstrap) ---
+
+func (h *Handler) GetRegisterAsAdmin(w http.ResponseWriter, r *http.Request) {
+	n, err := h.Repo.CountUsers(r.Context())
+	if err == nil && n > 0 {
+		http.Redirect(w, r, "/register", http.StatusSeeOther)
+		return
+	}
+	_ = webtempl.RegisterAsAdminPage(h.CommunityName).Render(r.Context(), w)
+}
+
+type registerAdminSignals struct {
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+}
+
+func (h *Handler) PostRegisterAsAdmin(w http.ResponseWriter, r *http.Request) {
+	var in registerAdminSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := datastar.NewSSE(w, r)
+	email := strings.TrimSpace(in.Email)
+	if email == "" || in.Password == "" {
+		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Email and password required"))
+		return
+	}
+	res, err := h.Svc.RegisterAsAdmin(r.Context(), RegisterAsAdminInput{
+		Email:       email,
+		Password:    in.Password,
+		DisplayName: in.DisplayName,
+	}, h.CommunityID)
+	if err != nil {
+		msg := registerErrMsg(err)
+		if msg == "" {
+			if errors.Is(err, ErrInviteInvalid) {
+				msg = "An admin already exists — use the regular registration form"
+			} else {
+				h.Log.Error("register-as-admin failed", "err", err)
+				msg = "Something went wrong"
+			}
+		}
+		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment(msg))
+		return
+	}
+	PutLogin(r.Context(), h.Sessions, res.UserID, res.CommunityID)
+	commitSession(h.Sessions, w, r)
+	_ = sse.Redirect("/")
 }
 
 type registerSignals struct {
