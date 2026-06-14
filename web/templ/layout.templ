@@ -56,8 +56,8 @@ templ Layout(title string, v Viewer) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width,initial-scale=1"/>
 			<title>{ title } — forumchat</title>
-			<link rel="stylesheet" href="/static/app.css"/>
-				<link rel="manifest" href="/static/manifest.webmanifest"/>
+			<link rel="stylesheet" href={ "/static/app.css?v=" + AssetVer("app.css") }/>
+				<link rel="manifest" href={ "/static/manifest.webmanifest?v=" + AssetVer("manifest.webmanifest") }/>
 				<link rel="icon" type="image/svg+xml" href="/static/icon.svg"/>
 				<link rel="apple-touch-icon" href="/static/icon-192.png"/>
 				<meta name="theme-color" content="#1f6feb"/>
@@ -65,7 +65,7 @@ templ Layout(title string, v Viewer) {
 				<meta name="apple-mobile-web-app-capable" content="yes"/>
 				<meta name="apple-mobile-web-app-title" content="forumchat"/>
 			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
-			<script src="/static/paste.js" defer></script>
+			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 		</head>
 		<body data-signals={ InitialSignals }>
 			<header class="topbar">
