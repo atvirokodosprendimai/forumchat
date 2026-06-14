@@ -329,6 +329,18 @@ func (r *Repo) UpdateMembershipProfile(ctx context.Context, membershipID, displa
 	return err
 }
 
+// UpdateAllMembershipProfiles updates display_name + avatar_url on every
+// membership this user holds, so the profile editor reflects across every
+// community at once. Without this, only the membership the user is
+// currently viewing got the new name and other communities kept the
+// initial email-localpart fallback that admin.PostAddMember assigns.
+func (r *Repo) UpdateAllMembershipProfiles(ctx context.Context, userID, displayName, avatarURL string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE memberships SET display_name = ?, avatar_url = ? WHERE user_id = ?`,
+		displayName, avatarURL, userID)
+	return err
+}
+
 func (r *Repo) UpdateMembershipRole(ctx context.Context, membershipID string, role Role) error {
 	_, err := r.DB.ExecContext(ctx, `UPDATE memberships SET role = ? WHERE id = ?`, string(role), membershipID)
 	return err
