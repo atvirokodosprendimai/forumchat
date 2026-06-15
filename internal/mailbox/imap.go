@@ -62,9 +62,20 @@ func (i *imapClient) close() {
 	_ = i.c.Close()
 }
 
-// listFolders enumerates every mailbox the user can SELECT. We deliberately
-// do NOT filter by \Noselect — the consumer skips mailboxes that fail to
-// examine, and a broken folder doesn't sink the whole cycle.
+// listFolders enumerates every mailbox the user can SELECT. We
+// deliberately do NOT filter by \Noselect for inferiors, but DO filter
+// out folders that hold the user's OWN mail and aren't useful to
+// ingest:
+//   - \Sent / \Drafts — user-authored, not inbound mail
+//   - \Trash / \Junk  — already-rejected mail
+//   - \All            — Gmail's "All Mail" mirror; every message
+//                       already appears in INBOX so polling it would
+//                       double-ingest (and Message-ID dedup catches
+//                       the rest but the wire traffic is wasted)
+//
+// Servers that don't tag with SPECIAL-USE fall back to name suffix
+// matching: case-insensitive presence of "sent", "draft", "trash",
+// "bin", "spam", "junk" anywhere in the leaf segment.
 func (i *imapClient) listFolders() ([]string, error) {
 	cmd := i.c.List("", "*", nil)
 	datas, err := cmd.Collect()
@@ -76,6 +87,12 @@ func (i *imapClient) listFolders() ([]string, error) {
 		if hasNoselect(d.Attrs) {
 			continue
 		}
+		if isExcludedSpecialUse(d.Attrs) {
+			continue
+		}
+		if looksLikeSentOrTrash(d.Mailbox) {
+			continue
+		}
 		out = append(out, d.Mailbox)
 	}
 	return out, nil
@@ -84,6 +101,43 @@ func (i *imapClient) listFolders() ([]string, error) {
 func hasNoselect(attrs []imap.MailboxAttr) bool {
 	for _, a := range attrs {
 		if a == imap.MailboxAttrNoSelect {
+			return true
+		}
+	}
+	return false
+}
+
+// isExcludedSpecialUse returns true when the folder is tagged with a
+// SPECIAL-USE attribute we don't want to ingest.
+func isExcludedSpecialUse(attrs []imap.MailboxAttr) bool {
+	for _, a := range attrs {
+		switch a {
+		case imap.MailboxAttrSent,
+			imap.MailboxAttrDrafts,
+			imap.MailboxAttrTrash,
+			imap.MailboxAttrJunk,
+			imap.MailboxAttrAll: // Gmail's All Mail mirror
+			return true
+		}
+	}
+	return false
+}
+
+// looksLikeSentOrTrash is the name-based fallback for servers that
+// don't tag with SPECIAL-USE. Matches the LEAF segment so a real
+// folder named "Important / Drafts proposal" still gets ingested
+// but the literal "[Gmail]/Drafts" or "Sent Items" is skipped.
+func looksLikeSentOrTrash(mailbox string) bool {
+	leaf := mailbox
+	for i := len(mailbox) - 1; i >= 0; i-- {
+		if mailbox[i] == '/' {
+			leaf = mailbox[i+1:]
+			break
+		}
+	}
+	low := strings.ToLower(leaf)
+	for _, needle := range []string{"sent", "draft", "trash", "bin", "spam", "junk"} {
+		if strings.Contains(low, needle) {
 			return true
 		}
 	}
