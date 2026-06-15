@@ -727,7 +727,7 @@ func (r *Repo) SearchQueueForViewer(ctx context.Context, q QueueQuery, query str
 	args = append(args, q.Limit)
 	sqlStr := fmt.Sprintf(`
 		SELECT i.id, i.community_id, i.from_addr, i.from_name, i.subject,
-		       i.received_at, i.status
+		       i.body_text, i.received_at, i.status
 		FROM email_ingest_fts f
 		JOIN email_ingest i ON i.id = f.ingest_id
 		WHERE email_ingest_fts MATCH ?
@@ -747,7 +747,7 @@ func (r *Repo) SearchQueueForViewer(ctx context.Context, q QueueQuery, query str
 		var received int64
 		var status string
 		if err := rows.Scan(&v.ID, &communityID, &v.FromAddr, &v.FromName, &v.Subject,
-			&received, &status); err != nil {
+			&v.BodyText, &received, &status); err != nil {
 			return nil, err
 		}
 		if communityID.Valid {
@@ -777,6 +777,7 @@ type QueuedEmailView struct {
 	FromAddr    string
 	FromName    string
 	Subject     string
+	BodyText    string // persisted text body, fed into the expandable row
 	ReceivedAt  time.Time
 	Status      IngestStatus
 	Attachments []QueuedAttachmentView
@@ -836,7 +837,7 @@ func (r *Repo) QueueForViewer(ctx context.Context, q QueueQuery) ([]QueuedEmailV
 
 	query := fmt.Sprintf(`
 		SELECT i.id, i.community_id, i.from_addr, i.from_name, i.subject,
-		       i.received_at, i.status
+		       i.body_text, i.received_at, i.status
 		FROM email_ingest i
 		WHERE %s
 		ORDER BY i.received_at DESC, i.id DESC
@@ -855,7 +856,7 @@ func (r *Repo) QueueForViewer(ctx context.Context, q QueueQuery) ([]QueuedEmailV
 		var received int64
 		var status string
 		if err := rows.Scan(&v.ID, &communityID, &v.FromAddr, &v.FromName, &v.Subject,
-			&received, &status); err != nil {
+			&v.BodyText, &received, &status); err != nil {
 			return nil, nil, err
 		}
 		if communityID.Valid {

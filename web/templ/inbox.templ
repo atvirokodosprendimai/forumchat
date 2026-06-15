@@ -49,6 +49,7 @@ type InboxRow struct {
 	FromAddr        string
 	FromName        string
 	Subject         string
+	BodyText        string // shown when the row is expanded
 	ReceivedAtUnix  int64
 	AttachmentCount int
 	Attachments     []InboxAttachment
@@ -160,42 +161,56 @@ func inboxCommunityLabel(name string) string {
 }
 
 templ inboxRow(r InboxRow) {
-	<article id={ "ingest-" + r.ID } class="inbox-row">
-		<header class="inbox-row-head">
-			<button class="from-chip"
-				type="button"
-				data-on:click={ inboxAttachOpenExpr(r.FromAddr) }
-				title="Attach this sender to a community filter"
-			>
+	<details id={ "ingest-" + r.ID } class="inbox-row">
+		<summary class="inbox-row-summary">
+			<span class="from">
 				if r.FromName != "" {
 					<strong>{ r.FromName }</strong>
 					<span class="addr">&lt;{ r.FromAddr }&gt;</span>
 				} else {
 					<strong>{ r.FromAddr }</strong>
 				}
-			</button>
+			</span>
+			<span class="subject">{ r.Subject }</span>
 			<span class="community-badge">{ inboxCommunityLabel(r.CommunityName) }</span>
+			if len(r.Attachments) > 0 {
+				<span class="att-count">{ strconv.Itoa(len(r.Attachments)) } 📎</span>
+			}
 			<time datetime={ time.Unix(r.ReceivedAtUnix, 0).UTC().Format(time.RFC3339) }>
 				{ time.Unix(r.ReceivedAtUnix, 0).UTC().Format("2006-01-02 15:04") }
 			</time>
-		</header>
-		<h3 class="subject">{ r.Subject }</h3>
-		if len(r.Attachments) > 0 {
-			<ul class="attachments">
-				for _, a := range r.Attachments {
-					<li>
-						<span class="att-name">{ a.Filename }</span>
-						<span class="att-meta">{ a.MIME } · { strconv.FormatInt(a.SizeBytes, 10) } B</span>
-						if a.IsMaterialised {
-							<span class="att-moved">moved</span>
-						} else {
-							@inboxMoveForm(r.ID, a.ID, r.ProjectGroups)
-						}
-					</li>
-				}
-			</ul>
-		}
-	</article>
+		</summary>
+		<div class="inbox-row-body">
+			<div class="row-actions">
+				<button class="ghost"
+					type="button"
+					data-on:click={ inboxAttachOpenExpr(r.FromAddr) }
+					title="Attach this sender to a community filter"
+				>📥 Attach sender to community</button>
+			</div>
+			if r.BodyText != "" {
+				<pre class="email-body">{ r.BodyText }</pre>
+			} else {
+				<p class="muted">(no text body indexed)</p>
+			}
+			if len(r.Attachments) > 0 {
+				<h4>Attachments</h4>
+				<ul class="attachments">
+					for _, a := range r.Attachments {
+						<li>
+							<span class="att-name">{ a.Filename }</span>
+							<span class="att-meta">{ a.MIME } · { strconv.FormatInt(a.SizeBytes, 10) } B</span>
+							if a.IsMaterialised {
+								<span class="att-moved">moved</span>
+							} else {
+								@inboxMoveForm(r.ID, a.ID, r.ProjectGroups)
+							}
+						</li>
+					}
+				</ul>
+			}
+		</div>
+	</details>
 }
 
 // inboxAttachOpenExpr builds the datastar expression used by the sender

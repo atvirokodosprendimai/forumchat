@@ -210,6 +210,7 @@ func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill, projects pro
 			FromAddr:        r.FromAddr,
 			FromName:        r.FromName,
 			Subject:         r.Subject,
+			BodyText:        r.BodyText,
 			ReceivedAtUnix:  r.ReceivedAt.Unix(),
 			AttachmentCount: len(atts),
 			Attachments:     atts,
