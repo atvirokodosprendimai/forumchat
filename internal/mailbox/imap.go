@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,9 +115,9 @@ func (i *imapClient) examineReadOnly(name string) (SelectInfo, error) {
 	}, nil
 }
 
-// FetchedEnvelope is one Phase 2 result row — just enough to log "I
-// saw this message". Body bytes and BODYSTRUCTURE walking come in
-// Phase 3/4.
+// FetchedEnvelope is one message's envelope + attachment metadata, the
+// poll worker's unit of work. Body bytes are NOT downloaded — only the
+// BODYSTRUCTURE tree which the server returns as text.
 type FetchedEnvelope struct {
 	UID          uint32
 	FromAddr     string
@@ -124,21 +125,36 @@ type FetchedEnvelope struct {
 	Subject      string
 	MessageID    string
 	InternalDate time.Time
+	Attachments  []ParsedPart
+}
+
+// ParsedPart describes one attachment part discovered in the
+// BODYSTRUCTURE tree. Bytes are NOT downloaded — only metadata.
+// MIMEPartID matches IMAP's body-part numbering (e.g. "2", "2.1") so
+// the lazy-fetch handler can request exactly this part later with
+// BODY.PEEK[2.1].
+type ParsedPart struct {
+	Filename   string
+	MIME       string
+	SizeBytes  int64
+	MIMEPartID string
 }
 
 // fetchEnvelopesSince fetches messages with UID strictly greater than
-// since across the currently-examined mailbox. The UIDRange uses
-// 0 as the upper bound, which the protocol encodes as "*" — every
-// UID from since+1 to the end of the mailbox.
+// since across the currently-examined mailbox. Each returned envelope
+// carries any attachment metadata discovered in the BODYSTRUCTURE tree.
+// The UIDRange uses 0 as the upper bound, which the protocol encodes as
+// "*" — every UID from since+1 to the end of the mailbox.
 func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error) {
 	if since == ^uint32(0) {
 		return nil, errors.New("imap: refusing to fetch with overflow since value")
 	}
 	set := imap.UIDSet{imap.UIDRange{Start: imap.UID(since + 1), Stop: 0}}
 	cmd := i.c.Fetch(set, &imap.FetchOptions{
-		UID:          true,
-		Envelope:     true,
-		InternalDate: true,
+		UID:           true,
+		Envelope:      true,
+		InternalDate:  true,
+		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
 	})
 	out := []FetchedEnvelope{}
 	for {
@@ -158,6 +174,65 @@ func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error
 	return out, nil
 }
 
+// walkAttachmentParts extracts attachment metadata from a parsed
+// BODYSTRUCTURE tree. The protocol numbers parts depth-first starting at
+// 1; we mirror that scheme so the resulting MIMEPartID is what IMAP's
+// BODY.PEEK[...] command expects.
+//
+// An attachment is any leaf with either disposition=attachment OR a
+// filename present in Content-Type's "name" param. Inline images and
+// quoted-reply bodies fall through as text/* and are skipped here.
+func walkAttachmentParts(bs imap.BodyStructure) []ParsedPart {
+	out := []ParsedPart{}
+	if bs == nil {
+		return out
+	}
+	bs.Walk(func(path []int, part imap.BodyStructure) bool {
+		sp, ok := part.(*imap.BodyStructureSinglePart)
+		if !ok {
+			return true
+		}
+		// Reject the "structural root" entry the library emits for a
+		// pure singlepart message — Walk reports path [1] for both the
+		// root and the only leaf in that case; we keep the leaf because
+		// it's the only entry.
+		mime := sp.MediaType()
+		if strings.HasPrefix(mime, "multipart/") {
+			return true
+		}
+		filename := sp.Filename()
+		isAttachment := false
+		if d := sp.Disposition(); d != nil && strings.EqualFold(d.Value, "attachment") {
+			isAttachment = true
+		}
+		if filename != "" && !strings.HasPrefix(mime, "text/") {
+			isAttachment = true
+		}
+		if !isAttachment {
+			return true
+		}
+		out = append(out, ParsedPart{
+			Filename:   filename,
+			MIME:       mime,
+			SizeBytes:  int64(sp.Size),
+			MIMEPartID: formatPath(path),
+		})
+		return true
+	})
+	return out
+}
+
+func formatPath(path []int) string {
+	if len(path) == 0 {
+		return "1"
+	}
+	parts := make([]string, len(path))
+	for i, n := range path {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts, ".")
+}
+
 func envelopeFromBuffer(buf *imapclient.FetchMessageBuffer) FetchedEnvelope {
 	env := FetchedEnvelope{
 		UID:          uint32(buf.UID),
@@ -171,6 +246,9 @@ func envelopeFromBuffer(buf *imapclient.FetchMessageBuffer) FetchedEnvelope {
 			env.FromName = strings.TrimSpace(a.Name)
 			env.FromAddr = strings.ToLower(strings.TrimSpace(a.Addr()))
 		}
+	}
+	if buf.BodyStructure != nil {
+		env.Attachments = walkAttachmentParts(buf.BodyStructure)
 	}
 	return env
 }

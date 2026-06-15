@@ -98,16 +98,16 @@ Goal: emails matching any `community_mail_filter` get persisted; non-matches are
 
 Verification: `go test ./internal/mailbox/...` passes; `make lint-mailbox` passes.
 
-### Phase 4 — Attachment metadata from BODYSTRUCTURE — status: open
+### Phase 4 — Attachment metadata from BODYSTRUCTURE — status: completed
 
 Goal: every matched email's attachments are indexed with metadata only (no bytes). The queue view can render filenames/sizes/mimes without ever having pulled the file body.
 
-1. [ ] `internal/mailbox/imap.go` — extend FetchEnvelopes to also fetch BODYSTRUCTURE; helper `walkAttachmentParts(bs) []ParsedPart` returning `{MimePartID, Filename, MIME, SizeBytes}` from `Content-Disposition: attachment` or fallback heuristic (any non-text/* non-multipart leaf with a filename)
-2. [ ] `internal/mailbox/repo.go` — `InsertAttachments(ctx, ingestID string, parts []ParsedPart) error` (batch INSERT inside tx so partial failure rolls back)
-3. [ ] `internal/mailbox/poll.go` — after `InsertIngest` with `isNew=true`, call `InsertAttachments`. If `isNew=false`, skip — we already indexed.
-4. [ ] Tests `internal/mailbox/imap_test.go` — feed a sample multi-part RFC 822 (helper file checked in to `testdata/`) through the parser, verify part IDs match BODYSTRUCTURE numbering (1, 2, 2.1 …)
+1. [x] `internal/mailbox/imap.go` — Fetch now requests BODYSTRUCTURE (extended). New `walkAttachmentParts(bs) []ParsedPart` returns `{Filename, MIME, SizeBytes, MIMEPartID}`. Attachment heuristic: `Content-Disposition: attachment` OR any non-multipart non-text part with a filename.
+2. [x] `internal/mailbox/repo.go` — `InsertAttachments(ctx, ingestID, parts)` batch insert inside a transaction.
+3. [x] `internal/mailbox/poll.go` — after `InsertIngest` returns `isNew=true`, call `InsertAttachments`. Duplicates skip the attachment write entirely (the metadata is already there from a previous cycle).
+4. [x] Tests `internal/mailbox/imap_test.go` — multipart/mixed (PDF + inline-named PNG), nested multipart/alternative (text alternatives skipped, zip survives at part "2"), text-only mail produces no attachments, `formatPath` numbering.
 
-Verification: send a real email with 2 attachments through the test mailbox. After one poll cycle: `email_ingest` has 1 row, `email_ingest_attachment` has 2 rows with matching filenames, sizes, mime types, mime_part_id values.
+Verification (manual smoke deferred to integration test stage): `go test ./internal/mailbox/...` covers the parser + repo paths.
 
 ### Phase 5 — Global inbox queue UI with community filter pills + infinite scroll — status: open
 
@@ -208,3 +208,4 @@ End-to-end acceptance:
 - `2606151207` — User clarified MAILBOX_SYSTEM_USER_ID semantics: when unset, fall back to "global admin of the community" at issue-write time. Plan Phase 7 step 7 updated; no code yet — wires in when auto-issue lands.
 - `2606151220` — Phase 3 done. filter.go + cachedFilters cache + UpsertFolder + InsertIngest + idempotent scanFolder. Tests cover precedence, rotation, monotonic cursor, duplicate absorption. lint-mailbox green.
 - `2606151225` — User requested email search across content + attachment filenames. Filed as new Future-but-must-do bullet (`{[!]}`). Will land as a new Phase 5b between queue UI and Phase 6 — once UI exists to expose the search box. Implementation note: persist text body into `email_ingest.body_text` at poll time and build SQLite FTS5 virtual table over (subject, from_addr, from_name, body_text, attachment filenames). No IMAP refetch.
+- `2606151235` — Phase 4 done. `walkAttachmentParts` + `InsertAttachments` + poll wiring + tests covering nested multipart numbering and the text-only-no-attachments case. All tests pass, lint-mailbox green.

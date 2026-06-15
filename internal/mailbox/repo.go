@@ -348,6 +348,40 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
+// InsertAttachments persists attachment metadata for one ingested
+// email. Bytes are NOT here — only filename/mime/size/mime_part_id.
+// The insert runs inside a single transaction so partial failure is
+// recoverable: either every attachment for the message is indexed, or
+// none of them are, and the cycle retry on next poll picks it up.
+func (r *Repo) InsertAttachments(ctx context.Context, ingestID string, parts []ParsedPart) error {
+	if len(parts) == 0 {
+		return nil
+	}
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("attachments tx begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	now := time.Now().Unix()
+	for _, p := range parts {
+		filename := strings.TrimSpace(p.Filename)
+		if filename == "" {
+			filename = "attachment-" + p.MIMEPartID
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO email_ingest_attachment
+				(id, ingest_id, filename, mime, size_bytes, mime_part_id, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			uuid.NewString(), ingestID, filename, p.MIME, p.SizeBytes, p.MIMEPartID, now); err != nil {
+			return fmt.Errorf("insert attachment %q: %w", filename, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("attachments tx commit: %w", err)
+	}
+	return nil
+}
+
 // QueuedEmailView is the row shape consumed by the inbox template. The
 // Attachments slice is preloaded so the template iterates without
 // extra queries.

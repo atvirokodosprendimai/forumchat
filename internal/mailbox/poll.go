@@ -134,7 +134,7 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		if !ok {
 			continue
 		}
-		_, isNew, err := w.Repo.InsertIngest(ctx, IngestInsert{
+		ingestID, isNew, err := w.Repo.InsertIngest(ctx, IngestInsert{
 			FolderID:        folder.ID,
 			UID:             e.UID,
 			UIDValidity:     info.UIDValidity,
@@ -151,16 +151,22 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 				"folder", name, "uid", e.UID, "err", err)
 			continue
 		}
-		if isNew {
-			inserted++
-			w.Log.Info("mailbox: ingested",
-				"folder", name,
-				"uid", e.UID,
-				"from", e.FromAddr,
-				"community", filter.CommunityID,
-				"to_issue", filter.ToIssue,
-			)
+		if !isNew {
+			continue
 		}
+		inserted++
+		if err := w.Repo.InsertAttachments(ctx, ingestID, e.Attachments); err != nil {
+			w.Log.Warn("mailbox: attachments index failed",
+				"folder", name, "uid", e.UID, "err", err)
+		}
+		w.Log.Info("mailbox: ingested",
+			"folder", name,
+			"uid", e.UID,
+			"from", e.FromAddr,
+			"community", filter.CommunityID,
+			"to_issue", filter.ToIssue,
+			"attachments", len(e.Attachments),
+		)
 	}
 	if maxUID > folder.LastUID {
 		if err := w.Repo.SetFolderLastUID(ctx, folder.ID, maxUID); err != nil {
