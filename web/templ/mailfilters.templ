@@ -1,0 +1,112 @@
+package templ
+
+import "time"
+
+// MailFilterRow is one community_mail_filter entry rendered on the
+// admin CRUD page.
+type MailFilterRow struct {
+	ID        string
+	Kind      string // "address" | "domain"
+	Pattern   string
+	ToIssue   bool
+	CreatedAt int64
+}
+
+// MailFiltersPageData is the per-community admin page payload.
+type MailFiltersPageData struct {
+	Viewer        Viewer
+	CommunityID   string
+	CommunitySlug string
+	CommunityName string
+	Rows          []MailFilterRow
+}
+
+// MailFiltersPage renders /c/{slug}/admin/mail-filters: the create
+// form on top + the live table of existing filters. The form posts
+// signals defined in InitialSignals (mf_kind, mf_pattern, mf_to_issue);
+// the table morphs in-place on every create/delete.
+templ MailFiltersPage(d MailFiltersPageData) {
+	@Layout("Mail filters · " + d.CommunityName, d.Viewer) {
+		<section class="mail-filters">
+			<header>
+				<h1>Mail filters</h1>
+				<p class="muted">Each rule routes inbound mail whose From: matches into <strong>{ d.CommunityName }</strong>'s inbox. Exact-address rules win over wildcard-domain rules on a tie.</p>
+			</header>
+
+			<form class="mail-filter-new" data-on:submit__prevent="@post('/c/{ d.CommunitySlug }/admin/mail-filters')">
+				<label>Kind</label>
+				<div class="radio-row">
+					<label><input type="radio" name="mf_kind_radio" value="address" data-bind="mf_kind"/> Exact address</label>
+					<label><input type="radio" name="mf_kind_radio" value="domain" data-bind="mf_kind"/> Wildcard domain</label>
+				</div>
+
+				<label>Pattern</label>
+				<input type="text" placeholder="alice@acme.com or @acme.com" required data-bind="mf_pattern"/>
+
+				<label class="checkbox-row">
+					<input type="checkbox" data-bind="mf_to_issue"/>
+					Also auto-create an editable issue from every match
+				</label>
+
+				<div class="form-actions">
+					<button class="primary" type="submit">Save filter</button>
+				</div>
+			</form>
+
+			<div id="mail-filters-table">
+				@MailFiltersTable(d.Rows, d.CommunitySlug)
+			</div>
+		</section>
+	}
+}
+
+// MailFiltersTable is the morph target for the live table. Patched
+// after every successful create / delete.
+templ MailFiltersTable(rows []MailFilterRow, slug string) {
+	<table class="mail-filters-table">
+		<thead>
+			<tr>
+				<th>Kind</th>
+				<th>Pattern</th>
+				<th>Auto-issue?</th>
+				<th>Added</th>
+				<th></th>
+			</tr>
+		</thead>
+		<tbody>
+			if len(rows) == 0 {
+				<tr><td colspan="5" class="empty">No filters yet — add one above.</td></tr>
+			} else {
+				for _, r := range rows {
+					@mailFilterRow(r, slug)
+				}
+			}
+		</tbody>
+	</table>
+}
+
+templ mailFilterRow(r MailFilterRow, slug string) {
+	<tr id={ "mf-" + r.ID }>
+		<td>{ r.Kind }</td>
+		<td><code>{ r.Pattern }</code></td>
+		<td>
+			if r.ToIssue {
+				yes
+			} else {
+				no
+			}
+		</td>
+		<td>
+			<time datetime={ time.Unix(r.CreatedAt, 0).UTC().Format(time.RFC3339) }>
+				{ time.Unix(r.CreatedAt, 0).UTC().Format("2006-01-02") }
+			</time>
+		</td>
+		<td>
+			<button class="ghost" data-on:click={ mailFilterDeleteExpr(slug, r.ID) }>Delete</button>
+		</td>
+	</tr>
+}
+
+func mailFilterDeleteExpr(slug, id string) string {
+	return "@post('/c/" + slug + "/admin/mail-filters/" + id + "/delete')"
+}

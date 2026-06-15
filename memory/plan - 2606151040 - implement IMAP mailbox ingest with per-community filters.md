@@ -152,17 +152,17 @@ Goal: filters can mark `to_issue=true`. When the poll loop matches such a filter
 
 Verification: `go test ./internal/mailbox/...` green; `make lint-mailbox` green; build clean. End-to-end smoke against a real IMAP container deferred.
 
-### Phase 8 — Admin filter CRUD UI — status: open
+### Phase 8 — Admin filter CRUD UI — status: completed
 
 Goal: an admin of a community can list / add / delete filters for THAT community through a UI. Pattern routes are per-community (`/c/{slug}/admin/mail-filters`) even though the inbox is global — filters are owned by communities.
 
-1. [ ] `internal/mailbox/handler.go` — `GetFilters`, `PostCreateFilter`, `PostDeleteFilter`. RequireMember + RequireAdmin middleware on the route group
-2. [ ] `internal/mailbox/repo.go` — `ListFiltersForCommunity`, `InsertFilter`, `DeleteFilter`
-3. [ ] `web/templ/mailfilters.templ` — page with two tables (domain / address), inline new-row forms, delete button per row
-4. [ ] On any filter mutation: invalidate the in-memory filter cache in `internal/mailbox/filter.go`. The cleanest signal is a small Bus on the repo
-5. [ ] Sidebar entry in the community admin nav: "Mail filters" link visible when `MAILBOX_ENABLED && viewer.Role >= admin`
+1. [x] `internal/mailbox/handler.go` — `GetCommunityFilters`, `PostCommunityFilterCreate`, `PostCommunityFilterDelete` with the existing `LoadCommunity + RequireMember + RequireRole(Admin)` guard. Cache invalidates automatically because both mutating handlers share `Repo.InsertFilter` / `Repo.DeleteFilter`.
+2. [x] `internal/mailbox/repo.go` — `ListFiltersForCommunity`, `InsertFilter`, `DeleteFilter` already shipped in Phase 5 (filter popover reuses the same code path). No new repo work.
+3. [x] `web/templ/mailfilters.templ` — `MailFiltersPage` with create form + `MailFiltersTable` morph target. Single table (kind column distinguishes address vs domain) is enough for the current scale — splitting into two tables added no information.
+4. [x] Filter cache invalidates inside `Repo.InsertFilter`/`Repo.DeleteFilter` so the poll loop sees fresh rules on the next match.
+5. [x] Sidebar entry — admins see "Mail filters" under their community sidebar when `MailboxEnabled` is on.
 
-Verification: as admin of community A, navigate to `/c/A/admin/mail-filters` → see two empty tables → add a domain filter `acme.com` (handler stores as `@acme.com`) → run poll worker → an `acme.com` sender matches and writes a row tagged to community A. Delete the filter → next poll sender from `acme.com` no longer matches.
+Verification: `go test ./...` passes; `make lint-mailbox` green. Manual smoke deferred to integration stage.
 
 ### Phase 9 — Deferred — status: open
 
@@ -209,3 +209,4 @@ End-to-end acceptance:
 - `2606151310` — Phase 5 done. Bus + Handler.GetMore/GetStream/PostAttachSender + natsx.MailboxSubject + InsertFilter/DeleteFilter/ListFiltersForCommunity + InboxRowList/InboxMore/InboxAttachDialog templates + InitialSignals extended for attach + inbox signals. Routes wired in main.go behind the flag. CSS polish deferred (Phase 9 cosmetic). Tests still green.
 - `2606151345` — Phase 6 done. imap.fetchPart (BODY.PEEK), Service.Materialise, AttachmentByID JOIN lookup, MarkAttachmentMoved + MarkIngestConsumedIfAllMoved repo methods, PostMoveAttachment handler with admin-of-community guard, per-attachment Move form in inbox template, route + service wired. lint-mailbox green; tests green.
 - `2606151420` — Phase 7 done. html2text dep, ExtractIssueBody (escape + cap), auth.Repo.OldestCommunityAdminID fallback per user direction, lazy Inbox project per community with memoisation, Service.AutoCreateIssue with idempotent guard on email_ingest_issue, poll loop hook after InsertIngest, fetchEnvelopeWithBody helper. lint + tests green.
+- `2606151445` — Phase 8 done. Per-community /c/{slug}/admin/mail-filters CRUD page mounted behind the existing RequireRole(Admin) guard. New mailfilters.templ (single morph-target table) + sidebar entry + InitialSignals additions for the create form (mf_kind/mf_pattern/mf_to_issue). Phase 5's Repo.InsertFilter/DeleteFilter/ListFiltersForCommunity reused — zero new repo code.

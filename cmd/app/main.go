@@ -575,6 +575,11 @@ func run() error {
 			r.Post("/admin/add-member", adminHandler.PostAddMember)
 			r.Post("/admin/toggle-public", adminHandler.PostTogglePublic)
 			r.Post("/forum/{id}/hard-delete", forumHandler.PostHardDeleteThread)
+			if cfg.MailboxEnabled && mailboxHandler != nil {
+				r.Get("/admin/mail-filters", mailboxHandler.GetCommunityFilters)
+				r.Post("/admin/mail-filters", mailboxHandler.PostCommunityFilterCreate)
+				r.Post("/admin/mail-filters/{id}/delete", mailboxHandler.PostCommunityFilterDelete)
+			}
 		})
 	})
 

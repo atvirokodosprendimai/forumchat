@@ -549,6 +549,149 @@ func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GetCommunityFilters renders the per-community admin CRUD page that
+// lists every filter targeting this community + offers a new-filter
+// form. Mounted under /c/{slug}/admin/mail-filters; the route guard
+// already enforces RequireRole(Admin).
+func (h *Handler) GetCommunityFilters(w http.ResponseWriter, r *http.Request) {
+	cm, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	filters, err := h.Repo.ListFiltersForCommunity(r.Context(), cm.ID)
+	if err != nil {
+		h.Log.Error("mailbox: list filters", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	page := webtempl.MailFiltersPageData{
+		Viewer:        h.communityViewer(id, cm.Slug, cm.Name),
+		CommunityID:   cm.ID,
+		CommunitySlug: cm.Slug,
+		CommunityName: cm.Name,
+		Rows:          toFilterViewRows(filters),
+	}
+	_ = webtempl.MailFiltersPage(page).Render(r.Context(), w)
+}
+
+// communityFilterSignals carries the new-filter form payload.
+type communityFilterSignals struct {
+	Kind    string `json:"mf_kind"`
+	Pattern string `json:"mf_pattern"`
+	ToIssue bool   `json:"mf_to_issue"`
+}
+
+// PostCommunityFilterCreate handles the admin CRUD page's "Save
+// filter" submit. Shares Repo.InsertFilter with the popover path.
+func (h *Handler) PostCommunityFilterCreate(w http.ResponseWriter, r *http.Request) {
+	cm, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var in communityFilterSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	kind := FilterKind(in.Kind)
+	if kind != FilterKindAddress && kind != FilterKindDomain {
+		http.Error(w, "bad kind", http.StatusBadRequest)
+		return
+	}
+	pattern := normaliseFilterPattern(kind, in.Pattern)
+	if pattern == "" {
+		http.Error(w, "bad pattern", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.InsertFilter(r.Context(), Filter{
+		ID:          uuid.NewString(),
+		CommunityID: cm.ID,
+		Kind:        kind,
+		Pattern:     pattern,
+		ToIssue:     in.ToIssue,
+		CreatedBy:   id.User.ID,
+	}); err != nil {
+		h.Log.Error("mailbox: InsertFilter", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	h.broadcast(r.Context(), cm.ID)
+
+	filters, _ := h.Repo.ListFiltersForCommunity(r.Context(), cm.ID)
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(
+		webtempl.MailFiltersTable(toFilterViewRows(filters), cm.Slug),
+		datastar.WithSelector("#mail-filters-table"),
+		datastar.WithModeOuter(),
+	)
+	_ = sse.PatchSignals([]byte(`{"mf_pattern":"","mf_to_issue":false}`))
+}
+
+// PostCommunityFilterDelete removes one filter row.
+func (h *Handler) PostCommunityFilterDelete(w http.ResponseWriter, r *http.Request) {
+	cm, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	fid := chi.URLParam(r, "id")
+	if fid == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.DeleteFilter(r.Context(), fid, cm.ID); err != nil {
+		h.Log.Error("mailbox: DeleteFilter", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	h.broadcast(r.Context(), cm.ID)
+
+	filters, _ := h.Repo.ListFiltersForCommunity(r.Context(), cm.ID)
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(
+		webtempl.MailFiltersTable(toFilterViewRows(filters), cm.Slug),
+		datastar.WithSelector("#mail-filters-table"),
+		datastar.WithModeOuter(),
+	)
+}
+
+func (h *Handler) communityViewer(id auth.Identity, slug, name string) webtempl.Viewer {
+	return webtempl.Viewer{
+		IsAuthed:              true,
+		DisplayName:           id.Membership.DisplayName,
+		Role:                  string(id.Membership.Role),
+		CommunityName:         name,
+		CommunitySlug:         slug,
+		IsAdminOfAnyCommunity: true,
+	}
+}
+
+func toFilterViewRows(rows []Filter) []webtempl.MailFilterRow {
+	out := make([]webtempl.MailFilterRow, len(rows))
+	for i, f := range rows {
+		out[i] = webtempl.MailFilterRow{
+			ID:        f.ID,
+			Kind:      string(f.Kind),
+			Pattern:   f.Pattern,
+			ToIssue:   f.ToIssue,
+			CreatedAt: f.CreatedAt.Unix(),
+		}
+	}
+	return out
+}
+
 // broadcast pings the in-process Bus and (if connected) publishes the
 // community id over NATS. Cross-process subscribers wake; same-process
 // SSE loops also wake.
