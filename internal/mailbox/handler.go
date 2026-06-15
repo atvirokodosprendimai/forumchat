@@ -605,7 +605,8 @@ func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
 
 	look, err := h.Repo.AttachmentByID(r.Context(), attID)
 	if err != nil {
-		writeToast(w, r, "attachment not found")
+		h.Log.Error("mailbox: AttachmentByID", "att", attID, "err", err)
+		writeToast(w, r, fmt.Sprintf("attachment lookup failed (id=%s): %v", attID, err))
 		return
 	}
 	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
