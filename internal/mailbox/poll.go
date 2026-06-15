@@ -220,17 +220,23 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		// the batch BODYSTRUCTURE. One BODY.PEEK[<path>] round-trip
 		// per email — sequential, runs AFTER the envelope batch
 		// finished (cannot pipeline two commands on a single IMAP
-		// client). Empty when message has no text part.
+		// client). decodeTextBody handles quoted-printable / base64
+		// transfer-encodings and charset transcode (Lithuanian
+		// windows-1257, ISO-8859-x, etc.) so the inbox body view
+		// isn't full of "=E0" sequences.
 		bodyText := ""
 		if len(e.TextPath) > 0 {
 			body, bErr := c.fetchPartPath(e.UID, e.TextPath)
 			if bErr != nil {
 				w.Log.Warn("mailbox: body fetch failed (continuing without body)",
 					"folder", name, "uid", e.UID, "err", bErr)
-			} else if e.IsTextPlain {
-				bodyText = strings.TrimSpace(string(body))
 			} else {
-				bodyText = ExtractIssueBody("", string(body))
+				decoded := decodeTextBody(body, e.TextEncoding, e.TextCharset)
+				if e.IsTextPlain {
+					bodyText = strings.TrimSpace(decoded)
+				} else {
+					bodyText = ExtractIssueBody("", decoded)
+				}
 			}
 		}
 

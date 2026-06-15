@@ -120,7 +120,9 @@ func (i *imapClient) examineReadOnly(name string) (SelectInfo, error) {
 // best text part (text/plain preferred, else text/html), pre-resolved
 // during envelopeFromBuffer so the caller can ask for body bytes with
 // one targeted BODY.PEEK[<path>] round-trip and never has to walk the
-// BS tree itself.
+// BS tree itself. TextEncoding + TextCharset come from the same BS
+// lookup so decodeTextBody can transcode quoted-printable / base64 /
+// ISO-8859-x / windows-125x → UTF-8 for storage.
 type FetchedEnvelope struct {
 	UID          uint32
 	FromAddr     string
@@ -128,8 +130,10 @@ type FetchedEnvelope struct {
 	Subject      string
 	MessageID    string
 	InternalDate time.Time
-	TextPath     []int // empty when the message has no text part
-	IsTextPlain  bool  // true when TextPath points at text/plain; false for text/html fallback
+	TextPath     []int  // empty when the message has no text part
+	IsTextPlain  bool   // true when TextPath points at text/plain; false for text/html fallback
+	TextEncoding string // Content-Transfer-Encoding of the chosen text part
+	TextCharset  string // charset param of the chosen text part
 	Attachments  []ParsedPart
 }
 
@@ -419,8 +423,42 @@ func envelopeFromBuffer(buf *imapclient.FetchMessageBuffer) FetchedEnvelope {
 	if buf.BodyStructure != nil {
 		env.Attachments = walkAttachmentParts(buf.BodyStructure)
 		env.TextPath, env.IsTextPlain = findTextPartPath(buf.BodyStructure)
+		env.TextEncoding, env.TextCharset = textPartCodec(buf.BodyStructure, env.TextPath)
 	}
 	return env
+}
+
+// textPartCodec returns (Content-Transfer-Encoding, charset) for the
+// resolved text path. Empty strings when nothing matched.
+func textPartCodec(bs imap.BodyStructure, target []int) (encoding, charset string) {
+	if len(target) == 0 {
+		return "", ""
+	}
+	bs.Walk(func(path []int, part imap.BodyStructure) bool {
+		if encoding != "" {
+			return false
+		}
+		if len(path) != len(target) {
+			return true
+		}
+		for i, n := range path {
+			if n != target[i] {
+				return true
+			}
+		}
+		sp, ok := part.(*imap.BodyStructureSinglePart)
+		if !ok {
+			return true
+		}
+		encoding = sp.Encoding
+		if sp.Params != nil {
+			if cs, ok := sp.Params["charset"]; ok {
+				charset = cs
+			}
+		}
+		return false
+	})
+	return encoding, charset
 }
 
 // findTextPartPath walks the BODYSTRUCTURE looking for the best text

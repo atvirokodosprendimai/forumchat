@@ -105,26 +105,27 @@ templ InboxPage(d InboxPageData) {
 					}
 				</a>
 			</div>
-			<div id="inbox-rows" class="inbox-rows">
-				@InboxRowList(d.Rows)
-			</div>
+			@InboxRowList(d.Rows)
 			@InboxMore(d.NextCursor, d.ActiveCommunity)
 			@InboxAttachDialog(d.Pills)
 		</section>
 	}
 }
 
-// InboxRowList renders the rows-only fragment. Used both as the inner
-// content of the page on first render and as the morph target during
-// SSE updates / scroll-end pagination.
+// InboxRowList renders the #inbox-rows wrapper + its row contents.
+// Wrapping the wrapper inside the templ (not the page) keeps it stable
+// across WithModeOuter SSE patches — the morphed element keeps its id
+// so the next patch can still find the selector.
 templ InboxRowList(rows []InboxRow) {
-	if len(rows) == 0 {
-		<p class="empty">No emails yet. As soon as the IMAP poller finds a message matching any of your community's filters, it will appear here.</p>
-	} else {
-		for _, row := range rows {
-			@inboxRow(row)
+	<div id="inbox-rows" class="inbox-rows">
+		if len(rows) == 0 {
+			<p class="empty">No emails yet. As soon as the IMAP poller finds a message matching any of your community's filters, it will appear here.</p>
+		} else {
+			for _, row := range rows {
+				@inboxRow(row)
+			}
 		}
-	}
+	</div>
 }
 
 // InboxMore is the scroll-end sentinel. Its data-on:scrollend attribute
