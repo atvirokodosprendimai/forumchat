@@ -1,13 +1,35 @@
 package templ
 
+import "context"
+
+// adminAnyCtxKey is read by IsAdminOfAnyCommunity below. The auth
+// middleware stores its value under the same key (matching name + type)
+// so layout.templ can pick it up without importing the auth package
+// (web/templ is a leaf package — see AGENTS.md §4.13).
+type adminAnyCtxKeyType struct{}
+
+var adminAnyCtxKey = adminAnyCtxKeyType{}
+
+// IsAdminOfAnyCommunity reads the per-request flag the auth.Loader
+// middleware stashes on ctx. Powers the global /inbox topbar link in
+// layout.templ.
+func IsAdminOfAnyCommunity(ctx context.Context) bool {
+	v, _ := ctx.Value(adminAnyCtxKey).(bool)
+	return v
+}
+
+// AdminAnyCtxKey is exported so the auth package can set the same key
+// without an import cycle. Read by IsAdminOfAnyCommunity above.
+func AdminAnyCtxKey() any { return adminAnyCtxKey }
+
 type Viewer struct {
 	IsAuthed      bool
 	DisplayName   string
 	Role          string // member|moderator|admin
 	CommunityName string
 	CommunitySlug string // empty when no community is in scope (dashboard, login pages)
-	// IsAdminOfAnyCommunity gates the global /inbox topbar link. Populated
-	// by handlers that build a Viewer — the layout treats false as "hide".
+	// IsAdminOfAnyCommunity is now derived from ctx via auth.IsAdminOfAnyCommunity.
+	// Field kept (unused) so existing handler-side initialisers don't break.
 	IsAdminOfAnyCommunity bool
 }
 
@@ -203,7 +225,7 @@ templ Layout(title string, v Viewer) {
 							}
 						}
 						<h3 class="sidebar-group">You</h3>
-						if MailboxEnabled && v.IsAdminOfAnyCommunity {
+						if MailboxEnabled && IsAdminOfAnyCommunity(ctx) {
 							<a href="/inbox"><span class="sb-icon" aria-hidden="true">📥</span>Inbox</a>
 						}
 						<a href="/messages" class="pm-nav-link">

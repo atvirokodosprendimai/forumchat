@@ -79,6 +79,11 @@ type Config struct {
 	MailboxPollInterval  time.Duration `env:"MAILBOX_POLL_INTERVAL" envDefault:"2m"`
 	MailboxAttachmentMax int64         `env:"MAILBOX_ATTACHMENT_MAX" envDefault:"26214400"` // 25 MiB
 	MailboxSystemUserID  string        `env:"MAILBOX_SYSTEM_USER_ID" envDefault:""`
+	// MAILBOX_RESCAN_ON_BOOT resets every folder's last_uid to 0 at
+	// startup so the next poll cycle re-scans everything from UID 1.
+	// Useful after enabling a new filter that should have matched
+	// historical mail. Set true once, restart, then set false.
+	MailboxRescanOnBoot bool `env:"MAILBOX_RESCAN_ON_BOOT" envDefault:"false"`
 
 	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate
 	// on first boot and persist to VAPID_KEYS_FILE so subsequent boots

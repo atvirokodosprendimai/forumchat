@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/alexedwards/scs/v2"
+
+	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
 type ctxKey int
@@ -14,6 +16,7 @@ type ctxKey int
 const (
 	ctxKeyUser ctxKey = iota + 1
 	ctxKeyMembership
+	ctxKeyAdminAny
 )
 
 type Identity struct {
@@ -34,6 +37,13 @@ func WithIdentity(ctx context.Context, id Identity) context.Context {
 	ctx = context.WithValue(ctx, ctxKeyUser, id.User)
 	ctx = context.WithValue(ctx, ctxKeyMembership, id.Membership)
 	return ctx
+}
+
+// WithAdminOfAnyCommunity stashes the per-request flag that powers the
+// global /inbox topbar link. Stored under the same key web/templ reads
+// from (web/templ is a leaf package, can't import auth — AGENTS §4.13).
+func WithAdminOfAnyCommunity(ctx context.Context, v bool) context.Context {
+	return context.WithValue(ctx, webtempl.AdminAnyCtxKey(), v)
 }
 
 func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler {
@@ -70,6 +80,15 @@ func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler 
 				return
 			}
 			ctx := WithIdentity(r.Context(), Identity{User: u, Membership: m})
+
+			// Cheap one-row probe: do we have ANY admin/mod approved
+			// membership across communities? Powers the global /inbox
+			// link in layout.templ. Errors here log nothing — the
+			// caller code paths that need this fall through gracefully.
+			if cids, err := repo.AdminCommunityIDs(r.Context(), uid); err == nil && len(cids) > 0 {
+				ctx = WithAdminOfAnyCommunity(ctx, true)
+			}
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

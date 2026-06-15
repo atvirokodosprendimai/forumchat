@@ -265,6 +265,19 @@ func (r *Repo) SetFolderLastUID(ctx context.Context, folderID string, lastUID ui
 	return err
 }
 
+// ResetAllFolderCursors zeroes every folder's last_uid for this account
+// so the next poll cycle re-fetches every message. Invoked on boot when
+// MAILBOX_RESCAN_ON_BOOT=true.
+func (r *Repo) ResetAllFolderCursors(ctx context.Context, accountID string) (int64, error) {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE mailbox_folder SET last_uid = 0 WHERE account_id = ?`, accountID)
+	if err != nil {
+		return 0, fmt.Errorf("reset folder cursors: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 func (r *Repo) folderByName(ctx context.Context, accountID, name string) (Folder, error) {
 	var f Folder
 	var lastSeen sql.NullInt64

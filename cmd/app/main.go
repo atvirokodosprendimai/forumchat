@@ -348,6 +348,13 @@ func run() error {
 			if err != nil {
 				log.Warn("mailbox: EnsureAccount failed", "err", err)
 			} else {
+				if cfg.MailboxRescanOnBoot {
+					if n, err := mailboxRepo.ResetAllFolderCursors(ctx, acc.ID); err != nil {
+						log.Warn("mailbox: rescan-on-boot reset failed", "err", err)
+					} else {
+						log.Info("mailbox: rescan-on-boot — folder cursors reset", "folders", n)
+					}
+				}
 				(&mailbox.PollWorker{
 					Cfg:       mailboxAccCfg,
 					AccountID: acc.ID,

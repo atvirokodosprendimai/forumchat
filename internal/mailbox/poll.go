@@ -82,14 +82,36 @@ func (w *PollWorker) cycle(ctx context.Context) {
 		w.Log.Error("mailbox: list folders failed", "err", err)
 		return
 	}
-	w.Log.Info("mailbox: poll cycle begin", "folders", len(folders))
+	// Surface filter count up-front so the operator immediately knows
+	// whether the "ingested=0" outcome is "no filters yet" vs "filters
+	// exist but nothing matched".
+	filters, ferr := w.Repo.cachedFilters(ctx)
+	filterCount := len(filters)
+	if ferr != nil {
+		w.Log.Warn("mailbox: filter cache load failed at cycle begin", "err", ferr)
+	}
+	w.Log.Info("mailbox: poll cycle begin",
+		"host", w.Cfg.Host,
+		"user", w.Cfg.Username,
+		"folders", len(folders),
+		"folder_names", folders,
+		"filters", filterCount,
+	)
+	if filterCount == 0 {
+		w.Log.Warn("mailbox: no community_mail_filter rows — every email will be skipped. Add filters via /c/<slug>/admin/mail-filters")
+	}
 
-	var ingested int
+	var (
+		ingested  int
+		fetched   int
+		matched   int
+		skippedNF int // skipped: no filter
+	)
 	for _, name := range folders {
 		if ctx.Err() != nil {
 			return
 		}
-		n, err := w.scanFolder(ctx, c, name)
+		stats, err := w.scanFolder(ctx, c, name)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
@@ -97,39 +119,71 @@ func (w *PollWorker) cycle(ctx context.Context) {
 			w.Log.Warn("mailbox: scan folder failed", "folder", name, "err", err)
 			continue
 		}
-		ingested += n
+		ingested += stats.inserted
+		fetched += stats.fetched
+		matched += stats.matched
+		skippedNF += stats.skippedNoFilter
 	}
 	w.Log.Info("mailbox: poll cycle end",
 		"dur_ms", time.Since(start).Milliseconds(),
+		"fetched", fetched,
+		"matched", matched,
+		"skipped_no_filter", skippedNF,
 		"ingested", ingested,
 	)
 }
 
+// scanStats is the per-folder summary returned to the cycle aggregator
+// so the cycle-end log reports complete numbers.
+type scanStats struct {
+	fetched         int
+	matched         int
+	skippedNoFilter int
+	inserted        int
+}
+
 // scanFolder examines one folder, fetches new envelopes, runs each
-// through MatchFrom and persists the matches. Returns the count of
-// new email_ingest rows the cycle produced (excluding duplicates).
-func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string) (int, error) {
+// through MatchFrom and persists the matches. Returns the per-folder
+// stat block so the cycle aggregator can log totals at the end.
+func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string) (scanStats, error) {
+	var stats scanStats
 	info, err := c.examineReadOnly(name)
 	if err != nil {
-		return 0, err
+		return stats, err
 	}
 	folder, err := w.Repo.UpsertFolder(ctx, w.AccountID, name, info.UIDValidity)
 	if err != nil {
-		return 0, err
+		return stats, err
 	}
+	w.Log.Info("mailbox: folder examined",
+		"folder", name,
+		"messages", info.NumMessages,
+		"uidvalidity", info.UIDValidity,
+		"uidnext", info.UIDNext,
+		"last_uid_cursor", folder.LastUID,
+	)
 	if info.NumMessages == 0 {
-		return 0, nil
+		return stats, nil
+	}
+	if folder.LastUID >= info.UIDNext-1 && info.UIDNext > 0 {
+		w.Log.Info("mailbox: folder up-to-date", "folder", name, "last_uid", folder.LastUID)
+		return stats, nil
 	}
 	envs, err := c.fetchEnvelopesSince(folder.LastUID)
 	if err != nil {
-		return 0, err
+		return stats, err
 	}
+	stats.fetched = len(envs)
+	w.Log.Info("mailbox: folder fetched",
+		"folder", name,
+		"fetched", stats.fetched,
+		"since_uid", folder.LastUID,
+	)
 	if len(envs) == 0 {
-		return 0, nil
+		return stats, nil
 	}
 
 	var maxUID uint32 = folder.LastUID
-	var inserted int
 	for _, e := range envs {
 		if e.UID > maxUID {
 			maxUID = e.UID
@@ -140,8 +194,12 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			continue
 		}
 		if !ok {
+			stats.skippedNoFilter++
+			w.Log.Debug("mailbox: no filter match",
+				"folder", name, "uid", e.UID, "from", e.FromAddr, "subject", e.Subject)
 			continue
 		}
+		stats.matched++
 		// Pull the text body alongside the envelope so /inbox search has
 		// content to index. Failure here logs but doesn't block the
 		// ingest — we still want the row + attachment metadata.
@@ -175,9 +233,11 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			continue
 		}
 		if !isNew {
+			w.Log.Debug("mailbox: duplicate ingest skipped",
+				"folder", name, "uid", e.UID, "from", e.FromAddr)
 			continue
 		}
-		inserted++
+		stats.inserted++
 		if err := w.Repo.InsertAttachments(ctx, ingestID, e.Attachments); err != nil {
 			w.Log.Warn("mailbox: attachments index failed",
 				"folder", name, "uid", e.UID, "err", err)
@@ -204,7 +264,15 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 				"folder", name, "want", maxUID, "err", err)
 		}
 	}
-	return inserted, nil
+	w.Log.Info("mailbox: folder summary",
+		"folder", name,
+		"fetched", stats.fetched,
+		"matched", stats.matched,
+		"skipped_no_filter", stats.skippedNoFilter,
+		"ingested", stats.inserted,
+		"cursor_to", maxUID,
+	)
+	return stats, nil
 }
 
 // autoCreateIssueFor is called only for to_issue filter matches.
