@@ -158,9 +158,11 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 	w.Log.Info("mailbox: folder examined",
 		"folder", name,
 		"messages", info.NumMessages,
-		"uidvalidity", info.UIDValidity,
+		"uidvalidity_server", info.UIDValidity,
+		"uidvalidity_db", folder.UIDValidity,
 		"uidnext", info.UIDNext,
 		"last_uid_cursor", folder.LastUID,
+		"cursor_will_advance_from", folder.LastUID,
 	)
 	if info.NumMessages == 0 {
 		return stats, nil
@@ -184,9 +186,17 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 	}
 
 	var maxUID uint32 = folder.LastUID
-	for _, e := range envs {
+	for i, e := range envs {
 		if e.UID > maxUID {
 			maxUID = e.UID
+		}
+		// Periodically persist cursor so a long-running first-scan
+		// (Gmail INBOX can take 30+ s) doesn't lose all progress when
+		// the container is restarted mid-cycle. Every 50 envelopes.
+		if i > 0 && i%50 == 0 && maxUID > folder.LastUID {
+			if err := w.Repo.SetFolderLastUID(ctx, folder.ID, maxUID); err == nil {
+				folder.LastUID = maxUID
+			}
 		}
 		filter, matched, err := MatchFrom(ctx, w.Repo, e.FromAddr)
 		if err != nil {
@@ -198,19 +208,11 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		} else {
 			stats.skippedNoFilter++ // metric name kept; actually "unassigned"
 		}
-		// Pull the text body alongside the envelope so /inbox search has
-		// content to index. Failure here logs but doesn't block the
-		// ingest — we still want the row + attachment metadata.
-		bodyText := ""
-		if _, text, html, err := c.fetchEnvelopeWithBody(e.UID); err == nil {
-			bodyText = strings.TrimSpace(text)
-			if bodyText == "" {
-				bodyText = ExtractIssueBody("", html)
-			}
-		} else {
-			w.Log.Warn("mailbox: body fetch failed (search index will lack body)",
-				"folder", name, "uid", e.UID, "err", err)
-		}
+		// Body text came along in the batch fetch (BODY.PEEK[1]). No
+		// extra round-trip per message. Search may miss HTML-only mail
+		// whose first part isn't text — acceptable degradation in
+		// exchange for throughput on long initial scans.
+		bodyText := strings.TrimSpace(e.TextBody)
 
 		ingest := IngestInsert{
 			FolderID:    folder.ID,
