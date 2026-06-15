@@ -265,7 +265,7 @@ func run() error {
 	case "mailbox":
 		if len(os.Args) < 3 {
 			usage()
-			return errors.New("usage: mailbox <rescan|wipe|prune-skipped|reprocess-filter|apply-filter|decode-bodies>")
+			return errors.New("usage: mailbox <rescan|wipe|prune-skipped|reprocess-filter|apply-filter|decode-bodies|rerender-upload-bodies>")
 		}
 		mRepo := mailbox.NewRepo(db)
 		acc, err := mRepo.EnsureAccount(ctx, mailbox.AccountConfig{
@@ -291,6 +291,30 @@ func run() error {
 				return err
 			}
 			fmt.Printf("wiped %d ingest rows + reset folder cursors — full cold start\n", n)
+		case "rerender-upload-bodies":
+			projsRepo := projects.NewRepo(db)
+			rows, err := projsRepo.AllIssueBodies(ctx)
+			if err != nil {
+				return err
+			}
+			fixed := 0
+			now := time.Now().UTC()
+			for _, row := range rows {
+				if !strings.Contains(row.BodyMD, "upload://") {
+					continue
+				}
+				html, err := render.RenderMarkdown(row.BodyMD)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "issue %s: render: %v\n", row.ID, err)
+					continue
+				}
+				if err := projsRepo.UpdateIssueBody(ctx, row.ID, row.BodyMD, html, now); err != nil {
+					fmt.Fprintf(os.Stderr, "issue %s: %v\n", row.ID, err)
+					continue
+				}
+				fixed++
+			}
+			fmt.Printf("re-rendered %d issue bodies containing upload:// markers\n", fixed)
 		case "decode-bodies":
 			ingestRows, err := mRepo.AllIngestBodies(ctx)
 			if err != nil {
