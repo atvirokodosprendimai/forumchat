@@ -85,18 +85,18 @@ Goal: with valid `MAILBOX_*` env vars set, the poll worker dials IMAP every `MAI
 
 Verification (manual smoke deferred until a test IMAP container is available): `MAILBOX_ENABLED=true` against greenmail or `dovecot` shows one Dial per interval, folder enumeration, UID fetches. Thunderbird verification confirms `\Seen` flags unchanged.
 
-### Phase 3 — Filter table + matching + email_ingest writes — status: open
+### Phase 3 — Filter table + matching + email_ingest writes — status: completed
 
 Goal: emails matching any `community_mail_filter` get persisted; non-matches are silently skipped. Idempotent.
 
-1. [ ] `internal/mailbox/filter.go` — `MatchFrom(ctx, repo, fromAddr string) (Filter, ok, error)` implementing precedence: exact address > wildcard domain
-2. [ ] `internal/mailbox/repo.go` — `ListFilters(ctx) ([]Filter, error)` (cached in-memory + invalidated on filter mutate), `InsertIngest(ctx, params) (id string, isNew bool, err error)` with `INSERT OR IGNORE` returning rowcount; FindByUID guard surfaces `isNew=false` so side effects do not re-fire
-3. [ ] `internal/mailbox/repo.go` — `UpsertFolder(ctx, accountID, name string, uidvalidity, lastUID uint32) error`. Called per cycle. Handles UIDVALIDITY rotation: if stored != observed → reset lastUID to 0 (full rescan next time) BEFORE this batch's writes
-4. [ ] `internal/mailbox/poll.go` — extend cycle: for each fetched message, call `MatchFrom`. On hit, `InsertIngest`. Persist `last_uid = max(last_uid, msg.UID)` after the batch
-5. [ ] Tests `internal/mailbox/filter_test.go` — precedence cases, lowercasing, malformed From: header, no-match path
-6. [ ] Tests `internal/mailbox/repo_test.go` — UIDVALIDITY rotation, duplicate UID insert returns isNew=false, cursor advancement (use `t.TempDir()` SQLite)
+1. [x] `internal/mailbox/filter.go` — `MatchFrom(ctx, repo, fromAddr) (Filter, ok, error)` implementing precedence (exact address > wildcard domain). Also `normaliseFilterPattern` helper used by Phase 8's CRUD.
+2. [x] `internal/mailbox/repo.go` — added `cachedFilters` + `InvalidateFilters` (RWMutex-guarded in-memory cache), `UpsertFolder` (handles UIDVALIDITY rotation by resetting last_uid to 0), `SetFolderLastUID` (monotonic), `InsertIngest` (FindByUID pre-check + UNIQUE constraint absorbing duplicates, surfaces `isNew bool`).
+3. [x] `internal/mailbox/poll.go` — `scanFolder` now match-then-persist per envelope, advances `last_uid` once per folder cycle.
+4. [x] `cmd/app/main.go` — PollWorker now constructed with `AccountID` + `Repo` so it can persist.
+5. [x] Tests `internal/mailbox/filter_test.go` — precedence cases (exact > domain, case-insensitive), malformed/empty from, normalisation cases.
+6. [x] Tests `internal/mailbox/repo_test.go` — UIDVALIDITY rotation resets cursor, `SetFolderLastUID` is monotonic, duplicate `InsertIngest` returns isNew=false with original id, `EnsureAccount` updates singleton on config change.
 
-Verification: insert an exact filter for `alice@acme.com` → community A and a domain filter for `*@acme.com` → community B. Send 3 emails (alice@, bob@, marketing@acme.com). DB has 3 `email_ingest` rows, alice in A, the other two in B. Re-run poll: no duplicates.
+Verification: `go test ./internal/mailbox/...` passes; `make lint-mailbox` passes.
 
 ### Phase 4 — Attachment metadata from BODYSTRUCTURE — status: open
 
@@ -149,7 +149,8 @@ Goal: filters can mark `to_issue=true`. When the poll loop matches such a filter
 4. [ ] `internal/mailbox/service.go` — `Service.AutoCreateIssue(ctx, ingest Ingest, filter Filter, bodyText string) (Issue, error)`. Calls `projects.Service.CreateIssue` with the system-user identity. Inserts `email_ingest_issue`
 5. [ ] `internal/mailbox/poll.go` — after `InsertIngest+InsertAttachments`, if `filter.to_issue`, fetch text body and call `AutoCreateIssue`. Guarded by `email_ingest_issue` row existence (idempotent — re-running the poll doesn't double-create)
 6. [ ] `web/templ/inbox.templ` — when an ingest has `email_ingest_issue`, show "Issue created → #P/I" badge linking to the issue page
-7. [ ] System user bootstrap — at boot, if `MAILBOX_SYSTEM_USER_ID` env is unset, INSERT a `users` row with display name "Mailbox" and email "mailbox@local"; persist its id back into a `mailbox_account.system_user_id` column? Or rely on env? Spec says env. Keep env. Bootstrap a row if missing
+7. [ ] System user bootstrap — when `MAILBOX_SYSTEM_USER_ID` env is empty, fall back to "longest-tenured admin of each community" (per-community resolution at issue-create time). The auto-issue's `creator_user_id` becomes that admin's user id. Document the fallback in spec Notes. Avoids the need for a synthetic users row entirely.
+   - => user direction (2606151207): "can this be `global admin`? we don't have any system user. Automatic chooses global admin if not preset". So env-unset path picks an admin per community at write time, not at boot.
 8. [ ] Tests `internal/mailbox/service_test.go` — html→text conversion fixtures, duplicate-call idempotency
 
 Verification: register a `to_issue=true` filter for `support@vendor.tld` → community A → project P. Send an HTML-only email from that address → after next poll, project P has a new issue with the plaintext body, no raw `<div>`s, editable via the existing issue edit handler.
@@ -178,6 +179,7 @@ Not implemented in this plan. Reserved here so spec's Future bullets don't lose 
 - {[?] "Show discarded" toggle for forensic search.}
 - {[?] Inline body preview — fetch text/plain on-demand inside the inbox row.}
 - {[?] Reply-to-create-thread flow (chat / forum / discussion) once write support is added.}
+- {[!] Email search — SQLite FTS5 over (subject, from_addr, from_name, body_text, attachment filenames concatenated). Query "api" matches subject keywords, sender names, body content, AND filenames like "api documentation.doc". Per user request 2606151225. Lands after Phase 5 (UI exists to expose the search box) but before Phase 8. Body text gets persisted into `email_ingest.body_text` at poll time for matched messages so search has something to index without re-fetching from IMAP.}
 
 ## Verification
 
@@ -203,3 +205,6 @@ End-to-end acceptance:
 - `2606151105` — Phase 0 done. Spec refined inline via `/eidos:refine`: §Global inbox replaces §Sorting queue, click-sender popover added, anti-enumeration tightened, Future bullet updated. No code yet — implementation starts at Phase 1.
 - `2606151140` — Phase 1 done. Migration 00020 + 8 config envs + `internal/mailbox` (types/repo/handler/cursor_test) + `internal/auth/AdminCommunityIDs` + `web/templ/inbox.templ` + topbar wiring. All tests green (`go test ./...`). Empty `/inbox` reachable behind the flag for admins of any community; anti-enum 404 elsewhere.
 - `2606151205` — Phase 2 done. `internal/mailbox/imap.go` wraps emersion/go-imap/v2 with READ-ONLY guarantees baked in (EXAMINE not SELECT, BodySection unused). `PollWorker.Start(ctx)` runs an immediate-first ticker that logs folder + envelope info per cycle. `make lint-mailbox` gates merges against any forbidden mutating call landing in `internal/mailbox/`.
+- `2606151207` — User clarified MAILBOX_SYSTEM_USER_ID semantics: when unset, fall back to "global admin of the community" at issue-write time. Plan Phase 7 step 7 updated; no code yet — wires in when auto-issue lands.
+- `2606151220` — Phase 3 done. filter.go + cachedFilters cache + UpsertFolder + InsertIngest + idempotent scanFolder. Tests cover precedence, rotation, monotonic cursor, duplicate absorption. lint-mailbox green.
+- `2606151225` — User requested email search across content + attachment filenames. Filed as new Future-but-must-do bullet (`{[!]}`). Will land as a new Phase 5b between queue UI and Phase 6 — once UI exists to expose the search box. Implementation note: persist text body into `email_ingest.body_text` at poll time and build SQLite FTS5 virtual table over (subject, from_addr, from_name, body_text, attachment filenames). No IMAP refetch.

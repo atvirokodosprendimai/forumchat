@@ -8,16 +8,18 @@ import (
 )
 
 // PollWorker dials the configured IMAP account on a ticker, walks every
-// folder, and (in later phases) ingests new messages whose From: matches
-// a per-community filter. Phase 2 stops at logging — no DB rows are
-// written from the worker yet.
+// folder, and ingests new messages whose From: matches a per-community
+// filter. Phase 3 onward persists matched envelopes; non-matches are
+// silently skipped.
 //
 // The worker is single-instance per process. Multi-process coordination
 // would require a leader-election lock; v1 ships one binary.
 type PollWorker struct {
-	Cfg      AccountConfig
-	Interval time.Duration
-	Log      *slog.Logger
+	Cfg       AccountConfig
+	AccountID string // mailbox_account.id resolved by Repo.EnsureAccount
+	Interval  time.Duration
+	Repo      *Repo
+	Log       *slog.Logger
 }
 
 // Start spawns the poll goroutine. It returns immediately. The worker
@@ -48,11 +50,15 @@ func (w *PollWorker) run(ctx context.Context) {
 }
 
 // cycle is one poll pass: dial, list folders, examine each, fetch
-// envelopes greater than the cached last_uid (Phase 2 holds last_uid in
-// memory; Phase 3 persists it). Logs results, never writes rows.
+// envelopes greater than the persisted per-folder last_uid, match each
+// from-address against community_mail_filter, persist matched rows.
 func (w *PollWorker) cycle(ctx context.Context) {
 	if w.Cfg.Host == "" || w.Cfg.Username == "" {
 		w.Log.Warn("mailbox: poll cycle skipped — host/user not configured")
+		return
+	}
+	if w.Repo == nil || w.AccountID == "" {
+		w.Log.Warn("mailbox: poll cycle skipped — repo/account not wired")
 		return
 	}
 	start := time.Now()
@@ -70,57 +76,97 @@ func (w *PollWorker) cycle(ctx context.Context) {
 	}
 	w.Log.Info("mailbox: poll cycle begin", "folders", len(folders))
 
+	var ingested int
 	for _, name := range folders {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := w.scanFolder(c, name); err != nil {
+		n, err := w.scanFolder(ctx, c, name)
+		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
 			w.Log.Warn("mailbox: scan folder failed", "folder", name, "err", err)
+			continue
 		}
+		ingested += n
 	}
-	w.Log.Info("mailbox: poll cycle end", "dur_ms", time.Since(start).Milliseconds())
+	w.Log.Info("mailbox: poll cycle end",
+		"dur_ms", time.Since(start).Milliseconds(),
+		"ingested", ingested,
+	)
 }
 
-func (w *PollWorker) scanFolder(c *imapClient, name string) error {
+// scanFolder examines one folder, fetches new envelopes, runs each
+// through MatchFrom and persists the matches. Returns the count of
+// new email_ingest rows the cycle produced (excluding duplicates).
+func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string) (int, error) {
 	info, err := c.examineReadOnly(name)
 	if err != nil {
-		return err
+		return 0, err
+	}
+	folder, err := w.Repo.UpsertFolder(ctx, w.AccountID, name, info.UIDValidity)
+	if err != nil {
+		return 0, err
 	}
 	if info.NumMessages == 0 {
-		w.Log.Info("mailbox: folder empty", "folder", name, "uidvalidity", info.UIDValidity)
-		return nil
+		return 0, nil
 	}
-	// Phase 2: no persisted cursor yet — log everything in the folder
-	// since UID 0 would mean "every message ever", which is fine for
-	// the read-only proof but noisy on big mailboxes. Use UIDNext-1 as
-	// a reasonable upper bound on "what we'd consider new" and fetch
-	// only the envelope so we never download bodies.
-	since := uint32(0)
-	if info.UIDNext > 1 {
-		since = info.UIDNext - 2 // last 1 message — Phase 2 sanity check
-	}
-	envs, err := c.fetchEnvelopesSince(since)
+	envs, err := c.fetchEnvelopesSince(folder.LastUID)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	w.Log.Info("mailbox: folder scanned",
-		"folder", name,
-		"uidvalidity", info.UIDValidity,
-		"uidnext", info.UIDNext,
-		"total", info.NumMessages,
-		"sample", len(envs),
-	)
+	if len(envs) == 0 {
+		return 0, nil
+	}
+
+	var maxUID uint32 = folder.LastUID
+	var inserted int
 	for _, e := range envs {
-		w.Log.Info("mailbox: envelope",
-			"folder", name,
-			"uid", e.UID,
-			"from", e.FromAddr,
-			"subject", e.Subject,
-			"date", e.InternalDate.Format(time.RFC3339),
-		)
+		if e.UID > maxUID {
+			maxUID = e.UID
+		}
+		filter, ok, err := MatchFrom(ctx, w.Repo, e.FromAddr)
+		if err != nil {
+			w.Log.Warn("mailbox: match failed", "folder", name, "uid", e.UID, "err", err)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		_, isNew, err := w.Repo.InsertIngest(ctx, IngestInsert{
+			FolderID:        folder.ID,
+			UID:             e.UID,
+			UIDValidity:     info.UIDValidity,
+			MessageID:       e.MessageID,
+			FromAddr:        e.FromAddr,
+			FromName:        e.FromName,
+			Subject:         e.Subject,
+			ReceivedAt:      e.InternalDate,
+			CommunityID:     filter.CommunityID,
+			MatchedFilterID: filter.ID,
+		})
+		if err != nil {
+			w.Log.Warn("mailbox: ingest insert failed",
+				"folder", name, "uid", e.UID, "err", err)
+			continue
+		}
+		if isNew {
+			inserted++
+			w.Log.Info("mailbox: ingested",
+				"folder", name,
+				"uid", e.UID,
+				"from", e.FromAddr,
+				"community", filter.CommunityID,
+				"to_issue", filter.ToIssue,
+			)
+		}
 	}
-	return nil
+	if maxUID > folder.LastUID {
+		if err := w.Repo.SetFolderLastUID(ctx, folder.ID, maxUID); err != nil {
+			w.Log.Warn("mailbox: cursor advance failed",
+				"folder", name, "want", maxUID, "err", err)
+		}
+	}
+	return inserted, nil
 }

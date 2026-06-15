@@ -338,14 +338,18 @@ func run() error {
 				Password: cfg.MailboxPass,
 				TLSMode:  cfg.MailboxTLS,
 			}
-			if _, err := mailboxRepo.EnsureAccount(ctx, accCfg); err != nil {
+			acc, err := mailboxRepo.EnsureAccount(ctx, accCfg)
+			if err != nil {
 				log.Warn("mailbox: EnsureAccount failed", "err", err)
+			} else {
+				(&mailbox.PollWorker{
+					Cfg:       accCfg,
+					AccountID: acc.ID,
+					Interval:  cfg.MailboxPollInterval,
+					Repo:      mailboxRepo,
+					Log:       log,
+				}).Start(digestCtx)
 			}
-			(&mailbox.PollWorker{
-				Cfg:      accCfg,
-				Interval: cfg.MailboxPollInterval,
-				Log:      log,
-			}).Start(digestCtx)
 		}
 	}
 	webtempl.MailboxEnabled = cfg.MailboxEnabled
