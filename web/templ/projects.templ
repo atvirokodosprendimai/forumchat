@@ -726,6 +726,17 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 								}
 							</select>
 						}
+						if i.CanEdit && len(d.MovePeers) > 0 {
+							<form class="project-issue-move" data-on:submit__prevent={ "$mv_target_project = el.querySelector('select').value; @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/move')" }>
+								<select required>
+									<option value="">Move to project…</option>
+									for _, p := range d.MovePeers {
+										<option value={ p.ID }>{ p.Title }</option>
+									}
+								</select>
+								<button class="btn ghost" type="submit">↗ Move</button>
+							</form>
+						}
 					</div>
 					@ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/issues/"+i.ID+"/share-to-chat", "Quick update on this issue — ")
 				</div>

@@ -679,7 +679,15 @@ func (h *Handler) PostIssueMove(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Bus.PublishProject(from.ID, Event{Kind: "issues"})
 	h.Bus.PublishProject(to.ID, Event{Kind: "issues"})
-	w.WriteHeader(http.StatusNoContent)
+	// Issue URL contains the project id, so redirect the caller to the
+	// new canonical location. Slug stays the same (same community).
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + slug + "/projects/" + to.ID + "/issues/" + iid)
 }
 
 // PostArchive toggles archived_at -> now.
