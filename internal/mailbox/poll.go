@@ -186,17 +186,19 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 	}
 
 	var maxUID uint32 = folder.LastUID
-	for i, e := range envs {
+	saveCursor := func() {
+		if maxUID > folder.LastUID {
+			if err := w.Repo.SetFolderLastUID(ctx, folder.ID, maxUID); err != nil {
+				w.Log.Warn("mailbox: cursor advance failed",
+					"folder", name, "want", maxUID, "err", err)
+				return
+			}
+			folder.LastUID = maxUID
+		}
+	}
+	for _, e := range envs {
 		if e.UID > maxUID {
 			maxUID = e.UID
-		}
-		// Periodically persist cursor so a long-running first-scan
-		// (Gmail INBOX can take 30+ s) doesn't lose all progress when
-		// the container is restarted mid-cycle. Every 50 envelopes.
-		if i > 0 && i%50 == 0 && maxUID > folder.LastUID {
-			if err := w.Repo.SetFolderLastUID(ctx, folder.ID, maxUID); err == nil {
-				folder.LastUID = maxUID
-			}
 		}
 		filter, matched, err := MatchFrom(ctx, w.Repo, e.FromAddr)
 		if err != nil {
@@ -238,6 +240,9 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		if !isNew {
 			w.Log.Debug("mailbox: duplicate ingest skipped",
 				"folder", name, "uid", e.UID, "from", e.FromAddr)
+			// Even a duplicate advances the cursor — we've already
+			// seen this UID, no reason to revisit on next cycle.
+			saveCursor()
 			continue
 		}
 		stats.inserted++
@@ -271,13 +276,15 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			"to_issue", matched && filter.ToIssue,
 			"attachments", len(e.Attachments),
 		)
+		// Persist cursor after each message so a container restart
+		// loses at most ONE message of progress, never the whole
+		// folder scan.
+		saveCursor()
 	}
-	if maxUID > folder.LastUID {
-		if err := w.Repo.SetFolderLastUID(ctx, folder.ID, maxUID); err != nil {
-			w.Log.Warn("mailbox: cursor advance failed",
-				"folder", name, "want", maxUID, "err", err)
-		}
-	}
+	// Final advance: covers the trailing tail of the loop that didn't
+	// hit a saveCursor() call (e.g. unmatched messages with empty
+	// body that didn't go through any of the persist paths).
+	saveCursor()
 	w.Log.Info("mailbox: folder summary",
 		"folder", name,
 		"fetched", stats.fetched,
