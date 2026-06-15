@@ -270,6 +270,7 @@ func run() error {
 		Bus:      projectsBus,
 		Uploads:  uploadStore,
 		Sessions: sessions,
+		AuthRepo: aRepo,
 		ChatRepo: chatRepo,
 		ChatBus:  chatBus,
 		Log:      log,
@@ -739,6 +740,11 @@ func run() error {
 			r.Post("/inbox/search", mailboxHandler.PostSearch)
 		})
 	}
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Get("/issues", projectsHandler.GetGlobalIssues)
+		r.Get("/issues/stream", projectsHandler.GetGlobalIssuesStream)
+	})
 	r.Get("/explore", exploreHandler.GetIndex)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)

@@ -98,6 +98,137 @@ func (r *Repo) UpdateIssueStatus(ctx context.Context, id, status string, now tim
 	return err
 }
 
+// GlobalIssueRow is one row of the cross-community global /issues view.
+// Carries enough context (project + community slug) to link back to the
+// per-community issue page.
+type GlobalIssueRow struct {
+	IssueID       string
+	Title         string
+	Status        string
+	UpdatedAt     time.Time
+	ProjectID     string
+	ProjectTitle  string
+	CommunityID   string
+	CommunitySlug string
+	CommunityName string
+}
+
+// RecentIssuesAcrossCommunities returns up to `limit` open issues across
+// the given community IDs, newest activity first. Closed issues are
+// omitted by default. Used by the global admin /issues page.
+func (r *Repo) RecentIssuesAcrossCommunities(ctx context.Context, communityIDs []string, includeClosed bool, limit int) ([]GlobalIssueRow, error) {
+	if len(communityIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := ""
+	args := make([]any, 0, len(communityIDs)+1)
+	for i, cid := range communityIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args = append(args, cid)
+	}
+	q := `
+		SELECT i.id, i.title, i.status, i.updated_at,
+		       p.id, p.title,
+		       c.id, c.slug, c.name
+		FROM project_issues i
+		JOIN projects p     ON p.id = i.project_id
+		JOIN communities c  ON c.id = p.community_id
+		WHERE p.community_id IN (` + placeholders + `)`
+	if !includeClosed {
+		q += ` AND i.status != 'closed'`
+	}
+	q += ` ORDER BY i.updated_at DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := r.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("recent issues across communities: %w", err)
+	}
+	defer rows.Close()
+	out := []GlobalIssueRow{}
+	for rows.Next() {
+		var row GlobalIssueRow
+		var uAt int64
+		if err := rows.Scan(
+			&row.IssueID, &row.Title, &row.Status, &uAt,
+			&row.ProjectID, &row.ProjectTitle,
+			&row.CommunityID, &row.CommunitySlug, &row.CommunityName,
+		); err != nil {
+			return nil, err
+		}
+		row.UpdatedAt = time.UnixMilli(uAt).UTC()
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// MaxIssueUpdatedAt returns the latest project_issues.updated_at across
+// the given communities, as a UnixMilli value. Used by the global
+// /issues stream as the baseline for "new since page load". Returns 0
+// when no issues exist (safe baseline — any future row will exceed it).
+func (r *Repo) MaxIssueUpdatedAt(ctx context.Context, communityIDs []string) (int64, error) {
+	if len(communityIDs) == 0 {
+		return 0, nil
+	}
+	placeholders := ""
+	args := make([]any, 0, len(communityIDs))
+	for i, cid := range communityIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args = append(args, cid)
+	}
+	var maxAt sql.NullInt64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT MAX(i.updated_at)
+		FROM project_issues i
+		JOIN projects p ON p.id = i.project_id
+		WHERE p.community_id IN (`+placeholders+`)`, args...).Scan(&maxAt)
+	if err != nil {
+		return 0, fmt.Errorf("max issue updated_at: %w", err)
+	}
+	if !maxAt.Valid {
+		return 0, nil
+	}
+	return maxAt.Int64, nil
+}
+
+// CountIssuesUpdatedAfter returns the number of open project_issues in
+// the given communities whose updated_at is strictly greater than the
+// baseline. Used by the global /issues stream to drive the "X new —
+// refresh" pill.
+func (r *Repo) CountIssuesUpdatedAfter(ctx context.Context, communityIDs []string, baselineMilli int64) (int64, error) {
+	if len(communityIDs) == 0 {
+		return 0, nil
+	}
+	placeholders := ""
+	args := make([]any, 0, len(communityIDs)+1)
+	for i, cid := range communityIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args = append(args, cid)
+	}
+	args = append(args, baselineMilli)
+	var n int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM project_issues i
+		JOIN projects p ON p.id = i.project_id
+		WHERE p.community_id IN (`+placeholders+`)
+		  AND i.status != 'closed'
+		  AND i.updated_at > ?`, args...).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count issues updated after: %w", err)
+	}
+	return n, nil
+}
+
 // DeleteIssue hard-deletes; FKs cascade comments + attachments.
 func (r *Repo) DeleteIssue(ctx context.Context, id string) error {
 	_, err := r.DB.ExecContext(ctx, `DELETE FROM project_issues WHERE id = ?`, id)

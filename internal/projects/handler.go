@@ -45,6 +45,10 @@ type Handler struct {
 	Bus      *Bus
 	Uploads  *uploads.Store
 	Sessions *scs.SessionManager // for share-link guest sessions
+	// AuthRepo is used by the global /issues page to resolve which
+	// communities the viewer admins. Optional — when nil the global
+	// route returns 404 (mirrors mailbox.Handler.GetGlobalInbox).
+	AuthRepo *auth.Repo
 	// PushNotify dispatches a web-push notification. Optional. Wired in
 	// main.go to the push package's Sender. Used to broadcast new-project,
 	// new-issue and new-comment events to community subscribers.
@@ -1091,6 +1095,105 @@ func (h *Handler) projectFromURL(w http.ResponseWriter, r *http.Request) (string
 		return "", false
 	}
 	return pid, true
+}
+
+// GetGlobalIssues renders /issues — the cross-community open-issue
+// table for any viewer who admins at least one community. Non-admin
+// and unauthenticated viewers get a 404 (anti-enumeration).
+func (h *Handler) GetGlobalIssues(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok || h.AuthRepo == nil {
+		http.NotFound(w, r)
+		return
+	}
+	cids, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
+	if err != nil {
+		h.Log.Error("global issues: admin cids", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	if len(cids) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	rows, err := h.Repo.RecentIssuesAcrossCommunities(r.Context(), cids, false, 100)
+	if err != nil {
+		h.Log.Error("global issues: query", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	v := h.layoutViewer(r)
+	v.IsAdminOfAnyCommunity = true
+	_ = webtempl.GlobalIssuesPage(webtempl.GlobalIssuesPageData{
+		Viewer: v,
+		Rows:   toGlobalIssueViews(rows),
+	}).Render(r.Context(), w)
+}
+
+// GetGlobalIssuesStream is the SSE that powers the "X new — refresh"
+// pill on /issues. Polls max(updated_at) in the viewer's admin set; if
+// it climbs, increments $issues_pending. No fat-morph — the user
+// chooses when to reload.
+func (h *Handler) GetGlobalIssuesStream(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok || h.AuthRepo == nil {
+		http.NotFound(w, r)
+		return
+	}
+	cids, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
+	if err != nil || len(cids) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	baseline, err := h.Repo.MaxIssueUpdatedAt(r.Context(), cids)
+	if err != nil {
+		h.Log.Error("global issues stream: baseline", "err", err)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"issues_pending":0}`))
+
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+	keep := time.NewTicker(25 * time.Second)
+	defer keep.Stop()
+	var pending int
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-tick.C:
+			n, err := h.Repo.CountIssuesUpdatedAfter(r.Context(), cids, baseline)
+			if err != nil {
+				continue
+			}
+			if int(n) != pending {
+				pending = int(n)
+				_ = sse.PatchSignals([]byte(`{"issues_pending":` + strconv.Itoa(pending) + `}`))
+			}
+		case <-keep.C:
+			_ = sse.PatchSignals([]byte(`{}`))
+		}
+	}
+}
+
+func toGlobalIssueViews(rows []GlobalIssueRow) []webtempl.GlobalIssueRow {
+	out := make([]webtempl.GlobalIssueRow, len(rows))
+	for i, r := range rows {
+		out[i] = webtempl.GlobalIssueRow{
+			IssueID:       r.IssueID,
+			Title:         r.Title,
+			Status:        r.Status,
+			UpdatedAtUnix: r.UpdatedAt.Unix(),
+			ProjectID:     r.ProjectID,
+			ProjectTitle:  r.ProjectTitle,
+			CommunityID:   r.CommunityID,
+			CommunitySlug: r.CommunitySlug,
+			CommunityName: r.CommunityName,
+		}
+	}
+	return out
 }
 
 func (h *Handler) layoutViewer(r *http.Request) webtempl.Viewer {

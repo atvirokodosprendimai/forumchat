@@ -162,6 +162,7 @@ const InitialSignals = `{
 	"mf_to_issue":false,
 	"inbox_q":"",
 	"inbox_pending":0,
+	"issues_pending":0,
 	"move_project_id":"",
 	"move_category":"common",
 	"mv_target_project":"",
@@ -207,6 +208,20 @@ templ Layout(title string, v Viewer) {
 				<a href="/" class="sidebar-brand">forumchat</a>
 				<nav>
 					if v.IsAuthed {
+						<h3 class="sidebar-group">You</h3>
+						if MailboxEnabled && IsAdminOfAnyCommunity(ctx) {
+							<a href="/inbox"><span class="sb-icon" aria-hidden="true">📥</span>Inbox</a>
+						}
+						if IsAdminOfAnyCommunity(ctx) {
+							<a href="/issues"><span class="sb-icon" aria-hidden="true">🐞</span>Issues</a>
+						}
+						<a href="/messages" class="pm-nav-link">
+							<span class="sb-icon" aria-hidden="true">✉</span>
+							<span>Messages</span>
+							@MessagesBadge(0)
+						</a>
+						<a href="/explore"><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
+						<a href="/"><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
 						if v.CommunitySlug != "" {
 							<h3 class="sidebar-group">{ v.CommunityName }</h3>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
@@ -229,17 +244,6 @@ templ Layout(title string, v Viewer) {
 								}
 							}
 						}
-						<h3 class="sidebar-group">You</h3>
-						if MailboxEnabled && IsAdminOfAnyCommunity(ctx) {
-							<a href="/inbox"><span class="sb-icon" aria-hidden="true">📥</span>Inbox</a>
-						}
-						<a href="/messages" class="pm-nav-link">
-							<span class="sb-icon" aria-hidden="true">✉</span>
-							<span>Messages</span>
-							@MessagesBadge(0)
-						</a>
-						<a href="/explore"><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
-						<a href="/"><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
 						<a href="/profile" class="sidebar-profile">
 							<span class="sb-avatar" aria-hidden="true">{ initial(v.DisplayName) }</span>
 							<span class="sb-name">{ v.DisplayName }</span>
