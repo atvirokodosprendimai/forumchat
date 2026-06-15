@@ -72,9 +72,11 @@ func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	attachOnly := r.URL.Query().Get("attach") == "1"
 	views, next, err := h.Repo.QueueForViewer(r.Context(), QueueQuery{
 		AdminCommunityIDs: adminCIDs,
 		CommunityFilter:   communityFilter,
+		HasAttachments:    attachOnly,
 		Cursor:            cursor,
 		Limit:             100,
 	})
@@ -102,6 +104,7 @@ func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
 		Viewer:          viewerOf(id),
 		Pills:           pills,
 		ActiveCommunity: communityFilter,
+		HasAttachOnly:   attachOnly,
 		Rows:            toViewRows(views, pills, projsByCommunity),
 		NextCursor:      encodeCursor(next),
 	}

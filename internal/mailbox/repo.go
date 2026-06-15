@@ -749,6 +749,9 @@ func (r *Repo) SearchQueueForViewer(ctx context.Context, q QueueQuery, query str
 			args = append(args, cid)
 		}
 	}
+	if q.HasAttachments {
+		where = append(where, "EXISTS (SELECT 1 FROM email_ingest_attachment a WHERE a.ingest_id = i.id)")
+	}
 	args = append(args, q.Limit)
 	sqlStr := fmt.Sprintf(`
 		SELECT i.id, i.community_id, i.from_addr, i.from_name, i.subject,
@@ -851,6 +854,10 @@ func (r *Repo) QueueForViewer(ctx context.Context, q QueueQuery) ([]QueuedEmailV
 		for _, cid := range q.AdminCommunityIDs {
 			args = append(args, cid)
 		}
+	}
+
+	if q.HasAttachments {
+		where = append(where, "EXISTS (SELECT 1 FROM email_ingest_attachment a WHERE a.ingest_id = i.id)")
 	}
 
 	if q.Cursor != nil {

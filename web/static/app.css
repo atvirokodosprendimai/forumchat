@@ -2613,6 +2613,12 @@ hr {
   border-color: var(--accent-hover);
   color: var(--accent-fg);
 }
+.inbox-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.5rem;
+}
 .inbox-search { padding-bottom: 0.75rem; }
 .inbox-search input {
   width: 100%;

@@ -98,7 +98,7 @@ func (w *PollWorker) cycle(ctx context.Context) {
 		"filters", filterCount,
 	)
 	if filterCount == 0 {
-		w.Log.Warn("mailbox: no community_mail_filter rows — every email will be skipped. Add filters via /c/<slug>/admin/mail-filters")
+		w.Log.Info("mailbox: no community_mail_filter rows yet — every email lands in the Unassigned pile. Add filters via /c/<slug>/admin/mail-filters to auto-route.")
 	}
 
 	var (
@@ -184,15 +184,23 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		}
 	}
 
-	w.Log.Info("mailbox: folder streaming envelopes",
+	envs, err := c.fetchEnvelopesSince(folder.LastUID)
+	if err != nil {
+		return stats, err
+	}
+	stats.fetched = len(envs)
+	w.Log.Info("mailbox: folder fetched",
 		"folder", name,
+		"fetched", stats.fetched,
 		"since_uid", folder.LastUID,
 	)
+	if len(envs) == 0 {
+		return stats, nil
+	}
 
-	err = c.streamEnvelopesSince(folder.LastUID, func(e FetchedEnvelope) error {
-		stats.fetched++
+	for _, e := range envs {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			break
 		}
 		if e.UID > maxUID {
 			maxUID = e.UID
@@ -201,7 +209,7 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		if mErr != nil {
 			w.Log.Warn("mailbox: match failed", "folder", name, "uid", e.UID, "err", mErr)
 			saveCursor()
-			return nil
+			continue
 		}
 		if matched {
 			stats.matched++
@@ -210,8 +218,9 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		}
 		// Targeted body fetch using the text-part path resolved from
 		// the batch BODYSTRUCTURE. One BODY.PEEK[<path>] round-trip
-		// per email — slow but reliable. Empty when message has no
-		// text part.
+		// per email — sequential, runs AFTER the envelope batch
+		// finished (cannot pipeline two commands on a single IMAP
+		// client). Empty when message has no text part.
 		bodyText := ""
 		if len(e.TextPath) > 0 {
 			body, bErr := c.fetchPartPath(e.UID, e.TextPath)
@@ -244,13 +253,13 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		if iErr != nil {
 			w.Log.Warn("mailbox: ingest insert failed",
 				"folder", name, "uid", e.UID, "err", iErr)
-			return nil
+			continue
 		}
 		if !isNew {
 			w.Log.Debug("mailbox: duplicate ingest skipped",
 				"folder", name, "uid", e.UID, "from", e.FromAddr)
 			saveCursor()
-			return nil
+			continue
 		}
 		stats.inserted++
 		if aErr := w.Repo.InsertAttachments(ctx, ingestID, e.Attachments); aErr != nil {
@@ -281,10 +290,6 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			"attachments", len(e.Attachments),
 		)
 		saveCursor()
-		return nil
-	})
-	if err != nil {
-		return stats, err
 	}
 	saveCursor()
 	w.Log.Info("mailbox: folder summary",

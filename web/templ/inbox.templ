@@ -64,6 +64,7 @@ type InboxPageData struct {
 	Viewer          Viewer
 	Pills           []InboxPill
 	ActiveCommunity string // empty = "All"
+	HasAttachOnly   bool   // current state of the "with attachments only" toggle
 	Rows            []InboxRow
 	NextCursor      string // empty = no more
 }
@@ -95,6 +96,15 @@ templ InboxPage(d InboxPageData) {
 					data-on:input__debounce.300ms={ inboxSearchExpr(d.ActiveCommunity) }
 				/>
 			</form>
+			<div class="inbox-toolbar">
+				<a class={ inboxAttachToggleClass(d.HasAttachOnly) } href={ inboxAttachToggleHref(d.ActiveCommunity, !d.HasAttachOnly) }>
+					if d.HasAttachOnly {
+						✓ Has attachments
+					} else {
+						📎 Show only with attachments
+					}
+				</a>
+			</div>
 			<div id="inbox-rows" class="inbox-rows">
 				@InboxRowList(d.Rows)
 			</div>
@@ -149,6 +159,31 @@ func inboxPillHref(communityID string) templ.SafeURL {
 		return templ.SafeURL("/inbox")
 	}
 	return templ.SafeURL("/inbox?community=" + communityID)
+}
+
+func inboxAttachToggleClass(on bool) string {
+	if on {
+		return "pill pill-active"
+	}
+	return "pill"
+}
+
+func inboxAttachToggleHref(communityID string, want bool) templ.SafeURL {
+	base := "/inbox"
+	params := ""
+	if communityID != "" {
+		params = "community=" + communityID
+	}
+	if want {
+		if params != "" {
+			params += "&"
+		}
+		params += "attach=1"
+	}
+	if params == "" {
+		return templ.SafeURL(base)
+	}
+	return templ.SafeURL(base + "?" + params)
 }
 
 // inboxCommunityLabel renders the per-row badge. Unassigned mail

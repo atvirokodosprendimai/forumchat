@@ -145,17 +145,15 @@ type ParsedPart struct {
 	MIMEPartID string
 }
 
-// streamEnvelopesSince fetches messages with UID strictly greater than
-// since and invokes cb for every envelope as it streams off the wire.
-// Cursor advance + ingest happen inside cb, so a container restart
-// mid-batch never loses the entire scan — at most the one envelope
-// being processed when ctx was killed.
-//
-// Returning an error from cb stops the stream and propagates the error
-// out, after the in-flight Fetch is properly closed.
-func (i *imapClient) streamEnvelopesSince(since uint32, cb func(FetchedEnvelope) error) error {
+// fetchEnvelopesSince fetches envelope + BODYSTRUCTURE for every UID
+// strictly greater than since. Returns ALL envelopes in one call —
+// callers cannot issue another IMAP command while this stream is
+// in-flight (single client = single command at a time), so streaming
+// via callback was abandoned in favour of buffer-then-process. The
+// per-message cursor save happens during the processing loop instead.
+func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error) {
 	if since == ^uint32(0) {
-		return errors.New("imap: refusing to fetch with overflow since value")
+		return nil, errors.New("imap: refusing to fetch with overflow since value")
 	}
 	set := imap.UIDSet{imap.UIDRange{Start: imap.UID(since + 1), Stop: 0}}
 	cmd := i.c.Fetch(set, &imap.FetchOptions{
@@ -164,7 +162,7 @@ func (i *imapClient) streamEnvelopesSince(since uint32, cb func(FetchedEnvelope)
 		InternalDate:  true,
 		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
 	})
-	var cbErr error
+	out := []FetchedEnvelope{}
 	for {
 		msg := cmd.Next()
 		if msg == nil {
@@ -172,17 +170,14 @@ func (i *imapClient) streamEnvelopesSince(since uint32, cb func(FetchedEnvelope)
 		}
 		buf, err := msg.Collect()
 		if err != nil {
-			cbErr = fmt.Errorf("imap fetch envelope: %w", err)
-			break
+			return nil, fmt.Errorf("imap fetch envelope: %w", err)
 		}
-		if cbErr = cb(envelopeFromBuffer(buf)); cbErr != nil {
-			break
-		}
+		out = append(out, envelopeFromBuffer(buf))
 	}
-	if err := cmd.Close(); err != nil && cbErr == nil {
-		return fmt.Errorf("imap fetch close: %w", err)
+	if err := cmd.Close(); err != nil {
+		return nil, fmt.Errorf("imap fetch close: %w", err)
 	}
-	return cbErr
+	return out, nil
 }
 
 // walkAttachmentParts extracts attachment metadata from a parsed

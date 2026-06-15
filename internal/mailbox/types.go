@@ -120,6 +120,10 @@ type QueueQuery struct {
 	// sentinel UnassignedCommunityID narrows to NULL community_id rows.
 	// Empty string = union of admin communities + unassigned.
 	CommunityFilter string
+	// HasAttachments narrows to rows with at least one
+	// email_ingest_attachment. Combines additively with the search +
+	// pill filters.
+	HasAttachments bool
 	// Cursor is the opaque pagination token. Nil for the first page.
 	Cursor *QueueCursor
 	// Limit caps the page size. Defaults applied in the handler.
