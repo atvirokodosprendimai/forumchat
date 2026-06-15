@@ -558,6 +558,63 @@ func (r *Repo) HasIngestIssue(ctx context.Context, ingestID string) (bool, error
 	return n > 0, err
 }
 
+// FilterByID returns one filter row + whether it exists. Used by the
+// CLI reprocess-filter command to validate the input id and pull
+// to_issue + community_id without re-querying inside the loop.
+func (r *Repo) FilterByID(ctx context.Context, id string) (Filter, error) {
+	var f Filter
+	var kind string
+	var toIssue int
+	var created int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id, community_id, kind, pattern, to_issue, created_by, created_at
+		FROM community_mail_filter WHERE id = ?`, id).
+		Scan(&f.ID, &f.CommunityID, &kind, &f.Pattern, &toIssue, &f.CreatedBy, &created)
+	if err != nil {
+		return Filter{}, err
+	}
+	f.Kind = FilterKind(kind)
+	f.ToIssue = toIssue != 0
+	f.CreatedAt = time.Unix(created, 0).UTC()
+	return f, nil
+}
+
+// IngestForReprocess is the slim row shape the reprocess-filter CLI
+// command iterates. Body text is already persisted (poll worker
+// decodeTextBody ran at ingest time); we never re-fetch from IMAP.
+type IngestForReprocess struct {
+	ID          string
+	CommunityID string
+	Subject     string
+	BodyText    string
+}
+
+// IngestsByFilter returns every email_ingest row currently tagged with
+// the given matched_filter_id, in ascending received_at so the
+// resulting auto-issues sort the same way the originals would have.
+// Skips rows that already have an email_ingest_issue link.
+func (r *Repo) IngestsByFilter(ctx context.Context, filterID string) ([]IngestForReprocess, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT i.id, COALESCE(i.community_id,''), i.subject, i.body_text
+		FROM email_ingest i
+		LEFT JOIN email_ingest_issue ij ON ij.ingest_id = i.id
+		WHERE i.matched_filter_id = ? AND ij.ingest_id IS NULL
+		ORDER BY i.received_at ASC`, filterID)
+	if err != nil {
+		return nil, fmt.Errorf("ingests by filter: %w", err)
+	}
+	defer rows.Close()
+	out := []IngestForReprocess{}
+	for rows.Next() {
+		var row IngestForReprocess
+		if err := rows.Scan(&row.ID, &row.CommunityID, &row.Subject, &row.BodyText); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 // AttachmentLookup is the shape AttachmentByID returns — both the row
 // and its parent ingest in one structure, since the materialise flow
 // needs the folder name (to EXAMINE) + UID + community + project list.

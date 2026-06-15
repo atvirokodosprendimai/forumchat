@@ -11,6 +11,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
+	"github.com/atvirokodosprendimai/forumchat/internal/projects"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 )
 
@@ -37,6 +38,10 @@ usage:
   forumchat-cli mailbox rescan              reset every IMAP folder cursor to UID 0; next poll re-fetches everything
   forumchat-cli mailbox wipe                delete every email_ingest + email_ingest_attachment + email_ingest_fts row
                                             and reset folder cursors — full cold start
+  forumchat-cli mailbox reprocess-filter <filter-id>
+                                            walk every email_ingest row matching the filter, call AutoCreateIssue
+                                            per row (idempotent via email_ingest_issue). Use this when you add a
+                                            to_issue=true filter and want past matches turned into issues too.
 `)
 }
 
@@ -281,6 +286,45 @@ func run() error {
 				return err
 			}
 			fmt.Printf("wiped %d ingest rows + reset folder cursors — full cold start\n", n)
+		case "reprocess-filter":
+			if len(os.Args) < 4 {
+				return errors.New("usage: mailbox reprocess-filter <filter-id>")
+			}
+			filterID := os.Args[3]
+			filter, err := mRepo.FilterByID(ctx, filterID)
+			if err != nil {
+				return fmt.Errorf("filter lookup: %w", err)
+			}
+			if !filter.ToIssue {
+				return fmt.Errorf("filter %s has to_issue=false — reprocess only makes sense for issue-creating filters", filterID)
+			}
+			pendings, err := mRepo.IngestsByFilter(ctx, filterID)
+			if err != nil {
+				return err
+			}
+			if len(pendings) == 0 {
+				fmt.Println("nothing to reprocess — every matched row already has an issue")
+				break
+			}
+			projsRepo := projects.NewRepo(db)
+			projsSvc := projects.NewService(projsRepo, projects.NewBus(), nil, cfg.EditGrace)
+			mboxSvc := mailbox.NewService(mRepo, mailbox.AccountConfig{}, projsSvc, projsRepo, aRepo, cfg.MailboxSystemUserID)
+			ok, fail := 0, 0
+			for _, p := range pendings {
+				if _, err := mboxSvc.AutoCreateIssue(ctx, mailbox.AutoCreateIssueInput{
+					IngestID:    p.ID,
+					CommunityID: p.CommunityID,
+					Subject:     p.Subject,
+					TextBody:    p.BodyText,
+					HTMLBody:    "",
+				}); err != nil {
+					fmt.Fprintf(os.Stderr, "ingest %s: %v\n", p.ID, err)
+					fail++
+					continue
+				}
+				ok++
+			}
+			fmt.Printf("reprocessed %d / %d ingests for filter %s (failures: %d)\n", ok, len(pendings), filterID, fail)
 		default:
 			return fmt.Errorf("unknown mailbox subcommand: %s", os.Args[2])
 		}
