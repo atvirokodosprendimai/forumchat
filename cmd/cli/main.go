@@ -42,6 +42,9 @@ usage:
                                             walk every email_ingest row matching the filter, call AutoCreateIssue
                                             per row (idempotent via email_ingest_issue). Use this when you add a
                                             to_issue=true filter and want past matches turned into issues too.
+  forumchat-cli project mv-attachment <attachment-id> <to-project-id>
+                                            move one project_attachments row to a different project. File bytes
+                                            stay in uploads (deduped by SHA-256); only the project pointer moves.
 `)
 }
 
@@ -327,6 +330,34 @@ func run() error {
 			fmt.Printf("reprocessed %d / %d ingests for filter %s (failures: %d)\n", ok, len(pendings), filterID, fail)
 		default:
 			return fmt.Errorf("unknown mailbox subcommand: %s", os.Args[2])
+		}
+	case "project":
+		if len(os.Args) < 3 {
+			return errors.New("usage: project mv-attachment <attachment-id> <to-project-id>")
+		}
+		switch os.Args[2] {
+		case "mv-attachment":
+			if len(os.Args) < 5 {
+				return errors.New("usage: project mv-attachment <attachment-id> <to-project-id>")
+			}
+			attID, toProjectID := os.Args[3], os.Args[4]
+			pRepo := projects.NewRepo(db)
+			if _, err := pRepo.ByID(ctx, toProjectID); err != nil {
+				return fmt.Errorf("destination project not found: %w", err)
+			}
+			from, err := pRepo.AttachmentByID(ctx, attID)
+			if err != nil {
+				return fmt.Errorf("attachment lookup: %w", err)
+			}
+			if _, err := db.ExecContext(ctx, `
+				UPDATE project_attachments SET project_id = ? WHERE id = ?`,
+				toProjectID, attID); err != nil {
+				return fmt.Errorf("update project_attachments: %w", err)
+			}
+			fmt.Printf("moved attachment %s (%s) from project %s → %s\n",
+				attID, from.Filename, from.ProjectID, toProjectID)
+		default:
+			return fmt.Errorf("unknown project subcommand: %s", os.Args[2])
 		}
 	default:
 		usage()
