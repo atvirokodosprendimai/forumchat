@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -310,25 +311,65 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 }
 
 // autoCreateIssueFor is called only for to_issue filter matches.
-// Re-uses the already-authenticated session to fetch the text bodies
-// (one extra UID FETCH for the BODY.PEEK[<text part>]) and then
-// delegates to Service.AutoCreateIssue. Errors here do NOT roll back
-// the ingest row — the email is still queued for manual attention.
+// Re-uses the already-authenticated session to fetch the text bodies,
+// creates the issue via Service.AutoCreateIssue, and then attaches
+// every email attachment to that issue so the user has the files
+// inline next to the issue body. Errors here do NOT roll back the
+// ingest row — the email is still queued for manual triage.
 func (w *PollWorker) autoCreateIssueFor(ctx context.Context, c *imapClient, ingestID, communityID string, e FetchedEnvelope) error {
 	_, text, html, err := c.fetchEnvelopeWithBody(e.UID)
 	if err != nil {
 		return err
 	}
-	if _, err := w.Svc.AutoCreateIssue(ctx, AutoCreateIssueInput{
+	issueID, err := w.Svc.AutoCreateIssue(ctx, AutoCreateIssueInput{
 		IngestID:    ingestID,
 		CommunityID: communityID,
 		Subject:     e.Subject,
 		TextBody:    text,
 		HTMLBody:    html,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
+	if issueID == "" {
+		return nil // duplicate ingest, AutoCreateIssue skipped
+	}
+	// Attach every email attachment to the new issue. Best-effort per
+	// file — one bad attachment doesn't block the rest.
+	for _, p := range e.Attachments {
+		body, fErr := c.fetchPartPath(e.UID, parsePartPath(p.MIMEPartID))
+		if fErr != nil {
+			w.Log.Warn("mailbox: issue attachment fetch failed",
+				"folder", "(auto-issue)", "uid", e.UID, "part", p.MIMEPartID, "err", fErr)
+			continue
+		}
+		decoded := decodeAttachmentBytes(body, p.Encoding)
+		if aErr := w.Svc.AttachToIssue(ctx, issueID, communityID, p.MIME, p.Filename, decoded); aErr != nil {
+			w.Log.Warn("mailbox: issue attachment save failed",
+				"uid", e.UID, "filename", p.Filename, "err", aErr)
+		}
+	}
 	return nil
+}
+
+// parsePartPath is the dotted-string-to-int-slice inverse of formatPath
+// in imap.go. Used by autoCreateIssueFor which has the encoded path
+// from the persisted ParsedPart but needs the []int form fetchPartPath
+// accepts.
+func parsePartPath(s string) []int {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ".")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // broadcast fires both the in-process Bus and the NATS subject for the

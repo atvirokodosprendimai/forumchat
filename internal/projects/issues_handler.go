@@ -340,7 +340,7 @@ func (h *Handler) PostIssueAttachmentUpload(w http.ResponseWriter, r *http.Reque
 		if mime == "" {
 			mime = "image/png"
 		}
-		if _, err := h.Svc.AddIssueAttachment(r.Context(), pid, iid, commentID, c.ID, mime, f, id); err != nil {
+		if _, err := h.Svc.AddIssueAttachment(r.Context(), pid, iid, commentID, c.ID, mime, fh.Filename, f, id); err != nil {
 			h.Log.Warn("projects issue attachment save", "err", err)
 		}
 		f.Close()

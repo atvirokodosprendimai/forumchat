@@ -182,6 +182,32 @@ type AutoCreateIssueInput struct {
 	HTMLBody    string
 }
 
+// AttachToIssue uploads a raw byte payload via projects.Service.
+// AddIssueAttachment so the email's attachments land inline next to
+// the auto-created issue. Caller provides decoded bytes (after
+// decodeAttachmentBytes) and the original Content-Type + filename.
+func (s *Service) AttachToIssue(ctx context.Context, issueID, communityID, mime, filename string, body []byte) error {
+	if s.Projects == nil {
+		return errors.New("mailbox: attach-to-issue requires projects service")
+	}
+	issue, err := s.Projs.IssueByID(ctx, issueID)
+	if err != nil {
+		return fmt.Errorf("issue lookup: %w", err)
+	}
+	creatorID, err := s.resolveCreator(ctx, communityID)
+	if err != nil {
+		return fmt.Errorf("resolve creator: %w", err)
+	}
+	if _, err := s.Projects.AddIssueAttachment(ctx,
+		issue.ProjectID, issueID, "", communityID, mime, filename,
+		bytes.NewReader(body),
+		projects.Identity{UserID: creatorID, Name: "Mailbox"},
+	); err != nil {
+		return fmt.Errorf("add issue attachment: %w", err)
+	}
+	return nil
+}
+
 // AutoCreateIssue creates a project_issue from a matched email when
 // the filter has to_issue=true. Idempotent: a second call with the
 // same IngestID is a no-op once the link row exists.
@@ -193,7 +219,9 @@ type AutoCreateIssueInput struct {
 //   - Project = a per-community "Inbox" project, lazily created on
 //     first hit. Memoised on the service so subsequent hits are free.
 //
-// Returns the resulting issue ID (newly created or already linked).
+// Returns the resulting issue ID (newly created OR empty when the
+// ingest already had an issue from a prior run — the caller can skip
+// side-effects like attaching files in that case).
 func (s *Service) AutoCreateIssue(ctx context.Context, in AutoCreateIssueInput) (string, error) {
 	if s.Projects == nil {
 		return "", errors.New("mailbox: auto-issue requires projects service")

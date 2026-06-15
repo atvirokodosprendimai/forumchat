@@ -207,16 +207,21 @@ func (s *Service) DeleteIssueComment(ctx context.Context, projectID, issueID, co
 	return nil
 }
 
-// AddIssueAttachment uploads an image via uploads.Store.Save (the
-// image-whitelist path) and links it to the issue. commentID may be
-// empty to attach to the issue body itself.
+// AddIssueAttachment uploads a file (any MIME) via uploads.Store.
+// SaveAttachment and links it to the issue. commentID may be empty
+// to attach to the issue body itself. Previously gated by Save's
+// image-only whitelist; widened so the email-ingest auto-issue
+// flow can attach PDFs, SVGs, ZIPs, etc.
+//
+// filename matters for non-image MIMEs (download Content-Disposition);
+// pass "" for paste-image style flows and a fallback "file" is used.
 //
 // uploads.owner_id has a NOT NULL FK on users(id) — guests aren't in
 // the users table, so we attribute their uploads to the project
 // creator instead. The real uploader identity (guest or auth) is still
 // captured on project_issue_attachments.uploader_user_id /
 // uploader_guest_id so audit + permission checks aren't lost.
-func (s *Service) AddIssueAttachment(ctx context.Context, projectID, issueID, commentID, communityID, mime string, body io.Reader, uploader Identity) (IssueAttachment, error) {
+func (s *Service) AddIssueAttachment(ctx context.Context, projectID, issueID, commentID, communityID, mime, filename string, body io.Reader, uploader Identity) (IssueAttachment, error) {
 	ownerID := uploader.UserID
 	if ownerID == "" {
 		p, err := s.Repo.ByID(ctx, projectID)
@@ -225,7 +230,7 @@ func (s *Service) AddIssueAttachment(ctx context.Context, projectID, issueID, co
 		}
 		ownerID = p.CreatorUserID
 	}
-	u, err := s.Uploads.Save(ctx, ownerID, communityID, mime, body)
+	u, err := s.Uploads.SaveAttachment(ctx, ownerID, communityID, mime, filename, body)
 	if err != nil {
 		return IssueAttachment{}, fmt.Errorf("upload save: %w", err)
 	}
