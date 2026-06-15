@@ -155,17 +155,34 @@ func inboxMoreExpr(nextCursor string) string {
 }
 
 // inboxSignalSeed emits the data-signals JSON object literal that
-// overrides the global signal bag with the page's URL-derived state.
-// Without this, $inbox_community / $inbox_attach stay at their layout
-// defaults (empty / false) and data-init fires an SSE stream for the
-// unfiltered "All" view, which then fat-morphs over the correctly
-// filtered server-rendered rows.
+// declares every signal /inbox uses, with URL-derived state baked in.
+// Phase 1 of the signal-bag refactor: these used to live in
+// layout.InitialSignals and ship with every request on every page;
+// now they only ship with /inbox payloads.
+//
+// Members:
+//   inbox_community / inbox_attach — URL-derived filter state.
+//   inbox_q / inbox_pending        — search box + "X new" pill.
+//   attach_*                       — InboxAttachDialog state.
+//   move_*                         — per-attachment Move-to-project form.
 func inboxSignalSeed(activeCommunity string, hasAttach bool) string {
 	attach := "false"
 	if hasAttach {
 		attach = "true"
 	}
-	return "{inbox_community: " + strconv.Quote(activeCommunity) + ", inbox_attach: " + attach + "}"
+	return "{" +
+		"inbox_community: " + strconv.Quote(activeCommunity) +
+		", inbox_attach: " + attach +
+		", inbox_q: ''" +
+		", inbox_pending: 0" +
+		", attach_open: false" +
+		", attach_addr: ''" +
+		", attach_kind: 'address'" +
+		", attach_community: ''" +
+		", attach_to_issue: false" +
+		", move_project_id: ''" +
+		", move_category: 'common'" +
+		"}"
 }
 
 func inboxSearchExpr(activeCommunity string, hasAttach bool) string {

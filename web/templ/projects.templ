@@ -742,7 +742,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 	@Layout(i.Title+" — Issue", d.Viewer) {
 		@projectShell(d, "issues") {
 			<section class="project-panel project-panel-issue"
-				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_edit_image:'',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',projects_issue_edit_open:false,projects_issue_comment_body:'',projects_issue_comment_edit:'',projects_issue_comment_edit_id:''}" }>
+				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_edit_image:'',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',projects_issue_edit_open:false,projects_issue_comment_body:'',projects_issue_comment_edit:'',projects_issue_comment_edit_id:'',copy_category:'',copy_name:''}" }>
 				<nav class="project-breadcrumb muted">
 					<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues") }>← all issues</a>
 				</nav>

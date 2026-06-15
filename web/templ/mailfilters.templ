@@ -27,7 +27,8 @@ type MailFiltersPageData struct {
 // the table morphs in-place on every create/delete.
 templ MailFiltersPage(d MailFiltersPageData) {
 	@Layout("Mail filters · " + d.CommunityName, d.Viewer) {
-		<section class="mail-filters">
+		<section class="mail-filters"
+			data-signals="{mf_kind: 'address', mf_pattern: '', mf_to_issue: false}">
 			<header>
 				<h1>Mail filters</h1>
 				<p class="muted">Each rule routes inbound mail whose From: matches into <strong>{ d.CommunityName }</strong>'s inbox. Exact-address rules win over wildcard-domain rules on a tie.</p>
