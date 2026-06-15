@@ -28,6 +28,20 @@ func TestDecodeTextBody_PlainPassthrough(t *testing.T) {
 	}
 }
 
+func TestDecodeTextBody_EmptyEncodingSniffQuotedPrintable(t *testing.T) {
+	// Body wire bytes are quoted-printable (=XX hex escapes) but the
+	// BODYSTRUCTURE didn't report a transfer encoding. decodeTextBody
+	// must sniff QP and decode; otherwise the user sees =D3 etc.
+	raw := []byte("Hello =D3 world =0A second line")
+	got := decodeTextBody(raw, "", "iso-8859-1")
+	if strings.Contains(got, "=D3") {
+		t.Fatalf("QP escape not decoded: %q", got)
+	}
+	if !strings.Contains(got, "Hello") || !strings.Contains(got, "second line") {
+		t.Fatalf("plain text lost: %q", got)
+	}
+}
+
 func TestExtractIssueBody_PlainWins(t *testing.T) {
 	got := ExtractIssueBody("hello *plain* text", "<p>hello <b>html</b> text</p>")
 	if !strings.Contains(got, "hello \\*plain\\* text") {

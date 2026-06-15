@@ -27,11 +27,18 @@ func decodeTextBody(raw []byte, encoding, charset string) string {
 	// Empty / "7bit" / "8bit" / "binary" → no transfer-decode declared.
 	// Some IMAP servers omit Content-Transfer-Encoding on the BODYSTRUCTURE
 	// even when the part on the wire is base64-wrapped (Microsoft 365 has
-	// been observed doing this on auto-forwarded mail). Sniff the bytes:
-	// if they're pure base64 alphabet + mod-4 + decode to text, treat the
-	// part as base64. Same fallback that saved decodeAttachmentBytes.
-	if (enc == "" || enc == "7bit" || enc == "8bit" || enc == "binary") && looksLikeBase64(raw) {
-		enc = "base64"
+	// been observed doing this on auto-forwarded mail) OR quoted-printable
+	// (Outlook RE: chains on Lithuanian / accented text). Sniff the bytes
+	// in order: base64 first (mod-4 alphabet check) then QP (=XX hex
+	// sequences). Wrong sniff is harmless because both decoders pass
+	// non-matching bytes through unchanged.
+	if enc == "" || enc == "7bit" || enc == "8bit" || enc == "binary" {
+		switch {
+		case looksLikeBase64(raw):
+			enc = "base64"
+		case looksLikeQuotedPrintable(raw):
+			enc = "quoted-printable"
+		}
 	}
 	switch enc {
 	case "quoted-printable":
@@ -168,6 +175,28 @@ func RewriteCIDImages(body string, cidToUpload map[string]string) string {
 		}
 	}
 	return body
+}
+
+// looksLikeQuotedPrintable returns true when the byte stream contains
+// at least one well-formed `=XX` hex escape (where XX is two hex digits)
+// — a strong tell that the body is quoted-printable even when the
+// BODYSTRUCTURE doesn't declare it. False positives on pasted hex
+// strings are tolerable: quotedprintable.NewReader passes through
+// non-conforming `=` sequences unchanged.
+func looksLikeQuotedPrintable(raw []byte) bool {
+	for i := 0; i+2 < len(raw); i++ {
+		if raw[i] != '=' {
+			continue
+		}
+		if isHex(raw[i+1]) && isHex(raw[i+2]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHex(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'A' && b <= 'F') || (b >= 'a' && b <= 'f')
 }
 
 // looksLikeBase64 cheaply checks whether the byte stream is plausible
