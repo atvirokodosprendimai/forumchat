@@ -77,6 +77,7 @@ type InboxPageData struct {
 templ InboxPage(d InboxPageData) {
 	@Layout("Inbox", d.Viewer) {
 		<section class="inbox" data-init={ "@get('/inbox/stream?community=' + ($inbox_community || ''))" }>
+			@InboxToast()
 			<header class="inbox-head">
 				<h1>Inbox</h1>
 				<p class="muted">Emails matched by community filters land here. Move attachments into projects; create issues from full messages.</p>
@@ -277,12 +278,14 @@ func inboxAttachOpenExpr(addr string) string {
 }
 
 // inboxMoveForm renders the per-attachment "Move to project" controls.
-// The project select is optgroup'd by community so an unassigned row's
-// admin can browse projects across communities in one place — picking
-// the project also assigns the parent email to that project's community.
+// Signals $move_project_id + $move_category are shared globally — the
+// user operates one form at a time so the last-picked select value
+// wins, and the row identity travels in the @post URL ({attID}). On
+// success the server PatchSignals-clears the form; on error a global
+// $toast_text gets set + the .inbox-toast banner shows.
 templ inboxMoveForm(ingestID, attID string, groups []InboxProjectGroup) {
 	<form class="move-form" data-on:submit__prevent={ inboxMoveSubmitExpr(attID) }>
-		<select required>
+		<select required data-bind="move_project_id">
 			<option value="">project…</option>
 			for _, g := range groups {
 				if len(g.Projects) > 0 {
@@ -294,13 +297,29 @@ templ inboxMoveForm(ingestID, attID string, groups []InboxProjectGroup) {
 				}
 			}
 		</select>
-		<input type="text" placeholder="category" value="common"/>
-		<button type="submit" class="primary">Move</button>
+		<input type="text" placeholder="category" data-bind="move_category"/>
+		<button type="submit" class="primary"
+			data-attr:disabled="!$move_project_id"
+		>Move</button>
 	</form>
 }
 
 func inboxMoveSubmitExpr(attID string) string {
-	return "fetch('/inbox/attachments/" + attID + "/move', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project_id: el.querySelector('select').value, category: el.querySelector('input').value || 'common'})}).then(async r => { if (!r.ok) { const t = await r.text(); alert('Move failed: ' + r.status + ' — ' + t); } })"
+	return "@post('/inbox/attachments/" + attID + "/move')"
+}
+
+// InboxToast is the small banner mounted once at the top of /inbox.
+// PatchSignals sets $toast_text to surface server errors (Materialise
+// failed, IMAP fetch refused, project lookup missing, etc.). Auto-
+// clears via data-effect after 6 seconds.
+templ InboxToast() {
+	<div id="inbox-toast" class="inbox-toast"
+		data-show="$toast_text"
+		data-effect="if ($toast_text) { setTimeout(() => $toast_text = '', 6000) }"
+	>
+		<span data-text="$toast_text"></span>
+		<button data-on:click="$toast_text = ''" aria-label="dismiss">✕</button>
+	</div>
 }
 
 // InboxAttachDialog is the popover the sender-chip click opens. Lives

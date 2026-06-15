@@ -564,11 +564,12 @@ func (h *Handler) PostAttachSender(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchSignals([]byte(`{"attach_open":false,"attach_addr":"","attach_kind":"address","attach_community":"","attach_to_issue":false}`))
 }
 
-// moveSignals captures the per-attachment Move form payload. Field
-// names match the JSON keys the inbox template fetch() body sends.
+// moveSignals captures the per-attachment Move form payload. Signal
+// names are shared across all inbox row Move forms — the user operates
+// one row at a time, the row identity travels in the URL.
 type moveSignals struct {
-	ProjectID string `json:"project_id"`
-	Category  string `json:"category"`
+	ProjectID string `json:"move_project_id"`
+	Category  string `json:"move_category"`
 }
 
 // PostMoveAttachment lazily fetches the chosen attachment's bytes from
@@ -584,40 +585,36 @@ func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Svc == nil {
-		http.Error(w, "mailbox service not wired", http.StatusServiceUnavailable)
+		writeToast(w, r, "mailbox service not wired")
 		return
 	}
 	attID := chi.URLParam(r, "id")
 	if attID == "" {
-		http.Error(w, "missing attachment id", http.StatusBadRequest)
+		writeToast(w, r, "missing attachment id")
 		return
 	}
 	var in moveSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
-		http.Error(w, "bad payload", http.StatusBadRequest)
+		writeToast(w, r, "bad payload")
 		return
 	}
 	if in.ProjectID == "" {
-		http.Error(w, "project required", http.StatusBadRequest)
+		writeToast(w, r, "pick a project first")
 		return
 	}
 
-	// Authorisation: viewer must be admin-of-any-community when the
-	// ingest is unassigned, otherwise admin in the ingest's community.
-	// The chosen project's community is later checked inside Materialise
-	// so the rest of the flow still validates cross-community moves.
 	look, err := h.Repo.AttachmentByID(r.Context(), attID)
 	if err != nil {
-		http.NotFound(w, r)
+		writeToast(w, r, "attachment not found")
 		return
 	}
 	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
 	if err != nil || len(adminCIDs) == 0 {
-		http.NotFound(w, r)
+		writeToast(w, r, "not authorised")
 		return
 	}
 	if look.Ingest.CommunityID != "" && !contains(adminCIDs, look.Ingest.CommunityID) {
-		http.NotFound(w, r)
+		writeToast(w, r, "not admin in this ingest's community")
 		return
 	}
 
@@ -628,12 +625,24 @@ func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
 		MoverID:      id.User.ID,
 	})
 	if err != nil {
-		h.Log.Error("mailbox: Materialise", "err", err)
-		http.Error(w, "materialise failed: "+err.Error(), http.StatusInternalServerError)
+		h.Log.Error("mailbox: Materialise", "err", err, "att", attID, "project", in.ProjectID)
+		writeToast(w, r, "Move failed: "+err.Error())
 		return
 	}
 	h.broadcast(r.Context(), res.CommunityID)
-	w.WriteHeader(http.StatusNoContent)
+
+	// Clear the form + flash success + nudge the user to the project.
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"move_project_id":"","move_category":"","toast_text":"Moved ✓"}`))
+}
+
+// writeToast returns a Datastar SSE that sets $toast_text. The inbox
+// template's <InboxToast/> banner shows it for 6 seconds. Replaces
+// http.Error so the Move form actually surfaces failures.
+func writeToast(w http.ResponseWriter, r *http.Request, msg string) {
+	sse := render.NewSSE(w, r)
+	payload := []byte(fmt.Sprintf(`{"toast_text":%q}`, msg))
+	_ = sse.PatchSignals(payload)
 }
 
 // searchSignals is the typeahead input bound by the inbox search box.
