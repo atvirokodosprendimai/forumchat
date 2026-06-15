@@ -13,6 +13,12 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
 )
 
+// InboxProjectSentinel is the prefix used in the per-community "Inbox
+// (auto)" dropdown option. Format: "_inbox:<communityID>". Service.
+// Materialise expands it via ensureInboxProject so a community without
+// any real projects still has a valid Move target.
+const InboxProjectSentinel = "_inbox"
+
 // MaterialiseInput captures the move-attachment request from the inbox
 // UI. The viewer must be admin in the ingest's community AND the
 // chosen project must belong to that community.
@@ -78,9 +84,26 @@ func (s *Service) Materialise(ctx context.Context, in MaterialiseInput) (Materia
 	if look.Attachment.UploadID != "" {
 		return MaterialiseResult{}, errors.New("mailbox: attachment already materialised")
 	}
-	proj, err := s.Projs.ByID(ctx, in.ProjectID)
+
+	projectID := in.ProjectID
+	if strings.HasPrefix(projectID, InboxProjectSentinel+":") {
+		targetCID := strings.TrimPrefix(projectID, InboxProjectSentinel+":")
+		if look.Ingest.CommunityID != "" && targetCID != look.Ingest.CommunityID {
+			return MaterialiseResult{}, errors.New("mailbox: Inbox-auto sentinel points to a different community than the ingest")
+		}
+		creator, err := s.resolveCreator(ctx, targetCID)
+		if err != nil {
+			return MaterialiseResult{}, fmt.Errorf("resolve creator for Inbox project: %w", err)
+		}
+		pid, err := s.ensureInboxProject(ctx, targetCID, creator)
+		if err != nil {
+			return MaterialiseResult{}, fmt.Errorf("ensure Inbox project: %w", err)
+		}
+		projectID = pid
+	}
+	proj, err := s.Projs.ByID(ctx, projectID)
 	if err != nil {
-		return MaterialiseResult{}, fmt.Errorf("project lookup: %w", err)
+		return MaterialiseResult{}, fmt.Errorf("project lookup %q: %w", projectID, err)
 	}
 	// Matched ingest must move into its own community. Unassigned
 	// ingests adopt the chosen project's community on materialise.

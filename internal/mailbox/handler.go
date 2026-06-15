@@ -114,6 +114,12 @@ func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
 // loadProjectsForViews fetches active project options for every admin
 // community the viewer can route into, so unassigned rows can pick
 // across communities. One query per community is fine at our row cap.
+//
+// Each community gets a leading sentinel option "Inbox (auto)" with id
+// InboxProjectSentinel + ":" + cid. Picking it sends materialise into
+// Service.ensureInboxProject which finds-or-creates a community-scoped
+// "Inbox" project. Guarantees every dropdown has at least one option
+// even when the community has zero real projects yet.
 func (h *Handler) loadProjectsForViews(ctx context.Context, adminCIDs []string) (projectOptionsByCommunity, error) {
 	if h.Svc == nil || h.Svc.Projs == nil {
 		return projectOptionsByCommunity{}, nil
@@ -124,9 +130,13 @@ func (h *Handler) loadProjectsForViews(ctx context.Context, adminCIDs []string) 
 		if err != nil {
 			return nil, err
 		}
-		opts := make([]webtempl.InboxProjectOption, len(rows))
-		for i, r := range rows {
-			opts[i] = webtempl.InboxProjectOption{ID: r.ID, Title: r.Title}
+		opts := make([]webtempl.InboxProjectOption, 0, len(rows)+1)
+		opts = append(opts, webtempl.InboxProjectOption{
+			ID:    InboxProjectSentinel + ":" + cid,
+			Title: "Inbox (auto)",
+		})
+		for _, r := range rows {
+			opts = append(opts, webtempl.InboxProjectOption{ID: r.ID, Title: r.Title})
 		}
 		out[cid] = opts
 	}

@@ -185,9 +185,17 @@ func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error
 // 1; we mirror that scheme so the resulting MIMEPartID is what IMAP's
 // BODY.PEEK[...] command expects.
 //
-// An attachment is any leaf with either disposition=attachment OR a
-// filename present in Content-Type's "name" param. Inline images and
-// quoted-reply bodies fall through as text/* and are skipped here.
+// Heuristic:
+//   - text/* leaves are NEVER attachments. They're message body parts
+//     (text/plain or text/html alternative). Newsletters were getting
+//     their HTML body indexed as an attachment because it carried a
+//     filename like "newsletter.html" — fix is to skip text/* outright.
+//   - Disposition=inline parts are skipped. They're embedded images
+//     used by the body's own rendering; promoting them to attachments
+//     spams the inbox with "image001.png" rows.
+//   - Disposition=attachment ALWAYS counts.
+//   - A non-text leaf with a filename AND no disposition (legacy
+//     clients) counts as attachment.
 func walkAttachmentParts(bs imap.BodyStructure) []ParsedPart {
 	out := []ParsedPart{}
 	if bs == nil {
@@ -198,20 +206,26 @@ func walkAttachmentParts(bs imap.BodyStructure) []ParsedPart {
 		if !ok {
 			return true
 		}
-		// Reject the "structural root" entry the library emits for a
-		// pure singlepart message — Walk reports path [1] for both the
-		// root and the only leaf in that case; we keep the leaf because
-		// it's the only entry.
 		mime := sp.MediaType()
 		if strings.HasPrefix(mime, "multipart/") {
 			return true
 		}
+		// Text body parts (plain OR html alternative) never count as
+		// attachments even when they carry a filename.
+		if strings.HasPrefix(mime, "text/") {
+			return true
+		}
+		disp := sp.Disposition()
+		// Inline parts are embedded by the body, not separately useful.
+		if disp != nil && strings.EqualFold(disp.Value, "inline") {
+			return true
+		}
 		filename := sp.Filename()
 		isAttachment := false
-		if d := sp.Disposition(); d != nil && strings.EqualFold(d.Value, "attachment") {
+		if disp != nil && strings.EqualFold(disp.Value, "attachment") {
 			isAttachment = true
 		}
-		if filename != "" && !strings.HasPrefix(mime, "text/") {
+		if filename != "" {
 			isAttachment = true
 		}
 		if !isAttachment {
