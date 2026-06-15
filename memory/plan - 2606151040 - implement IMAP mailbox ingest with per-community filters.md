@@ -176,7 +176,7 @@ Not implemented in this plan. Reserved here so spec's Future bullets don't lose 
 - {[?] "Show discarded" toggle for forensic search.}
 - {[?] Inline body preview — fetch text/plain on-demand inside the inbox row.}
 - {[?] Reply-to-create-thread flow (chat / forum / discussion) once write support is added.}
-- {[!] Email search — SQLite FTS5 over (subject, from_addr, from_name, body_text, attachment filenames concatenated). Query "api" matches subject keywords, sender names, body content, AND filenames like "api documentation.doc". Per user request 2606151225. Lands after Phase 5 (UI exists to expose the search box) but before Phase 8. Body text gets persisted into `email_ingest.body_text` at poll time for matched messages so search has something to index without re-fetching from IMAP.}
+- {[x] Email search — landed as Phase 5b. SQLite FTS5 over (subject, from_addr, from_name, body_text, attachment_names) with porter tokenizer. Search box on `/inbox`, debounced 300ms typeahead via POST `/inbox/search`. Tests in `search_test.go` cover body-hit, attachment-name hit, and empty-query fallback.}
 
 ## Verification
 
@@ -210,3 +210,4 @@ End-to-end acceptance:
 - `2606151345` — Phase 6 done. imap.fetchPart (BODY.PEEK), Service.Materialise, AttachmentByID JOIN lookup, MarkAttachmentMoved + MarkIngestConsumedIfAllMoved repo methods, PostMoveAttachment handler with admin-of-community guard, per-attachment Move form in inbox template, route + service wired. lint-mailbox green; tests green.
 - `2606151420` — Phase 7 done. html2text dep, ExtractIssueBody (escape + cap), auth.Repo.OldestCommunityAdminID fallback per user direction, lazy Inbox project per community with memoisation, Service.AutoCreateIssue with idempotent guard on email_ingest_issue, poll loop hook after InsertIngest, fetchEnvelopeWithBody helper. lint + tests green.
 - `2606151445` — Phase 8 done. Per-community /c/{slug}/admin/mail-filters CRUD page mounted behind the existing RequireRole(Admin) guard. New mailfilters.templ (single morph-target table) + sidebar entry + InitialSignals additions for the create form (mf_kind/mf_pattern/mf_to_issue). Phase 5's Repo.InsertFilter/DeleteFilter/ListFiltersForCommunity reused — zero new repo code.
+- `2606151515` — Phase 5b shipped: email search. Migration 00021 adds `body_text` column + `email_ingest_fts` virtual table (porter tokenizer). Poll loop pulls text body for every match and persists it. `InsertIngest` + `InsertAttachments` both update FTS in their tx. New `Repo.SearchQueueForViewer` plus `PostSearch` handler + debounced search box on `/inbox`. Tests cover body match, attachment-name match, empty-query fallback.

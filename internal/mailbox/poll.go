@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	natsgo "github.com/nats-io/nats.go"
@@ -141,6 +142,20 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		if !ok {
 			continue
 		}
+		// Pull the text body alongside the envelope so /inbox search has
+		// content to index. Failure here logs but doesn't block the
+		// ingest — we still want the row + attachment metadata.
+		bodyText := ""
+		if _, text, html, err := c.fetchEnvelopeWithBody(e.UID); err == nil {
+			bodyText = strings.TrimSpace(text)
+			if bodyText == "" {
+				bodyText = ExtractIssueBody("", html)
+			}
+		} else {
+			w.Log.Warn("mailbox: body fetch failed (search index will lack body)",
+				"folder", name, "uid", e.UID, "err", err)
+		}
+
 		ingestID, isNew, err := w.Repo.InsertIngest(ctx, IngestInsert{
 			FolderID:        folder.ID,
 			UID:             e.UID,
@@ -149,6 +164,7 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			FromAddr:        e.FromAddr,
 			FromName:        e.FromName,
 			Subject:         e.Subject,
+			BodyText:        bodyText,
 			ReceivedAt:      e.InternalDate,
 			CommunityID:     filter.CommunityID,
 			MatchedFilterID: filter.ID,
@@ -201,14 +217,16 @@ func (w *PollWorker) autoCreateIssueFor(ctx context.Context, c *imapClient, inge
 	if err != nil {
 		return err
 	}
-	_, err = w.Svc.AutoCreateIssue(ctx, AutoCreateIssueInput{
+	if _, err := w.Svc.AutoCreateIssue(ctx, AutoCreateIssueInput{
 		IngestID:    ingestID,
 		CommunityID: communityID,
 		Subject:     e.Subject,
 		TextBody:    text,
 		HTMLBody:    html,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // broadcast fires both the in-process Bus and the NATS subject for the

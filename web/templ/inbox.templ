@@ -72,6 +72,14 @@ templ InboxPage(d InboxPageData) {
 					@inboxPill(p.ID, p.Name, d.ActiveCommunity == p.ID)
 				}
 			</nav>
+			<form class="inbox-search" data-on:submit__prevent={ inboxSearchExpr(d.ActiveCommunity) }>
+				<input
+					type="search"
+					placeholder="Search subject, sender, body, attachment names…"
+					data-bind="inbox_q"
+					data-on:input__debounce.300ms={ inboxSearchExpr(d.ActiveCommunity) }
+				/>
+			</form>
 			<div id="inbox-rows" class="inbox-rows">
 				@InboxRowList(d.Rows)
 			</div>
@@ -107,6 +115,10 @@ templ InboxMore(nextCursor, activeCommunity string) {
 
 func inboxMoreExpr(nextCursor string) string {
 	return "@get('/inbox/more?cursor=" + nextCursor + "&community=' + ($inbox_community || ''))"
+}
+
+func inboxSearchExpr(activeCommunity string) string {
+	return "@post('/inbox/search?community=" + activeCommunity + "')"
 }
 
 templ inboxPill(id, name string, active bool) {

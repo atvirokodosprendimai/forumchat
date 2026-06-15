@@ -549,6 +549,85 @@ func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// searchSignals is the typeahead input bound by the inbox search box.
+type searchSignals struct {
+	Query string `json:"inbox_q"`
+}
+
+// PostSearch runs an FTS5 query against email_ingest_fts scoped to the
+// viewer's admin community set + active community pill. Returns an SSE
+// that replaces the rows fragment. Empty queries fall back to the
+// recent list so clearing the box re-shows the page-1 view.
+func (h *Handler) PostSearch(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
+	if err != nil || len(adminCIDs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	var in searchSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
+	if communityFilter != "" && !contains(adminCIDs, communityFilter) {
+		http.NotFound(w, r)
+		return
+	}
+
+	views, err := h.Repo.SearchQueueForViewer(r.Context(), QueueQuery{
+		AdminCommunityIDs: adminCIDs,
+		CommunityFilter:   communityFilter,
+		Limit:             100,
+	}, in.Query)
+	if err != nil {
+		h.Log.Error("mailbox: search", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	pills, err := h.loadCommunityPills(r.Context(), adminCIDs)
+	if err != nil {
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	projs, err := h.loadProjectsForViews(r.Context(), views)
+	if err != nil {
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(
+		webtempl.InboxRowList(toViewRows(views, pills, projs)),
+		datastar.WithSelector("#inbox-rows"),
+		datastar.WithModeOuter(),
+	)
+	// While in search mode, hide the infinite-scroll sentinel so the
+	// user doesn't paginate through the full feed below their hits.
+	cursor := ""
+	if strings.TrimSpace(in.Query) == "" {
+		// Empty query reverts to "show first page + show sentinel".
+		// Cursor for "next page" comes from QueueForViewer; re-run it
+		// here to get the right next pointer.
+		_, next, _ := h.Repo.QueueForViewer(r.Context(), QueueQuery{
+			AdminCommunityIDs: adminCIDs,
+			CommunityFilter:   communityFilter,
+			Limit:             100,
+		})
+		cursor = encodeCursor(next)
+	}
+	_ = sse.PatchElementTempl(
+		webtempl.InboxMore(cursor, communityFilter),
+		datastar.WithSelector("#inbox-more"),
+		datastar.WithModeOuter(),
+	)
+}
+
 // GetCommunityFilters renders the per-community admin CRUD page that
 // lists every filter targeting this community + offers a new-filter
 // form. Mounted under /c/{slug}/admin/mail-filters; the route guard

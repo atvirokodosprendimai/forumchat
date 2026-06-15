@@ -298,6 +298,7 @@ type IngestInsert struct {
 	FromAddr        string
 	FromName        string
 	Subject         string
+	BodyText        string // text representation persisted for /inbox search
 	ReceivedAt      time.Time
 	CommunityID     string
 	MatchedFilterID string
@@ -316,18 +317,33 @@ func (r *Repo) InsertIngest(ctx context.Context, in IngestInsert) (id string, is
 	id = uuid.NewString()
 	now := time.Now().Unix()
 	receivedMS := in.ReceivedAt.UnixMilli()
-	_, err = r.DB.ExecContext(ctx, `
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", false, fmt.Errorf("ingest tx begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO email_ingest (
 			id, folder_id, uid, uidvalidity, message_id,
-			from_addr, from_name, subject, received_at,
+			from_addr, from_name, subject, body_text, received_at,
 			community_id, status, matched_filter_id, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
 		id, in.FolderID, in.UID, in.UIDValidity, in.MessageID,
-		strings.ToLower(in.FromAddr), in.FromName, in.Subject, receivedMS,
+		strings.ToLower(in.FromAddr), in.FromName, in.Subject, in.BodyText, receivedMS,
 		in.CommunityID, nullIfEmpty(in.MatchedFilterID), now,
-	)
-	if err != nil {
+	); err != nil {
 		return "", false, fmt.Errorf("insert email_ingest: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO email_ingest_fts (ingest_id, subject, from_addr, from_name, body_text, attachment_names)
+		VALUES (?, ?, ?, ?, ?, '')`,
+		id, in.Subject, strings.ToLower(in.FromAddr), in.FromName, in.BodyText,
+	); err != nil {
+		return "", false, fmt.Errorf("insert email_ingest_fts: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, fmt.Errorf("ingest tx commit: %w", err)
 	}
 	return id, true, nil
 }
@@ -545,6 +561,9 @@ func (r *Repo) MarkIngestConsumedIfAllMoved(ctx context.Context, ingestID string
 // The insert runs inside a single transaction so partial failure is
 // recoverable: either every attachment for the message is indexed, or
 // none of them are, and the cycle retry on next poll picks it up.
+//
+// As a side-effect it appends the filenames to the FTS row's
+// attachment_names column so "/inbox" search can match on filenames.
 func (r *Repo) InsertAttachments(ctx context.Context, ingestID string, parts []ParsedPart) error {
 	if len(parts) == 0 {
 		return nil
@@ -555,6 +574,7 @@ func (r *Repo) InsertAttachments(ctx context.Context, ingestID string, parts []P
 	}
 	defer tx.Rollback() //nolint:errcheck
 	now := time.Now().Unix()
+	names := make([]string, 0, len(parts))
 	for _, p := range parts {
 		filename := strings.TrimSpace(p.Filename)
 		if filename == "" {
@@ -567,11 +587,88 @@ func (r *Repo) InsertAttachments(ctx context.Context, ingestID string, parts []P
 			uuid.NewString(), ingestID, filename, p.MIME, p.SizeBytes, p.MIMEPartID, now); err != nil {
 			return fmt.Errorf("insert attachment %q: %w", filename, err)
 		}
+		names = append(names, filename)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE email_ingest_fts SET attachment_names = ? WHERE ingest_id = ?`,
+		strings.Join(names, " "), ingestID); err != nil {
+		return fmt.Errorf("update fts attachment_names: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("attachments tx commit: %w", err)
 	}
 	return nil
+}
+
+// SearchQueueForViewer runs a phrase query against email_ingest_fts and
+// returns up to limit matching ingest views scoped to viewer's admin
+// community set + optional community pill. Empty queries fall through
+// to a normal recent-list (no FTS match). Search is body+attachment
+// names + subject + sender — matches "api documentation.doc" both via
+// the filename column and the body keyword.
+func (r *Repo) SearchQueueForViewer(ctx context.Context, q QueueQuery, query string) ([]QueuedEmailView, error) {
+	if strings.TrimSpace(query) == "" {
+		views, _, err := r.QueueForViewer(ctx, q)
+		return views, err
+	}
+	if len(q.AdminCommunityIDs) == 0 {
+		return []QueuedEmailView{}, nil
+	}
+	if q.Limit <= 0 || q.Limit > 500 {
+		q.Limit = 100
+	}
+
+	args := []any{query}
+	where := []string{"i.status = 'queued'"}
+	if q.CommunityFilter != "" {
+		where = append(where, "i.community_id = ?")
+		args = append(args, q.CommunityFilter)
+	} else {
+		placeholders := strings.Repeat("?,", len(q.AdminCommunityIDs))
+		placeholders = placeholders[:len(placeholders)-1]
+		where = append(where, "i.community_id IN ("+placeholders+")")
+		for _, cid := range q.AdminCommunityIDs {
+			args = append(args, cid)
+		}
+	}
+	args = append(args, q.Limit)
+	sqlStr := fmt.Sprintf(`
+		SELECT i.id, i.community_id, i.from_addr, i.from_name, i.subject,
+		       i.received_at, i.status
+		FROM email_ingest_fts f
+		JOIN email_ingest i ON i.id = f.ingest_id
+		WHERE email_ingest_fts MATCH ?
+		  AND %s
+		ORDER BY i.received_at DESC, i.id DESC
+		LIMIT ?`, strings.Join(where, " AND "))
+
+	rows, err := r.DB.QueryContext(ctx, sqlStr, args...)
+	if err != nil {
+		return nil, fmt.Errorf("search query: %w", err)
+	}
+	defer rows.Close()
+	out := []QueuedEmailView{}
+	for rows.Next() {
+		var v QueuedEmailView
+		var received int64
+		var status string
+		if err := rows.Scan(&v.ID, &v.CommunityID, &v.FromAddr, &v.FromName, &v.Subject,
+			&received, &status); err != nil {
+			return nil, err
+		}
+		v.ReceivedAt = time.UnixMilli(received).UTC()
+		v.Status = IngestStatus(status)
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) > 0 {
+		if err := r.attachAttachmentsBulk(ctx, out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // QueuedEmailView is the row shape consumed by the inbox template. The

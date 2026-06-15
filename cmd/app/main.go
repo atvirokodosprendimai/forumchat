@@ -726,6 +726,7 @@ func run() error {
 			r.Get("/inbox/stream", mailboxHandler.GetStream)
 			r.Post("/inbox/attach-sender", mailboxHandler.PostAttachSender)
 			r.Post("/inbox/attachments/{id}/move", mailboxHandler.PostMoveAttachment)
+			r.Post("/inbox/search", mailboxHandler.PostSearch)
 		})
 	}
 	r.Get("/explore", exploreHandler.GetIndex)
