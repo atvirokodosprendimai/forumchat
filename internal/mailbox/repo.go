@@ -569,10 +569,15 @@ type AttachmentLookup struct {
 
 // AttachmentByID resolves the attachment along with the parent ingest
 // + folder name. Returns sql.ErrNoRows when nothing matches.
+//
+// community_id is nullable since migration 00022 (Unassigned pile),
+// so it must scan into sql.NullString here — the original string
+// target was crashing every Move on an unassigned email with
+// "converting NULL to string is unsupported".
 func (r *Repo) AttachmentByID(ctx context.Context, id string) (AttachmentLookup, error) {
 	var out AttachmentLookup
 	var movedAt sql.NullInt64
-	var uploadID, movedProjectID, movedCategory sql.NullString
+	var uploadID, movedProjectID, movedCategory, ingestCommunity sql.NullString
 	var receivedAt int64
 	var createdEgg int64 // for ingest
 	var createdAtt int64
@@ -593,11 +598,14 @@ func (r *Repo) AttachmentByID(ctx context.Context, id string) (AttachmentLookup,
 		&uploadID, &movedProjectID, &movedCategory, &movedAt, &createdAtt,
 		&out.Ingest.ID, &out.Ingest.FolderID, &out.Ingest.UID, &out.Ingest.UIDValidity,
 		&out.Ingest.MessageID, &out.Ingest.FromAddr, &out.Ingest.FromName, &out.Ingest.Subject,
-		&receivedAt, &out.Ingest.CommunityID, (*string)(&out.Ingest.Status), &out.Ingest.MatchedFilterID,
+		&receivedAt, &ingestCommunity, (*string)(&out.Ingest.Status), &out.Ingest.MatchedFilterID,
 		&createdEgg, &out.FolderName,
 	)
 	if err != nil {
 		return AttachmentLookup{}, err
+	}
+	if ingestCommunity.Valid {
+		out.Ingest.CommunityID = ingestCommunity.String
 	}
 	if uploadID.Valid {
 		out.Attachment.UploadID = uploadID.String
