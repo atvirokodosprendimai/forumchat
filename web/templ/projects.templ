@@ -901,7 +901,11 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) {
 	if isImageMIME(a.MIME) {
 		<figure class="project-issue-image">
-			<img src={ a.URL } alt={ a.UploaderName + "'s upload" } loading="lazy"/>
+			<a class="project-issue-image-link" href={ templ.URL(a.URL) }
+				target="_blank" rel="noopener"
+				title="Open full size in new tab">
+				<img src={ a.URL } alt={ a.UploaderName + "'s upload" } loading="lazy"/>
+			</a>
 			<div class="project-issue-image-actions">
 				@copyToDocsForm(slug, projectID, issueID, a.ID)
 				if a.CanDelete {
@@ -913,32 +917,37 @@ templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) 
 		</figure>
 	} else {
 		<div class="project-issue-file">
-			<a href={ templ.URL(a.URL) } target="_blank" rel="noopener" download>
+			<a class="project-issue-file-link" href={ templ.URL(a.URL) }
+				target="_blank" rel="noopener" download>
 				<span class="att-icon" aria-hidden="true">{ fileIcon(a.MIME) }</span>
 				<span class="att-label">{ fileLabel(a.MIME) }</span>
 			</a>
-			@copyToDocsForm(slug, projectID, issueID, a.ID)
-			if a.CanDelete {
-				<button class="btn ghost danger project-issue-file-delete"
-					title="Delete attachment"
-					data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + a.ID + "/delete')" }>×</button>
-			}
+			<div class="project-issue-file-actions">
+				@copyToDocsForm(slug, projectID, issueID, a.ID)
+				if a.CanDelete {
+					<button class="btn ghost danger project-issue-file-delete"
+						title="Delete attachment"
+						data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + a.ID + "/delete')" }>×</button>
+				}
+			</div>
 		</div>
 	}
 }
 
-// copyToDocsForm renders a tiny inline form on each issue attachment
-// that promotes the file to the project Docs tab. Category defaults to
-// empty -> service falls back to "common".
+// copyToDocsForm collapses the filename + category inputs behind a
+// <details> summary so the per-attachment row stays compact until the
+// user opts in. Without the collapse the two inputs + submit dominate
+// the row visually next to the actual file link.
 templ copyToDocsForm(slug, projectID, issueID, attID string) {
-	<form class="project-issue-copy-to-docs"
-		data-on:submit__prevent={ "var inputs = el.querySelectorAll('input'); $copy_name = inputs[0].value; $copy_category = inputs[1].value; @post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + attID + "/copy-to-docs')" }>
-		<input type="text" placeholder="filename (defaults to issue title)" maxlength="120"/>
-		<input type="text" placeholder="category" maxlength="40"/>
-		<button class="btn ghost" type="submit" title="Add this file to the project Docs tab">
-			📂 Copy to Docs
-		</button>
-	</form>
+	<details class="project-issue-copy-to-docs">
+		<summary title="Add this file to the project Docs tab">📂 Copy to Docs</summary>
+		<form class="copy-to-docs-form"
+			data-on:submit__prevent={ "var inputs = el.querySelectorAll('input'); $copy_name = inputs[0].value; $copy_category = inputs[1].value; @post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + attID + "/copy-to-docs')" }>
+			<input type="text" placeholder="filename (defaults to issue title)" maxlength="120"/>
+			<input type="text" placeholder="category" maxlength="40"/>
+			<button class="btn" type="submit">Copy</button>
+		</form>
+	</details>
 }
 
 func isImageMIME(mime string) bool {
