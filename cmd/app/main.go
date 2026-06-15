@@ -640,6 +640,7 @@ func run() error {
 				r.Post("/{id}/issues/{iid}/comment/{cid}/delete", projectsHandler.PostIssueCommentDelete)
 				r.Post("/{id}/issues/{iid}/attachment", projectsHandler.PostIssueAttachmentUpload)
 				r.Post("/{id}/issues/{iid}/attachment/{aid}/delete", projectsHandler.PostIssueAttachmentDelete)
+				r.Post("/{id}/issues/{iid}/attachment/{aid}/copy-to-docs", projectsHandler.PostIssueAttachmentCopyToDocs)
 				r.Get("/{id}/discussions", projectsHandler.GetDiscussionsTab)
 				r.Post("/{id}/discussions", projectsHandler.PostCreateDiscussionThread)
 				r.Get("/{id}/discussions/{did}", projectsHandler.GetDiscussionThread)

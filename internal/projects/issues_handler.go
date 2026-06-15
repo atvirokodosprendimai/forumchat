@@ -426,6 +426,47 @@ func (h *Handler) PostIssueAttachmentDelete(w http.ResponseWriter, r *http.Reque
 	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
 }
 
+// copyToDocsSignals is the bag read by PostIssueAttachmentCopyToDocs.
+// $copy_category is bound to a small input in the per-attachment row.
+type copyToDocsSignals struct {
+	Category string `json:"copy_category"`
+}
+
+// PostIssueAttachmentCopyToDocs adds a project_attachments row pointing
+// at the same upload as the source IssueAttachment, so the Docs tab
+// surfaces the file independently of the issue.
+func (h *Handler) PostIssueAttachmentCopyToDocs(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	iid := chi.URLParam(r, "iid")
+	aid := chi.URLParam(r, "aid")
+	id, ok := h.callerIdentity(r)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	if id.UserID == "" {
+		// Guests cannot promote attachments to the project library.
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var in copyToDocsSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	if _, err := h.Svc.CopyIssueAttachmentToDocs(r.Context(), pid, iid, aid, id.UserID, in.Category); err != nil {
+		h.Log.Warn("projects issue attachment copy-to-docs", "err", err, "issue", iid, "att", aid)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	c, _ := community.FromContext(r.Context())
+	sse := render.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + iid)
+}
+
 // GetIssue renders the single-issue page.
 func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 	data, ok := h.loadProjectData(w, r, struct {

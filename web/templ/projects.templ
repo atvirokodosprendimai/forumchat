@@ -902,11 +902,14 @@ templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) 
 	if isImageMIME(a.MIME) {
 		<figure class="project-issue-image">
 			<img src={ a.URL } alt={ a.UploaderName + "'s upload" } loading="lazy"/>
-			if a.CanDelete {
-				<button class="btn ghost danger project-issue-image-delete"
-					title="Delete image"
-					data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + a.ID + "/delete')" }>×</button>
-			}
+			<div class="project-issue-image-actions">
+				@copyToDocsForm(slug, projectID, issueID, a.ID)
+				if a.CanDelete {
+					<button class="btn ghost danger project-issue-image-delete"
+						title="Delete image"
+						data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + a.ID + "/delete')" }>×</button>
+				}
+			</div>
 		</figure>
 	} else {
 		<div class="project-issue-file">
@@ -914,6 +917,7 @@ templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) 
 				<span class="att-icon" aria-hidden="true">{ fileIcon(a.MIME) }</span>
 				<span class="att-label">{ fileLabel(a.MIME) }</span>
 			</a>
+			@copyToDocsForm(slug, projectID, issueID, a.ID)
 			if a.CanDelete {
 				<button class="btn ghost danger project-issue-file-delete"
 					title="Delete attachment"
@@ -921,6 +925,19 @@ templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) 
 			}
 		</div>
 	}
+}
+
+// copyToDocsForm renders a tiny inline form on each issue attachment
+// that promotes the file to the project Docs tab. Category defaults to
+// empty -> service falls back to "common".
+templ copyToDocsForm(slug, projectID, issueID, attID string) {
+	<form class="project-issue-copy-to-docs"
+		data-on:submit__prevent={ "$copy_category = el.querySelector('input').value; @post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + attID + "/copy-to-docs')" }>
+		<input type="text" placeholder="category (optional)" maxlength="40"/>
+		<button class="btn ghost" type="submit" title="Add this file to the project Docs tab">
+			📂 Copy to Docs
+		</button>
+	</form>
 }
 
 func isImageMIME(mime string) bool {

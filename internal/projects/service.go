@@ -204,6 +204,61 @@ func (s *Service) AddAttachment(ctx context.Context, projectID, communityID, upl
 	return a, nil
 }
 
+// CopyIssueAttachmentToDocs creates a project_attachments row pointing
+// at the same uploads.id as the source IssueAttachment. No new bytes
+// are written — both rows share the underlying file. The Docs tab will
+// list the new row in the chosen category. Returns the new Attachment.
+func (s *Service) CopyIssueAttachmentToDocs(ctx context.Context, projectID, issueID, issueAttID, uploaderID, category string) (Attachment, error) {
+	src, err := s.Repo.IssueAttachmentByID(ctx, issueAttID)
+	if err != nil {
+		return Attachment{}, fmt.Errorf("issue attachment lookup: %w", err)
+	}
+	if src.IssueID != issueID {
+		return Attachment{}, errors.New("issue attachment does not belong to that issue")
+	}
+	u, err := s.Uploads.Get(ctx, src.UploadID)
+	if err != nil {
+		return Attachment{}, fmt.Errorf("upload lookup: %w", err)
+	}
+	if category = strings.TrimSpace(category); category == "" {
+		category = "common"
+	}
+	a := Attachment{
+		ID:         uuid.NewString(),
+		ProjectID:  projectID,
+		UploadID:   u.ID,
+		Filename:   filenameForCopy(u),
+		MIME:       u.MIME,
+		SizeBytes:  u.Size,
+		UploaderID: uploaderID,
+		Category:   category,
+		CreatedAt:  time.Now().UTC(),
+	}
+	if err := s.Repo.InsertAttachment(ctx, a); err != nil {
+		return Attachment{}, fmt.Errorf("insert attachment: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "attachments"})
+	return a, nil
+}
+
+// filenameForCopy derives a display filename when the source row
+// doesn't carry one (IssueAttachment has no filename column today —
+// uploads is content-addressed). Uses the on-disk relative path's
+// basename, which is the SHA256 + the original extension.
+func filenameForCopy(u uploads.Upload) string {
+	if u.RelPath == "" {
+		return "file"
+	}
+	base := u.RelPath
+	for i := len(base) - 1; i >= 0; i-- {
+		if base[i] == '/' {
+			base = base[i+1:]
+			break
+		}
+	}
+	return base
+}
+
 // Archive flips archived_at to now. Caller is project creator or
 // community admin. Idempotent (re-archives bump updated_at).
 func (s *Service) Archive(ctx context.Context, projectID, callerUserID string, callerIsAdmin bool) error {
