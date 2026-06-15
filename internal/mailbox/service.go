@@ -115,6 +115,7 @@ func (s *Service) Materialise(ctx context.Context, in MaterialiseInput) (Materia
 	if err != nil {
 		return MaterialiseResult{}, fmt.Errorf("imap fetch part: %w", err)
 	}
+	decoded := decodeAttachmentBytes(bytesData, look.Attachment.TransferEncoding)
 
 	att, err := s.Projects.AddAttachment(ctx,
 		proj.ID,
@@ -123,7 +124,7 @@ func (s *Service) Materialise(ctx context.Context, in MaterialiseInput) (Materia
 		look.Attachment.MIME,
 		look.Attachment.Filename,
 		in.Category,
-		bytes.NewReader(bytesData),
+		bytes.NewReader(decoded),
 	)
 	if err != nil {
 		return MaterialiseResult{}, fmt.Errorf("project attachment: %w", err)

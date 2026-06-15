@@ -83,6 +83,9 @@ type Ingest struct {
 
 // Attachment is metadata-only at poll time. UploadID is populated when
 // a user materialises the attachment into a project_attachments row.
+// TransferEncoding captures the Content-Transfer-Encoding (base64,
+// quoted-printable, 7bit, 8bit, binary) so Materialise can decode the
+// raw BODY.PEEK bytes before saving to uploads.
 type Attachment struct {
 	ID               string
 	IngestID         string
@@ -90,6 +93,7 @@ type Attachment struct {
 	MIME             string
 	SizeBytes        int64
 	MIMEPartID       string // e.g. "2", "2.1" — used in BODY.PEEK[2.1]
+	TransferEncoding string
 	UploadID         string
 	MovedToProjectID string
 	MovedCategory    string

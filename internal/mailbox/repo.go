@@ -583,7 +583,7 @@ func (r *Repo) AttachmentByID(ctx context.Context, id string) (AttachmentLookup,
 	var createdAtt int64
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT
-			a.id, a.ingest_id, a.filename, a.mime, a.size_bytes, a.mime_part_id,
+			a.id, a.ingest_id, a.filename, a.mime, a.size_bytes, a.mime_part_id, a.transfer_encoding,
 			a.upload_id, a.moved_to_project_id, a.moved_category, a.moved_at, a.created_at,
 			i.id, i.folder_id, i.uid, i.uidvalidity, i.message_id,
 			i.from_addr, i.from_name, i.subject, i.received_at,
@@ -594,7 +594,7 @@ func (r *Repo) AttachmentByID(ctx context.Context, id string) (AttachmentLookup,
 		JOIN mailbox_folder f      ON f.id = i.folder_id
 		WHERE a.id = ?`, id).Scan(
 		&out.Attachment.ID, &out.Attachment.IngestID, &out.Attachment.Filename,
-		&out.Attachment.MIME, &out.Attachment.SizeBytes, &out.Attachment.MIMEPartID,
+		&out.Attachment.MIME, &out.Attachment.SizeBytes, &out.Attachment.MIMEPartID, &out.Attachment.TransferEncoding,
 		&uploadID, &movedProjectID, &movedCategory, &movedAt, &createdAtt,
 		&out.Ingest.ID, &out.Ingest.FolderID, &out.Ingest.UID, &out.Ingest.UIDValidity,
 		&out.Ingest.MessageID, &out.Ingest.FromAddr, &out.Ingest.FromName, &out.Ingest.Subject,
@@ -705,9 +705,9 @@ func (r *Repo) InsertAttachments(ctx context.Context, ingestID string, parts []P
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO email_ingest_attachment
-				(id, ingest_id, filename, mime, size_bytes, mime_part_id, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			uuid.NewString(), ingestID, filename, p.MIME, p.SizeBytes, p.MIMEPartID, now); err != nil {
+				(id, ingest_id, filename, mime, size_bytes, mime_part_id, transfer_encoding, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			uuid.NewString(), ingestID, filename, p.MIME, p.SizeBytes, p.MIMEPartID, p.Encoding, now); err != nil {
 			return fmt.Errorf("insert attachment %q: %w", filename, err)
 		}
 		names = append(names, filename)

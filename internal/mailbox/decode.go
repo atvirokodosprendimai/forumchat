@@ -53,3 +53,36 @@ func stripWhitespace(raw []byte) []byte {
 	}
 	return out
 }
+
+// decodeAttachmentBytes returns the decoded binary representation of a
+// MIME part's raw IMAP bytes. Attachments arrive over the wire in
+// whatever Content-Transfer-Encoding the sender picked — overwhelmingly
+// base64 for binaries (PDF, image, SVG, zip). Saving the raw bytes to
+// uploads produced "corrupted" downloads: the file was the base64 text
+// envelope, not the actual binary.
+//
+// Falls back to raw bytes when the encoding is empty / unrecognised
+// (7bit / 8bit / binary all pass through). On decode failure we ALSO
+// return raw so the user gets SOMETHING — better an oddly-encoded
+// download than an empty file.
+func decodeAttachmentBytes(raw []byte, encoding string) []byte {
+	if len(raw) == 0 {
+		return raw
+	}
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "base64":
+		decoded, err := base64.StdEncoding.DecodeString(string(stripWhitespace(raw)))
+		if err != nil {
+			return raw
+		}
+		return decoded
+	case "quoted-printable":
+		r := quotedprintable.NewReader(bytes.NewReader(raw))
+		decoded, err := io.ReadAll(r)
+		if err != nil {
+			return raw
+		}
+		return decoded
+	}
+	return raw
+}

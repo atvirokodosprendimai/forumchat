@@ -141,12 +141,15 @@ type FetchedEnvelope struct {
 // BODYSTRUCTURE tree. Bytes are NOT downloaded — only metadata.
 // MIMEPartID matches IMAP's body-part numbering (e.g. "2", "2.1") so
 // the lazy-fetch handler can request exactly this part later with
-// BODY.PEEK[2.1].
+// BODY.PEEK[2.1]. Encoding is the Content-Transfer-Encoding so the
+// lazy-fetch path can decode base64 / quoted-printable bytes before
+// saving to uploads.
 type ParsedPart struct {
 	Filename   string
 	MIME       string
 	SizeBytes  int64
 	MIMEPartID string
+	Encoding   string
 }
 
 // fetchEnvelopesSince fetches envelope + BODYSTRUCTURE for every UID
@@ -240,6 +243,7 @@ func walkAttachmentParts(bs imap.BodyStructure) []ParsedPart {
 			MIME:       mime,
 			SizeBytes:  int64(sp.Size),
 			MIMEPartID: formatPath(path),
+			Encoding:   sp.Encoding,
 		})
 		return true
 	})
