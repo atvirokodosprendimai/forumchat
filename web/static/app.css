@@ -2619,6 +2619,19 @@ hr {
   gap: 0.4rem;
   padding-bottom: 0.5rem;
 }
+.inbox-toolbar .pill-pending {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent-soft-strong);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.inbox-toolbar .pill-pending:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
 .inbox-search { padding-bottom: 0.75rem; }
 .inbox-search input {
   width: 100%;

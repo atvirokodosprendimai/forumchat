@@ -104,6 +104,13 @@ templ InboxPage(d InboxPageData) {
 						📎 Show only with attachments
 					}
 				</a>
+				<button
+					class="pill pill-pending"
+					data-show="$inbox_pending > 0"
+					data-on:click={ inboxRefreshExpr(d.ActiveCommunity) }
+				>
+					🔄 <span data-text="$inbox_pending"></span> new — refresh
+				</button>
 			</div>
 			@InboxRowList(d.Rows)
 			@InboxMore(d.NextCursor, d.ActiveCommunity)
@@ -145,6 +152,16 @@ func inboxMoreExpr(nextCursor string) string {
 
 func inboxSearchExpr(activeCommunity string) string {
 	return "@post('/inbox/search?community=" + activeCommunity + "')"
+}
+
+// inboxRefreshExpr is bound to the "X new — refresh" pill. Clicking
+// re-opens the SSE stream which immediately patches the first page,
+// applying every ingest that arrived during the throttle window.
+func inboxRefreshExpr(activeCommunity string) string {
+	if activeCommunity == "" {
+		return "window.location.href = '/inbox'"
+	}
+	return "window.location.href = '/inbox?community=" + activeCommunity + "'"
 }
 
 templ inboxPill(id, name string, active bool) {

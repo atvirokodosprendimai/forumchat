@@ -413,6 +413,24 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Throttle full-list patches so a long initial Gmail crawl (one
+	// broadcast per ingested email) doesn't morph the DOM out from
+	// under a user who clicked into a row to read it. Wake events are
+	// coalesced: any wake within minPatchInterval increments the
+	// "pending new" counter via PatchSignals (cheap, no DOM touch);
+	// the next patch goes out once the throttle clears OR when the
+	// user clicks the "X new — refresh" banner.
+	const minPatchInterval = 15 * time.Second
+	var (
+		lastPatch    time.Time
+		pendingDelta int
+	)
+	bumpPending := func() {
+		pendingDelta++
+		payload := []byte(fmt.Sprintf(`{"inbox_pending":%d}`, pendingDelta))
+		_ = sse.PatchSignals(payload)
+	}
+
 	// Initial render so the freshly-opened stream replaces any stale list.
 	patchFirstPage := func() error {
 		views, next, err := h.Repo.QueueForViewer(r.Context(), QueueQuery{
@@ -441,15 +459,36 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 	_ = patchFirstPage()
+	lastPatch = time.Now()
+	_ = sse.PatchSignals([]byte(`{"inbox_pending":0}`))
 
 	keepalive := time.NewTicker(25 * time.Second)
 	defer keepalive.Stop()
+	throttleCheck := time.NewTicker(2 * time.Second)
+	defer throttleCheck.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-wake:
-			_ = patchFirstPage()
+			if time.Since(lastPatch) < minPatchInterval {
+				bumpPending()
+				continue
+			}
+			if err := patchFirstPage(); err == nil {
+				lastPatch = time.Now()
+				pendingDelta = 0
+				_ = sse.PatchSignals([]byte(`{"inbox_pending":0}`))
+			}
+		case <-throttleCheck.C:
+			// If patches piled up during throttle window, apply now.
+			if pendingDelta > 0 && time.Since(lastPatch) >= minPatchInterval {
+				if err := patchFirstPage(); err == nil {
+					lastPatch = time.Now()
+					pendingDelta = 0
+					_ = sse.PatchSignals([]byte(`{"inbox_pending":0}`))
+				}
+			}
 		case <-keepalive.C:
 			// Heartbeat — keeps load balancers from closing the
 			// idle connection. Empty PatchSignals is a no-op on the
