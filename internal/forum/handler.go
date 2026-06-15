@@ -377,7 +377,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ThreadPosts(h.cslug(r.Context()), threadID, pv), datastar.WithModeOuter())
 	}
 	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
-	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","reply_quote_label":"","image_data":""}`))
+	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","_reply_quote_label":"","image_data":""}`))
 	h.broadcastThread(r.Context(), threadID)
 }
 

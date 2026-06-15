@@ -11,7 +11,7 @@ import (
 // button. AuthorName goes through strconv.Quote so names with quotes or
 // backslashes remain safe inside the JS expression.
 func quoteClickJS(postID, authorName string) string {
-	return "$quoted_post_id=" + strconv.Quote(postID) + "; $reply_quote_label=" + strconv.Quote(authorName)
+	return "$quoted_post_id=" + strconv.Quote(postID) + "; $_reply_quote_label=" + strconv.Quote(authorName)
 }
 
 // jsString returns a JS-safe string body — without quotes — for inline
@@ -224,9 +224,9 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 				<h3>Reply</h3>
 				<div id="reply-error" class="error"></div>
 				<input type="hidden" data-bind="quoted_post_id"/>
-				<div id="reply-quote-hint" class="muted" data-show="$reply_quote_label">
-					Quoting <span data-text="$reply_quote_label"></span>
-					<button class="link" data-on:click="$quoted_post_id=''; $reply_quote_label=''">clear</button>
+				<div id="reply-quote-hint" class="muted" data-show="$_reply_quote_label">
+					Quoting <span data-text="$_reply_quote_label"></span>
+					<button class="link" data-on:click="$quoted_post_id=''; $_reply_quote_label=''">clear</button>
 				</div>
 				<div class="field">
 					<label>Markdown body (paste, drop or attach image)</label>

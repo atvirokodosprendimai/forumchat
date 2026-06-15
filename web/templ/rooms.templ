@@ -131,7 +131,7 @@ templ RoomPage(d RoomPageData) {
 			data-am-guest={ boolStr(d.IsGuest) }
 			data-video-cap="8"
 			data-ice-servers={ d.IceServersJSON }
-			data-signals={ "{\"rooms_am_admin\":" + boolStr(d.IsAdmin) + "}" }
+			data-signals={ "{\"_rooms_am_admin\":" + boolStr(d.IsAdmin) + "}" }
 		>
 			<div id="rooms-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/stream', {openWhenHidden: true})" }></div>
 			<header class="rooms-room-head">
@@ -147,7 +147,7 @@ templ RoomPage(d RoomPageData) {
 					<button class="btn ghost rooms-ctl rooms-ctl-blur" data-rooms-blur title="Background blur">🌫 blur</button>
 					<button class="btn rooms-ctl rooms-ctl-screen" data-rooms-screen title="Share screen">🖥</button>
 					<button class="btn ghost rooms-ctl"
-						data-show="$rooms_am_admin"
+						data-show="$_rooms_am_admin"
 						data-on:click="$_rooms_admin_open = !$_rooms_admin_open"
 						title="Admin controls">⚙</button>
 					<button class="btn rooms-ctl rooms-ctl-leave" data-rooms-leave>Leave</button>
@@ -189,7 +189,7 @@ templ RoomPage(d RoomPageData) {
 				<aside class="rooms-chat-col">
 					<header class="rooms-chat-head">
 						<h2>Chat</h2>
-						<span class="muted" data-text="$rooms_member_count + ' in room'">{ strconv.Itoa(len(d.Members)) } in room</span>
+						<span class="muted" data-text="$_rooms_member_count + ' in room'">{ strconv.Itoa(len(d.Members)) } in room</span>
 					</header>
 					<div class="rooms-chat-list" data-rooms-chat
 						data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">

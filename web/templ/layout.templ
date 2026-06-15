@@ -98,7 +98,7 @@ const InitialSignals = `{
 	"subject":"",
 	"body":"",
 	"quoted_post_id":"",
-	"reply_quote_label":"",
+	"_reply_quote_label":"",
 	"reply_to_id":"",
 	"max_uses":"",
 	"cleanup_chat":false,
@@ -129,28 +129,27 @@ const InitialSignals = `{
 	"todo_title":"",
 	"todo_category":"",
 	"todo_note":"",
-	"pm_open_to_user":"",
-	"pm_open_to_name":"",
+	"_pm_open_to_user":"",
+	"_pm_open_to_name":"",
 	"pm_to_user":"",
 	"pm_body":"",
 	"pm_source_community_id":"",
 	"pm_source_chat_id":"",
 	"pm_send_body":"",
-	"pm_toast_text":"",
-	"pm_toast_href":"",
+	"_pm_toast_text":"",
+	"_pm_toast_href":"",
 	"rooms_chat_body":"",
 	"rooms_target":"",
 	"rooms_new_name":"",
 	"_rooms_admin_open":false,
 	"_rooms_rename_open":false,
-	"rooms_member_count":0,
-	"rooms_room_name":"",
-	"rooms_am_admin":false,
+	"_rooms_member_count":0,
+	"_rooms_room_name":"",
+	"_rooms_am_admin":false,
 	"rooms_invite_emails":"",
 	"_nav_open":false,
 	"mention_query":"",
 	"_mention_open":false,
-	"next_cursor":"",
 	"_issues_pending":0,
 	"mv_target_project":"",
 	"toast_text":""
@@ -247,14 +246,14 @@ templ Layout(title string, v Viewer) {
 			</main>
 			if v.IsAuthed {
 				<div id="pm-stream-open" hidden data-init="@get('/messages/stream', {openWhenHidden: true})"></div>
-				<div class="pm-toast" data-cloak data-show="$pm_toast_text !== ''"
-					data-on:animationend="$pm_toast_text=''; $pm_toast_href=''">
-					<a class="pm-toast-link" data-attr:href="$pm_toast_href || '/messages'">
+				<div class="pm-toast" data-cloak data-show="$_pm_toast_text !== ''"
+					data-on:animationend="$_pm_toast_text=''; $_pm_toast_href=''">
+					<a class="pm-toast-link" data-attr:href="$_pm_toast_href || '/messages'">
 						<span class="pm-toast-icon">✓</span>
-						<span class="pm-toast-text" data-text="$pm_toast_text"></span>
+						<span class="pm-toast-text" data-text="$_pm_toast_text"></span>
 						<span class="pm-toast-cta">open</span>
 					</a>
-					<button class="pm-toast-close" aria-label="dismiss" data-on:click="$pm_toast_text=''; $pm_toast_href=''">✕</button>
+					<button class="pm-toast-close" aria-label="dismiss" data-on:click="$_pm_toast_text=''; $_pm_toast_href=''">✕</button>
 				</div>
 			}
 			<footer class="site-footer">

@@ -197,10 +197,10 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 	sse := render.NewSSE(w, r)
 	// Close the modal, clear inputs, show a success toast pointing at the new
 	// thread. User stays on the page they were on (chat / forum / wherever).
-	payload := `{"pm_to_user":"","pm_body":"","pm_open_to_user":"","pm_open_to_name":"",` +
+	payload := `{"pm_to_user":"","pm_body":"","_pm_open_to_user":"","_pm_open_to_name":"",` +
 		`"pm_source_community_id":"","pm_source_chat_id":"",` +
-		`"pm_toast_text":"Request sent to ` + jsEscape(toName) + `",` +
-		`"pm_toast_href":"/messages/` + t.ID + `"}`
+		`"_pm_toast_text":"Request sent to ` + jsEscape(toName) + `",` +
+		`"_pm_toast_href":"/messages/` + t.ID + `"}`
 	_ = sse.PatchSignals([]byte(payload))
 }
 

@@ -289,7 +289,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					</button>
 					if m.AuthorID != currentUserID {
 						<button class="msg-menu-item" role="menuitem"
-							data-on:click={ "$pm_open_to_user='" + m.AuthorID + "'; $pm_open_to_name='" + jsString(m.AuthorName) + "'; $pm_source_chat_id='" + m.ID + "'; el.closest('details').open=false" }>
+							data-on:click={ "$_pm_open_to_user='" + m.AuthorID + "'; $_pm_open_to_name='" + jsString(m.AuthorName) + "'; $pm_source_chat_id='" + m.ID + "'; el.closest('details').open=false" }>
 							<span class="mi-icon">✉</span><span class="mi-label">Message</span>
 						</button>
 					}

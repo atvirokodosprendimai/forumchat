@@ -371,7 +371,7 @@ func (h *Handler) pushRoomFragments(ctx context.Context, sse *datastar.ServerSen
 	h.pushParticipants(ctx, sse, slug, rm.ID, viewer)
 	h.pushChat(ctx, sse, rm.ID, viewer)
 	h.pushAdminPanel(ctx, sse, rm, viewer, slug, scheme, host)
-	_ = sse.PatchSignals([]byte(`{"rooms_room_name":"` + jsQuote(rm.Name) + `"}`))
+	_ = sse.PatchSignals([]byte(`{"_rooms_room_name":"` + jsQuote(rm.Name) + `"}`))
 }
 
 func (h *Handler) pushParticipants(ctx context.Context, sse *datastar.ServerSentEventGenerator, slug, roomID string, viewer Identity) {
@@ -391,8 +391,8 @@ func (h *Handler) pushParticipants(ctx context.Context, sse *datastar.ServerSent
 	// promoted user gets their admin controls without a page reload.
 	// Force-close the tray for demoted users so they can't keep a stale
 	// view open after losing the role.
-	patch := `{"rooms_member_count":` + intStr(snap.MemberCount) +
-		`,"rooms_am_admin":` + boolJSON(isAdmin)
+	patch := `{"_rooms_member_count":` + intStr(snap.MemberCount) +
+		`,"_rooms_am_admin":` + boolJSON(isAdmin)
 	if !isAdmin {
 		patch += `,"_rooms_admin_open":false`
 	}
