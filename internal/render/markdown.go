@@ -104,7 +104,13 @@ func initMarkdown() {
 	p.AllowAttrs("class").OnElements("code", "pre", "span")
 	p.RequireNoFollowOnLinks(true)
 	p.RequireNoReferrerOnLinks(true)
-	p.AllowURLSchemes("http", "https", "mailto")
+	// "upload" is the placeholder scheme written by the mailbox CID
+	// rewriter (mailbox.RewriteCIDImages → ![inline](upload://<uploadID>)).
+	// ResolveUploadURLs swaps each occurrence to a signed `/uploads/...`
+	// URL at view time. Without this entry bluemonday strips the
+	// upload://… src out at sanitize time, leaving the user with <img
+	// alt="inline"/> and no source.
+	p.AllowURLSchemes("http", "https", "mailto", "upload")
 	policy = p
 }
 

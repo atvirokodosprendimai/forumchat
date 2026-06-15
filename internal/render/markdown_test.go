@@ -7,6 +7,35 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 )
 
+func TestRenderMarkdown_UploadSchemePreserved(t *testing.T) {
+	t.Parallel()
+	// Markdown image with the upload:// placeholder scheme written by
+	// the mailbox CID rewriter must survive bluemonday sanitize so the
+	// view-time ResolveUploadURLs has an attribute to swap.
+	in := "Here is the inline shot: ![inline](upload://abc-123)"
+	out, err := render.RenderMarkdown(in)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if !strings.Contains(out, `src="upload://abc-123"`) {
+		t.Fatalf("upload:// scheme stripped, got: %s", out)
+	}
+}
+
+func TestResolveUploadURLs_SwapsViaSigner(t *testing.T) {
+	t.Parallel()
+	in := `<img alt="inline" src="upload://abc-123"/>`
+	out := render.ResolveUploadURLs(in, func(id string) string {
+		return "/uploads/sha?sig=xxx"
+	})
+	if !strings.Contains(out, `src="/uploads/sha?sig=xxx"`) {
+		t.Fatalf("signer output not applied: %s", out)
+	}
+	if strings.Contains(out, "upload://") {
+		t.Fatalf("placeholder not removed: %s", out)
+	}
+}
+
 func TestHighlightMentions_PlainAndMe(t *testing.T) {
 	t.Parallel()
 	in := "hey @Alice and @bob, also @Carol-1"
