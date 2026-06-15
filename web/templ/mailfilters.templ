@@ -33,7 +33,7 @@ templ MailFiltersPage(d MailFiltersPageData) {
 				<p class="muted">Each rule routes inbound mail whose From: matches into <strong>{ d.CommunityName }</strong>'s inbox. Exact-address rules win over wildcard-domain rules on a tie.</p>
 			</header>
 
-			<form class="mail-filter-new" data-on:submit__prevent="@post('/c/{ d.CommunitySlug }/admin/mail-filters')">
+			<form class="mail-filter-new" data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/admin/mail-filters')" }>
 				<label>Kind</label>
 				<div class="radio-row">
 					<label><input type="radio" name="mf_kind_radio" value="address" data-bind="mf_kind"/> Exact address</label>
