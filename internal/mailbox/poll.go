@@ -171,19 +171,6 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		w.Log.Info("mailbox: folder up-to-date", "folder", name, "last_uid", folder.LastUID)
 		return stats, nil
 	}
-	envs, err := c.fetchEnvelopesSince(folder.LastUID)
-	if err != nil {
-		return stats, err
-	}
-	stats.fetched = len(envs)
-	w.Log.Info("mailbox: folder fetched",
-		"folder", name,
-		"fetched", stats.fetched,
-		"since_uid", folder.LastUID,
-	)
-	if len(envs) == 0 {
-		return stats, nil
-	}
 
 	var maxUID uint32 = folder.LastUID
 	saveCursor := func() {
@@ -196,25 +183,47 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			folder.LastUID = maxUID
 		}
 	}
-	for _, e := range envs {
+
+	w.Log.Info("mailbox: folder streaming envelopes",
+		"folder", name,
+		"since_uid", folder.LastUID,
+	)
+
+	err = c.streamEnvelopesSince(folder.LastUID, func(e FetchedEnvelope) error {
+		stats.fetched++
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if e.UID > maxUID {
 			maxUID = e.UID
 		}
-		filter, matched, err := MatchFrom(ctx, w.Repo, e.FromAddr)
-		if err != nil {
-			w.Log.Warn("mailbox: match failed", "folder", name, "uid", e.UID, "err", err)
-			continue
+		filter, matched, mErr := MatchFrom(ctx, w.Repo, e.FromAddr)
+		if mErr != nil {
+			w.Log.Warn("mailbox: match failed", "folder", name, "uid", e.UID, "err", mErr)
+			saveCursor()
+			return nil
 		}
 		if matched {
 			stats.matched++
 		} else {
-			stats.skippedNoFilter++ // metric name kept; actually "unassigned"
+			stats.skippedNoFilter++
 		}
-		// Body text came along in the batch fetch (BODY.PEEK[1]). No
-		// extra round-trip per message. Search may miss HTML-only mail
-		// whose first part isn't text — acceptable degradation in
-		// exchange for throughput on long initial scans.
-		bodyText := strings.TrimSpace(e.TextBody)
+		// Targeted body fetch using the text-part path resolved from
+		// the batch BODYSTRUCTURE. One BODY.PEEK[<path>] round-trip
+		// per email — slow but reliable. Empty when message has no
+		// text part.
+		bodyText := ""
+		if len(e.TextPath) > 0 {
+			body, bErr := c.fetchPartPath(e.UID, e.TextPath)
+			if bErr != nil {
+				w.Log.Warn("mailbox: body fetch failed (continuing without body)",
+					"folder", name, "uid", e.UID, "err", bErr)
+			} else if e.IsTextPlain {
+				bodyText = strings.TrimSpace(string(body))
+			} else {
+				bodyText = ExtractIssueBody("", string(body))
+			}
+		}
 
 		ingest := IngestInsert{
 			FolderID:    folder.ID,
@@ -231,34 +240,29 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			ingest.CommunityID = filter.CommunityID
 			ingest.MatchedFilterID = filter.ID
 		}
-		ingestID, isNew, err := w.Repo.InsertIngest(ctx, ingest)
-		if err != nil {
+		ingestID, isNew, iErr := w.Repo.InsertIngest(ctx, ingest)
+		if iErr != nil {
 			w.Log.Warn("mailbox: ingest insert failed",
-				"folder", name, "uid", e.UID, "err", err)
-			continue
+				"folder", name, "uid", e.UID, "err", iErr)
+			return nil
 		}
 		if !isNew {
 			w.Log.Debug("mailbox: duplicate ingest skipped",
 				"folder", name, "uid", e.UID, "from", e.FromAddr)
-			// Even a duplicate advances the cursor — we've already
-			// seen this UID, no reason to revisit on next cycle.
 			saveCursor()
-			continue
+			return nil
 		}
 		stats.inserted++
-		if err := w.Repo.InsertAttachments(ctx, ingestID, e.Attachments); err != nil {
+		if aErr := w.Repo.InsertAttachments(ctx, ingestID, e.Attachments); aErr != nil {
 			w.Log.Warn("mailbox: attachments index failed",
-				"folder", name, "uid", e.UID, "err", err)
+				"folder", name, "uid", e.UID, "err", aErr)
 		}
 		if matched && filter.ToIssue && w.Svc != nil {
-			if err := w.autoCreateIssueFor(ctx, c, ingestID, filter.CommunityID, e); err != nil {
+			if iiErr := w.autoCreateIssueFor(ctx, c, ingestID, filter.CommunityID, e); iiErr != nil {
 				w.Log.Warn("mailbox: auto-issue failed",
-					"folder", name, "uid", e.UID, "err", err)
+					"folder", name, "uid", e.UID, "err", iiErr)
 			}
 		}
-		// Broadcast to the destination community when matched, or to every
-		// admin's stream when unassigned (poll loop has no specific
-		// community to ping; broadcast to all admin communities).
 		if matched {
 			w.broadcast(filter.CommunityID)
 		} else {
@@ -276,14 +280,12 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			"to_issue", matched && filter.ToIssue,
 			"attachments", len(e.Attachments),
 		)
-		// Persist cursor after each message so a container restart
-		// loses at most ONE message of progress, never the whole
-		// folder scan.
 		saveCursor()
+		return nil
+	})
+	if err != nil {
+		return stats, err
 	}
-	// Final advance: covers the trailing tail of the loop that didn't
-	// hit a saveCursor() call (e.g. unmatched messages with empty
-	// body that didn't go through any of the persist paths).
 	saveCursor()
 	w.Log.Info("mailbox: folder summary",
 		"folder", name,

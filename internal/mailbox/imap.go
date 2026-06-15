@@ -116,10 +116,11 @@ func (i *imapClient) examineReadOnly(name string) (SelectInfo, error) {
 }
 
 // FetchedEnvelope is one message's envelope + attachment metadata, the
-// poll worker's unit of work. The text body is best-effort: we request
-// BODY.PEEK[1] in the same round-trip as the envelope; for multipart
-// messages this is usually the text/plain part. When it's empty, search
-// indexing for that message is degraded but ingest still succeeds.
+// poll worker's unit of work. TextPath is the BODYSTRUCTURE path of the
+// best text part (text/plain preferred, else text/html), pre-resolved
+// during envelopeFromBuffer so the caller can ask for body bytes with
+// one targeted BODY.PEEK[<path>] round-trip and never has to walk the
+// BS tree itself.
 type FetchedEnvelope struct {
 	UID          uint32
 	FromAddr     string
@@ -127,7 +128,8 @@ type FetchedEnvelope struct {
 	Subject      string
 	MessageID    string
 	InternalDate time.Time
-	TextBody     string
+	TextPath     []int // empty when the message has no text part
+	IsTextPlain  bool  // true when TextPath points at text/plain; false for text/html fallback
 	Attachments  []ParsedPart
 }
 
@@ -143,16 +145,17 @@ type ParsedPart struct {
 	MIMEPartID string
 }
 
-// fetchEnvelopesSince fetches messages with UID strictly greater than
-// since across the currently-examined mailbox. Envelope + BODYSTRUCTURE
-// only — body fetching turned out to be too fragile when bundled in
-// (some Gmail messages return errors that abort the entire batch).
-// body_text is left empty here; a background backfill (TODO) can
-// populate it later, OR Phase 7 auto-issue path still uses per-UID
-// fetchEnvelopeWithBody which is fine for the rare to_issue flow.
-func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error) {
+// streamEnvelopesSince fetches messages with UID strictly greater than
+// since and invokes cb for every envelope as it streams off the wire.
+// Cursor advance + ingest happen inside cb, so a container restart
+// mid-batch never loses the entire scan — at most the one envelope
+// being processed when ctx was killed.
+//
+// Returning an error from cb stops the stream and propagates the error
+// out, after the in-flight Fetch is properly closed.
+func (i *imapClient) streamEnvelopesSince(since uint32, cb func(FetchedEnvelope) error) error {
 	if since == ^uint32(0) {
-		return nil, errors.New("imap: refusing to fetch with overflow since value")
+		return errors.New("imap: refusing to fetch with overflow since value")
 	}
 	set := imap.UIDSet{imap.UIDRange{Start: imap.UID(since + 1), Stop: 0}}
 	cmd := i.c.Fetch(set, &imap.FetchOptions{
@@ -161,7 +164,7 @@ func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error
 		InternalDate:  true,
 		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
 	})
-	out := []FetchedEnvelope{}
+	var cbErr error
 	for {
 		msg := cmd.Next()
 		if msg == nil {
@@ -169,14 +172,17 @@ func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error
 		}
 		buf, err := msg.Collect()
 		if err != nil {
-			return nil, fmt.Errorf("imap fetch envelope: %w", err)
+			cbErr = fmt.Errorf("imap fetch envelope: %w", err)
+			break
 		}
-		out = append(out, envelopeFromBuffer(buf))
+		if cbErr = cb(envelopeFromBuffer(buf)); cbErr != nil {
+			break
+		}
 	}
-	if err := cmd.Close(); err != nil {
-		return nil, fmt.Errorf("imap fetch close: %w", err)
+	if err := cmd.Close(); err != nil && cbErr == nil {
+		return fmt.Errorf("imap fetch close: %w", err)
 	}
-	return out, nil
+	return cbErr
 }
 
 // walkAttachmentParts extracts attachment metadata from a parsed
@@ -403,6 +409,40 @@ func envelopeFromBuffer(buf *imapclient.FetchMessageBuffer) FetchedEnvelope {
 	}
 	if buf.BodyStructure != nil {
 		env.Attachments = walkAttachmentParts(buf.BodyStructure)
+		env.TextPath, env.IsTextPlain = findTextPartPath(buf.BodyStructure)
 	}
 	return env
+}
+
+// findTextPartPath walks the BODYSTRUCTURE looking for the best text
+// part to index for search. Preference: text/plain > text/html. Returns
+// the part path (e.g. [1] or [1, 1]) plus whether the hit is plain.
+// Empty path means the message has no usable text part — search will
+// degrade but ingest still succeeds.
+func findTextPartPath(bs imap.BodyStructure) ([]int, bool) {
+	var plain, html []int
+	bs.Walk(func(path []int, part imap.BodyStructure) bool {
+		sp, ok := part.(*imap.BodyStructureSinglePart)
+		if !ok {
+			return true
+		}
+		switch sp.MediaType() {
+		case "text/plain":
+			if plain == nil {
+				plain = append([]int(nil), path...)
+			}
+		case "text/html":
+			if html == nil {
+				html = append([]int(nil), path...)
+			}
+		}
+		return true
+	})
+	if plain != nil {
+		return plain, true
+	}
+	if html != nil {
+		return html, false
+	}
+	return nil, false
 }
