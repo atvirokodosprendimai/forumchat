@@ -40,20 +40,18 @@ status: active
 
 ## Phases
 
-### Phase 0 — Refine spec for global inbox shape — status: open
+### Phase 0 — Refine spec for global inbox shape — status: completed
 
 Goal: the spec's UI section reflects user intent: **global `/inbox` page** (admin-only), community filter pills along the top, default 100-row list with infinite scroll cursor pagination, no per-community `/c/{slug}/inbox` route at all.
 
-1. [ ] `/eidos:refine [[spec - mailbox - imap-ingest-to-per-community-queue]]`
-   - Replace "Sorting queue — `/c/{slug}/inbox`" with "Global inbox — `/inbox`"
-   - Add: community filter pills (one chip per community the viewer is admin in, plus "All"); active pill stored in `$inbox_community` signal; URL reflects via `?community=<id>`; "All" view interleaves communities ordered by `received_at DESC`
-   - Replace "newest first" with "last 100 by default, `data-on:scrollend` triggers `@get('/inbox/more?cursor=…')` loading next 100 appended via `PatchElementTempl(WithModeAppend())`"
-   - Cursor format: opaque base64 of `(received_at_unix_ms, id)` to dodge clock skew and ties
-   - Add to Anti-enumeration Notes: viewers see only filters / ingest rows for communities they are admin in. A non-admin who guesses `?community=X` for a community they aren't admin in gets 403
-   - Open decision now answered (record in spec Notes): admin-only globally; not per-community admin gate for the page entry — the page exists for any user with admin role in ANY community; rows are scoped server-side to the admin's allowed communities. Stricter "global admin only" would require a new role; not now.
-2. [ ] In the same spec refine, add a UX bullet: "from any inbox row, the sender chip is clickable → opens an attach-to-community popover → pick community + kind (exact / wildcard domain) → creates a `community_mail_filter` row. Subsequent matches from this sender flow into the chosen community without leaving the page."
-3. [ ] Commit spec refine on the same `task/spec-mailbox-imap-ingest` branch
-   - => link spec edit commit hash here when done
+1. [x] `/eidos:refine [[spec - mailbox - imap-ingest-to-per-community-queue]]`
+   - => Replaced "Sorting queue — `/c/{slug}/inbox`" with "Global inbox — `/inbox`"; added community filter pills, `$inbox_community` signal, `?community=<id>` URL reflection, "All" view.
+   - => Replaced "newest first" with last-100 + `data-on:scrollend` → `/inbox/more` → `WithModeAppend()`. Cursor format documented as opaque base64-url of `received_at_unix_ms || ':' || id`.
+   - => Added Anti-enumeration block in Behaviour: `/inbox` returns 404 for non-admins (not 401/403). Community pills only render viewer's admin communities.
+   - => Resolved gate decision: admin-of-any-community page entry; row-level community scoping via `viewer.AdminCommunityIDs`.
+2. [x] Added UX bullet for click-sender-attach popover with the same handler path as `PostCreateFilter`.
+3. [x] Committed spec refine on `task/spec-mailbox-imap-ingest`.
+   - => commit hash to be filled by the refine commit below
 
 ### Phase 1 — Feature flag, schema, empty global inbox page — status: open
 
@@ -200,3 +198,4 @@ End-to-end acceptance:
 ## Progress Log
 
 - `2606151040` — Plan drafted off `task/spec-mailbox-imap-ingest`. Spec already committed at `1741fd7`. User clarified global inbox shape; Phase 0 captures the spec refinement before any code lands.
+- `2606151105` — Phase 0 done. Spec refined inline via `/eidos:refine`: §Global inbox replaces §Sorting queue, click-sender popover added, anti-enumeration tightened, Future bullet updated. No code yet — implementation starts at Phase 1.

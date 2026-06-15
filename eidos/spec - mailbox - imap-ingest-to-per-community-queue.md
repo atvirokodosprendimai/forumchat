@@ -13,7 +13,7 @@ One mailbox feeds the whole forumchat instance. The poll worker walks every IMAP
 
 People send work into communities by email more often than they admit. Today the round-trip is: open mail client → save attachments to disk → re-upload them into the project docs section. The forum already has projects, issues, and docs — the gap is the silent ingestion layer that captures inbound email artifacts without manual download/re-upload.
 
-The spec carves out one IMAP-side concern (a single shared mailbox, read-only, lazy fetch) and one forumchat-side concern (per-community routing into the existing projects/issues/docs surface) and bolts them together with a sorting queue UI.
+The spec carves out one IMAP-side concern (a single shared mailbox, read-only, lazy fetch) and one forumchat-side concern (per-community routing into the existing projects/issues/docs surface) and bolts them together with a global sorting inbox UI that filters by community.
 
 The IMAP side is deliberately READ-ONLY: no \Seen flag mutation, no MOVE, no EXPUNGE. Mail clients keep working untouched.
 
@@ -53,15 +53,40 @@ Matching algorithm: extract `addr := lower(parseFromAddr(env.From))`; query for 
 
 A community can have many filters. Filters across communities can overlap — the precedence rule is what disambiguates which community owns the resulting ingest row.
 
-### Sorting queue — `/c/{slug}/inbox`
+### Global inbox — `/inbox`
 
-- Lists `email_ingest WHERE community_id=this AND status='queued'`, newest first.
-- Each row: from, subject, received date, attachment count, "Create issue" / "Mark consumed" / "Discard" buttons.
-- If the matched filter already auto-created an issue, a badge links to it.
-- Each attachment renders one row inside the email row with: filename, size, mime, two dropdowns (project, category) + "Move" button.
-- "Move" → backend lazily fetches the part, calls `uploads.Store.SaveAttachment`, inserts `project_attachments` row with the chosen `category`, stores the resulting `upload_id` on `email_ingest_attachment.upload_id`.
-- When every attachment on an email is either moved or dismissed, the email row's status flips to `consumed` and falls out of the queue.
-- "Discard" on the email row marks `status='discarded'` and hides it. Attachments stay indexed (for later forensic search) but cannot be materialized.
+The mailbox is **one shared account**, so the inbox lives at one global URL — not under `/c/{slug}`. There is no per-community route. Routing is communicated in the rows themselves: every list row shows which community a matched email landed in.
+
+- **Entry gate**: the topbar link and the `/inbox` route are visible only to users who are admin (or moderator at minimum) in at least one community. Non-admins see no link and get `404` on the route. The `Viewer` struct gains `IsAdminOfAnyCommunity bool`, computed by middleware.
+- **Default load**: the page renders the most recent 100 `email_ingest` rows where `status='queued'` AND `community_id ∈ viewer.AdminCommunityIDs`. Order is `(received_at DESC, id DESC)` (id is the tiebreaker for events at the same millisecond).
+- **Community filter pills**: along the top, one pill per community the viewer is admin in, plus an "All" pill on the left. Active pill is held in datastar signal `$inbox_community`. Clicking a pill issues `@get('/inbox?community=<id>')` and the URL reflects the choice (`?community=<id>`) so the link is shareable + back-button works. "All" interleaves communities ordered by `received_at DESC, id DESC`.
+- **Infinite scroll**: a sentinel element `<div id="inbox-more" data-on:scrollend="@get('/inbox/more?cursor='+$next_cursor+'&community='+$inbox_community)">` lives below the last row. When the user scrolls it into view, the server returns the next 100 rows and `PatchElementTempl(rows, datastar.WithSelector("#inbox-rows"), datastar.WithModeAppend())`. The same SSE response patches `#inbox-more` with the new cursor or removes the sentinel when the page is exhausted. No client-side state; the cursor lives in `$next_cursor`.
+- **Cursor format**: opaque base64-url of `received_at_unix_ms || ':' || id`. Server decodes, plugs into the WHERE: `(received_at, id) < (?, ?)`. Dodges clock-skew ties and is stable across restarts.
+- **Per-row affordances**:
+  - From, subject, received date, attachment count, community badge (which community owns this row).
+  - **Click-the-sender chip** opens an "Attach sender → community" popover (see [[#sender-attach-popover]]).
+  - "Create issue" / "Mark consumed" / "Discard" buttons.
+  - If the matched filter already auto-created an issue, a badge links to it.
+- **Per-attachment affordances** (one sub-row per attachment): filename, size, mime, two `<select>`s (project, category) + "Move" button.
+  - "Move" → backend lazily fetches the part, calls `uploads.Store.SaveAttachment`, inserts a `project_attachments` row with the chosen `category`, stores the resulting `upload_id` on `email_ingest_attachment.upload_id`.
+- **Lifecycle**:
+  - When every attachment on an email is either moved or dismissed, the email row's status flips to `consumed` and falls out of the default queue.
+  - "Discard" on the email row marks `status='discarded'` and hides it. Attachments stay indexed (for later forensic search) but cannot be materialised.
+
+#### Sender-attach popover
+
+A single emergent affordance that converts ad-hoc triage into a permanent filter. From any inbox row, the sender chip is clickable:
+
+- Click triggers `data-on:click="$attach_addr='<from_addr>'; $attach_open=true"`.
+- A `<dialog>`-style popover renders with: read-only address, kind toggle (`exact` / `@<domain>` derived from the address), community `<select>` populated with the viewer's admin communities, "Auto-create issue" checkbox.
+- "Save" → `@post('/inbox/attach-sender')` reads the signals, inserts a `community_mail_filter` row, closes the popover, and emits `Bus.Broadcast(communityID)` so any open inbox tab morphs to reflect the new routing for future arrivals.
+- The same handler code path is reused from the dedicated CRUD page below — this is just a UX shortcut.
+
+### Anti-enumeration
+
+- `/inbox` returns `404` for unauthenticated and non-admin users — never `401`/`403` (the route appears not-to-exist).
+- `/inbox/more?community=<id>` for a community the viewer isn't admin in returns `404` for the same reason.
+- The community filter pills only render communities the viewer is admin in, so a casual visitor can't enumerate other communities by inspecting the page.
 
 ### Admin filter CRUD — `/c/{slug}/admin/mail-filters`
 
@@ -73,8 +98,9 @@ A community can have many filters. Filters across communities can overlap — th
 ### Realtime morph
 
 - Per-community in-memory `mailbox.Bus` with subject `community.<cid>.mailbox`. Fans out to:
-  - Open `/c/{slug}/inbox` pages → re-render the queue list.
+  - Open `/inbox` pages (any viewer admin in `<cid>`) → re-render the first page of the queue list. Subsequent pages remain as appended — the SSE only patches `#inbox-rows` outer at the top; the user's scroll position is preserved.
   - Open `/c/{slug}/projects/<id>` pages whose `project_attachments` got a new row → re-render the attachments fragment.
+- The `/inbox` SSE stream (`GET /inbox/stream`) subscribes to **every** community the viewer is admin in; when any of them broadcasts, the read-model query reruns scoped to the viewer's admin set + the currently selected pill, and the result morphs.
 - Wire payload is the ingest_id or attachment_id; reader refetches via the read-model query (per AGENTS.md §6b "read model is a reusable pure function").
 
 ## Design
@@ -211,7 +237,7 @@ Password env is plaintext in v1 (matches forumchat's existing pattern for `SESSI
 - {[!] Phase 1 — schema + repo + poll worker shell logging UIDs across folders, no filter match.}
 - {[!] Phase 2 — filter table + matching + `email_ingest` row insert.}
 - {[!] Phase 3 — attachment metadata indexing from BODYSTRUCTURE.}
-- {[!] Phase 4 — per-community sorting queue UI.}
+- {[!] Phase 4 — global `/inbox` UI with community filter pills + infinite scroll + click-sender-attach popover.}
 - {[!] Phase 5 — lazy attachment materialize → project doc.}
 - {[!] Phase 6 — `to_issue=true` auto-create issue with HTML→text.}
 - {[!] Phase 7 — admin filter CRUD UI.}
@@ -230,9 +256,10 @@ Password env is plaintext in v1 (matches forumchat's existing pattern for `SESSI
 - Oversize attachment behaviour — spec says "index metadata, refuse materialize above `MAILBOX_ATTACHMENT_MAX`". Alternative: skip metadata too.
 - Auto-issue body cap 64 KB — confirm.
 
-### Anti-enumeration
+### Inbox-vs-filters surface split
 
-The queue UI is admin/mod-only per community (matches `internal/admin` pattern). Regular members do not see the inbox at all. This avoids leaking which outside senders are routed where.
+- `/inbox` is the global browse surface (admin-of-any-community gate). It lists ingested mail and lets admins triage attachments / create issues / attach senders.
+- `/c/{slug}/admin/mail-filters` is the per-community CRUD surface for the same filter rows the popover creates. The popover is the lightweight path; the admin page is the comprehensive path. Both share `PostCreateFilter`.
 
 ### System user
 
