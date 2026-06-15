@@ -617,14 +617,14 @@ func buildThreadAnnounce(authorName, link, subject, body string) string {
 	if subject == "(image)" {
 		if src := extractFirstImageURL(body); src != "" {
 			return fmt.Sprintf(
-				`<strong>%s</strong> started thread <a href="%s"><img class="thread-announce-img" src="%s" alt="thread image"></a>`,
-				htmlEscape(authorName), htmlEscape(link), htmlEscape(src),
+				`<strong>%s</strong> started <a href="%s">thread</a> <a href="%s"><img class="thread-announce-img" src="%s" alt="thread image"></a>`,
+				htmlEscape(authorName), htmlEscape(link), htmlEscape(link), htmlEscape(src),
 			)
 		}
 	}
 	return fmt.Sprintf(
-		`<strong>%s</strong> started thread: <a href="%s">%s</a>`,
-		htmlEscape(authorName), htmlEscape(link), htmlEscape(subject),
+		`<strong>%s</strong> started <a href="%s">thread</a>: <a href="%s">%s</a>`,
+		htmlEscape(authorName), htmlEscape(link), htmlEscape(link), htmlEscape(subject),
 	)
 }
 
