@@ -335,7 +335,11 @@ func (w *PollWorker) autoCreateIssueFor(ctx context.Context, c *imapClient, inge
 		return nil // duplicate ingest, AutoCreateIssue skipped
 	}
 	// Attach every email attachment to the new issue. Best-effort per
-	// file — one bad attachment doesn't block the rest.
+	// file — one bad attachment doesn't block the rest. Inline parts
+	// (Content-Disposition: inline with a Content-ID) are uploaded too
+	// so the body's `cid:` references can be rewritten to point at the
+	// uploaded copy.
+	cidToUpload := map[string]string{}
 	for _, p := range e.Attachments {
 		body, fErr := c.fetchPartPath(e.UID, parsePartPath(p.MIMEPartID))
 		if fErr != nil {
@@ -344,9 +348,21 @@ func (w *PollWorker) autoCreateIssueFor(ctx context.Context, c *imapClient, inge
 			continue
 		}
 		decoded := decodeAttachmentBytes(body, p.Encoding)
-		if aErr := w.Svc.AttachToIssue(ctx, issueID, communityID, p.MIME, p.Filename, decoded); aErr != nil {
+		uploadID, aErr := w.Svc.AttachToIssue(ctx, issueID, communityID, p.MIME, p.Filename, decoded)
+		if aErr != nil {
 			w.Log.Warn("mailbox: issue attachment save failed",
 				"uid", e.UID, "filename", p.Filename, "err", aErr)
+			continue
+		}
+		if p.ContentID != "" {
+			cidToUpload[p.ContentID] = uploadID
+		}
+	}
+	// Rewrite the freshly-created body to point cid: references at the
+	// uploaded copies. No-op when the email had no inline images.
+	if len(cidToUpload) > 0 {
+		if err := w.Svc.RewriteIssueBodyCIDs(ctx, issueID, cidToUpload); err != nil {
+			w.Log.Warn("mailbox: issue body cid rewrite failed", "issue", issueID, "err", err)
 		}
 	}
 	return nil

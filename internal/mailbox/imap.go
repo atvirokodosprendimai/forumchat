@@ -204,6 +204,16 @@ type ParsedPart struct {
 	SizeBytes  int64
 	MIMEPartID string
 	Encoding   string
+	// ContentID is the email's Content-ID header for inline images,
+	// stripped of the angle brackets. Empty for normal attachments.
+	// When non-empty the body has `cid:<ContentID>` references that
+	// must be rewritten to point at the uploaded copy.
+	ContentID string
+	// Inline is true for parts with Content-Disposition: inline. The
+	// body refers to them via Content-ID; they should not appear in
+	// the "files" list but must be uploaded so the body rewrite has a
+	// destination URL.
+	Inline bool
 }
 
 // fetchEnvelopesSince fetches envelope + BODYSTRUCTURE for every UID
@@ -277,11 +287,10 @@ func walkAttachmentParts(bs imap.BodyStructure) []ParsedPart {
 			return true
 		}
 		disp := sp.Disposition()
-		// Inline parts are embedded by the body, not separately useful.
-		if disp != nil && strings.EqualFold(disp.Value, "inline") {
-			return true
-		}
 		filename := sp.Filename()
+		cid := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(sp.ID), "<"), ">")
+
+		isInline := disp != nil && strings.EqualFold(disp.Value, "inline")
 		isAttachment := false
 		if disp != nil && strings.EqualFold(disp.Value, "attachment") {
 			isAttachment = true
@@ -289,8 +298,18 @@ func walkAttachmentParts(bs imap.BodyStructure) []ParsedPart {
 		if filename != "" {
 			isAttachment = true
 		}
+		// Keep inline parts that carry a Content-ID — the body refers to
+		// them via cid: and the rewriter needs an upload to point at.
+		// Inline parts without a Content-ID are pure decoration (signature
+		// logos pasted by Outlook etc.) — skip those to avoid spam rows.
+		if isInline && cid != "" {
+			isAttachment = true
+		}
 		if !isAttachment {
 			return true
+		}
+		if filename == "" && cid != "" {
+			filename = "inline-" + cid
 		}
 		out = append(out, ParsedPart{
 			Filename:   filename,
@@ -298,6 +317,8 @@ func walkAttachmentParts(bs imap.BodyStructure) []ParsedPart {
 			SizeBytes:  int64(sp.Size),
 			MIMEPartID: formatPath(path),
 			Encoding:   sp.Encoding,
+			ContentID:  cid,
+			Inline:     isInline,
 		})
 		return true
 	})

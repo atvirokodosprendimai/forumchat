@@ -34,6 +34,36 @@ var existingImgAnchorRE = regexp.MustCompile(`<a[^>]*?href="/uploads/[^"]+"[^>]*
 // run this AFTER bluemonday so the added attributes are trusted output.
 var uploadsAnchorRE = regexp.MustCompile(`<a (href="/uploads/)`)
 
+// uploadSchemeRE matches src/href attributes pointing at the
+// `upload://<uploadID>` placeholder scheme. The mailbox CID rewriter
+// writes these into auto-issue bodies so the view layer can resolve
+// each <uploadID> to a viewer-specific signed URL at display time.
+// Two groups: tag attribute name (src or href) + the upload id.
+var uploadSchemeRE = regexp.MustCompile(`(src|href)="upload://([a-zA-Z0-9_-]+)"`)
+
+// ResolveUploadURLs replaces every `upload://<id>` reference in an
+// HTML fragment with a viewer-specific signed URL produced by signer.
+// Used by handlers that render bodies stored with the upload://
+// placeholder scheme (auto-issues with inline cid: images). signer
+// returning "" for an unknown id leaves the attribute as-is so a
+// missing inline asset doesn't break the surrounding markup.
+func ResolveUploadURLs(s string, signer func(uploadID string) string) string {
+	if s == "" || signer == nil {
+		return s
+	}
+	return uploadSchemeRE.ReplaceAllStringFunc(s, func(match string) string {
+		groups := uploadSchemeRE.FindStringSubmatch(match)
+		if len(groups) != 3 {
+			return match
+		}
+		signed := signer(groups[2])
+		if signed == "" {
+			return match
+		}
+		return groups[1] + `="` + signed + `"`
+	})
+}
+
 // userMarkdownLinkRE matches `[label](href)` — the first capture avoids the
 // image form `![…](…)` (Go regex has no lookbehind).
 var userMarkdownLinkRE = regexp.MustCompile(`(^|[^!\\])\[([^\]]+)\]\(([^)]+)\)`)

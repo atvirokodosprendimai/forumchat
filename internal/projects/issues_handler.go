@@ -453,6 +453,7 @@ func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 	id, _ := h.callerIdentity(r)
 	isAdmin := id.Role == auth.RoleAdmin
 	view := toIssueView(i, id, isAdmin)
+	view.BodyHTML = h.resolveUploadURLs(r, view.BodyHTML, id)
 
 	comments, err := h.Repo.ListIssueComments(r.Context(), iid)
 	if err != nil {
@@ -466,6 +467,19 @@ func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 	bodyAtts, commentAtts := splitIssueAttachments(atts)
 	_ = webtempl.ProjectIssuePage(data, view, commentViews,
 		h.attachmentURLs(r, bodyAtts), commentAttachmentURLs(r, commentAtts, h)).Render(r.Context(), w)
+}
+
+// resolveUploadURLs replaces upload://<id> placeholder URLs in an HTML
+// fragment with viewer-scoped signed URLs. Used to render auto-issue
+// bodies that came from emails with inline cid: images.
+func (h *Handler) resolveUploadURLs(r *http.Request, htmlIn string, id Identity) string {
+	viewerID := id.UserID
+	if viewerID == "" {
+		viewerID = "guest:" + id.GuestID
+	}
+	return render.ResolveUploadURLs(htmlIn, func(uploadID string) string {
+		return h.Uploads.SignedURL(uploadID, viewerID, 24*time.Hour)
+	})
 }
 
 func toIssueCommentViews(cs []IssueComment, viewer Identity, viewerIsAdmin bool, grace time.Duration) []webtempl.ProjectIssueCommentView {

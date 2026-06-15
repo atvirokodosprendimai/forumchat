@@ -189,26 +189,27 @@ type AutoCreateIssueInput struct {
 // AddIssueAttachment so the email's attachments land inline next to
 // the auto-created issue. Caller provides decoded bytes (after
 // decodeAttachmentBytes) and the original Content-Type + filename.
-func (s *Service) AttachToIssue(ctx context.Context, issueID, communityID, mime, filename string, body []byte) error {
+func (s *Service) AttachToIssue(ctx context.Context, issueID, communityID, mime, filename string, body []byte) (string, error) {
 	if s.Projects == nil {
-		return errors.New("mailbox: attach-to-issue requires projects service")
+		return "", errors.New("mailbox: attach-to-issue requires projects service")
 	}
 	issue, err := s.Projs.IssueByID(ctx, issueID)
 	if err != nil {
-		return fmt.Errorf("issue lookup: %w", err)
+		return "", fmt.Errorf("issue lookup: %w", err)
 	}
 	creatorID, err := s.resolveCreator(ctx, communityID)
 	if err != nil {
-		return fmt.Errorf("resolve creator: %w", err)
+		return "", fmt.Errorf("resolve creator: %w", err)
 	}
-	if _, err := s.Projects.AddIssueAttachment(ctx,
+	att, err := s.Projects.AddIssueAttachment(ctx,
 		issue.ProjectID, issueID, "", communityID, mime, filename,
 		bytes.NewReader(body),
 		projects.Identity{UserID: creatorID, Name: "Mailbox"},
-	); err != nil {
-		return fmt.Errorf("add issue attachment: %w", err)
+	)
+	if err != nil {
+		return "", fmt.Errorf("add issue attachment: %w", err)
 	}
-	return nil
+	return att.UploadID, nil
 }
 
 // AutoCreateIssue creates a project_issue from a matched email when
@@ -306,23 +307,12 @@ func (s *Service) RefetchIssueFromEmail(ctx context.Context, issueID string) (Re
 		return res, fmt.Errorf("fetch envelope+body: %w", err)
 	}
 
-	// Body refresh.
-	body := ExtractIssueBody(text, html)
-	bodyHTML, mdErr := render.RenderMarkdown(body)
-	if mdErr != nil {
-		return res, fmt.Errorf("render md: %w", mdErr)
-	}
-	if err := s.Projs.UpdateIssueBody(ctx, issueID, body, bodyHTML, time.Now().UTC()); err != nil {
-		return res, fmt.Errorf("update issue body: %w", err)
-	}
-	res.BodyUpdated = true
-
 	// Dedup against existing attachments by SHA256.
-	existingSHA := map[string]struct{}{}
+	existingSHA := map[string]string{}
 	if existing, err := s.Projs.ListIssueAttachments(ctx, issueID); err == nil {
 		for _, a := range existing {
 			if u, err := s.Projects.Uploads.Get(ctx, a.UploadID); err == nil {
-				existingSHA[u.SHA256] = struct{}{}
+				existingSHA[u.SHA256] = a.UploadID
 			}
 		}
 	}
@@ -332,6 +322,9 @@ func (s *Service) RefetchIssueFromEmail(ctx context.Context, issueID string) (Re
 		return res, fmt.Errorf("resolve creator: %w", err)
 	}
 
+	// Save attachments first so the body rewriter has a destination
+	// upload ID for every cid: reference. Build the cid -> upload map.
+	cidToUpload := map[string]string{}
 	for _, p := range env.Attachments {
 		raw, err := c.fetchPartPath(ing.UID, parsePartPath(p.MIMEPartID))
 		if err != nil {
@@ -340,20 +333,62 @@ func (s *Service) RefetchIssueFromEmail(ctx context.Context, issueID string) (Re
 		decoded := decodeAttachmentBytes(raw, p.Encoding)
 		sum := sha256.Sum256(decoded)
 		hex := fmt.Sprintf("%x", sum[:])
-		if _, dup := existingSHA[hex]; dup {
+		if uid, dup := existingSHA[hex]; dup {
+			if p.ContentID != "" {
+				cidToUpload[p.ContentID] = uid
+			}
 			continue
 		}
-		if _, err := s.Projects.AddIssueAttachment(ctx,
+		att, err := s.Projects.AddIssueAttachment(ctx,
 			issue.ProjectID, issueID, "", proj.CommunityID, p.MIME, p.Filename,
 			bytes.NewReader(decoded),
 			projects.Identity{UserID: creatorID, Name: "Mailbox"},
-		); err != nil {
+		)
+		if err != nil {
 			continue
 		}
-		existingSHA[hex] = struct{}{}
+		existingSHA[hex] = att.UploadID
+		if p.ContentID != "" {
+			cidToUpload[p.ContentID] = att.UploadID
+		}
 		res.AttachmentsAdded++
 	}
+
+	// Body refresh (with cid: rewrite if any inline parts).
+	body := ExtractIssueBody(text, html)
+	body = RewriteCIDImages(body, cidToUpload)
+	bodyHTML, mdErr := render.RenderMarkdown(body)
+	if mdErr != nil {
+		return res, fmt.Errorf("render md: %w", mdErr)
+	}
+	if err := s.Projs.UpdateIssueBody(ctx, issueID, body, bodyHTML, time.Now().UTC()); err != nil {
+		return res, fmt.Errorf("update issue body: %w", err)
+	}
+	res.BodyUpdated = true
 	return res, nil
+}
+
+// RewriteIssueBodyCIDs reads the current issue body, rewrites every
+// `cid:<contentID>` reference to point at the uploaded copy via the
+// `upload://<uploadID>` placeholder scheme, re-renders the HTML, and
+// persists. Used by the poll auto-issue path after attachments save.
+func (s *Service) RewriteIssueBodyCIDs(ctx context.Context, issueID string, cidToUpload map[string]string) error {
+	if len(cidToUpload) == 0 {
+		return nil
+	}
+	issue, err := s.Projs.IssueByID(ctx, issueID)
+	if err != nil {
+		return err
+	}
+	newBody := RewriteCIDImages(issue.BodyMD, cidToUpload)
+	if newBody == issue.BodyMD {
+		return nil
+	}
+	html, err := render.RenderMarkdown(newBody)
+	if err != nil {
+		return err
+	}
+	return s.Projs.UpdateIssueBody(ctx, issueID, newBody, html, time.Now().UTC())
 }
 
 // ApplyFilterToPast retro-applies a filter to past email_ingest rows:

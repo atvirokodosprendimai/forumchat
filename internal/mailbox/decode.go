@@ -140,6 +140,36 @@ func isMostlyText(b []byte) bool {
 	return true
 }
 
+// RewriteCIDImages replaces every `cid:<contentID>` reference in body
+// with a markdown image pointing at the corresponding uploaded copy.
+// Resolved as `![inline](upload://<uploadID>)`; the view-time helper
+// `render.ResolveUploadURLs` converts the upload:// scheme to a signed
+// download URL per viewer. References whose contentID has no entry in
+// cidToUpload are left alone so a missing inline asset doesn't break
+// the body text outright.
+func RewriteCIDImages(body string, cidToUpload map[string]string) string {
+	if len(cidToUpload) == 0 || body == "" {
+		return body
+	}
+	for cid, uploadID := range cidToUpload {
+		// HTML's <img src="cid:X">, Markdown literal `cid:X`, plus the
+		// `[cid:X]` form html2text produces from `<img alt="" src="cid:X">`.
+		// Replace each in turn — order doesn't matter, all variants land
+		// on the same upload:// destination.
+		repl := "![inline](upload://" + uploadID + ")"
+		variants := []string{
+			"[cid:" + cid + "]",
+			"<cid:" + cid + ">",
+			"(cid:" + cid + ")",
+			"cid:" + cid,
+		}
+		for _, v := range variants {
+			body = strings.ReplaceAll(body, v, repl)
+		}
+	}
+	return body
+}
+
 // looksLikeBase64 cheaply checks whether the byte stream is plausible
 // base64: every non-whitespace byte must be from the alphabet, with at
 // least one block-worth of payload. Avoids decoding plaintext SVGs
