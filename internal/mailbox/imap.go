@@ -144,29 +144,22 @@ type ParsedPart struct {
 }
 
 // fetchEnvelopesSince fetches messages with UID strictly greater than
-// since across the currently-examined mailbox. Each returned envelope
-// carries attachment metadata + a best-effort text body — both
-// requested in a SINGLE round-trip so a 1000-message backlog doesn't
-// take 1000 seconds to ingest.
-//
-// The body is requested as BODY.PEEK[1] which IMAP treats as "the
-// first MIME part". For multipart/alternative + multipart/mixed mails
-// this is overwhelmingly text/plain; for singlepart text mails it's
-// the whole body; for HTML-only mails it's the HTML which we still
-// store but search will weight less precisely. Trade-off accepted in
-// exchange for not paying N round-trip latencies.
+// since across the currently-examined mailbox. Envelope + BODYSTRUCTURE
+// only — body fetching turned out to be too fragile when bundled in
+// (some Gmail messages return errors that abort the entire batch).
+// body_text is left empty here; a background backfill (TODO) can
+// populate it later, OR Phase 7 auto-issue path still uses per-UID
+// fetchEnvelopeWithBody which is fine for the rare to_issue flow.
 func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error) {
 	if since == ^uint32(0) {
 		return nil, errors.New("imap: refusing to fetch with overflow since value")
 	}
 	set := imap.UIDSet{imap.UIDRange{Start: imap.UID(since + 1), Stop: 0}}
-	textSection := &imap.FetchItemBodySection{Peek: true, Part: []int{1}}
 	cmd := i.c.Fetch(set, &imap.FetchOptions{
 		UID:           true,
 		Envelope:      true,
 		InternalDate:  true,
 		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
-		BodySection:   []*imap.FetchItemBodySection{textSection},
 	})
 	out := []FetchedEnvelope{}
 	for {
@@ -178,11 +171,7 @@ func (i *imapClient) fetchEnvelopesSince(since uint32) ([]FetchedEnvelope, error
 		if err != nil {
 			return nil, fmt.Errorf("imap fetch envelope: %w", err)
 		}
-		env := envelopeFromBuffer(buf)
-		if body := buf.FindBodySection(textSection); body != nil {
-			env.TextBody = string(body)
-		}
-		out = append(out, env)
+		out = append(out, envelopeFromBuffer(buf))
 	}
 	if err := cmd.Close(); err != nil {
 		return nil, fmt.Errorf("imap fetch close: %w", err)
