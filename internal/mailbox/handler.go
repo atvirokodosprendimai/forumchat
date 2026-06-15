@@ -91,7 +91,7 @@ func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projsByCommunity, err := h.loadProjectsForViews(r.Context(), views)
+	projsByCommunity, err := h.loadProjectsForViews(r.Context(), adminCIDs)
 	if err != nil {
 		h.Log.Error("mailbox: load projects", "err", err)
 		http.Error(w, "internal", http.StatusInternalServerError)
@@ -108,21 +108,16 @@ func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
 	_ = webtempl.InboxPage(page).Render(r.Context(), w)
 }
 
-// loadProjectsForViews fetches active project options for every
-// community represented in the page. One query per community is fine
-// at our row cap.
-func (h *Handler) loadProjectsForViews(ctx context.Context, views []QueuedEmailView) (projectOptionsByCommunity, error) {
+// loadProjectsForViews fetches active project options for every admin
+// community the viewer can route into, so unassigned rows can pick
+// across communities. One query per community is fine at our row cap.
+func (h *Handler) loadProjectsForViews(ctx context.Context, adminCIDs []string) (projectOptionsByCommunity, error) {
 	if h.Svc == nil || h.Svc.Projs == nil {
 		return projectOptionsByCommunity{}, nil
 	}
-	seen := map[string]struct{}{}
 	out := projectOptionsByCommunity{}
-	for _, v := range views {
-		if _, dup := seen[v.CommunityID]; dup {
-			continue
-		}
-		seen[v.CommunityID] = struct{}{}
-		rows, err := h.Svc.Projs.ListActiveForCommunity(ctx, v.CommunityID)
+	for _, cid := range adminCIDs {
+		rows, err := h.Svc.Projs.ListActiveForCommunity(ctx, cid)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +125,7 @@ func (h *Handler) loadProjectsForViews(ctx context.Context, views []QueuedEmailV
 		for i, r := range rows {
 			opts[i] = webtempl.InboxProjectOption{ID: r.ID, Title: r.Title}
 		}
-		out[v.CommunityID] = opts
+		out[cid] = opts
 	}
 	return out, nil
 }
@@ -187,14 +182,24 @@ func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill, projects pro
 				IsMaterialised: a.IsMaterialised,
 			}
 		}
-		// Unassigned (NULL community_id) rows still render the per-attachment
-		// Move dropdown — but the option list aggregates across every
-		// community the viewer is admin in so the user picks both project
-		// AND community by clicking the project they want.
-		projectOpts := projects[r.CommunityID]
-		if r.CommunityID == "" {
-			for cid := range projects {
-				projectOpts = append(projectOpts, projects[cid]...)
+		// Move target groups: matched rows get one group (their own
+		// community); unassigned rows get one group per admin community
+		// the viewer can route into. The Move handler resolves the
+		// destination community from the chosen project's community_id.
+		var groups []webtempl.InboxProjectGroup
+		if r.CommunityID != "" {
+			groups = append(groups, webtempl.InboxProjectGroup{
+				CommunityID:   r.CommunityID,
+				CommunityName: pillByID[r.CommunityID].Name,
+				Projects:      projects[r.CommunityID],
+			})
+		} else {
+			for _, p := range pills {
+				groups = append(groups, webtempl.InboxProjectGroup{
+					CommunityID:   p.ID,
+					CommunityName: p.Name,
+					Projects:      projects[p.ID],
+				})
 			}
 		}
 		out[i] = webtempl.InboxRow{
@@ -208,7 +213,7 @@ func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill, projects pro
 			ReceivedAtUnix:  r.ReceivedAt.Unix(),
 			AttachmentCount: len(atts),
 			Attachments:     atts,
-			Projects:        projectOpts,
+			ProjectGroups:   groups,
 		}
 	}
 	return out
@@ -295,7 +300,7 @@ func (h *Handler) GetMore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projsByCommunity, err := h.loadProjectsForViews(r.Context(), views)
+	projsByCommunity, err := h.loadProjectsForViews(r.Context(), adminCIDs)
 	if err != nil {
 		h.Log.Error("mailbox: GetMore projects", "err", err)
 		http.Error(w, "internal", http.StatusInternalServerError)
@@ -404,7 +409,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		projsByCommunity, err := h.loadProjectsForViews(r.Context(), views)
+		projsByCommunity, err := h.loadProjectsForViews(r.Context(), adminCIDs)
 		if err != nil {
 			return err
 		}
@@ -544,14 +549,21 @@ func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authorisation: viewer must be admin in the attachment's community.
+	// Authorisation: viewer must be admin-of-any-community when the
+	// ingest is unassigned, otherwise admin in the ingest's community.
+	// The chosen project's community is later checked inside Materialise
+	// so the rest of the flow still validates cross-community moves.
 	look, err := h.Repo.AttachmentByID(r.Context(), attID)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
-	if err != nil || !contains(adminCIDs, look.Ingest.CommunityID) {
+	if err != nil || len(adminCIDs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	if look.Ingest.CommunityID != "" && !contains(adminCIDs, look.Ingest.CommunityID) {
 		http.NotFound(w, r)
 		return
 	}
@@ -617,7 +629,7 @@ func (h *Handler) PostSearch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal", http.StatusInternalServerError)
 		return
 	}
-	projs, err := h.loadProjectsForViews(r.Context(), views)
+	projs, err := h.loadProjectsForViews(r.Context(), adminCIDs)
 	if err != nil {
 		http.Error(w, "internal", http.StatusInternalServerError)
 		return

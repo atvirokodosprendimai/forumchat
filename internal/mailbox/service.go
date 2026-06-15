@@ -82,7 +82,9 @@ func (s *Service) Materialise(ctx context.Context, in MaterialiseInput) (Materia
 	if err != nil {
 		return MaterialiseResult{}, fmt.Errorf("project lookup: %w", err)
 	}
-	if proj.CommunityID != look.Ingest.CommunityID {
+	// Matched ingest must move into its own community. Unassigned
+	// ingests adopt the chosen project's community on materialise.
+	if look.Ingest.CommunityID != "" && proj.CommunityID != look.Ingest.CommunityID {
 		return MaterialiseResult{}, errors.New("mailbox: project belongs to a different community")
 	}
 
@@ -106,6 +108,14 @@ func (s *Service) Materialise(ctx context.Context, in MaterialiseInput) (Materia
 
 	if err := s.Repo.MarkAttachmentMoved(ctx, in.AttachmentID, att.UploadID, proj.ID, in.Category); err != nil {
 		return MaterialiseResult{}, fmt.Errorf("mark moved: %w", err)
+	}
+
+	// Unassigned ingest just got a community-of-record — record it so
+	// the row leaves Unassigned and lands in the project's community.
+	if look.Ingest.CommunityID == "" {
+		if err := s.Repo.AssignIngestCommunity(ctx, look.Attachment.IngestID, proj.CommunityID); err != nil {
+			return MaterialiseResult{}, fmt.Errorf("assign ingest community: %w", err)
+		}
 	}
 
 	became, err := s.Repo.MarkIngestConsumedIfAllMoved(ctx, look.Attachment.IngestID)

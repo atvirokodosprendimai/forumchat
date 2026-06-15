@@ -30,6 +30,16 @@ type InboxProjectOption struct {
 	Title string
 }
 
+// InboxProjectGroup is one optgroup in the Move-to-project dropdown:
+// a community label with the projects nested under it. For matched
+// rows there's exactly one group; for unassigned rows there's one per
+// admin community the viewer can route into.
+type InboxProjectGroup struct {
+	CommunityID   string
+	CommunityName string
+	Projects      []InboxProjectOption
+}
+
 // InboxRow is one email_ingest entry rendered in the queue list.
 type InboxRow struct {
 	ID              string
@@ -42,7 +52,10 @@ type InboxRow struct {
 	ReceivedAtUnix  int64
 	AttachmentCount int
 	Attachments     []InboxAttachment
-	Projects        []InboxProjectOption
+	// ProjectGroups powers the Move-to-project optgroup'd select. One
+	// group per community the row's destination can be in (single
+	// element for matched rows, all admin communities for unassigned).
+	ProjectGroups []InboxProjectGroup
 }
 
 // InboxPageData is the full payload the handler hands to InboxPage.
@@ -176,7 +189,7 @@ templ inboxRow(r InboxRow) {
 						if a.IsMaterialised {
 							<span class="att-moved">moved</span>
 						} else {
-							@inboxMoveForm(r.ID, a.ID, r.Projects)
+							@inboxMoveForm(r.ID, a.ID, r.ProjectGroups)
 						}
 					</li>
 				}
@@ -193,19 +206,25 @@ func inboxAttachOpenExpr(addr string) string {
 	return "$attach_addr = '" + addr + "'; $attach_kind = 'address'; $attach_community = ''; $attach_to_issue = false; $attach_open = true"
 }
 
-// inboxMoveForm renders the per-attachment "Move to project" controls:
-// project select scoped to the row's community + free-text category +
-// Move button. The signals are namespaced by attachment id so multiple
-// open rows don't fight over the same $move_project / $move_category.
-templ inboxMoveForm(ingestID, attID string, options []InboxProjectOption) {
+// inboxMoveForm renders the per-attachment "Move to project" controls.
+// The project select is optgroup'd by community so an unassigned row's
+// admin can browse projects across communities in one place — picking
+// the project also assigns the parent email to that project's community.
+templ inboxMoveForm(ingestID, attID string, groups []InboxProjectGroup) {
 	<form class="move-form" data-on:submit__prevent={ inboxMoveSubmitExpr(attID) }>
 		<select required>
 			<option value="">project…</option>
-			for _, p := range options {
-				<option value={ p.ID }>{ p.Title }</option>
+			for _, g := range groups {
+				if len(g.Projects) > 0 {
+					<optgroup label={ g.CommunityName }>
+						for _, p := range g.Projects {
+							<option value={ p.ID }>{ p.Title }</option>
+						}
+					</optgroup>
+				}
 			}
 		</select>
-		<input type="text" placeholder="category" value="common" data-attr:name={ "move_cat_" + attID }/>
+		<input type="text" placeholder="category" value="common"/>
 		<button type="submit" class="primary">Move</button>
 	</form>
 }

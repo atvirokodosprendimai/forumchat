@@ -593,6 +593,19 @@ func (r *Repo) AttachmentByID(ctx context.Context, id string) (AttachmentLookup,
 	return out, nil
 }
 
+// AssignIngestCommunity sets community_id for an ingest row that was
+// previously NULL. Called when an unassigned attachment is materialised
+// into a project — the parent email adopts the project's community.
+func (r *Repo) AssignIngestCommunity(ctx context.Context, ingestID, communityID string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE email_ingest SET community_id = ? WHERE id = ? AND community_id IS NULL`,
+		communityID, ingestID)
+	if err != nil {
+		return fmt.Errorf("assign ingest community: %w", err)
+	}
+	return nil
+}
+
 // MarkAttachmentMoved records the materialisation result: the uploads
 // row that holds the bytes, the target project, the chosen category.
 func (r *Repo) MarkAttachmentMoved(ctx context.Context, attID, uploadID, projectID, category string) error {
@@ -697,13 +710,16 @@ func (r *Repo) SearchQueueForViewer(ctx context.Context, q QueueQuery, query str
 
 	args := []any{query}
 	where := []string{"i.status = 'queued'"}
-	if q.CommunityFilter != "" {
+	switch {
+	case q.CommunityFilter == UnassignedCommunityID:
+		where = append(where, "i.community_id IS NULL")
+	case q.CommunityFilter != "":
 		where = append(where, "i.community_id = ?")
 		args = append(args, q.CommunityFilter)
-	} else {
+	default:
 		placeholders := strings.Repeat("?,", len(q.AdminCommunityIDs))
 		placeholders = placeholders[:len(placeholders)-1]
-		where = append(where, "i.community_id IN ("+placeholders+")")
+		where = append(where, "(i.community_id IS NULL OR i.community_id IN ("+placeholders+"))")
 		for _, cid := range q.AdminCommunityIDs {
 			args = append(args, cid)
 		}
@@ -727,11 +743,15 @@ func (r *Repo) SearchQueueForViewer(ctx context.Context, q QueueQuery, query str
 	out := []QueuedEmailView{}
 	for rows.Next() {
 		var v QueuedEmailView
+		var communityID sql.NullString
 		var received int64
 		var status string
-		if err := rows.Scan(&v.ID, &v.CommunityID, &v.FromAddr, &v.FromName, &v.Subject,
+		if err := rows.Scan(&v.ID, &communityID, &v.FromAddr, &v.FromName, &v.Subject,
 			&received, &status); err != nil {
 			return nil, err
+		}
+		if communityID.Valid {
+			v.CommunityID = communityID.String
 		}
 		v.ReceivedAt = time.UnixMilli(received).UTC()
 		v.Status = IngestStatus(status)
