@@ -278,6 +278,51 @@ func (r *Repo) ResetAllFolderCursors(ctx context.Context, accountID string) (int
 	return n, nil
 }
 
+// IngestBodyRow is what the one-shot decode-bodies CLI iterates over —
+// just id + body_text, no full ingest struct.
+type IngestBodyRow struct {
+	ID       string
+	BodyText string
+}
+
+// AllIngestBodies streams every email_ingest id+body_text. Used by the
+// repair pass that fixes rows ingested before the transfer-encoding
+// decode was wired up.
+func (r *Repo) AllIngestBodies(ctx context.Context) ([]IngestBodyRow, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT id, body_text FROM email_ingest`)
+	if err != nil {
+		return nil, fmt.Errorf("list ingest bodies: %w", err)
+	}
+	defer rows.Close()
+	out := []IngestBodyRow{}
+	for rows.Next() {
+		var row IngestBodyRow
+		if err := rows.Scan(&row.ID, &row.BodyText); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// UpdateIngestBody overwrites body_text + the FTS index for one row.
+func (r *Repo) UpdateIngestBody(ctx context.Context, id, body string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE email_ingest SET body_text = ? WHERE id = ?`, body, id); err != nil {
+		return fmt.Errorf("update ingest body: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE email_ingest_fts SET body_text = ? WHERE ingest_id = ?`, body, id); err != nil {
+		return fmt.Errorf("update fts body: %w", err)
+	}
+	return tx.Commit()
+}
+
 // PruneSkippedFolderIngest hard-deletes email_ingest rows (and their
 // FTS / attachment rows via CASCADE + manual FTS) that came from
 // folders matching looksLikeSentOrTrash. Used to clean up rows that

@@ -13,6 +13,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 )
 
@@ -264,7 +265,7 @@ func run() error {
 	case "mailbox":
 		if len(os.Args) < 3 {
 			usage()
-			return errors.New("usage: mailbox <rescan|wipe|prune-skipped|reprocess-filter|apply-filter>")
+			return errors.New("usage: mailbox <rescan|wipe|prune-skipped|reprocess-filter|apply-filter|decode-bodies>")
 		}
 		mRepo := mailbox.NewRepo(db)
 		acc, err := mRepo.EnsureAccount(ctx, mailbox.AccountConfig{
@@ -290,6 +291,47 @@ func run() error {
 				return err
 			}
 			fmt.Printf("wiped %d ingest rows + reset folder cursors — full cold start\n", n)
+		case "decode-bodies":
+			ingestRows, err := mRepo.AllIngestBodies(ctx)
+			if err != nil {
+				return err
+			}
+			fixedIngests := 0
+			for _, row := range ingestRows {
+				decoded, ok := mailbox.TryDecodeBase64Text(row.BodyText)
+				if !ok {
+					continue
+				}
+				if err := mRepo.UpdateIngestBody(ctx, row.ID, decoded); err != nil {
+					fmt.Fprintf(os.Stderr, "ingest %s: %v\n", row.ID, err)
+					continue
+				}
+				fixedIngests++
+			}
+			projsRepo := projects.NewRepo(db)
+			issueRows, err := projsRepo.AllIssueBodies(ctx)
+			if err != nil {
+				return err
+			}
+			fixedIssues := 0
+			now := time.Now().UTC()
+			for _, row := range issueRows {
+				decoded, ok := mailbox.TryDecodeBase64Text(row.BodyMD)
+				if !ok {
+					continue
+				}
+				html, err := render.RenderMarkdown(decoded)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "issue %s: render: %v\n", row.ID, err)
+					continue
+				}
+				if err := projsRepo.UpdateIssueBody(ctx, row.ID, decoded, html, now); err != nil {
+					fmt.Fprintf(os.Stderr, "issue %s: %v\n", row.ID, err)
+					continue
+				}
+				fixedIssues++
+			}
+			fmt.Printf("decoded %d ingest bodies + %d issue bodies\n", fixedIngests, fixedIssues)
 		case "prune-skipped":
 			names, n, err := mRepo.PruneSkippedFolderIngest(ctx, acc.ID)
 			if err != nil {

@@ -229,6 +229,32 @@ func (r *Repo) CountIssuesUpdatedAfter(ctx context.Context, communityIDs []strin
 	return n, nil
 }
 
+// IssueBodyRow is the row shape the one-shot decode-bodies CLI walks.
+type IssueBodyRow struct {
+	ID     string
+	BodyMD string
+}
+
+// AllIssueBodies streams every project_issues id+body_md. Used by the
+// repair pass that fixes issues auto-created from base64-encoded
+// email_ingest rows.
+func (r *Repo) AllIssueBodies(ctx context.Context) ([]IssueBodyRow, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT id, body_md FROM project_issues`)
+	if err != nil {
+		return nil, fmt.Errorf("list issue bodies: %w", err)
+	}
+	defer rows.Close()
+	out := []IssueBodyRow{}
+	for rows.Next() {
+		var row IssueBodyRow
+		if err := rows.Scan(&row.ID, &row.BodyMD); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 // DeleteIssue hard-deletes; FKs cascade comments + attachments.
 func (r *Repo) DeleteIssue(ctx context.Context, id string) error {
 	_, err := r.DB.ExecContext(ctx, `DELETE FROM project_issues WHERE id = ?`, id)

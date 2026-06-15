@@ -96,6 +96,40 @@ func decodeAttachmentBytes(raw []byte, encoding string) []byte {
 	return raw
 }
 
+// TryDecodeBase64Text attempts to decode a body string that LOOKS like
+// base64-wrapped UTF-8 text. Returns (decoded, true) on success, or
+// (original, false) when the input isn't base64 or decoding produces
+// non-text bytes. Used by the one-shot CLI repair pass that fixes
+// rows ingested before the transfer-encoding decode was wired up.
+func TryDecodeBase64Text(body string) (string, bool) {
+	raw := []byte(body)
+	if !looksLikeBase64(raw) {
+		return body, false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(string(stripWhitespace(raw)))
+	if err != nil || len(decoded) == 0 {
+		return body, false
+	}
+	// Reject decodes that produced binary garbage — body_text is always
+	// UTF-8 text; a binary result means our base64 detection was wrong.
+	if !isMostlyText(decoded) {
+		return body, false
+	}
+	return string(decoded), true
+}
+
+// isMostlyText returns true when the byte slice looks like UTF-8 text
+// (no NULs, mostly printable). A few control bytes are allowed for
+// tab / newline / carriage return.
+func isMostlyText(b []byte) bool {
+	for _, c := range b {
+		if c == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // looksLikeBase64 cheaply checks whether the byte stream is plausible
 // base64: every non-whitespace byte must be from the alphabet, with at
 // least one block-worth of payload. Avoids decoding plaintext SVGs
