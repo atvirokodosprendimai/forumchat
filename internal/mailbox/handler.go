@@ -619,22 +619,45 @@ func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.Svc.Materialise(r.Context(), MaterialiseInput{
-		AttachmentID: attID,
-		ProjectID:    in.ProjectID,
-		Category:     strings.TrimSpace(in.Category),
-		MoverID:      id.User.ID,
-	})
-	if err != nil {
-		h.Log.Error("mailbox: Materialise", "err", err, "att", attID, "project", in.ProjectID)
-		writeToast(w, r, "Move failed: "+err.Error())
-		return
-	}
-	h.broadcast(r.Context(), res.CommunityID)
+	// Materialise can block for tens of seconds on large attachments
+	// (IMAP BODY.PEEK over Gmail at ~500 KB/s). Holding the HTTP
+	// request open trips reverse-proxy timeouts → 502. Spawn the
+	// work in a goroutine, broadcast on success so the open inbox
+	// SSE picks the change up, and return an immediate "queued"
+	// toast to the user.
+	in.Category = strings.TrimSpace(in.Category)
+	moverID := id.User.ID
+	attachID := attID
+	projectID := in.ProjectID
+	category := in.Category
+	go func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		res, err := h.Svc.Materialise(bgCtx, MaterialiseInput{
+			AttachmentID: attachID,
+			ProjectID:    projectID,
+			Category:     category,
+			MoverID:      moverID,
+		})
+		if err != nil {
+			h.Log.Error("mailbox: Materialise (async)", "err", err, "att", attachID, "project", projectID)
+			// Broadcast a generic mailbox event so the inbox SSE refreshes
+			// (the row still says "queued" until the next poll cycle
+			// surfaces success).
+			if look.Ingest.CommunityID != "" {
+				h.broadcast(context.Background(), look.Ingest.CommunityID)
+			} else {
+				h.broadcast(context.Background(), UnassignedCommunityID)
+			}
+			return
+		}
+		h.Log.Info("mailbox: Materialise complete", "att", attachID, "project", projectID)
+		h.broadcast(context.Background(), res.CommunityID)
+	}()
 
-	// Clear the form + flash success + nudge the user to the project.
+	// Clear the form + flash queued; user can keep working.
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchSignals([]byte(`{"move_project_id":"","move_category":"","toast_text":"Moved ✓"}`))
+	_ = sse.PatchSignals([]byte(`{"move_project_id":"","move_category":"","toast_text":"Move queued — file will appear in the project shortly"}`))
 }
 
 // writeToast returns a Datastar SSE that sets $toast_text. The inbox
