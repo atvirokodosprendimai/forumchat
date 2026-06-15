@@ -586,6 +586,7 @@ func run() error {
 				r.Get("/admin/mail-filters", mailboxHandler.GetCommunityFilters)
 				r.Post("/admin/mail-filters", mailboxHandler.PostCommunityFilterCreate)
 				r.Post("/admin/mail-filters/{id}/delete", mailboxHandler.PostCommunityFilterDelete)
+				r.Post("/admin/mail-filters/{id}/apply", mailboxHandler.PostCommunityFilterApply)
 			}
 		})
 	})

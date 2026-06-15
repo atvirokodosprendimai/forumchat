@@ -260,6 +260,48 @@ func (s *Service) AutoCreateIssue(ctx context.Context, in AutoCreateIssueInput) 
 	return issue.ID, nil
 }
 
+// ApplyFilterToPast retro-applies a filter to past email_ingest rows:
+// idempotent backfill of unassigned rows that now match + AutoCreateIssue
+// for every backfilled or previously-orphaned matched row when the filter
+// has to_issue=true. Use when a new community+filter is created for a
+// sender that already has historical mail sitting unassigned.
+//
+// Returns (matched, issuesCreated, error). matched counts newly tagged
+// ingest rows (rows that already had this filter aren't recounted).
+func (s *Service) ApplyFilterToPast(ctx context.Context, filterID string) (int64, int, error) {
+	f, err := s.Repo.FilterByID(ctx, filterID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("filter lookup: %w", err)
+	}
+	matched, err := s.Repo.BackfillIngestForFilter(ctx, f)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !f.ToIssue {
+		return matched, 0, nil
+	}
+	if s.Projects == nil {
+		return matched, 0, errors.New("mailbox: apply-filter with to_issue requires projects service")
+	}
+	pendings, err := s.Repo.IngestsByFilter(ctx, filterID)
+	if err != nil {
+		return matched, 0, err
+	}
+	issued := 0
+	for _, p := range pendings {
+		if _, err := s.AutoCreateIssue(ctx, AutoCreateIssueInput{
+			IngestID:    p.ID,
+			CommunityID: p.CommunityID,
+			Subject:     p.Subject,
+			TextBody:    p.BodyText,
+		}); err != nil {
+			return matched, issued, fmt.Errorf("ingest %s: %w", p.ID, err)
+		}
+		issued++
+	}
+	return matched, issued, nil
+}
+
 // resolveCreator implements the spec / plan rule: env override beats
 // the auto-fallback to the oldest community admin.
 func (s *Service) resolveCreator(ctx context.Context, communityID string) (string, error) {

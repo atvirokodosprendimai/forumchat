@@ -112,6 +112,10 @@ templ mailFilterRow(r MailFilterRow, slug string) {
 			</button>
 		</td>
 		<td>
+			<button class="ghost"
+				data-on:click={ mailFilterApplyExpr(slug, r.ID) }
+				title="Tag past unassigned mail matching this filter + auto-issue them"
+			>Apply to past</button>
 			<button class="ghost" data-on:click={ mailFilterDeleteExpr(slug, r.ID) }>Delete</button>
 		</td>
 	</tr>
@@ -119,4 +123,8 @@ templ mailFilterRow(r MailFilterRow, slug string) {
 
 func mailFilterDeleteExpr(slug, id string) string {
 	return "@post('/c/" + slug + "/admin/mail-filters/" + id + "/delete')"
+}
+
+func mailFilterApplyExpr(slug, id string) string {
+	return "@post('/c/" + slug + "/admin/mail-filters/" + id + "/apply')"
 }

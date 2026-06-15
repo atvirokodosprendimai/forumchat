@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
@@ -263,7 +264,7 @@ func run() error {
 	case "mailbox":
 		if len(os.Args) < 3 {
 			usage()
-			return errors.New("usage: mailbox <rescan|wipe>")
+			return errors.New("usage: mailbox <rescan|wipe|prune-skipped|reprocess-filter|apply-filter>")
 		}
 		mRepo := mailbox.NewRepo(db)
 		acc, err := mRepo.EnsureAccount(ctx, mailbox.AccountConfig{
@@ -289,6 +290,29 @@ func run() error {
 				return err
 			}
 			fmt.Printf("wiped %d ingest rows + reset folder cursors — full cold start\n", n)
+		case "prune-skipped":
+			names, n, err := mRepo.PruneSkippedFolderIngest(ctx, acc.ID)
+			if err != nil {
+				return err
+			}
+			if len(names) == 0 {
+				fmt.Println("nothing to prune — no Sent/Drafts/Trash/Spam/All-Mail folders found for this account")
+				break
+			}
+			fmt.Printf("pruned %d ingest rows from %d folders: %s\n", n, len(names), strings.Join(names, ", "))
+		case "apply-filter":
+			if len(os.Args) < 4 {
+				return errors.New("usage: mailbox apply-filter <filter-id>")
+			}
+			filterID := os.Args[3]
+			projsRepo := projects.NewRepo(db)
+			projsSvc := projects.NewService(projsRepo, projects.NewBus(), nil, cfg.EditGrace)
+			mboxSvc := mailbox.NewService(mRepo, mailbox.AccountConfig{}, projsSvc, projsRepo, aRepo, cfg.MailboxSystemUserID)
+			matched, issued, err := mboxSvc.ApplyFilterToPast(ctx, filterID)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("apply-filter %s: tagged %d past ingest rows, created %d issues\n", filterID, matched, issued)
 		case "reprocess-filter":
 			if len(os.Args) < 4 {
 				return errors.New("usage: mailbox reprocess-filter <filter-id>")

@@ -278,6 +278,69 @@ func (r *Repo) ResetAllFolderCursors(ctx context.Context, accountID string) (int
 	return n, nil
 }
 
+// PruneSkippedFolderIngest hard-deletes email_ingest rows (and their
+// FTS / attachment rows via CASCADE + manual FTS) that came from
+// folders matching looksLikeSentOrTrash. Used to clean up rows that
+// were ingested before the skip-folder fix landed.
+//
+// Returns the list of folder names pruned and the count of email_ingest
+// rows deleted.
+func (r *Repo) PruneSkippedFolderIngest(ctx context.Context, accountID string) ([]string, int64, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT id, name FROM mailbox_folder WHERE account_id = ?`, accountID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list folders: %w", err)
+	}
+	var skipIDs []string
+	var skipNames []string
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			rows.Close()
+			return nil, 0, err
+		}
+		if looksLikeSentOrTrash(name) {
+			skipIDs = append(skipIDs, id)
+			skipNames = append(skipNames, name)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, err
+	}
+	if len(skipIDs) == 0 {
+		return nil, 0, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(skipIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(skipIDs))
+	for i, id := range skipIDs {
+		args[i] = id
+	}
+
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("prune tx begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM email_ingest_fts
+		WHERE ingest_id IN (SELECT id FROM email_ingest WHERE folder_id IN (`+placeholders+`))`, args...); err != nil {
+		return nil, 0, fmt.Errorf("prune fts: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM email_ingest WHERE folder_id IN (`+placeholders+`)`, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("prune ingest: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return nil, 0, fmt.Errorf("prune tx commit: %w", err)
+	}
+	return skipNames, n, nil
+}
+
 // WipeIngest hard-deletes every email_ingest + email_ingest_attachment
 // + email_ingest_fts row, then resets the folder cursors so the next
 // poll cycle starts from a clean slate. Used by the cli "mailbox wipe"
@@ -486,6 +549,38 @@ func (r *Repo) InsertFilter(ctx context.Context, f Filter) (int64, error) {
 	}
 	r.InvalidateFilters()
 	return backfill, nil
+}
+
+// BackfillIngestForFilter re-runs the unassigned-row backfill for an
+// existing filter. Idempotent — only updates rows where community_id IS
+// NULL, so already-routed mail is untouched. Returns the number of
+// rows newly tagged.
+func (r *Repo) BackfillIngestForFilter(ctx context.Context, f Filter) (int64, error) {
+	switch f.Kind {
+	case FilterKindAddress:
+		res, err := r.DB.ExecContext(ctx, `
+			UPDATE email_ingest
+			SET community_id = ?, matched_filter_id = ?
+			WHERE community_id IS NULL AND from_addr = ?`,
+			f.CommunityID, f.ID, f.Pattern)
+		if err != nil {
+			return 0, fmt.Errorf("backfill ingest by address: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		return n, nil
+	case FilterKindDomain:
+		res, err := r.DB.ExecContext(ctx, `
+			UPDATE email_ingest
+			SET community_id = ?, matched_filter_id = ?
+			WHERE community_id IS NULL AND from_addr LIKE ?`,
+			f.CommunityID, f.ID, "%"+f.Pattern)
+		if err != nil {
+			return 0, fmt.Errorf("backfill ingest by domain: %w", err)
+		}
+		n, _ := res.RowsAffected()
+		return n, nil
+	}
+	return 0, nil
 }
 
 // DeleteFilter removes one filter and invalidates the cache.

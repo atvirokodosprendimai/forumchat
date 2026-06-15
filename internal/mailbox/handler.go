@@ -296,9 +296,11 @@ func (h *Handler) GetMore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad cursor", http.StatusBadRequest)
 		return
 	}
+	attachOnly := r.URL.Query().Get("attach") == "1"
 	views, next, err := h.Repo.QueueForViewer(r.Context(), QueueQuery{
 		AdminCommunityIDs: adminCIDs,
 		CommunityFilter:   communityFilter,
+		HasAttachments:    attachOnly,
 		Cursor:            cursor,
 		Limit:             100,
 	})
@@ -356,6 +358,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	attachOnly := r.URL.Query().Get("attach") == "1"
 
 	sse := render.NewSSE(w, r)
 
@@ -436,6 +439,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		views, next, err := h.Repo.QueueForViewer(r.Context(), QueueQuery{
 			AdminCommunityIDs: adminCIDs,
 			CommunityFilter:   communityFilter,
+			HasAttachments:    attachOnly,
 			Limit:             100,
 		})
 		if err != nil {
@@ -699,10 +703,12 @@ func (h *Handler) PostSearch(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	attachOnly := r.URL.Query().Get("attach") == "1"
 
 	views, err := h.Repo.SearchQueueForViewer(r.Context(), QueueQuery{
 		AdminCommunityIDs: adminCIDs,
 		CommunityFilter:   communityFilter,
+		HasAttachments:    attachOnly,
 		Limit:             100,
 	}, in.Query)
 	if err != nil {
@@ -737,6 +743,7 @@ func (h *Handler) PostSearch(w http.ResponseWriter, r *http.Request) {
 		_, next, _ := h.Repo.QueueForViewer(r.Context(), QueueQuery{
 			AdminCommunityIDs: adminCIDs,
 			CommunityFilter:   communityFilter,
+			HasAttachments:    attachOnly,
 			Limit:             100,
 		})
 		cursor = encodeCursor(next)
@@ -868,6 +875,43 @@ func (h *Handler) PostCommunityFilterDelete(w http.ResponseWriter, r *http.Reque
 		datastar.WithSelector("#mail-filters-table"),
 		datastar.WithModeOuter(),
 	)
+}
+
+// PostCommunityFilterApply retro-applies a filter to past unassigned
+// email_ingest rows + (when to_issue=true) creates Inbox issues for
+// every matched row that doesn't already have one.
+func (h *Handler) PostCommunityFilterApply(w http.ResponseWriter, r *http.Request) {
+	cm, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if h.Svc == nil {
+		http.Error(w, "service not wired", http.StatusInternalServerError)
+		return
+	}
+	fid := chi.URLParam(r, "id")
+	if fid == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	// Guard: filter must belong to this community.
+	f, err := h.Repo.FilterByID(r.Context(), fid)
+	if err != nil || f.CommunityID != cm.ID {
+		http.NotFound(w, r)
+		return
+	}
+	matched, issued, err := h.Svc.ApplyFilterToPast(r.Context(), fid)
+	if err != nil {
+		h.Log.Error("mailbox: ApplyFilterToPast", "err", err)
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchSignals([]byte(`{"toast_text":"apply failed"}`))
+		return
+	}
+	h.broadcast(r.Context(), cm.ID)
+	sse := render.NewSSE(w, r)
+	msg := fmt.Sprintf("Applied filter: tagged %d past rows, created %d issues", matched, issued)
+	_ = sse.PatchSignals([]byte(`{"toast_text":` + strconv.Quote(msg) + `}`))
 }
 
 func (h *Handler) communityViewer(id auth.Identity, slug, name string) webtempl.Viewer {
