@@ -61,28 +61,59 @@ func stripWhitespace(raw []byte) []byte {
 // uploads produced "corrupted" downloads: the file was the base64 text
 // envelope, not the actual binary.
 //
-// Falls back to raw bytes when the encoding is empty / unrecognised
-// (7bit / 8bit / binary all pass through). On decode failure we ALSO
-// return raw so the user gets SOMETHING — better an oddly-encoded
+// When encoding is empty (legacy rows ingested before migration 00025)
+// we auto-detect: if the bytes look like base64 (matches the alphabet
+// + reasonable padding) we attempt the decode. Same fallback for q-p.
+// On any decode failure we return raw — better an oddly-encoded
 // download than an empty file.
 func decodeAttachmentBytes(raw []byte, encoding string) []byte {
 	if len(raw) == 0 {
 		return raw
 	}
-	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	enc := strings.ToLower(strings.TrimSpace(encoding))
+	switch enc {
 	case "base64":
 		decoded, err := base64.StdEncoding.DecodeString(string(stripWhitespace(raw)))
-		if err != nil {
-			return raw
+		if err == nil {
+			return decoded
 		}
-		return decoded
+		return raw
 	case "quoted-printable":
 		r := quotedprintable.NewReader(bytes.NewReader(raw))
-		decoded, err := io.ReadAll(r)
-		if err != nil {
-			return raw
+		if decoded, err := io.ReadAll(r); err == nil {
+			return decoded
 		}
-		return decoded
+		return raw
+	case "":
+		// Legacy row (migration 00025 default) — try base64.
+		if looksLikeBase64(raw) {
+			if decoded, err := base64.StdEncoding.DecodeString(string(stripWhitespace(raw))); err == nil {
+				return decoded
+			}
+		}
+		return raw
 	}
 	return raw
+}
+
+// looksLikeBase64 cheaply checks whether the byte stream is plausible
+// base64: every non-whitespace byte must be from the alphabet, with at
+// least one block-worth of payload. Avoids decoding plaintext SVGs
+// that genuinely contained 7bit content (those rare cases pass through).
+func looksLikeBase64(raw []byte) bool {
+	if len(raw) < 8 {
+		return false
+	}
+	nonWS := 0
+	for _, b := range raw {
+		if b == '\r' || b == '\n' || b == ' ' || b == '\t' {
+			continue
+		}
+		if (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '+' || b == '/' || b == '=' {
+			nonWS++
+			continue
+		}
+		return false
+	}
+	return nonWS >= 8 && nonWS%4 == 0
 }
