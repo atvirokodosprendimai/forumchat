@@ -51,7 +51,8 @@ Goal: the spec's UI section reflects user intent: **global `/inbox` page** (admi
    - Cursor format: opaque base64 of `(received_at_unix_ms, id)` to dodge clock skew and ties
    - Add to Anti-enumeration Notes: viewers see only filters / ingest rows for communities they are admin in. A non-admin who guesses `?community=X` for a community they aren't admin in gets 403
    - Open decision now answered (record in spec Notes): admin-only globally; not per-community admin gate for the page entry — the page exists for any user with admin role in ANY community; rows are scoped server-side to the admin's allowed communities. Stricter "global admin only" would require a new role; not now.
-2. [ ] Commit spec refine on the same `task/spec-mailbox-imap-ingest` branch
+2. [ ] In the same spec refine, add a UX bullet: "from any inbox row, the sender chip is clickable → opens an attach-to-community popover → pick community + kind (exact / wildcard domain) → creates a `community_mail_filter` row. Subsequent matches from this sender flow into the chosen community without leaving the page."
+3. [ ] Commit spec refine on the same `task/spec-mailbox-imap-ingest` branch
    - => link spec edit commit hash here when done
 
 ### Phase 1 — Feature flag, schema, empty global inbox page — status: open
@@ -117,6 +118,7 @@ Goal: `/inbox` renders last 100 ingest rows the admin can see, with community fi
 3. [ ] `web/templ/inbox.templ` — `InboxPage` populated: pills loop, `#inbox-rows` container, each row a `<details>` with email summary in summary and attachment rows inside; `#inbox-more` carries `data-on:scrollend="@get('/inbox/more?cursor='+$next_cursor+'&community='+$inbox_community)"`
 4. [ ] `web/static/app.css` — pill style + row hover + attachment grid (minimal — match projects shell)
 5. [ ] `internal/mailbox/bus.go` — per-community Bus (map[communityID]map[chan]). Phase 3's poll loop calls `Bus.Broadcast(communityID)` after each batch finishes. `Handler.GetStream` subscribes to all communities the viewer is admin in, re-renders the first page on any signal. NATS subject `community.<cid>.mailbox`. See AGENTS.md §4.11 per-X Bus.
+6. [ ] Inline "Attach sender → community" popover. Each inbox row's sender chip carries `data-on:click="$attach_addr='<from_addr>'; $attach_open=true"`. Popover (`<dialog>` morph-pattern from rooms) contains: read-only address, kind toggle (exact / `@domain.tld`), community `<select>` (admin-of communities only), "Save" → `@post('/inbox/attach-sender')`. Backend creates the filter via the same code path as Phase 8's `PostCreateFilter`. After save: close popover, `Bus.Broadcast(communityID)`, no full reload.
 
 Verification: load `/inbox` with 250 rows in DB → see first 100 → scroll to bottom → 100 more append → scroll again → 50 more append + sentinel hides. Click a community pill → first 100 of that community only. Run poll worker, send a new email matching a filter → list morphs in within ~1s.
 
@@ -193,7 +195,7 @@ End-to-end acceptance:
 
 ## Adjustments
 
-<!-- track changes timestamped -->
+- `2606151045` — User added "click sender → attach to community" affordance after first commit. Phase 0 step 2 now covers the spec edit; Phase 5 step 6 implements it in the inbox UI; Phase 8 step 1 shares the underlying `PostCreateFilter` handler. No phase added — fits inside existing surfaces.
 
 ## Progress Log
 
