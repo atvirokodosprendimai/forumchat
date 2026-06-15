@@ -10,6 +10,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
+	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 )
 
@@ -33,6 +34,9 @@ usage:
   forumchat-cli unban <email>
   forumchat-cli approve <email>             approve a single pending membership
   forumchat-cli approve-all                 approve every pending join request in the bootstrap community
+  forumchat-cli mailbox rescan              reset every IMAP folder cursor to UID 0; next poll re-fetches everything
+  forumchat-cli mailbox wipe                delete every email_ingest + email_ingest_attachment + email_ingest_fts row
+                                            and reset folder cursors — full cold start
 `)
 }
 
@@ -248,6 +252,38 @@ func run() error {
 			n++
 		}
 		fmt.Printf("done — approved %d of %d\n", n, len(pending))
+	case "mailbox":
+		if len(os.Args) < 3 {
+			usage()
+			return errors.New("usage: mailbox <rescan|wipe>")
+		}
+		mRepo := mailbox.NewRepo(db)
+		acc, err := mRepo.EnsureAccount(ctx, mailbox.AccountConfig{
+			Host:     cfg.MailboxHost,
+			Port:     cfg.MailboxPort,
+			Username: cfg.MailboxUser,
+			Password: cfg.MailboxPass,
+			TLSMode:  cfg.MailboxTLS,
+		})
+		if err != nil {
+			return fmt.Errorf("mailbox: no account configured (%w)", err)
+		}
+		switch os.Args[2] {
+		case "rescan":
+			n, err := mRepo.ResetAllFolderCursors(ctx, acc.ID)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("reset %d folder cursors — next poll cycle will re-fetch everything\n", n)
+		case "wipe":
+			n, err := mRepo.WipeIngest(ctx, acc.ID)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("wiped %d ingest rows + reset folder cursors — full cold start\n", n)
+		default:
+			return fmt.Errorf("unknown mailbox subcommand: %s", os.Args[2])
+		}
 	default:
 		usage()
 		return fmt.Errorf("unknown command: %s", os.Args[1])

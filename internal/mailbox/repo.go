@@ -267,7 +267,7 @@ func (r *Repo) SetFolderLastUID(ctx context.Context, folderID string, lastUID ui
 
 // ResetAllFolderCursors zeroes every folder's last_uid for this account
 // so the next poll cycle re-fetches every message. Invoked on boot when
-// MAILBOX_RESCAN_ON_BOOT=true.
+// MAILBOX_RESCAN_ON_BOOT=true OR by the cli "mailbox rescan" command.
 func (r *Repo) ResetAllFolderCursors(ctx context.Context, accountID string) (int64, error) {
 	res, err := r.DB.ExecContext(ctx, `
 		UPDATE mailbox_folder SET last_uid = 0 WHERE account_id = ?`, accountID)
@@ -276,6 +276,42 @@ func (r *Repo) ResetAllFolderCursors(ctx context.Context, accountID string) (int
 	}
 	n, _ := res.RowsAffected()
 	return n, nil
+}
+
+// WipeIngest hard-deletes every email_ingest + email_ingest_attachment
+// + email_ingest_fts row, then resets the folder cursors so the next
+// poll cycle starts from a clean slate. Used by the cli "mailbox wipe"
+// command after the user has been pre-caching with no filters and
+// wants the system to re-ingest into the new filter / global pile.
+//
+// Project attachments already materialised via "Move" stay put — they
+// live in uploads + project_attachments, untouched here.
+func (r *Repo) WipeIngest(ctx context.Context, accountID string) (int64, error) {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("wipe tx begin: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var ingestCount int64
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM email_ingest`).Scan(&ingestCount); err != nil {
+		return 0, fmt.Errorf("wipe count: %w", err)
+	}
+	// FK ON DELETE CASCADE handles attachments + ingest_issue link.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM email_ingest`); err != nil {
+		return 0, fmt.Errorf("wipe email_ingest: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM email_ingest_fts`); err != nil {
+		return 0, fmt.Errorf("wipe fts: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE mailbox_folder SET last_uid = 0 WHERE account_id = ?`, accountID); err != nil {
+		return 0, fmt.Errorf("wipe folder cursors: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("wipe tx commit: %w", err)
+	}
+	return ingestCount, nil
 }
 
 func (r *Repo) folderByName(ctx context.Context, accountID, name string) (Folder, error) {
@@ -344,7 +380,7 @@ func (r *Repo) InsertIngest(ctx context.Context, in IngestInsert) (id string, is
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
 		id, in.FolderID, in.UID, in.UIDValidity, in.MessageID,
 		strings.ToLower(in.FromAddr), in.FromName, in.Subject, in.BodyText, receivedMS,
-		in.CommunityID, nullIfEmpty(in.MatchedFilterID), now,
+		nullIfEmpty(in.CommunityID), nullIfEmpty(in.MatchedFilterID), now,
 	); err != nil {
 		return "", false, fmt.Errorf("insert email_ingest: %w", err)
 	}
@@ -379,24 +415,52 @@ func nullIfEmpty(s string) any {
 
 // InsertFilter persists a new community_mail_filter row and invalidates
 // the in-memory filter cache so the next polled message sees the rule.
-func (r *Repo) InsertFilter(ctx context.Context, f Filter) error {
+// It ALSO retro-assigns any unassigned email_ingest rows whose from_addr
+// matches the new filter — so clicking "attach this sender to community X"
+// pulls the visible queued mail from that sender into the chosen community
+// instead of leaving it stuck in Unassigned.
+func (r *Repo) InsertFilter(ctx context.Context, f Filter) (int64, error) {
 	if f.ID == "" || f.CommunityID == "" || f.Pattern == "" || f.CreatedBy == "" {
-		return errors.New("mailbox: filter id/community/pattern/created_by required")
+		return 0, errors.New("mailbox: filter id/community/pattern/created_by required")
 	}
 	toIssue := 0
 	if f.ToIssue {
 		toIssue = 1
 	}
-	_, err := r.DB.ExecContext(ctx, `
+	if _, err := r.DB.ExecContext(ctx, `
 		INSERT INTO community_mail_filter
 			(id, community_id, kind, pattern, to_issue, created_by, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		f.ID, f.CommunityID, string(f.Kind), f.Pattern, toIssue, f.CreatedBy, time.Now().Unix())
-	if err != nil {
-		return fmt.Errorf("insert community_mail_filter: %w", err)
+		f.ID, f.CommunityID, string(f.Kind), f.Pattern, toIssue, f.CreatedBy, time.Now().Unix(),
+	); err != nil {
+		return 0, fmt.Errorf("insert community_mail_filter: %w", err)
+	}
+	var backfill int64
+	switch f.Kind {
+	case FilterKindAddress:
+		res, err := r.DB.ExecContext(ctx, `
+			UPDATE email_ingest
+			SET community_id = ?, matched_filter_id = ?
+			WHERE community_id IS NULL AND from_addr = ?`,
+			f.CommunityID, f.ID, f.Pattern)
+		if err != nil {
+			return 0, fmt.Errorf("backfill ingest by address: %w", err)
+		}
+		backfill, _ = res.RowsAffected()
+	case FilterKindDomain:
+		// pattern like "@example.com" — match suffix on from_addr.
+		res, err := r.DB.ExecContext(ctx, `
+			UPDATE email_ingest
+			SET community_id = ?, matched_filter_id = ?
+			WHERE community_id IS NULL AND from_addr LIKE ?`,
+			f.CommunityID, f.ID, "%"+f.Pattern)
+		if err != nil {
+			return 0, fmt.Errorf("backfill ingest by domain: %w", err)
+		}
+		backfill, _ = res.RowsAffected()
 	}
 	r.InvalidateFilters()
-	return nil
+	return backfill, nil
 }
 
 // DeleteFilter removes one filter and invalidates the cache.
@@ -708,10 +772,10 @@ type QueuedAttachmentView struct {
 }
 
 // QueueForViewer returns up to q.Limit ingest rows the viewer is allowed
-// to see — limited to communities they're admin/mod in and optionally
-// narrowed to one community pill. Phase 1 implements the query but the
-// db will be empty until Phase 3 starts persisting matches; the empty
-// slice is the expected Phase 1 result.
+// to see. Rows scope:
+//   - q.CommunityFilter == "":    union of viewer's admin communities + unassigned (NULL community_id)
+//   - q.CommunityFilter == "_unassigned": only NULL community_id (the "Unassigned" pill)
+//   - q.CommunityFilter == "<id>": one community (caller validates this is in AdminCommunityIDs)
 //
 // The next-page cursor is returned when there is more to fetch; nil
 // means the viewer has paged through the whole queue.
@@ -728,13 +792,16 @@ func (r *Repo) QueueForViewer(ctx context.Context, q QueueQuery) ([]QueuedEmailV
 		where = []string{"i.status = 'queued'"}
 	)
 
-	if q.CommunityFilter != "" {
+	switch {
+	case q.CommunityFilter == UnassignedCommunityID:
+		where = append(where, "i.community_id IS NULL")
+	case q.CommunityFilter != "":
 		where = append(where, "i.community_id = ?")
 		args = append(args, q.CommunityFilter)
-	} else {
+	default:
 		placeholders := strings.Repeat("?,", len(q.AdminCommunityIDs))
 		placeholders = placeholders[:len(placeholders)-1]
-		where = append(where, "i.community_id IN ("+placeholders+")")
+		where = append(where, "(i.community_id IS NULL OR i.community_id IN ("+placeholders+"))")
 		for _, cid := range q.AdminCommunityIDs {
 			args = append(args, cid)
 		}
@@ -764,11 +831,15 @@ func (r *Repo) QueueForViewer(ctx context.Context, q QueueQuery) ([]QueuedEmailV
 	out := []QueuedEmailView{}
 	for rows.Next() {
 		var v QueuedEmailView
+		var communityID sql.NullString
 		var received int64
 		var status string
-		if err := rows.Scan(&v.ID, &v.CommunityID, &v.FromAddr, &v.FromName, &v.Subject,
+		if err := rows.Scan(&v.ID, &communityID, &v.FromAddr, &v.FromName, &v.Subject,
 			&received, &status); err != nil {
 			return nil, nil, err
+		}
+		if communityID.Valid {
+			v.CommunityID = communityID.String
 		}
 		v.ReceivedAt = time.UnixMilli(received).UTC()
 		v.Status = IngestStatus(status)

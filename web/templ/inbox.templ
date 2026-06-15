@@ -68,6 +68,7 @@ templ InboxPage(d InboxPageData) {
 			</header>
 			<nav class="inbox-pills" aria-label="Community filter">
 				@inboxPill("", "All", d.ActiveCommunity == "")
+				@inboxPill("_unassigned", "Unassigned", d.ActiveCommunity == "_unassigned")
 				for _, p := range d.Pills {
 					@inboxPill(p.ID, p.Name, d.ActiveCommunity == p.ID)
 				}
@@ -136,6 +137,15 @@ func inboxPillHref(communityID string) templ.SafeURL {
 	return templ.SafeURL("/inbox?community=" + communityID)
 }
 
+// inboxCommunityLabel renders the per-row badge. Unassigned mail
+// shows a distinct label so it doesn't look like a community.
+func inboxCommunityLabel(name string) string {
+	if name == "" {
+		return "Unassigned"
+	}
+	return name
+}
+
 templ inboxRow(r InboxRow) {
 	<article id={ "ingest-" + r.ID } class="inbox-row">
 		<header class="inbox-row-head">
@@ -151,7 +161,7 @@ templ inboxRow(r InboxRow) {
 					<strong>{ r.FromAddr }</strong>
 				}
 			</button>
-			<span class="community-badge">{ r.CommunityName }</span>
+			<span class="community-badge">{ inboxCommunityLabel(r.CommunityName) }</span>
 			<time datetime={ time.Unix(r.ReceivedAtUnix, 0).UTC().Format(time.RFC3339) }>
 				{ time.Unix(r.ReceivedAtUnix, 0).UTC().Format("2006-01-02 15:04") }
 			</time>

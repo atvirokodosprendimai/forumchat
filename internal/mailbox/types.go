@@ -105,14 +105,20 @@ type QueueCursor struct {
 	ID               string
 }
 
+// UnassignedCommunityID is the sentinel value passed in
+// QueueQuery.CommunityFilter to view the unfiltered (NULL community_id)
+// pile. Picked to be invalid as a real uuid so it can't collide.
+const UnassignedCommunityID = "_unassigned"
+
 // QueueQuery is the read-model input for /inbox and /inbox/more.
 type QueueQuery struct {
 	// AdminCommunityIDs is the viewer's admin/mod community set. The
 	// caller is responsible for populating this from auth.Repo so the
 	// repo only handles SQL.
 	AdminCommunityIDs []string
-	// CommunityFilter, when non-empty, narrows to one community. Caller
-	// validates that this id is in AdminCommunityIDs (else 404 the request).
+	// CommunityFilter, when non-empty, narrows to one community. The
+	// sentinel UnassignedCommunityID narrows to NULL community_id rows.
+	// Empty string = union of admin communities + unassigned.
 	CommunityFilter string
 	// Cursor is the opaque pagination token. Nil for the first page.
 	Cursor *QueueCursor

@@ -60,7 +60,7 @@ func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
-	if communityFilter != "" && !contains(adminCIDs, communityFilter) {
+	if communityFilter != "" && communityFilter != UnassignedCommunityID && !contains(adminCIDs, communityFilter) {
 		// Don't leak the existence of a community the viewer is not admin in.
 		http.NotFound(w, r)
 		return
@@ -187,6 +187,16 @@ func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill, projects pro
 				IsMaterialised: a.IsMaterialised,
 			}
 		}
+		// Unassigned (NULL community_id) rows still render the per-attachment
+		// Move dropdown — but the option list aggregates across every
+		// community the viewer is admin in so the user picks both project
+		// AND community by clicking the project they want.
+		projectOpts := projects[r.CommunityID]
+		if r.CommunityID == "" {
+			for cid := range projects {
+				projectOpts = append(projectOpts, projects[cid]...)
+			}
+		}
 		out[i] = webtempl.InboxRow{
 			ID:              r.ID,
 			CommunityID:     r.CommunityID,
@@ -198,7 +208,7 @@ func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill, projects pro
 			ReceivedAtUnix:  r.ReceivedAt.Unix(),
 			AttachmentCount: len(atts),
 			Attachments:     atts,
-			Projects:        projects[r.CommunityID],
+			Projects:        projectOpts,
 		}
 	}
 	return out
@@ -258,7 +268,7 @@ func (h *Handler) GetMore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
-	if communityFilter != "" && !contains(adminCIDs, communityFilter) {
+	if communityFilter != "" && communityFilter != UnassignedCommunityID && !contains(adminCIDs, communityFilter) {
 		http.NotFound(w, r)
 		return
 	}
@@ -323,7 +333,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
-	if communityFilter != "" && !contains(adminCIDs, communityFilter) {
+	if communityFilter != "" && communityFilter != UnassignedCommunityID && !contains(adminCIDs, communityFilter) {
 		http.NotFound(w, r)
 		return
 	}
@@ -333,9 +343,11 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	// Per-community subscription. The Bus internals demand one ch per id,
 	// so we multiplex inside this handler by spawning a tiny goroutine
 	// that forwards every community channel into a shared `wake` chan.
+	// Subscribe to the viewer's admin communities AND the unassigned
+	// channel so newly-arriving unfiltered mail wakes the page too.
 	wake := make(chan struct{}, 1)
 	var unsubs []func()
-	for _, cid := range adminCIDs {
+	subscribeBus := func(cid string) {
 		ch, unsub := h.Bus.Subscribe(cid)
 		unsubs = append(unsubs, unsub)
 		go func(in <-chan struct{}) {
@@ -347,6 +359,10 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}(ch)
 	}
+	for _, cid := range adminCIDs {
+		subscribeBus(cid)
+	}
+	subscribeBus(UnassignedCommunityID)
 	defer func() {
 		for _, u := range unsubs {
 			u()
@@ -466,19 +482,25 @@ func (h *Handler) PostAttachSender(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.Repo.InsertFilter(r.Context(), Filter{
+	backfilled, err := h.Repo.InsertFilter(r.Context(), Filter{
 		ID:          uuid.NewString(),
 		CommunityID: in.CommunityID,
 		Kind:        kind,
 		Pattern:     pattern,
 		ToIssue:     in.ToIssue,
 		CreatedBy:   id.User.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		h.Log.Error("mailbox: InsertFilter", "err", err)
 		http.Error(w, "internal", http.StatusInternalServerError)
 		return
 	}
+	h.Log.Info("mailbox: filter attached from inbox popover",
+		"community", in.CommunityID, "kind", kind, "pattern", pattern, "backfilled", backfilled)
+	// Backfill moved rows out of Unassigned + into the chosen community;
+	// broadcast both so both views refresh.
 	h.broadcast(r.Context(), in.CommunityID)
+	h.broadcast(r.Context(), UnassignedCommunityID)
 
 	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals([]byte(`{"attach_open":false,"attach_addr":"","attach_kind":"address","attach_community":"","attach_to_issue":false}`))
@@ -575,7 +597,7 @@ func (h *Handler) PostSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
-	if communityFilter != "" && !contains(adminCIDs, communityFilter) {
+	if communityFilter != "" && communityFilter != UnassignedCommunityID && !contains(adminCIDs, communityFilter) {
 		http.NotFound(w, r)
 		return
 	}
@@ -694,19 +716,23 @@ func (h *Handler) PostCommunityFilterCreate(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "bad pattern", http.StatusBadRequest)
 		return
 	}
-	if err := h.Repo.InsertFilter(r.Context(), Filter{
+	backfilled, err := h.Repo.InsertFilter(r.Context(), Filter{
 		ID:          uuid.NewString(),
 		CommunityID: cm.ID,
 		Kind:        kind,
 		Pattern:     pattern,
 		ToIssue:     in.ToIssue,
 		CreatedBy:   id.User.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		h.Log.Error("mailbox: InsertFilter", "err", err)
 		http.Error(w, "internal", http.StatusInternalServerError)
 		return
 	}
+	h.Log.Info("mailbox: filter created from admin page",
+		"community", cm.ID, "kind", kind, "pattern", pattern, "backfilled", backfilled)
 	h.broadcast(r.Context(), cm.ID)
+	h.broadcast(r.Context(), UnassignedCommunityID)
 
 	filters, _ := h.Repo.ListFiltersForCommunity(r.Context(), cm.ID)
 	sse := render.NewSSE(w, r)

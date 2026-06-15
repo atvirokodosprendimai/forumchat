@@ -188,18 +188,16 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		if e.UID > maxUID {
 			maxUID = e.UID
 		}
-		filter, ok, err := MatchFrom(ctx, w.Repo, e.FromAddr)
+		filter, matched, err := MatchFrom(ctx, w.Repo, e.FromAddr)
 		if err != nil {
 			w.Log.Warn("mailbox: match failed", "folder", name, "uid", e.UID, "err", err)
 			continue
 		}
-		if !ok {
-			stats.skippedNoFilter++
-			w.Log.Debug("mailbox: no filter match",
-				"folder", name, "uid", e.UID, "from", e.FromAddr, "subject", e.Subject)
-			continue
+		if matched {
+			stats.matched++
+		} else {
+			stats.skippedNoFilter++ // metric name kept; actually "unassigned"
 		}
-		stats.matched++
 		// Pull the text body alongside the envelope so /inbox search has
 		// content to index. Failure here logs but doesn't block the
 		// ingest — we still want the row + attachment metadata.
@@ -214,19 +212,22 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 				"folder", name, "uid", e.UID, "err", err)
 		}
 
-		ingestID, isNew, err := w.Repo.InsertIngest(ctx, IngestInsert{
-			FolderID:        folder.ID,
-			UID:             e.UID,
-			UIDValidity:     info.UIDValidity,
-			MessageID:       e.MessageID,
-			FromAddr:        e.FromAddr,
-			FromName:        e.FromName,
-			Subject:         e.Subject,
-			BodyText:        bodyText,
-			ReceivedAt:      e.InternalDate,
-			CommunityID:     filter.CommunityID,
-			MatchedFilterID: filter.ID,
-		})
+		ingest := IngestInsert{
+			FolderID:    folder.ID,
+			UID:         e.UID,
+			UIDValidity: info.UIDValidity,
+			MessageID:   e.MessageID,
+			FromAddr:    e.FromAddr,
+			FromName:    e.FromName,
+			Subject:     e.Subject,
+			BodyText:    bodyText,
+			ReceivedAt:  e.InternalDate,
+		}
+		if matched {
+			ingest.CommunityID = filter.CommunityID
+			ingest.MatchedFilterID = filter.ID
+		}
+		ingestID, isNew, err := w.Repo.InsertIngest(ctx, ingest)
 		if err != nil {
 			w.Log.Warn("mailbox: ingest insert failed",
 				"folder", name, "uid", e.UID, "err", err)
@@ -242,19 +243,30 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			w.Log.Warn("mailbox: attachments index failed",
 				"folder", name, "uid", e.UID, "err", err)
 		}
-		if filter.ToIssue && w.Svc != nil {
+		if matched && filter.ToIssue && w.Svc != nil {
 			if err := w.autoCreateIssueFor(ctx, c, ingestID, filter.CommunityID, e); err != nil {
 				w.Log.Warn("mailbox: auto-issue failed",
 					"folder", name, "uid", e.UID, "err", err)
 			}
 		}
-		w.broadcast(filter.CommunityID)
+		// Broadcast to the destination community when matched, or to every
+		// admin's stream when unassigned (poll loop has no specific
+		// community to ping; broadcast to all admin communities).
+		if matched {
+			w.broadcast(filter.CommunityID)
+		} else {
+			w.broadcast(UnassignedCommunityID)
+		}
+		communityForLog := filter.CommunityID
+		if !matched {
+			communityForLog = "(unassigned)"
+		}
 		w.Log.Info("mailbox: ingested",
 			"folder", name,
 			"uid", e.UID,
 			"from", e.FromAddr,
-			"community", filter.CommunityID,
-			"to_issue", filter.ToIssue,
+			"community", communityForLog,
+			"to_issue", matched && filter.ToIssue,
 			"attachments", len(e.Attachments),
 		)
 	}
