@@ -25,6 +25,7 @@ type InboxAttachment struct {
 // InboxRow is one email_ingest entry rendered in the queue list.
 type InboxRow struct {
 	ID              string
+	CommunityID     string
 	CommunityName   string
 	CommunitySlug   string
 	FromAddr        string
@@ -47,9 +48,11 @@ type InboxPageData struct {
 // InboxPage renders /inbox: community filter pills along the top + the
 // list of queued emails, ordered newest-first. The infinite-scroll
 // sentinel is always rendered; when NextCursor is empty it is a no-op.
+// data-init opens the SSE stream so the page auto-morphs when the poll
+// worker lands new mail or another admin attaches a sender.
 templ InboxPage(d InboxPageData) {
 	@Layout("Inbox", d.Viewer) {
-		<section class="inbox">
+		<section class="inbox" data-init={ "@get('/inbox/stream?community=' + ($inbox_community || ''))" }>
 			<header class="inbox-head">
 				<h1>Inbox</h1>
 				<p class="muted">Emails matched by community filters land here. Move attachments into projects; create issues from full messages.</p>
@@ -61,21 +64,40 @@ templ InboxPage(d InboxPageData) {
 				}
 			</nav>
 			<div id="inbox-rows" class="inbox-rows">
-				if len(d.Rows) == 0 {
-					<p class="empty">No emails yet. As soon as the IMAP poller finds a message matching any of your community's filters, it will appear here.</p>
-				} else {
-					for _, row := range d.Rows {
-						@inboxRow(row)
-					}
-				}
+				@InboxRowList(d.Rows)
 			</div>
-			<div id="inbox-more"
-				if d.NextCursor != "" {
-					data-on:scrollend={ "@get('/inbox/more?cursor=" + d.NextCursor + "&community=' + ($inbox_community || ''))" }
-				}
-			></div>
+			@InboxMore(d.NextCursor, d.ActiveCommunity)
+			@InboxAttachDialog(d.Pills)
 		</section>
 	}
+}
+
+// InboxRowList renders the rows-only fragment. Used both as the inner
+// content of the page on first render and as the morph target during
+// SSE updates / scroll-end pagination.
+templ InboxRowList(rows []InboxRow) {
+	if len(rows) == 0 {
+		<p class="empty">No emails yet. As soon as the IMAP poller finds a message matching any of your community's filters, it will appear here.</p>
+	} else {
+		for _, row := range rows {
+			@inboxRow(row)
+		}
+	}
+}
+
+// InboxMore is the scroll-end sentinel. Its data-on:scrollend attribute
+// fires only when nextCursor is non-empty; otherwise the element is an
+// invisible no-op marker the SSE stream can patch on later cycles.
+templ InboxMore(nextCursor, activeCommunity string) {
+	<div id="inbox-more"
+		if nextCursor != "" {
+			data-on:scrollend={ inboxMoreExpr(nextCursor) }
+		}
+	></div>
+}
+
+func inboxMoreExpr(nextCursor string) string {
+	return "@get('/inbox/more?cursor=" + nextCursor + "&community=' + ($inbox_community || ''))"
 }
 
 templ inboxPill(id, name string, active bool) {
@@ -96,14 +118,18 @@ func inboxPillHref(communityID string) templ.SafeURL {
 templ inboxRow(r InboxRow) {
 	<article id={ "ingest-" + r.ID } class="inbox-row">
 		<header class="inbox-row-head">
-			<span class="from">
+			<button class="from-chip"
+				type="button"
+				data-on:click={ inboxAttachOpenExpr(r.FromAddr) }
+				title="Attach this sender to a community filter"
+			>
 				if r.FromName != "" {
 					<strong>{ r.FromName }</strong>
 					<span class="addr">&lt;{ r.FromAddr }&gt;</span>
 				} else {
 					<strong>{ r.FromAddr }</strong>
 				}
-			</span>
+			</button>
 			<span class="community-badge">{ r.CommunityName }</span>
 			<time datetime={ time.Unix(r.ReceivedAtUnix, 0).UTC().Format(time.RFC3339) }>
 				{ time.Unix(r.ReceivedAtUnix, 0).UTC().Format("2006-01-02 15:04") }
@@ -124,4 +150,54 @@ templ inboxRow(r InboxRow) {
 			</ul>
 		}
 	</article>
+}
+
+// inboxAttachOpenExpr builds the datastar expression used by the sender
+// chip click. The address is pre-filled; the kind defaults to "address"
+// and the community starts empty so the dropdown is the user's first
+// interaction.
+func inboxAttachOpenExpr(addr string) string {
+	return "$attach_addr = '" + addr + "'; $attach_kind = 'address'; $attach_community = ''; $attach_to_issue = false; $attach_open = true"
+}
+
+// InboxAttachDialog is the popover the sender-chip click opens. Lives
+// inside the page so a Datastar expression can flip $attach_open without
+// crossing component boundaries. Pills double as the community list.
+templ InboxAttachDialog(pills []InboxPill) {
+	<div id="inbox-attach-dialog" data-show="$attach_open" class="modal-backdrop">
+		<div class="modal-card">
+			<h2>Attach sender to community</h2>
+			<p>Future messages from this sender will land in the chosen community's inbox.</p>
+
+			<label>Address</label>
+			<input type="text" readonly data-bind="attach_addr"/>
+
+			<label>Filter kind</label>
+			<div class="radio-row">
+				<label><input type="radio" name="attach_kind_radio" value="address" data-bind="attach_kind"/> Exact address</label>
+				<label><input type="radio" name="attach_kind_radio" value="domain" data-bind="attach_kind"/> Wildcard domain</label>
+			</div>
+
+			<label>Community</label>
+			<select data-bind="attach_community">
+				<option value="">choose…</option>
+				for _, p := range pills {
+					<option value={ p.ID }>{ p.Name }</option>
+				}
+			</select>
+
+			<label class="checkbox-row">
+				<input type="checkbox" data-bind="attach_to_issue"/>
+				Also auto-create an editable issue from every match
+			</label>
+
+			<div class="modal-actions">
+				<button class="ghost" data-on:click="$attach_open = false">Cancel</button>
+				<button class="primary"
+					data-on:click="@post('/inbox/attach-sender')"
+					data-attr:disabled="!$attach_community || !$attach_addr"
+				>Save filter</button>
+			</div>
+		</div>
+	</div>
 }

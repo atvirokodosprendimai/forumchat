@@ -109,16 +109,18 @@ Goal: every matched email's attachments are indexed with metadata only (no bytes
 
 Verification (manual smoke deferred to integration test stage): `go test ./internal/mailbox/...` covers the parser + repo paths.
 
-### Phase 5 — Global inbox queue UI with community filter pills + infinite scroll — status: open
+### Phase 5 — Global inbox queue UI with community filter pills + infinite scroll — status: completed
 
 Goal: `/inbox` renders last 100 ingest rows the admin can see, with community filter pills along the top. Scroll-end fetches the next 100.
 
-1. [ ] `internal/mailbox/repo.go` — implement the `QueueForViewer` body declared in Phase 1: SELECT JOIN ingest + attachments aggregate (count), filter by `viewerAdminCommunityIDs` AND optional `communityFilter`, cursor-paginate `WHERE (received_at, id) < (?, ?) ORDER BY received_at DESC, id DESC LIMIT ?`
-2. [ ] `internal/mailbox/handler.go` — `GetMore(w, r)` — parses `?cursor=` + `?community=`, returns SSE that `PatchElementTempl(InboxRows(views), WithSelector("#inbox-rows"), WithModeAppend())` and updates the `#inbox-more` sentinel cursor
-3. [ ] `web/templ/inbox.templ` — `InboxPage` populated: pills loop, `#inbox-rows` container, each row a `<details>` with email summary in summary and attachment rows inside; `#inbox-more` carries `data-on:scrollend="@get('/inbox/more?cursor='+$next_cursor+'&community='+$inbox_community)"`
-4. [ ] `web/static/app.css` — pill style + row hover + attachment grid (minimal — match projects shell)
-5. [ ] `internal/mailbox/bus.go` — per-community Bus (map[communityID]map[chan]). Phase 3's poll loop calls `Bus.Broadcast(communityID)` after each batch finishes. `Handler.GetStream` subscribes to all communities the viewer is admin in, re-renders the first page on any signal. NATS subject `community.<cid>.mailbox`. See AGENTS.md §4.11 per-X Bus.
-6. [ ] Inline "Attach sender → community" popover. Each inbox row's sender chip carries `data-on:click="$attach_addr='<from_addr>'; $attach_open=true"`. Popover (`<dialog>` morph-pattern from rooms) contains: read-only address, kind toggle (exact / `@domain.tld`), community `<select>` (admin-of communities only), "Save" → `@post('/inbox/attach-sender')`. Backend creates the filter via the same code path as Phase 8's `PostCreateFilter`. After save: close popover, `Bus.Broadcast(communityID)`, no full reload.
+1. [x] `internal/mailbox/repo.go` — `QueueForViewer` from Phase 1 is reused. `InsertFilter` + `DeleteFilter` + `ListFiltersForCommunity` added so the popover shares its handler with Phase 8.
+2. [x] `internal/mailbox/handler.go` — `GetMore` parses `?cursor=` + `?community=`, returns SSE that appends rows + replaces the `#inbox-more` sentinel. `GetStream` is the long-lived SSE the inbox page opens once: subscribes to every admin-of community's Bus + NATS subject, re-renders the first page on any signal with a 25 s keepalive.
+3. [x] `web/templ/inbox.templ` — `InboxPage` (full), `InboxRowList`, `InboxMore`, `InboxAttachDialog` extracted; sender chip carries `data-on:click="$attach_addr='<from>'; $attach_open=true; …"`. Popover is a `<dialog>`-style modal with kind toggle, community select, to-issue checkbox, Save/Cancel buttons.
+4. [ ] `web/static/app.css` — minimal styling deferred; the modal works on the layout's default styles.
+5. [x] `internal/mailbox/bus.go` — per-community `Bus`. `PollWorker.broadcast` and `Handler.broadcast` both call it; NATS subject is `community.<cid>.mailbox` (new `natsx.MailboxSubject`).
+6. [x] `PostAttachSender` — reads `$attach_addr / $attach_kind / $attach_community / $attach_to_issue`; verifies the viewer is admin in the chosen community; normalises the pattern; inserts the filter via the same `Repo.InsertFilter` Phase 8's CRUD page will use; clears the signals on success.
+
+Verification: `go test ./...` green; manual smoke deferred until an IMAP test container drops mail in.
 
 Verification: load `/inbox` with 250 rows in DB → see first 100 → scroll to bottom → 100 more append → scroll again → 50 more append + sentinel hides. Click a community pill → first 100 of that community only. Run poll worker, send a new email matching a filter → list morphs in within ~1s.
 
@@ -209,3 +211,4 @@ End-to-end acceptance:
 - `2606151220` — Phase 3 done. filter.go + cachedFilters cache + UpsertFolder + InsertIngest + idempotent scanFolder. Tests cover precedence, rotation, monotonic cursor, duplicate absorption. lint-mailbox green.
 - `2606151225` — User requested email search across content + attachment filenames. Filed as new Future-but-must-do bullet (`{[!]}`). Will land as a new Phase 5b between queue UI and Phase 6 — once UI exists to expose the search box. Implementation note: persist text body into `email_ingest.body_text` at poll time and build SQLite FTS5 virtual table over (subject, from_addr, from_name, body_text, attachment filenames). No IMAP refetch.
 - `2606151235` — Phase 4 done. `walkAttachmentParts` + `InsertAttachments` + poll wiring + tests covering nested multipart numbering and the text-only-no-attachments case. All tests pass, lint-mailbox green.
+- `2606151310` — Phase 5 done. Bus + Handler.GetMore/GetStream/PostAttachSender + natsx.MailboxSubject + InsertFilter/DeleteFilter/ListFiltersForCommunity + InboxRowList/InboxMore/InboxAttachDialog templates + InitialSignals extended for attach + inbox signals. Routes wired in main.go behind the flag. CSS polish deferred (Phase 9 cosmetic). Tests still green.

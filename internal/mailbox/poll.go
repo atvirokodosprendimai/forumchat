@@ -5,6 +5,10 @@ import (
 	"errors"
 	"log/slog"
 	"time"
+
+	natsgo "github.com/nats-io/nats.go"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 )
 
 // PollWorker dials the configured IMAP account on a ticker, walks every
@@ -19,6 +23,8 @@ type PollWorker struct {
 	AccountID string // mailbox_account.id resolved by Repo.EnsureAccount
 	Interval  time.Duration
 	Repo      *Repo
+	Bus       *Bus         // optional — nil disables in-process fan-out
+	NATS      *natsgo.Conn // optional — nil disables cross-process fan-out
 	Log       *slog.Logger
 }
 
@@ -159,6 +165,7 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			w.Log.Warn("mailbox: attachments index failed",
 				"folder", name, "uid", e.UID, "err", err)
 		}
+		w.broadcast(filter.CommunityID)
 		w.Log.Info("mailbox: ingested",
 			"folder", name,
 			"uid", e.UID,
@@ -175,4 +182,15 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		}
 	}
 	return inserted, nil
+}
+
+// broadcast fires both the in-process Bus and the NATS subject for the
+// community so every viewer's inbox SSE wakes and re-renders.
+func (w *PollWorker) broadcast(communityID string) {
+	if w.Bus != nil {
+		w.Bus.Broadcast(communityID)
+	}
+	if w.NATS != nil && w.NATS.IsConnected() {
+		_ = w.NATS.Publish(natsx.MailboxSubject(communityID), []byte(communityID))
+	}
 }

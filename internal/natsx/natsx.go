@@ -52,3 +52,11 @@ func PresenceSubject(communityID string) string {
 func LobbySubject(communityID, lobbyID string) string {
 	return fmt.Sprintf("community.%s.lobby.%s", communityID, lobbyID)
 }
+
+// MailboxSubject is the per-community fan-out for the global /inbox
+// surface. The poll worker + filter CRUD endpoints publish here when a
+// row changes; every viewer admin in this community wakes and
+// re-renders.
+func MailboxSubject(communityID string) string {
+	return fmt.Sprintf("community.%s.mailbox", communityID)
+}

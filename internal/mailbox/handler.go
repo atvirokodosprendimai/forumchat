@@ -9,19 +9,28 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
+
+	natsgo "github.com/nats-io/nats.go"
 )
 
-// Handler renders the global /inbox page and (later) handles the
-// infinite-scroll fetch + sender-attach popover endpoints. Phase 1
-// implements only the page shell.
+// Handler renders the global /inbox page, the infinite-scroll fetch,
+// the per-community SSE stream, and the click-sender-attach popover.
 type Handler struct {
 	Repo          *Repo
 	AuthRepo      *auth.Repo
 	CommunityRepo *community.Repo
+	Bus           *Bus
+	NATS          *natsgo.Conn // optional — nil disables cross-process fan-out
 	Log           *slog.Logger
 }
 
@@ -136,6 +145,7 @@ func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill) []webtempl.I
 		}
 		out[i] = webtempl.InboxRow{
 			ID:              r.ID,
+			CommunityID:     r.CommunityID,
 			CommunityName:   pillByID[r.CommunityID].Name,
 			CommunitySlug:   pillByID[r.CommunityID].Slug,
 			FromAddr:        r.FromAddr,
@@ -185,4 +195,247 @@ func decodeCursor(s string) (*QueueCursor, error) {
 		return nil, errors.New("bad cursor ms")
 	}
 	return &QueueCursor{ReceivedAtUnixMS: ms, ID: parts[1]}, nil
+}
+
+// GetMore returns the next page of inbox rows via SSE. Datastar's
+// scrollend handler hits this when the user reaches the sentinel. The
+// response appends rows to `#inbox-rows` and replaces `#inbox-more`
+// with the next sentinel (or empty when exhausted).
+func (h *Handler) GetMore(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
+	if err != nil || len(adminCIDs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
+	if communityFilter != "" && !contains(adminCIDs, communityFilter) {
+		http.NotFound(w, r)
+		return
+	}
+	cursor, err := decodeCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		http.Error(w, "bad cursor", http.StatusBadRequest)
+		return
+	}
+	views, next, err := h.Repo.QueueForViewer(r.Context(), QueueQuery{
+		AdminCommunityIDs: adminCIDs,
+		CommunityFilter:   communityFilter,
+		Cursor:            cursor,
+		Limit:             100,
+	})
+	if err != nil {
+		h.Log.Error("mailbox: GetMore queue", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	pills, err := h.loadCommunityPills(r.Context(), adminCIDs)
+	if err != nil {
+		h.Log.Error("mailbox: GetMore pills", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+
+	sse := render.NewSSE(w, r)
+	rows := toViewRows(views, pills)
+	_ = sse.PatchElementTempl(
+		webtempl.InboxRowList(rows),
+		datastar.WithSelector("#inbox-rows"),
+		datastar.WithModeAppend(),
+	)
+	_ = sse.PatchElementTempl(
+		webtempl.InboxMore(encodeCursor(next), communityFilter),
+		datastar.WithSelector("#inbox-more"),
+		datastar.WithModeOuter(),
+	)
+}
+
+// GetStream is the long-lived SSE the inbox page opens once. When any
+// of the viewer's admin communities publishes a mailbox event (the
+// poll worker landed a new ingest row, or someone attached a sender),
+// the stream re-renders the first page so the user sees fresh mail
+// without manual refresh.
+func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
+	if err != nil || len(adminCIDs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
+	if communityFilter != "" && !contains(adminCIDs, communityFilter) {
+		http.NotFound(w, r)
+		return
+	}
+
+	sse := render.NewSSE(w, r)
+
+	// Per-community subscription. The Bus internals demand one ch per id,
+	// so we multiplex inside this handler by spawning a tiny goroutine
+	// that forwards every community channel into a shared `wake` chan.
+	wake := make(chan struct{}, 1)
+	var unsubs []func()
+	for _, cid := range adminCIDs {
+		ch, unsub := h.Bus.Subscribe(cid)
+		unsubs = append(unsubs, unsub)
+		go func(in <-chan struct{}) {
+			for range in {
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
+		}(ch)
+	}
+	defer func() {
+		for _, u := range unsubs {
+			u()
+		}
+	}()
+
+	// Optional cross-process bus via NATS.
+	var natsCh chan *natsgo.Msg
+	if h.NATS != nil && h.NATS.IsConnected() {
+		natsCh = make(chan *natsgo.Msg, 16)
+		for _, cid := range adminCIDs {
+			sub, err := h.NATS.ChanSubscribe(natsx.MailboxSubject(cid), natsCh)
+			if err == nil {
+				defer sub.Unsubscribe() //nolint:errcheck
+			}
+		}
+		go func() {
+			for range natsCh {
+				select {
+				case wake <- struct{}{}:
+				default:
+				}
+			}
+		}()
+	}
+
+	pills, err := h.loadCommunityPills(r.Context(), adminCIDs)
+	if err != nil {
+		return
+	}
+
+	// Initial render so the freshly-opened stream replaces any stale list.
+	patchFirstPage := func() error {
+		views, next, err := h.Repo.QueueForViewer(r.Context(), QueueQuery{
+			AdminCommunityIDs: adminCIDs,
+			CommunityFilter:   communityFilter,
+			Limit:             100,
+		})
+		if err != nil {
+			return err
+		}
+		if err := sse.PatchElementTempl(
+			webtempl.InboxRowList(toViewRows(views, pills)),
+			datastar.WithSelector("#inbox-rows"),
+			datastar.WithModeOuter(),
+		); err != nil {
+			return err
+		}
+		return sse.PatchElementTempl(
+			webtempl.InboxMore(encodeCursor(next), communityFilter),
+			datastar.WithSelector("#inbox-more"),
+			datastar.WithModeOuter(),
+		)
+	}
+	_ = patchFirstPage()
+
+	keepalive := time.NewTicker(25 * time.Second)
+	defer keepalive.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-wake:
+			_ = patchFirstPage()
+		case <-keepalive.C:
+			// Heartbeat — keeps load balancers from closing the
+			// idle connection. Empty PatchSignals is a no-op on the
+			// client but counts as live data on the wire.
+			_ = sse.PatchSignals([]byte(`{}`))
+		}
+	}
+}
+
+// attachSenderSignals carries the popover payload. Fields are bound by
+// the inbox dialog template.
+type attachSenderSignals struct {
+	Addr        string `json:"attach_addr"`
+	Kind        string `json:"attach_kind"` // "address" | "domain"
+	CommunityID string `json:"attach_community"`
+	ToIssue     bool   `json:"attach_to_issue"`
+}
+
+// PostAttachSender creates a community_mail_filter row from the inbox
+// popover. The viewer MUST be admin in the chosen community.
+func (h *Handler) PostAttachSender(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
+	if err != nil || len(adminCIDs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	var in attachSenderSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	if !contains(adminCIDs, in.CommunityID) {
+		http.NotFound(w, r)
+		return
+	}
+	kind := FilterKind(in.Kind)
+	if kind != FilterKindAddress && kind != FilterKindDomain {
+		http.Error(w, "bad kind", http.StatusBadRequest)
+		return
+	}
+	pattern := normaliseFilterPattern(kind, in.Addr)
+	if pattern == "" {
+		http.Error(w, "bad pattern", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Repo.InsertFilter(r.Context(), Filter{
+		ID:          uuid.NewString(),
+		CommunityID: in.CommunityID,
+		Kind:        kind,
+		Pattern:     pattern,
+		ToIssue:     in.ToIssue,
+		CreatedBy:   id.User.ID,
+	}); err != nil {
+		h.Log.Error("mailbox: InsertFilter", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+	h.broadcast(r.Context(), in.CommunityID)
+
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"attach_open":false,"attach_addr":"","attach_kind":"address","attach_community":"","attach_to_issue":false}`))
+}
+
+// broadcast pings the in-process Bus and (if connected) publishes the
+// community id over NATS. Cross-process subscribers wake; same-process
+// SSE loops also wake.
+func (h *Handler) broadcast(_ context.Context, communityID string) {
+	if h.Bus != nil {
+		h.Bus.Broadcast(communityID)
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.MailboxSubject(communityID), []byte(communityID))
+	}
 }

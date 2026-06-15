@@ -348,6 +348,73 @@ func nullIfEmpty(s string) any {
 	return s
 }
 
+// InsertFilter persists a new community_mail_filter row and invalidates
+// the in-memory filter cache so the next polled message sees the rule.
+func (r *Repo) InsertFilter(ctx context.Context, f Filter) error {
+	if f.ID == "" || f.CommunityID == "" || f.Pattern == "" || f.CreatedBy == "" {
+		return errors.New("mailbox: filter id/community/pattern/created_by required")
+	}
+	toIssue := 0
+	if f.ToIssue {
+		toIssue = 1
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO community_mail_filter
+			(id, community_id, kind, pattern, to_issue, created_by, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		f.ID, f.CommunityID, string(f.Kind), f.Pattern, toIssue, f.CreatedBy, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("insert community_mail_filter: %w", err)
+	}
+	r.InvalidateFilters()
+	return nil
+}
+
+// DeleteFilter removes one filter and invalidates the cache.
+func (r *Repo) DeleteFilter(ctx context.Context, filterID, communityID string) error {
+	res, err := r.DB.ExecContext(ctx, `
+		DELETE FROM community_mail_filter WHERE id = ? AND community_id = ?`,
+		filterID, communityID)
+	if err != nil {
+		return fmt.Errorf("delete community_mail_filter: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("mailbox: filter not found in community")
+	}
+	r.InvalidateFilters()
+	return nil
+}
+
+// ListFiltersForCommunity returns the rows the per-community admin page
+// renders. Read directly from SQL (not the cache) to surface what is
+// actually persisted — the cache is for the hot-path matcher.
+func (r *Repo) ListFiltersForCommunity(ctx context.Context, communityID string) ([]Filter, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT id, community_id, kind, pattern, to_issue, created_by, created_at
+		FROM community_mail_filter
+		WHERE community_id = ?
+		ORDER BY kind, pattern`, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Filter{}
+	for rows.Next() {
+		var f Filter
+		var kind string
+		var toIssue int
+		var created int64
+		if err := rows.Scan(&f.ID, &f.CommunityID, &kind, &f.Pattern, &toIssue, &f.CreatedBy, &created); err != nil {
+			return nil, err
+		}
+		f.Kind = FilterKind(kind)
+		f.ToIssue = toIssue != 0
+		f.CreatedAt = time.Unix(created, 0).UTC()
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // InsertAttachments persists attachment metadata for one ingested
 // email. Bytes are NOT here — only filename/mime/size/mime_part_id.
 // The insert runs inside a single transaction so partial failure is

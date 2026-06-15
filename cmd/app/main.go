@@ -322,12 +322,16 @@ func run() error {
 	// singleton account row; PollWorker reads envelopes (no DB writes
 	// until Phase 3 when filter matching lands).
 	var mailboxHandler *mailbox.Handler
+	var mailboxBus *mailbox.Bus
 	if cfg.MailboxEnabled {
 		mailboxRepo := mailbox.NewRepo(db)
+		mailboxBus = mailbox.NewBus()
 		mailboxHandler = &mailbox.Handler{
 			Repo:          mailboxRepo,
 			AuthRepo:      aRepo,
 			CommunityRepo: cRepo,
+			Bus:           mailboxBus,
+			NATS:          nc,
 			Log:           log,
 		}
 		if cfg.MailboxHost != "" && cfg.MailboxUser != "" {
@@ -347,6 +351,8 @@ func run() error {
 					AccountID: acc.ID,
 					Interval:  cfg.MailboxPollInterval,
 					Repo:      mailboxRepo,
+					Bus:       mailboxBus,
+					NATS:      nc,
 					Log:       log,
 				}).Start(digestCtx)
 			}
@@ -708,6 +714,9 @@ func run() error {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth)
 			r.Get("/inbox", mailboxHandler.GetGlobalInbox)
+			r.Get("/inbox/more", mailboxHandler.GetMore)
+			r.Get("/inbox/stream", mailboxHandler.GetStream)
+			r.Post("/inbox/attach-sender", mailboxHandler.PostAttachSender)
 		})
 	}
 	r.Get("/explore", exploreHandler.GetIndex)
