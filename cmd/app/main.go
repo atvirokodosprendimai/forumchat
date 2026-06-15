@@ -283,34 +283,6 @@ func run() error {
 	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
-	// ----- Mailbox (IMAP ingest) -------------------------------------------
-	// Single shared read-only IMAP account → per-community filter routing
-	// into /inbox. The feature flag toggles the route, the topbar link,
-	// and (later phases) the poll worker. DB tables exist regardless so
-	// toggling the flag never needs a schema migration.
-	var mailboxHandler *mailbox.Handler
-	if cfg.MailboxEnabled {
-		mailboxRepo := mailbox.NewRepo(db)
-		mailboxHandler = &mailbox.Handler{
-			Repo:          mailboxRepo,
-			AuthRepo:      aRepo,
-			CommunityRepo: cRepo,
-			Log:           log,
-		}
-		if cfg.MailboxHost != "" && cfg.MailboxUser != "" {
-			if _, err := mailboxRepo.EnsureAccount(ctx, mailbox.AccountConfig{
-				Host:     cfg.MailboxHost,
-				Port:     cfg.MailboxPort,
-				Username: cfg.MailboxUser,
-				Password: cfg.MailboxPass,
-				TLSMode:  cfg.MailboxTLS,
-			}); err != nil {
-				log.Warn("mailbox: EnsureAccount failed", "err", err)
-			}
-		}
-	}
-	webtempl.MailboxEnabled = cfg.MailboxEnabled
-
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
 
 	// ----- Web Push (VAPID) -------------------------------------------------
@@ -341,6 +313,42 @@ func run() error {
 	digestCtx, cancelDigest := context.WithCancel(context.Background())
 	defer cancelDigest()
 	(&push.DigestWorker{Repo: pushRepo, Sender: pushSender, Log: log}).Start(digestCtx)
+
+	// ----- Mailbox (IMAP ingest) -------------------------------------------
+	// Single shared read-only IMAP account → per-community filter routing
+	// into /inbox. The feature flag toggles the route, the topbar link,
+	// and the poll worker. DB tables exist regardless so toggling the
+	// flag never needs a schema migration. EnsureAccount writes the
+	// singleton account row; PollWorker reads envelopes (no DB writes
+	// until Phase 3 when filter matching lands).
+	var mailboxHandler *mailbox.Handler
+	if cfg.MailboxEnabled {
+		mailboxRepo := mailbox.NewRepo(db)
+		mailboxHandler = &mailbox.Handler{
+			Repo:          mailboxRepo,
+			AuthRepo:      aRepo,
+			CommunityRepo: cRepo,
+			Log:           log,
+		}
+		if cfg.MailboxHost != "" && cfg.MailboxUser != "" {
+			accCfg := mailbox.AccountConfig{
+				Host:     cfg.MailboxHost,
+				Port:     cfg.MailboxPort,
+				Username: cfg.MailboxUser,
+				Password: cfg.MailboxPass,
+				TLSMode:  cfg.MailboxTLS,
+			}
+			if _, err := mailboxRepo.EnsureAccount(ctx, accCfg); err != nil {
+				log.Warn("mailbox: EnsureAccount failed", "err", err)
+			}
+			(&mailbox.PollWorker{
+				Cfg:      accCfg,
+				Interval: cfg.MailboxPollInterval,
+				Log:      log,
+			}).Start(digestCtx)
+		}
+	}
+	webtempl.MailboxEnabled = cfg.MailboxEnabled
 	// Wire the sender so other packages (chat, forum, projects) can call
 	// notify helpers without importing each other. Each package owns the
 	// "what counts as a notifiable event" logic.

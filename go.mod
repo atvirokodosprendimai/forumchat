@@ -8,6 +8,7 @@ require (
 	github.com/alexedwards/scs/v2 v2.9.0
 	github.com/andybalholm/brotli v1.2.1
 	github.com/caarlos0/env/v11 v11.4.1
+	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/httprate v0.15.0
 	github.com/google/uuid v1.6.0
@@ -37,6 +38,8 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elastic/go-sysinfo v1.15.4 // indirect
 	github.com/elastic/go-windows v1.0.2 // indirect
+	github.com/emersion/go-message v0.18.2 // indirect
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-faster/city v1.0.1 // indirect

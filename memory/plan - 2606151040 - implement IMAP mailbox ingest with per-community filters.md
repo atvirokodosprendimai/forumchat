@@ -73,17 +73,17 @@ Goal: `MAILBOX_ENABLED=true` shows an "Inbox" link in the topbar (visible only t
 
 Verification (deferred to manual smoke once a `.env` has `MAILBOX_ENABLED=true`): admin viewer sees topbar link, `/inbox` returns 200 with empty state. Non-admin viewer sees no link and gets 404 on `/inbox`. Disabled flag — link absent, route 404.
 
-### Phase 2 — IMAP poll loop shell, all folders, no DB writes — status: open
+### Phase 2 — IMAP poll loop shell, all folders, no DB writes — status: completed
 
-Goal: with valid `MAILBOX_*` env vars set, the poll worker dials IMAP every `MAILBOX_POLL_INTERVAL`, EXAMINEs every folder, logs `[mailbox] folder=INBOX uidvalidity=12345 last_uid=0 new_uids=[42,43]` and similar. No row writes. Lets us verify connectivity, read-only behaviour, and folder enumeration before adding any state.
+Goal: with valid `MAILBOX_*` env vars set, the poll worker dials IMAP every `MAILBOX_POLL_INTERVAL`, EXAMINEs every folder, logs envelope info. No row writes. Lets us verify connectivity, read-only behaviour, and folder enumeration before adding any state.
 
-1. [ ] `go get github.com/emersion/go-imap/v2 github.com/emersion/go-message`
-2. [ ] `internal/mailbox/imap.go` — `imapClient` wrapper: Dial (with TLS mode switch), Login, ListFolders, ExamineFolder (read-only Select), FetchEnvelopes(uidStart..). Single file holds every IMAP method so the CI grep gate has one target.
-3. [ ] `internal/mailbox/poll.go` — `PollWorker{Cfg, Repo, Log}` with `Start(ctx)` spawning a goroutine; `time.NewTicker(cfg.MailboxPollInterval)`; per cycle: Dial → ListFolders → for each folder Examine + FetchEnvelopes from `last_uid+1` (last_uid=0 first time) → log results → Close
-4. [ ] `cmd/app/main.go` — when `MAILBOX_ENABLED=true` and host/user/pass set, construct and `.Start(workerCtx)` the worker. workerCtx is the same context as other digest workers
-5. [ ] CI grep gate — add `make lint-mailbox` rule (or just a comment in the Makefile + a short shell-out in CI): `! grep -rE "Store\(|Expunge|\.Move\(|\.Copy\(|BodySection\{Peek: false" internal/mailbox/`
+1. [x] `go get github.com/emersion/go-imap/v2 github.com/emersion/go-message` + go-sasl via tidy.
+2. [x] `internal/mailbox/imap.go` — `imapClient` wrapper with `dial`, `close`, `listFolders`, `examineReadOnly` (forces `ReadOnly:true`), `fetchEnvelopesSince(uid)`. Single file holds every IMAP method so the CI grep gate has one target.
+3. [x] `internal/mailbox/poll.go` — `PollWorker{Cfg, Interval, Log}` with `Start(ctx)` spawning a goroutine; per cycle Dial → listFolders → for each folder examineReadOnly + fetchEnvelopesSince → log results → close. First cycle fires immediately so boot success/failure is visible without waiting a full interval.
+4. [x] `cmd/app/main.go` — when `MAILBOX_ENABLED=true` and host/user set, build the worker with `digestCtx` (shared with other interval workers) and `.Start()`.
+5. [x] CI grep gate — `make lint-mailbox` enforces `! grep -rnE 'Store\(|Expunge|\.Move\(|\.Copy\(|BodySection\{[^}]*Peek:[[:space:]]*false' internal/mailbox/`. Verified passing.
 
-Verification: `MAILBOX_ENABLED=true` against a test IMAP (greenmail / docker `dovecot/dovecot`) → app logs show one Dial per interval, folder enumeration, UID fetches. Manually verify in Thunderbird (or `mbsync` on a sibling client) that test messages remain unread after several poll cycles.
+Verification (manual smoke deferred until a test IMAP container is available): `MAILBOX_ENABLED=true` against greenmail or `dovecot` shows one Dial per interval, folder enumeration, UID fetches. Thunderbird verification confirms `\Seen` flags unchanged.
 
 ### Phase 3 — Filter table + matching + email_ingest writes — status: open
 
@@ -202,3 +202,4 @@ End-to-end acceptance:
 - `2606151040` — Plan drafted off `task/spec-mailbox-imap-ingest`. Spec already committed at `1741fd7`. User clarified global inbox shape; Phase 0 captures the spec refinement before any code lands.
 - `2606151105` — Phase 0 done. Spec refined inline via `/eidos:refine`: §Global inbox replaces §Sorting queue, click-sender popover added, anti-enumeration tightened, Future bullet updated. No code yet — implementation starts at Phase 1.
 - `2606151140` — Phase 1 done. Migration 00020 + 8 config envs + `internal/mailbox` (types/repo/handler/cursor_test) + `internal/auth/AdminCommunityIDs` + `web/templ/inbox.templ` + topbar wiring. All tests green (`go test ./...`). Empty `/inbox` reachable behind the flag for admins of any community; anti-enum 404 elsewhere.
+- `2606151205` — Phase 2 done. `internal/mailbox/imap.go` wraps emersion/go-imap/v2 with READ-ONLY guarantees baked in (EXAMINE not SELECT, BodySection unused). `PollWorker.Start(ctx)` runs an immediate-first ticker that logs folder + envelope info per cycle. `make lint-mailbox` gates merges against any forbidden mutating call landing in `internal/mailbox/`.
