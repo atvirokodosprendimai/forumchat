@@ -70,12 +70,13 @@ templ MailFiltersTable(rows []MailFilterRow, slug string) {
 				<th>Pattern</th>
 				<th>Auto-issue?</th>
 				<th>Added</th>
+				<th>ID</th>
 				<th></th>
 			</tr>
 		</thead>
 		<tbody>
 			if len(rows) == 0 {
-				<tr><td colspan="5" class="empty">No filters yet — add one above.</td></tr>
+				<tr><td colspan="6" class="empty">No filters yet — add one above.</td></tr>
 			} else {
 				for _, r := range rows {
 					@mailFilterRow(r, slug)
@@ -100,6 +101,15 @@ templ mailFilterRow(r MailFilterRow, slug string) {
 			<time datetime={ time.Unix(r.CreatedAt, 0).UTC().Format(time.RFC3339) }>
 				{ time.Unix(r.CreatedAt, 0).UTC().Format("2006-01-02") }
 			</time>
+		</td>
+		<td>
+			<button class="mf-id-chip"
+				type="button"
+				title="Click to copy — use with forumchat-cli mailbox reprocess-filter <id>"
+				data-on:click={ "navigator.clipboard.writeText('" + r.ID + "'); $toast_text = 'ID copied'" }
+			>
+				<code>{ r.ID[:8] }…</code>
+			</button>
 		</td>
 		<td>
 			<button class="ghost" data-on:click={ mailFilterDeleteExpr(slug, r.ID) }>Delete</button>

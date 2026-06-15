@@ -3044,4 +3044,19 @@ hr {
   font-family: inherit;
 }
 .mail-filters-table .ghost:hover { background: var(--danger-soft); }
+.mail-filters-table .mf-id-chip {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.mail-filters-table .mf-id-chip:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent-soft-strong);
+}
 .mail-filters-table .empty { padding: 2.5rem 1rem; text-align: center; color: var(--fg-subtle); }
