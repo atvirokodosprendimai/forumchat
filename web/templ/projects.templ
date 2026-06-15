@@ -57,6 +57,16 @@ type ProjectPageData struct {
 	Activity      []ProjectActivityView
 	Share         ProjectShareView
 	IsGuestViewer bool
+	// MovePeers are the OTHER active projects in this community that
+	// the user can move attachments / issues into. Empty when this
+	// project is the only active one.
+	MovePeers []ProjectMovePeer
+}
+
+// ProjectMovePeer is one option in the "Move to project" picker.
+type ProjectMovePeer struct {
+	ID    string
+	Title string
 }
 
 // ProjectActivityView is one row in the activity sidebar.
@@ -114,6 +124,10 @@ type ProjectAttachmentView struct {
 	Category  string // common / api_docs / design / other / ...
 	CreatedAt time.Time
 	CanDelete bool
+	// MovePeers are the OTHER active projects in the community the
+	// viewer can re-parent this attachment into. Empty when the move
+	// dropdown should be hidden.
+	MovePeers []ProjectMovePeer
 }
 
 // ProjectCommentView is one inline comment.
@@ -625,6 +639,17 @@ templ ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) {
 										· { i.CreatedAt.Local().Format("2006-01-02 15:04") }
 									</span>
 								</a>
+								if i.CanEdit && len(d.MovePeers) > 0 {
+									<form class="project-issue-move" data-on:submit__prevent={ "$mv_target_project = el.querySelector('select').value; @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/move')" }>
+										<select required>
+											<option value="">Move to…</option>
+											for _, p := range d.MovePeers {
+												<option value={ p.ID }>{ p.Title }</option>
+											}
+										</select>
+										<button class="btn ghost" type="submit">↗</button>
+									</form>
+								}
 							</li>
 						}
 					</ul>

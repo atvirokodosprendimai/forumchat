@@ -239,6 +239,26 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 		}
 		data.Attachments = toAttachmentViews(atts, p.CreatorUserID, caller.UserID, isAdmin)
 	}
+	// MovePeers feeds the per-attachment + per-issue "Move to project"
+	// pickers. Built once per page render — every active project in
+	// this community minus the current one.
+	if !isGuest {
+		peers, err := h.Repo.ListActiveForCommunity(r.Context(), p.CommunityID)
+		if err == nil {
+			for _, peer := range peers {
+				if peer.ID == p.ID {
+					continue
+				}
+				data.MovePeers = append(data.MovePeers, webtempl.ProjectMovePeer{ID: peer.ID, Title: peer.Title})
+			}
+			// Also surface peers on every attachment row so the Docs
+			// template can render the inline picker without knowing
+			// the parent project's peer list.
+			for i := range data.Attachments {
+				data.Attachments[i].MovePeers = data.MovePeers
+			}
+		}
+	}
 	if want.Comments {
 		comments, err := h.Repo.ListComments(r.Context(), p.ID)
 		if err != nil {
@@ -563,6 +583,98 @@ func (h *Handler) PostAttachmentDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// moveTargetSignals reads $mv_target_project from the inbox-style
+// shared signal bag. Both the attachment and the issue Move handlers
+// share this struct because the form has one select bound to that
+// signal and the row identity travels in the URL.
+type moveTargetSignals struct {
+	TargetProjectID string `json:"mv_target_project"`
+}
+
+// PostAttachmentMove re-parents one project_attachments row to a
+// different project in the SAME community. Caller must be an approved
+// member; admin/creator constraints aren't enforced here (anyone who
+// can upload can rearrange — matches the existing Docs UX).
+func (h *Handler) PostAttachmentMove(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	aid := chi.URLParam(r, "aid")
+	if aid == "" {
+		http.Error(w, "missing attachment id", http.StatusBadRequest)
+		return
+	}
+	var in moveTargetSignals
+	if err := datastar.ReadSignals(r, &in); err != nil || in.TargetProjectID == "" {
+		http.Error(w, "missing mv_target_project", http.StatusBadRequest)
+		return
+	}
+	from, err := h.Repo.ByID(r.Context(), pid)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	to, err := h.Repo.ByID(r.Context(), in.TargetProjectID)
+	if err != nil {
+		http.Error(w, "target project not found", http.StatusBadRequest)
+		return
+	}
+	if to.CommunityID != from.CommunityID {
+		http.Error(w, "target project is in a different community", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.MoveAttachmentToProject(r.Context(), aid, to.ID); err != nil {
+		h.Log.Warn("projects attachment move", "err", err, "from", pid, "to", to.ID, "aid", aid)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.Bus.PublishProject(from.ID, Event{Kind: "attachments"})
+	h.Bus.PublishProject(to.ID, Event{Kind: "attachments"})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostIssueMove re-parents one project_issues row to a different
+// project in the SAME community.
+func (h *Handler) PostIssueMove(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	iid := chi.URLParam(r, "iid")
+	if iid == "" {
+		http.Error(w, "missing issue id", http.StatusBadRequest)
+		return
+	}
+	var in moveTargetSignals
+	if err := datastar.ReadSignals(r, &in); err != nil || in.TargetProjectID == "" {
+		http.Error(w, "missing mv_target_project", http.StatusBadRequest)
+		return
+	}
+	from, err := h.Repo.ByID(r.Context(), pid)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	to, err := h.Repo.ByID(r.Context(), in.TargetProjectID)
+	if err != nil {
+		http.Error(w, "target project not found", http.StatusBadRequest)
+		return
+	}
+	if to.CommunityID != from.CommunityID {
+		http.Error(w, "target project is in a different community", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.MoveIssueToProject(r.Context(), iid, to.ID); err != nil {
+		h.Log.Warn("projects issue move", "err", err, "from", pid, "to", to.ID, "iid", iid)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.Bus.PublishProject(from.ID, Event{Kind: "issues"})
+	h.Bus.PublishProject(to.ID, Event{Kind: "issues"})
 	w.WriteHeader(http.StatusNoContent)
 }
 

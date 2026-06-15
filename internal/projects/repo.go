@@ -339,6 +339,23 @@ func (r *Repo) AttachmentByID(ctx context.Context, id string) (Attachment, error
 	return a, nil
 }
 
+// MoveAttachmentToProject re-parents one project_attachments row.
+// File bytes already live in uploads (SHA-256 deduped); only the
+// project_id column moves. The caller must validate target project
+// belongs to the same community.
+func (r *Repo) MoveAttachmentToProject(ctx context.Context, attID, toProjectID string) error {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE project_attachments SET project_id = ? WHERE id = ?`,
+		toProjectID, attID)
+	if err != nil {
+		return fmt.Errorf("move attachment project: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("attachment %s not found", attID)
+	}
+	return nil
+}
+
 // DeleteAttachment removes the project_attachments row. Caller is
 // responsible for cleaning up the underlying uploads row + file via
 // uploads.Store.Delete if the policy calls for it.

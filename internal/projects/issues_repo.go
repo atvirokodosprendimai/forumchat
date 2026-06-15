@@ -104,6 +104,22 @@ func (r *Repo) DeleteIssue(ctx context.Context, id string) error {
 	return err
 }
 
+// MoveIssueToProject re-parents one project_issues row. Caller must
+// validate target project is in the same community.
+func (r *Repo) MoveIssueToProject(ctx context.Context, issueID, toProjectID string) error {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE project_issues SET project_id = ?, updated_at = ? WHERE id = ?`,
+		toProjectID, time.Now().UnixMilli(), issueID)
+	if err != nil {
+		return fmt.Errorf("move issue project: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("issue %s not found", issueID)
+	}
+	_ = sql.ErrNoRows
+	return nil
+}
+
 // nullStr returns sql.NullString for empty values so we get NULL in the
 // DB instead of the empty string.
 func nullStr(s string) any {

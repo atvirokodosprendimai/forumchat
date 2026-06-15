@@ -3059,4 +3059,25 @@ hr {
   color: var(--accent-strong);
   border-color: var(--accent-soft-strong);
 }
+
+/* Move-to-project pickers on project Docs + Issues tabs */
+.project-attachment-move, .project-issue-move {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+}
+.project-attachment-move select, .project-issue-move select {
+  font-size: 0.78rem;
+  padding: 0.18rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg);
+  max-width: 160px;
+}
+.project-attachment-move .btn, .project-issue-move .btn {
+  padding: 0.18rem 0.5rem;
+  font-size: 0.78rem;
+}
 .mail-filters-table .empty { padding: 2.5rem 1rem; text-align: center; color: var(--fg-subtle); }
