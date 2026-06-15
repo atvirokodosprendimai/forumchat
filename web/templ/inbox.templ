@@ -216,9 +216,11 @@ templ inboxRow(r InboxRow) {
 // inboxAttachOpenExpr builds the datastar expression used by the sender
 // chip click. The address is pre-filled; the kind defaults to "address"
 // and the community starts empty so the dropdown is the user's first
-// interaction.
+// interaction. strconv.Quote produces a JS-safe string literal so an
+// address with `'` or other quote characters doesn't blow up the
+// expression — the popover used to fail silently on any unusual addr.
 func inboxAttachOpenExpr(addr string) string {
-	return "$attach_addr = '" + addr + "'; $attach_kind = 'address'; $attach_community = ''; $attach_to_issue = false; $attach_open = true"
+	return "$attach_addr = " + strconv.Quote(addr) + "; $attach_kind = 'address'; $attach_community = ''; $attach_to_issue = false; $attach_open = true"
 }
 
 // inboxMoveForm renders the per-attachment "Move to project" controls.

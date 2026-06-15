@@ -354,14 +354,27 @@ type IngestInsert struct {
 }
 
 // InsertIngest persists one matched email. The unique constraint on
-// (folder_id, uid, uidvalidity) absorbs duplicates from re-runs, and
-// the second return value tells the caller whether the row is brand-new
-// so side-effects (auto-issue creation, broadcasts) only fire once.
+// (folder_id, uid, uidvalidity) absorbs same-folder duplicates from
+// re-runs. We ALSO dedupe across folders by Message-ID — Gmail's
+// [Gmail]/All Mail and the user's INBOX hold the same logical message
+// with different UIDs, so without this guard every Gmail user would
+// see every email twice. Empty Message-ID falls through (rare, not
+// worth blocking ingest over).
+//
+// The second return value tells the caller whether the row is brand
+// new so side-effects (auto-issue creation, broadcasts) only fire once.
 func (r *Repo) InsertIngest(ctx context.Context, in IngestInsert) (id string, isNew bool, err error) {
 	if existing, err := r.findIngestUID(ctx, in.FolderID, in.UID, in.UIDValidity); err == nil {
 		return existing, false, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return "", false, err
+	}
+	if mid := strings.TrimSpace(in.MessageID); mid != "" {
+		if existing, err := r.findIngestByMessageID(ctx, mid); err == nil {
+			return existing, false, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return "", false, err
+		}
 	}
 	id = uuid.NewString()
 	now := time.Now().Unix()
@@ -403,6 +416,18 @@ func (r *Repo) findIngestUID(ctx context.Context, folderID string, uid, uidvalid
 		SELECT id FROM email_ingest
 		WHERE folder_id = ? AND uid = ? AND uidvalidity = ?`,
 		folderID, uid, uidvalidity).Scan(&id)
+	return id, err
+}
+
+// findIngestByMessageID returns the existing ingest id for a non-empty
+// RFC 5322 Message-ID. The header is globally unique by convention so
+// any other landing of the same logical email — typically Gmail's
+// [Gmail]/All Mail mirroring INBOX — surfaces as a duplicate here.
+func (r *Repo) findIngestByMessageID(ctx context.Context, messageID string) (string, error) {
+	var id string
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id FROM email_ingest WHERE message_id = ? LIMIT 1`,
+		messageID).Scan(&id)
 	return id, err
 }
 
