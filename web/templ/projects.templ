@@ -932,8 +932,9 @@ templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) 
 // empty -> service falls back to "common".
 templ copyToDocsForm(slug, projectID, issueID, attID string) {
 	<form class="project-issue-copy-to-docs"
-		data-on:submit__prevent={ "$copy_category = el.querySelector('input').value; @post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + attID + "/copy-to-docs')" }>
-		<input type="text" placeholder="category (optional)" maxlength="40"/>
+		data-on:submit__prevent={ "var inputs = el.querySelectorAll('input'); $copy_name = inputs[0].value; $copy_category = inputs[1].value; @post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + attID + "/copy-to-docs')" }>
+		<input type="text" placeholder="filename (defaults to issue title)" maxlength="120"/>
+		<input type="text" placeholder="category" maxlength="40"/>
 		<button class="btn ghost" type="submit" title="Add this file to the project Docs tab">
 			📂 Copy to Docs
 		</button>

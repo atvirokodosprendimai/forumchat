@@ -427,9 +427,10 @@ func (h *Handler) PostIssueAttachmentDelete(w http.ResponseWriter, r *http.Reque
 }
 
 // copyToDocsSignals is the bag read by PostIssueAttachmentCopyToDocs.
-// $copy_category is bound to a small input in the per-attachment row.
+// $copy_category + $copy_name are bound to a small per-attachment form.
 type copyToDocsSignals struct {
 	Category string `json:"copy_category"`
+	Name     string `json:"copy_name"`
 }
 
 // PostIssueAttachmentCopyToDocs adds a project_attachments row pointing
@@ -457,7 +458,7 @@ func (h *Handler) PostIssueAttachmentCopyToDocs(w http.ResponseWriter, r *http.R
 		http.Error(w, "bad signals", http.StatusBadRequest)
 		return
 	}
-	if _, err := h.Svc.CopyIssueAttachmentToDocs(r.Context(), pid, iid, aid, id.UserID, in.Category); err != nil {
+	if _, err := h.Svc.CopyIssueAttachmentToDocs(r.Context(), pid, iid, aid, id.UserID, in.Category, in.Name); err != nil {
 		h.Log.Warn("projects issue attachment copy-to-docs", "err", err, "issue", iid, "att", aid)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

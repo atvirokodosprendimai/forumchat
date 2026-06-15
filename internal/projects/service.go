@@ -208,7 +208,11 @@ func (s *Service) AddAttachment(ctx context.Context, projectID, communityID, upl
 // at the same uploads.id as the source IssueAttachment. No new bytes
 // are written — both rows share the underlying file. The Docs tab will
 // list the new row in the chosen category. Returns the new Attachment.
-func (s *Service) CopyIssueAttachmentToDocs(ctx context.Context, projectID, issueID, issueAttID, uploaderID, category string) (Attachment, error) {
+//
+// filename: user-supplied display name. Empty falls back to the parent
+// issue's title + the upload's extension. Sanitised: stripped of path
+// separators, trimmed, truncated to 120 chars.
+func (s *Service) CopyIssueAttachmentToDocs(ctx context.Context, projectID, issueID, issueAttID, uploaderID, category, filename string) (Attachment, error) {
 	src, err := s.Repo.IssueAttachmentByID(ctx, issueAttID)
 	if err != nil {
 		return Attachment{}, fmt.Errorf("issue attachment lookup: %w", err)
@@ -223,11 +227,16 @@ func (s *Service) CopyIssueAttachmentToDocs(ctx context.Context, projectID, issu
 	if category = strings.TrimSpace(category); category == "" {
 		category = "common"
 	}
+	issue, err := s.Repo.IssueByID(ctx, issueID)
+	if err != nil {
+		return Attachment{}, fmt.Errorf("issue lookup: %w", err)
+	}
+	finalName := normaliseCopyFilename(filename, issue.Title, u)
 	a := Attachment{
 		ID:         uuid.NewString(),
 		ProjectID:  projectID,
 		UploadID:   u.ID,
-		Filename:   filenameForCopy(u),
+		Filename:   finalName,
 		MIME:       u.MIME,
 		SizeBytes:  u.Size,
 		UploaderID: uploaderID,
@@ -241,13 +250,16 @@ func (s *Service) CopyIssueAttachmentToDocs(ctx context.Context, projectID, issu
 	return a, nil
 }
 
-// filenameForCopy derives a display filename when the source row
-// doesn't carry one (IssueAttachment has no filename column today —
-// uploads is content-addressed). Uses the on-disk relative path's
-// basename, which is the SHA256 + the original extension.
-func filenameForCopy(u uploads.Upload) string {
-	if u.RelPath == "" {
-		return "file"
+// normaliseCopyFilename produces the display filename for a Docs copy.
+// Preference order: 1) user-supplied (sanitised), 2) issue title +
+// extension, 3) upload RelPath basename as last-ditch fallback.
+func normaliseCopyFilename(user, issueTitle string, u uploads.Upload) string {
+	ext := uploadExt(u)
+	if cleaned := sanitiseFilename(user); cleaned != "" {
+		return ensureExt(cleaned, ext)
+	}
+	if cleaned := sanitiseFilename(issueTitle); cleaned != "" {
+		return ensureExt(cleaned, ext)
 	}
 	base := u.RelPath
 	for i := len(base) - 1; i >= 0; i-- {
@@ -256,7 +268,47 @@ func filenameForCopy(u uploads.Upload) string {
 			break
 		}
 	}
+	if base == "" {
+		base = "file"
+	}
 	return base
+}
+
+// uploadExt returns the .ext portion of the upload's on-disk RelPath
+// (which is "<sha>/<sha>.<ext>"). Empty when the path has no extension.
+func uploadExt(u uploads.Upload) string {
+	for i := len(u.RelPath) - 1; i >= 0; i-- {
+		if u.RelPath[i] == '/' {
+			return ""
+		}
+		if u.RelPath[i] == '.' {
+			return u.RelPath[i:]
+		}
+	}
+	return ""
+}
+
+func ensureExt(name, ext string) string {
+	if ext == "" || strings.HasSuffix(strings.ToLower(name), strings.ToLower(ext)) {
+		return name
+	}
+	return name + ext
+}
+
+// sanitiseFilename strips path separators + control bytes, trims, and
+// caps length. Returns "" when nothing usable remains.
+func sanitiseFilename(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	r := strings.NewReplacer("/", "_", "\\", "_", "\x00", "")
+	s = r.Replace(s)
+	s = strings.TrimSpace(s)
+	if len(s) > 120 {
+		s = s[:120]
+	}
+	return s
 }
 
 // Archive flips archived_at to now. Caller is project creator or
