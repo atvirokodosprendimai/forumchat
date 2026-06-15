@@ -415,6 +415,31 @@ func (r *Repo) ListFiltersForCommunity(ctx context.Context, communityID string) 
 	return out, rows.Err()
 }
 
+// InsertIngestIssue links a persisted ingest row to the project_issues
+// row that was auto-created from it. The PK is ingest_id so re-running
+// the auto-issue path for the same ingest is a no-op (the second
+// INSERT trips UNIQUE).
+func (r *Repo) InsertIngestIssue(ctx context.Context, ingestID, issueID string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT OR IGNORE INTO email_ingest_issue (ingest_id, issue_id, created_at)
+		VALUES (?, ?, ?)`,
+		ingestID, issueID, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("insert ingest issue: %w", err)
+	}
+	return nil
+}
+
+// HasIngestIssue tells the auto-issue path whether the issue already
+// exists, so retries skip the side-effect.
+func (r *Repo) HasIngestIssue(ctx context.Context, ingestID string) (bool, error) {
+	var n int
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM email_ingest_issue WHERE ingest_id = ?`,
+		ingestID).Scan(&n)
+	return n > 0, err
+}
+
 // AttachmentLookup is the shape AttachmentByID returns — both the row
 // and its parent ingest in one structure, since the materialise flow
 // needs the folder name (to EXAMINE) + UID + community + project list.

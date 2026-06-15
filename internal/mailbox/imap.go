@@ -233,6 +233,111 @@ func formatPath(path []int) string {
 	return strings.Join(parts, ".")
 }
 
+// fetchTextBodies returns the decoded text/plain and text/html parts
+// of one message, if present. Empty strings when the message doesn't
+// carry that mime type. Used by the auto-issue path which prefers
+// plaintext and falls back to HTML→text conversion.
+func (i *imapClient) fetchTextBodies(uid uint32, bs imap.BodyStructure) (textBody, htmlBody string, err error) {
+	if bs == nil {
+		return "", "", nil
+	}
+	var textPath, htmlPath []int
+	bs.Walk(func(path []int, part imap.BodyStructure) bool {
+		sp, ok := part.(*imap.BodyStructureSinglePart)
+		if !ok {
+			return true
+		}
+		switch sp.MediaType() {
+		case "text/plain":
+			if textPath == nil {
+				textPath = append([]int(nil), path...)
+			}
+		case "text/html":
+			if htmlPath == nil {
+				htmlPath = append([]int(nil), path...)
+			}
+		}
+		return true
+	})
+	if textPath != nil {
+		b, err := i.fetchPartPath(uid, textPath)
+		if err != nil {
+			return "", "", fmt.Errorf("fetch text/plain: %w", err)
+		}
+		textBody = string(b)
+	}
+	if htmlPath != nil {
+		b, err := i.fetchPartPath(uid, htmlPath)
+		if err != nil {
+			return "", "", fmt.Errorf("fetch text/html: %w", err)
+		}
+		htmlBody = string(b)
+	}
+	return textBody, htmlBody, nil
+}
+
+func (i *imapClient) fetchPartPath(uid uint32, path []int) ([]byte, error) {
+	section := &imap.FetchItemBodySection{Peek: true, Part: append([]int(nil), path...)}
+	set := imap.UIDSet{imap.UIDRange{Start: imap.UID(uid), Stop: imap.UID(uid)}}
+	cmd := i.c.Fetch(set, &imap.FetchOptions{
+		UID:         true,
+		BodySection: []*imap.FetchItemBodySection{section},
+	})
+	var data []byte
+	for {
+		msg := cmd.Next()
+		if msg == nil {
+			break
+		}
+		buf, err := msg.Collect()
+		if err != nil {
+			return nil, err
+		}
+		if got := buf.FindBodySection(section); got != nil {
+			data = got
+		}
+	}
+	if err := cmd.Close(); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// fetchEnvelopeWithBody fetches everything Phase 7 needs for a single
+// new ingest: envelope, BODYSTRUCTURE, plus the text-body parts when
+// the matched filter has to_issue=true. Saves one round-trip.
+func (i *imapClient) fetchEnvelopeWithBody(uid uint32) (FetchedEnvelope, string, string, error) {
+	set := imap.UIDSet{imap.UIDRange{Start: imap.UID(uid), Stop: imap.UID(uid)}}
+	cmd := i.c.Fetch(set, &imap.FetchOptions{
+		UID:           true,
+		Envelope:      true,
+		InternalDate:  true,
+		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
+	})
+	var env FetchedEnvelope
+	var bs imap.BodyStructure
+	for {
+		msg := cmd.Next()
+		if msg == nil {
+			break
+		}
+		buf, err := msg.Collect()
+		if err != nil {
+			return FetchedEnvelope{}, "", "", err
+		}
+		env = envelopeFromBuffer(buf)
+		bs = buf.BodyStructure
+	}
+	if err := cmd.Close(); err != nil {
+		return FetchedEnvelope{}, "", "", err
+	}
+	text, html, err := i.fetchTextBodies(uid, bs)
+	if err != nil {
+		return FetchedEnvelope{}, "", "", err
+	}
+	return env, text, html, nil
+}
+
 // fetchPart streams the bytes of a single BODYSTRUCTURE part by UID +
 // MIMEPartID. Used by the lazy materialise path: when a user clicks
 // "Move attachment to project", we open a short-lived IMAP session,

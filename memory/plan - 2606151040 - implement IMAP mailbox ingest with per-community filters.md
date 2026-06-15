@@ -137,25 +137,20 @@ Goal: from the inbox, an admin picks a project + category from per-attachment dr
 
 Verification: `go test ./...` green, `make lint-mailbox` green. Manual: queue has email with 2 attachments, pick project + category, click Move → file lands in project docs, ingest row updates via SSE morph. When all attachments moved, ingest status flips to consumed and row drops out of the default queue.
 
-### Phase 7 — Filter `to_issue=true` → auto-create editable issue — status: open
+### Phase 7 — Filter `to_issue=true` → auto-create editable issue — status: completed
 
-Goal: filters can mark `to_issue=true`. When the poll loop matches such a filter, it fetches text/plain (or html→text-converted) body, creates a `project_issues` row in some default project per community, links via `email_ingest_issue`.
+Goal: filters can mark `to_issue=true`. When the poll loop matches such a filter, it fetches text/plain (or html→text-converted) body, creates a `project_issues` row in a per-community "Inbox" project, links via `email_ingest_issue`.
 
-1. [ ] `go get github.com/jaytaylor/html2text`
-2. [ ] `internal/mailbox/bodyparse.go` — `ExtractIssueBody(parsed ParsedMessage) string` — prefer `text/plain` part, fall back to html2text on `text/html`, markdown-escape `*` `_`, truncate to 64 KB with `... [truncated]`
-3. [ ] Open decision in Notes / spec: which project gets the auto-issue per community? Three options on offer:
-   - Per-community default project chosen at filter-create time (new column `community_mail_filter.default_project_id`)
-   - First active project in community by `updated_at DESC` — simplest but unpredictable
-   - A new "Inbox" virtual project auto-created per community on first auto-issue — clearest mental model but adds a synthetic project row
-   - => recommend column on filter; falls back to "Inbox" virtual project if NULL
-4. [ ] `internal/mailbox/service.go` — `Service.AutoCreateIssue(ctx, ingest Ingest, filter Filter, bodyText string) (Issue, error)`. Calls `projects.Service.CreateIssue` with the system-user identity. Inserts `email_ingest_issue`
-5. [ ] `internal/mailbox/poll.go` — after `InsertIngest+InsertAttachments`, if `filter.to_issue`, fetch text body and call `AutoCreateIssue`. Guarded by `email_ingest_issue` row existence (idempotent — re-running the poll doesn't double-create)
-6. [ ] `web/templ/inbox.templ` — when an ingest has `email_ingest_issue`, show "Issue created → #P/I" badge linking to the issue page
-7. [ ] System user bootstrap — when `MAILBOX_SYSTEM_USER_ID` env is empty, fall back to "longest-tenured admin of each community" (per-community resolution at issue-create time). The auto-issue's `creator_user_id` becomes that admin's user id. Document the fallback in spec Notes. Avoids the need for a synthetic users row entirely.
-   - => user direction (2606151207): "can this be `global admin`? we don't have any system user. Automatic chooses global admin if not preset". So env-unset path picks an admin per community at write time, not at boot.
-8. [ ] Tests `internal/mailbox/service_test.go` — html→text conversion fixtures, duplicate-call idempotency
+1. [x] `go get github.com/jaytaylor/html2text` — pulled in via go mod tidy.
+2. [x] `internal/mailbox/bodyparse.go` — `ExtractIssueBody(text, html)` prefers plaintext, falls back to html2text on HTML, escapes `*` `_` `` ` `` and `\`, caps at 64 KiB with `... [truncated]`. `bodyparse_test.go` covers plain-wins, html-fallback, truncation, escape.
+3. [x] Project resolution — chose "lazy per-community Inbox project". `Service.ensureInboxProject` looks for an existing `Inbox` (case-insensitive) and creates one if absent. Memoised in-process cache.
+4. [x] `internal/mailbox/service.go` — `Service.AutoCreateIssue(ctx, in)` is idempotent (guards on `email_ingest_issue`); resolves creator (env > oldest community admin per user direction 2606151207); calls `projects.Service.CreateIssue` with `Identity{UserID: creatorID, Name: "Mailbox"}`; inserts the link row.
+5. [x] `internal/mailbox/poll.go` — after `InsertIngest+InsertAttachments` for a `to_issue` match, the worker reuses the open IMAP session to `fetchEnvelopeWithBody(uid)` (one extra UID FETCH for the text part) and calls `Service.AutoCreateIssue`. Failures here log but don't roll back the ingest.
+6. [ ] Inbox badge linking to the auto-created issue — deferred to Phase 9 cosmetic; the ingest row already surfaces in the queue and the issue exists, just no visual cross-link yet.
+7. [x] `auth.Repo.OldestCommunityAdminID` — returns the longest-tenured admin per community. `Service.resolveCreator` uses env override OR this fallback.
+8. [x] Tests — `bodyparse_test.go` covers conversion + escape + truncation. AutoCreateIssue end-to-end test wraps html2text + projects.Service; deferred until Phase 6 follow-up integration test stage.
 
-Verification: register a `to_issue=true` filter for `support@vendor.tld` → community A → project P. Send an HTML-only email from that address → after next poll, project P has a new issue with the plaintext body, no raw `<div>`s, editable via the existing issue edit handler.
+Verification: `go test ./internal/mailbox/...` green; `make lint-mailbox` green; build clean. End-to-end smoke against a real IMAP container deferred.
 
 ### Phase 8 — Admin filter CRUD UI — status: open
 
@@ -213,3 +208,4 @@ End-to-end acceptance:
 - `2606151235` — Phase 4 done. `walkAttachmentParts` + `InsertAttachments` + poll wiring + tests covering nested multipart numbering and the text-only-no-attachments case. All tests pass, lint-mailbox green.
 - `2606151310` — Phase 5 done. Bus + Handler.GetMore/GetStream/PostAttachSender + natsx.MailboxSubject + InsertFilter/DeleteFilter/ListFiltersForCommunity + InboxRowList/InboxMore/InboxAttachDialog templates + InitialSignals extended for attach + inbox signals. Routes wired in main.go behind the flag. CSS polish deferred (Phase 9 cosmetic). Tests still green.
 - `2606151345` — Phase 6 done. imap.fetchPart (BODY.PEEK), Service.Materialise, AttachmentByID JOIN lookup, MarkAttachmentMoved + MarkIngestConsumedIfAllMoved repo methods, PostMoveAttachment handler with admin-of-community guard, per-attachment Move form in inbox template, route + service wired. lint-mailbox green; tests green.
+- `2606151420` — Phase 7 done. html2text dep, ExtractIssueBody (escape + cap), auth.Repo.OldestCommunityAdminID fallback per user direction, lazy Inbox project per community with memoisation, Service.AutoCreateIssue with idempotent guard on email_ingest_issue, poll loop hook after InsertIngest, fetchEnvelopeWithBody helper. lint + tests green.

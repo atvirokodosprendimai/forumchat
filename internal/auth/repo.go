@@ -563,6 +563,22 @@ func (r *Repo) CleanupUserContent(ctx context.Context, userID, communityID strin
 	return nil
 }
 
+// OldestCommunityAdminID returns the user_id of the longest-tenured
+// admin in the given community. Used as the system-fallback creator
+// when MAILBOX_SYSTEM_USER_ID is unset — every community has at least
+// one admin (bootstrap invariant), so this should always succeed for a
+// real community. Returns sql.ErrNoRows when no admin exists.
+func (r *Repo) OldestCommunityAdminID(ctx context.Context, communityID string) (string, error) {
+	var userID string
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT user_id FROM memberships
+		WHERE community_id = ? AND role = ? AND approved_at IS NOT NULL
+		ORDER BY created_at ASC
+		LIMIT 1`,
+		communityID, string(RoleAdmin)).Scan(&userID)
+	return userID, err
+}
+
 // AdminCommunityIDs returns the community IDs in which the user holds
 // admin OR moderator role AND is approved. Returns an empty slice (not
 // nil) when there are none. Drives the global /inbox gate plus the

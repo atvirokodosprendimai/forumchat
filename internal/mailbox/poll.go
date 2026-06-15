@@ -23,6 +23,7 @@ type PollWorker struct {
 	AccountID string // mailbox_account.id resolved by Repo.EnsureAccount
 	Interval  time.Duration
 	Repo      *Repo
+	Svc       *Service     // optional — required for auto-issue (Phase 7)
 	Bus       *Bus         // optional — nil disables in-process fan-out
 	NATS      *natsgo.Conn // optional — nil disables cross-process fan-out
 	Log       *slog.Logger
@@ -165,6 +166,12 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 			w.Log.Warn("mailbox: attachments index failed",
 				"folder", name, "uid", e.UID, "err", err)
 		}
+		if filter.ToIssue && w.Svc != nil {
+			if err := w.autoCreateIssueFor(ctx, c, ingestID, filter.CommunityID, e); err != nil {
+				w.Log.Warn("mailbox: auto-issue failed",
+					"folder", name, "uid", e.UID, "err", err)
+			}
+		}
 		w.broadcast(filter.CommunityID)
 		w.Log.Info("mailbox: ingested",
 			"folder", name,
@@ -182,6 +189,26 @@ func (w *PollWorker) scanFolder(ctx context.Context, c *imapClient, name string)
 		}
 	}
 	return inserted, nil
+}
+
+// autoCreateIssueFor is called only for to_issue filter matches.
+// Re-uses the already-authenticated session to fetch the text bodies
+// (one extra UID FETCH for the BODY.PEEK[<text part>]) and then
+// delegates to Service.AutoCreateIssue. Errors here do NOT roll back
+// the ingest row — the email is still queued for manual attention.
+func (w *PollWorker) autoCreateIssueFor(ctx context.Context, c *imapClient, ingestID, communityID string, e FetchedEnvelope) error {
+	_, text, html, err := c.fetchEnvelopeWithBody(e.UID)
+	if err != nil {
+		return err
+	}
+	_, err = w.Svc.AutoCreateIssue(ctx, AutoCreateIssueInput{
+		IngestID:    ingestID,
+		CommunityID: communityID,
+		Subject:     e.Subject,
+		TextBody:    text,
+		HTMLBody:    html,
+	})
+	return err
 }
 
 // broadcast fires both the in-process Bus and the NATS subject for the

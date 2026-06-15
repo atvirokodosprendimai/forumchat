@@ -333,7 +333,7 @@ func run() error {
 			Password: cfg.MailboxPass,
 			TLSMode:  cfg.MailboxTLS,
 		}
-		mailboxSvc := mailbox.NewService(mailboxRepo, mailboxAccCfg, projectsSvc, projectsRepo)
+		mailboxSvc := mailbox.NewService(mailboxRepo, mailboxAccCfg, projectsSvc, projectsRepo, aRepo, cfg.MailboxSystemUserID)
 		mailboxHandler = &mailbox.Handler{
 			Repo:          mailboxRepo,
 			AuthRepo:      aRepo,
@@ -353,6 +353,7 @@ func run() error {
 					AccountID: acc.ID,
 					Interval:  cfg.MailboxPollInterval,
 					Repo:      mailboxRepo,
+					Svc:       mailboxSvc,
 					Bus:       mailboxBus,
 					NATS:      nc,
 					Log:       log,
