@@ -106,10 +106,10 @@ templ ChatComposer(slug string) {
 				rows="1"
 				placeholder="Say something — markdown ok (paste, drop or attach an image). Shift+Enter for newline."
 				autocomplete="off"
-				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcMentionDetect(el)){$mention_open=true; @get('/c/" + slug + "/chat/mention')} else {$mention_open=false}" }
-				data-on:blur="setTimeout(()=>{$mention_open=false},150)"
+				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcMentionDetect(el)){$_mention_open=true; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false}" }
+				data-on:blur="setTimeout(()=>{$_mention_open=false},150)"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
-				data-on:keydown={ "if(evt.key==='Escape'){$mention_open=false} else if(evt.key==='Enter' && !evt.shiftKey && !$mention_open){evt.preventDefault(); @post('/c/" + slug + "/chat/send'); el.style.height='auto'}" }></textarea>
+				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open){evt.preventDefault(); @post('/c/" + slug + "/chat/send'); el.style.height='auto'}" }></textarea>
 			<button data-on:click={ "@post('/c/" + slug + "/chat/send'); document.querySelector('.composer-text').style.height='auto'" }>Send</button>
 		</div>
 	</div>
@@ -118,13 +118,13 @@ templ ChatComposer(slug string) {
 // MentionPopup renders the @mention typeahead dropdown. Always rendered
 // (even when empty) so Datastar can morph it on every keystroke
 // without the element disappearing from the DOM. Visibility is signal-
-// driven via $mention_open — set true when fcMentionDetect finds an
+// driven via $_mention_open — set true when fcMentionDetect finds an
 // active @token, false on blur / Escape / mention insert.
 templ MentionPopup(hits []MentionHit) {
-	<div id="mention-popup" class="mention-popup" data-cloak data-show="$mention_open">
+	<div id="mention-popup" class="mention-popup" data-cloak data-show="$_mention_open">
 		for _, h := range hits {
 			<button type="button" class="mention-row"
-				data-on:click={ "window.fcInsertMention('" + jsString(h.DisplayName) + "'); $mention_open=false" }>
+				data-on:click={ "window.fcInsertMention('" + jsString(h.DisplayName) + "'); $_mention_open=false" }>
 				<span class="mention-dot" style={ "background:" + mentionColor(h.UserID) }>{ mentionInitial(h.DisplayName) }</span>
 				<span class="mention-name">{ h.DisplayName }</span>
 			</button>
@@ -280,7 +280,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 						<span class="mi-icon">↩</span><span class="mi-label">Reply</span>
 					</button>
 					<button class="msg-menu-item" role="menuitem"
-						data-on:click={ "$bm_open_msg = '" + m.ID + "'; el.closest('details').open=false" }>
+						data-on:click={ "$_bm_open_msg = '" + m.ID + "'; el.closest('details').open=false" }>
 						<span class="mi-icon">★</span><span class="mi-label">Bookmark</span>
 					</button>
 					<button class="msg-menu-item" role="menuitem"

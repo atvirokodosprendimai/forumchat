@@ -394,7 +394,7 @@ func (h *Handler) pushParticipants(ctx context.Context, sse *datastar.ServerSent
 	patch := `{"rooms_member_count":` + intStr(snap.MemberCount) +
 		`,"rooms_am_admin":` + boolJSON(isAdmin)
 	if !isAdmin {
-		patch += `,"rooms_admin_open":false`
+		patch += `,"_rooms_admin_open":false`
 	}
 	patch += `}`
 	_ = sse.PatchSignals([]byte(patch))

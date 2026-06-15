@@ -159,7 +159,7 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	// Reply: clear the per-message composer signal and close the inline form.
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchSignals([]byte(`{"bm_open_msg":"","bm_new_title":"","bm_new_category":"","bm_new_note":""}`))
+	_ = sse.PatchSignals([]byte(`{"_bm_open_msg":"","bm_new_title":"","bm_new_category":"","bm_new_note":""}`))
 }
 
 func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {

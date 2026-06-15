@@ -9,8 +9,8 @@
 // space so the next char doesn't extend the mention) and dispatches an
 // input event so Datastar syncs the `body` signal.
 //
-// Bool signals like `mention_open` are flipped in the Datastar expression
-// itself (`$mention_open=true`) — JS only touches the string signal.
+// Bool signals like `_mention_open` are flipped in the Datastar expression
+// itself (`$_mention_open=true`) — JS only touches the string signal.
 
 (function () {
   const TOKEN_RE = /(^|\s)@([A-Za-z0-9_\-]{0,32})$/;

@@ -430,7 +430,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	)
 	bumpPending := func() {
 		pendingDelta++
-		payload := []byte(fmt.Sprintf(`{"inbox_pending":%d}`, pendingDelta))
+		payload := []byte(fmt.Sprintf(`{"_inbox_pending":%d}`, pendingDelta))
 		_ = sse.PatchSignals(payload)
 	}
 
@@ -464,7 +464,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = patchFirstPage()
 	lastPatch = time.Now()
-	_ = sse.PatchSignals([]byte(`{"inbox_pending":0}`))
+	_ = sse.PatchSignals([]byte(`{"_inbox_pending":0}`))
 
 	keepalive := time.NewTicker(25 * time.Second)
 	defer keepalive.Stop()
@@ -482,7 +482,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			if err := patchFirstPage(); err == nil {
 				lastPatch = time.Now()
 				pendingDelta = 0
-				_ = sse.PatchSignals([]byte(`{"inbox_pending":0}`))
+				_ = sse.PatchSignals([]byte(`{"_inbox_pending":0}`))
 			}
 		case <-throttleCheck.C:
 			// If patches piled up during throttle window, apply now.
@@ -490,7 +490,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 				if err := patchFirstPage(); err == nil {
 					lastPatch = time.Now()
 					pendingDelta = 0
-					_ = sse.PatchSignals([]byte(`{"inbox_pending":0}`))
+					_ = sse.PatchSignals([]byte(`{"_inbox_pending":0}`))
 				}
 			}
 		case <-keepalive.C:
@@ -565,7 +565,7 @@ func (h *Handler) PostAttachSender(w http.ResponseWriter, r *http.Request) {
 	h.broadcast(r.Context(), UnassignedCommunityID)
 
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchSignals([]byte(`{"attach_open":false,"attach_addr":"","attach_kind":"address","attach_community":"","attach_to_issue":false}`))
+	_ = sse.PatchSignals([]byte(`{"_attach_open":false,"attach_addr":"","attach_kind":"address","attach_community":"","attach_to_issue":false}`))
 }
 
 // moveSignals captures the per-attachment Move form payload. Signal

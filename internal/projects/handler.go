@@ -1176,7 +1176,7 @@ func (h *Handler) GetGlobalIssues(w http.ResponseWriter, r *http.Request) {
 
 // GetGlobalIssuesStream is the SSE that powers the "X new — refresh"
 // pill on /issues. Polls max(updated_at) in the viewer's admin set; if
-// it climbs, increments $issues_pending. No fat-morph — the user
+// it climbs, increments $_issues_pending. No fat-morph — the user
 // chooses when to reload.
 func (h *Handler) GetGlobalIssuesStream(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
@@ -1196,7 +1196,7 @@ func (h *Handler) GetGlobalIssuesStream(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchSignals([]byte(`{"issues_pending":0}`))
+	_ = sse.PatchSignals([]byte(`{"_issues_pending":0}`))
 
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
@@ -1214,7 +1214,7 @@ func (h *Handler) GetGlobalIssuesStream(w http.ResponseWriter, r *http.Request) 
 			}
 			if int(n) != pending {
 				pending = int(n)
-				_ = sse.PatchSignals([]byte(`{"issues_pending":` + strconv.Itoa(pending) + `}`))
+				_ = sse.PatchSignals([]byte(`{"_issues_pending":` + strconv.Itoa(pending) + `}`))
 			}
 		case <-keep.C:
 			_ = sse.PatchSignals([]byte(`{}`))

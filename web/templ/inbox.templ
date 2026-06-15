@@ -110,10 +110,10 @@ templ InboxPage(d InboxPageData) {
 				</a>
 				<button
 					class="pill pill-pending"
-					data-show="$inbox_pending > 0"
+					data-show="$_inbox_pending > 0"
 					data-on:click={ inboxRefreshExpr(d.ActiveCommunity) }
 				>
-					🔄 <span data-text="$inbox_pending"></span> new — refresh
+					🔄 <span data-text="$_inbox_pending"></span> new — refresh
 				</button>
 			</div>
 			@InboxRowList(d.Rows)
@@ -162,7 +162,7 @@ func inboxMoreExpr(nextCursor string) string {
 //
 // Members:
 //   inbox_community / inbox_attach — URL-derived filter state.
-//   inbox_q / inbox_pending        — search box + "X new" pill.
+//   inbox_q / _inbox_pending        — search box + "X new" pill.
 //   attach_*                       — InboxAttachDialog state.
 //   move_*                         — per-attachment Move-to-project form.
 func inboxSignalSeed(activeCommunity string, hasAttach bool) string {
@@ -174,8 +174,8 @@ func inboxSignalSeed(activeCommunity string, hasAttach bool) string {
 		"inbox_community: " + strconv.Quote(activeCommunity) +
 		", inbox_attach: " + attach +
 		", inbox_q: ''" +
-		", inbox_pending: 0" +
-		", attach_open: false" +
+		", _inbox_pending: 0" +
+		", _attach_open: false" +
 		", attach_addr: ''" +
 		", attach_kind: 'address'" +
 		", attach_community: ''" +
@@ -312,7 +312,7 @@ templ inboxRow(r InboxRow) {
 // address with `'` or other quote characters doesn't blow up the
 // expression — the popover used to fail silently on any unusual addr.
 func inboxAttachOpenExpr(addr string) string {
-	return "$attach_addr = " + strconv.Quote(addr) + "; $attach_kind = 'address'; $attach_community = ''; $attach_to_issue = false; $attach_open = true"
+	return "$attach_addr = " + strconv.Quote(addr) + "; $attach_kind = 'address'; $attach_community = ''; $attach_to_issue = false; $_attach_open = true"
 }
 
 // inboxMoveForm renders the per-attachment "Move to project" controls.
@@ -361,10 +361,10 @@ templ InboxToast() {
 }
 
 // InboxAttachDialog is the popover the sender-chip click opens. Lives
-// inside the page so a Datastar expression can flip $attach_open without
+// inside the page so a Datastar expression can flip $_attach_open without
 // crossing component boundaries. Pills double as the community list.
 templ InboxAttachDialog(pills []InboxPill) {
-	<div id="inbox-attach-dialog" data-show="$attach_open" class="modal-backdrop">
+	<div id="inbox-attach-dialog" data-show="$_attach_open" class="modal-backdrop">
 		<div class="modal-card">
 			<h2>Attach sender to community</h2>
 			<p>Future messages from this sender will land in the chosen community's inbox.</p>
@@ -392,7 +392,7 @@ templ InboxAttachDialog(pills []InboxPill) {
 			</label>
 
 			<div class="modal-actions">
-				<button class="ghost" data-on:click="$attach_open = false">Cancel</button>
+				<button class="ghost" data-on:click="$_attach_open = false">Cancel</button>
 				<button class="primary"
 					data-on:click="@post('/inbox/attach-sender')"
 					data-attr:disabled="!$attach_community || !$attach_addr"

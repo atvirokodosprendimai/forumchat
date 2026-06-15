@@ -148,13 +148,13 @@ templ RoomPage(d RoomPageData) {
 					<button class="btn rooms-ctl rooms-ctl-screen" data-rooms-screen title="Share screen">🖥</button>
 					<button class="btn ghost rooms-ctl"
 						data-show="$rooms_am_admin"
-						data-on:click="$rooms_admin_open = !$rooms_admin_open"
+						data-on:click="$_rooms_admin_open = !$_rooms_admin_open"
 						title="Admin controls">⚙</button>
 					<button class="btn rooms-ctl rooms-ctl-leave" data-rooms-leave>Leave</button>
 				</div>
 			</header>
 
-			<div class="rooms-admin-tray" data-show="$rooms_admin_open">
+			<div class="rooms-admin-tray" data-show="$_rooms_admin_open">
 				@RoomsAdminPanel(RoomAdminPanelData{
 					CommunitySlug: d.CommunitySlug,
 					RoomID:        d.RoomID,

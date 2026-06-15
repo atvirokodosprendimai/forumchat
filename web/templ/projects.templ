@@ -742,7 +742,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 	@Layout(i.Title+" — Issue", d.Viewer) {
 		@projectShell(d, "issues") {
 			<section class="project-panel project-panel-issue"
-				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_edit_image:'',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',projects_issue_edit_open:false,projects_issue_comment_body:'',projects_issue_comment_edit:'',projects_issue_comment_edit_id:'',copy_category:'',copy_name:''}" }>
+				data-signals={ "{projects_issue_status:'" + i.Status + "',projects_issue_edit:'" + jsQuoteAttr(i.BodyMD) + "',projects_issue_edit_image:'',projects_issue_title:'" + jsQuoteAttr(i.Title) + "',_projects_issue_edit_open:false,projects_issue_comment_body:'',projects_issue_comment_edit:'',projects_issue_comment_edit_id:'',copy_category:'',copy_name:''}" }>
 				<nav class="project-breadcrumb muted">
 					<a href={ templ.URL("/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues") }>← all issues</a>
 				</nav>
@@ -757,7 +757,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 						· { i.CreatedAt.Local().Format("2006-01-02 15:04") }
 					</span>
 				</header>
-				<div class="project-issue-display" data-show="!$projects_issue_edit_open">
+				<div class="project-issue-display" data-show="!$_projects_issue_edit_open">
 					if i.BodyHTML != "" {
 						<div class="project-issue-body">@templ.Raw(render.WrapUploadImages(i.BodyHTML))</div>
 					} else {
@@ -766,7 +766,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 					<div class="project-issue-actions">
 						if i.CanEdit {
 							<button class="btn ghost"
-								data-on:click="$projects_issue_edit_open = true">Edit</button>
+								data-on:click="$_projects_issue_edit_open = true">Edit</button>
 						}
 						if i.CanDelete {
 							<button class="btn ghost danger"
@@ -806,7 +806,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 					</div>
 					@ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/issues/"+i.ID+"/share-to-chat", "Quick update on this issue — ")
 				</div>
-				<div class="project-issue-edit" data-show="$projects_issue_edit_open">
+				<div class="project-issue-edit" data-show="$_projects_issue_edit_open">
 					<label>
 						Title
 						<input type="text" maxlength="200" data-bind="projects_issue_title"/>
@@ -825,9 +825,9 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 								data-on:change="fcPickImage(evt, 'projects_issue_edit_image')"/>
 						</label>
 						<button class="btn"
-							data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "'); $projects_issue_edit_open = false" }>Save</button>
+							data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "'); $_projects_issue_edit_open = false" }>Save</button>
 						<button class="btn ghost"
-							data-on:click="$projects_issue_edit_open = false">Cancel</button>
+							data-on:click="$_projects_issue_edit_open = false">Cancel</button>
 					</div>
 					<div data-show="$projects_issue_edit_image" class="muted">📎 Image attached — submits with the edit.</div>
 				</div>

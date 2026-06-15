@@ -171,18 +171,18 @@ templ NewThreadPage(v Viewer) {
 templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 	@Layout(t.Subject, v) {
 		<section>
-			<h1 data-show="!$rename_open">
+			<h1 data-show="!$_rename_open">
 				if t.IsResolved {
 					<span class="resolved-badge">✓ resolved</span>
 				}
 				{ t.Subject }
 			</h1>
 			if t.IsMod {
-				<div class="rename-row" data-show="$rename_open">
+				<div class="rename-row" data-show="$_rename_open">
 					<input type="text" data-bind="new_subject" maxlength="200"/>
 					<button class="btn"
 						data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/rename')" }>save</button>
-					<button class="btn ghost" data-on:click="$rename_open=false">cancel</button>
+					<button class="btn ghost" data-on:click="$_rename_open=false">cancel</button>
 				</div>
 			}
 			<p class="muted"><a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>← Forum</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
@@ -201,7 +201,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 					}
 					if t.IsMod {
 						<button class="link"
-							data-on:click={ "$rename_open=true; $new_subject='" + jsString(t.Subject) + "'" }>rename</button>
+							data-on:click={ "$_rename_open=true; $new_subject='" + jsString(t.Subject) + "'" }>rename</button>
 					}
 					if t.CanEdit || t.IsMod {
 						<button class="link"
