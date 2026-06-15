@@ -300,7 +300,7 @@ templ inboxMoveForm(ingestID, attID string, groups []InboxProjectGroup) {
 }
 
 func inboxMoveSubmitExpr(attID string) string {
-	return "fetch('/inbox/attachments/" + attID + "/move', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project_id: el.querySelector('select').value, category: el.querySelector('input').value || 'common'})})"
+	return "fetch('/inbox/attachments/" + attID + "/move', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project_id: el.querySelector('select').value, category: el.querySelector('input').value || 'common'})}).then(async r => { if (!r.ok) { const t = await r.text(); alert('Move failed: ' + r.status + ' — ' + t); } })"
 }
 
 // InboxAttachDialog is the popover the sender-chip click opens. Lives
