@@ -23,7 +23,17 @@ func decodeTextBody(raw []byte, encoding, charset string) string {
 	}
 	var r io.Reader = bytes.NewReader(raw)
 
-	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	enc := strings.ToLower(strings.TrimSpace(encoding))
+	// Empty / "7bit" / "8bit" / "binary" → no transfer-decode declared.
+	// Some IMAP servers omit Content-Transfer-Encoding on the BODYSTRUCTURE
+	// even when the part on the wire is base64-wrapped (Microsoft 365 has
+	// been observed doing this on auto-forwarded mail). Sniff the bytes:
+	// if they're pure base64 alphabet + mod-4 + decode to text, treat the
+	// part as base64. Same fallback that saved decodeAttachmentBytes.
+	if (enc == "" || enc == "7bit" || enc == "8bit" || enc == "binary") && looksLikeBase64(raw) {
+		enc = "base64"
+	}
+	switch enc {
 	case "quoted-printable":
 		r = quotedprintable.NewReader(r)
 	case "base64":

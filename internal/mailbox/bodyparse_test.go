@@ -5,6 +5,29 @@ import (
 	"testing"
 )
 
+func TestDecodeTextBody_EmptyEncodingSniffBase64(t *testing.T) {
+	// Body wire bytes are base64 but the BODYSTRUCTURE didn't report a
+	// transfer encoding. decodeTextBody must sniff and decode anyway,
+	// otherwise prod stores the literal base64 string (the bug that
+	// shipped in commit 8e928a0's repair-tool drawer).
+	raw := []byte("R2FsdXRpbsSXIHZhcnRvdG9qxbMgcHJvZ3JhbcSXbMSXIHZhZGluYXNpIFBhcmtUaW1l")
+	got := decodeTextBody(raw, "", "utf-8")
+	if !strings.Contains(got, "Galutin") || !strings.Contains(got, "ParkTime") {
+		t.Fatalf("expected decoded Lithuanian text, got %q", got)
+	}
+}
+
+func TestDecodeTextBody_PlainPassthrough(t *testing.T) {
+	// Pure-ascii body with no encoding declared should NOT be mis-decoded
+	// (false-positive base64 sniff). Even though "Hello World" has no
+	// base64 alphabet trespasses, it's mod-4 mid-trim. Sniff guards on
+	// length + alphabet so plain text passes through.
+	got := decodeTextBody([]byte("Hello there"), "", "utf-8")
+	if got != "Hello there" {
+		t.Fatalf("plain body should pass through, got %q", got)
+	}
+}
+
 func TestExtractIssueBody_PlainWins(t *testing.T) {
 	got := ExtractIssueBody("hello *plain* text", "<p>hello <b>html</b> text</p>")
 	if !strings.Contains(got, "hello \\*plain\\* text") {
