@@ -63,6 +63,23 @@ type Config struct {
 	// changed.
 	ProjectChatDigestMinutes int `env:"PROJECT_CHAT_DIGEST_MINUTES" envDefault:"5"`
 
+	// Mailbox / IMAP ingest. When enabled, a poll worker dials a single
+	// shared IMAP account (READ-ONLY: only EXAMINE + BODY.PEEK[], never
+	// \Seen mutation or MOVE) every MailboxPollInterval. Matched messages
+	// from per-community filters land in /inbox. Attachments are indexed
+	// metadata-only; bytes fetched on demand at "Move to project" click.
+	// MailboxSystemUserID is the synthetic users row credited as the
+	// author of auto-created project_issues from to_issue=true filters.
+	MailboxEnabled       bool          `env:"MAILBOX_ENABLED" envDefault:"false"`
+	MailboxHost          string        `env:"MAILBOX_HOST" envDefault:""`
+	MailboxPort          int           `env:"MAILBOX_PORT" envDefault:"993"`
+	MailboxUser          string        `env:"MAILBOX_USER" envDefault:""`
+	MailboxPass          string        `env:"MAILBOX_PASS" envDefault:""`
+	MailboxTLS           string        `env:"MAILBOX_TLS" envDefault:"tls"` // tls | starttls | none
+	MailboxPollInterval  time.Duration `env:"MAILBOX_POLL_INTERVAL" envDefault:"2m"`
+	MailboxAttachmentMax int64         `env:"MAILBOX_ATTACHMENT_MAX" envDefault:"26214400"` // 25 MiB
+	MailboxSystemUserID  string        `env:"MAILBOX_SYSTEM_USER_ID" envDefault:""`
+
 	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate
 	// on first boot and persist to VAPID_KEYS_FILE so subsequent boots
 	// keep the same key pair (otherwise every browser subscription would

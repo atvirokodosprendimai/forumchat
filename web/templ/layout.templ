@@ -6,6 +6,9 @@ type Viewer struct {
 	Role          string // member|moderator|admin
 	CommunityName string
 	CommunitySlug string // empty when no community is in scope (dashboard, login pages)
+	// IsAdminOfAnyCommunity gates the global /inbox topbar link. Populated
+	// by handlers that build a Viewer — the layout treats false as "hide".
+	IsAdminOfAnyCommunity bool
 }
 
 // themeColor picks a hex from a small accent palette using a stable
@@ -56,6 +59,11 @@ var ProjectsEnabled bool
 // GuestAccessEnabled — instance-level Lobbies flag. Toggles the
 // sidebar menu item and gates the host-side routes registered in main.
 var GuestAccessEnabled bool
+
+// MailboxEnabled — instance-level IMAP mailbox flag. Toggles the
+// global /inbox sidebar link (further gated by viewer's admin-of-any-
+// community status) and the poll worker.
+var MailboxEnabled bool
 
 // InitialSignals — global signal bag rendered on every page.
 // Every data-bind / data-on-click POST sees these as their starting state.
@@ -181,6 +189,9 @@ templ Layout(title string, v Viewer) {
 							}
 						}
 						<h3 class="sidebar-group">You</h3>
+						if MailboxEnabled && v.IsAdminOfAnyCommunity {
+							<a href="/inbox"><span class="sb-icon" aria-hidden="true">📥</span>Inbox</a>
+						}
 						<a href="/messages" class="pm-nav-link">
 							<span class="sb-icon" aria-hidden="true">✉</span>
 							<span>Messages</span>

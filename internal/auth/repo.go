@@ -563,6 +563,32 @@ func (r *Repo) CleanupUserContent(ctx context.Context, userID, communityID strin
 	return nil
 }
 
+// AdminCommunityIDs returns the community IDs in which the user holds
+// admin OR moderator role AND is approved. Returns an empty slice (not
+// nil) when there are none. Drives the global /inbox gate plus the
+// per-row community scoping inside the mailbox feature.
+func (r *Repo) AdminCommunityIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT community_id FROM memberships
+		WHERE user_id = ?
+		  AND role IN (?, ?)
+		  AND approved_at IS NOT NULL`,
+		userID, string(RoleAdmin), string(RoleMod))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var cid string
+		if err := rows.Scan(&cid); err != nil {
+			return nil, err
+		}
+		out = append(out, cid)
+	}
+	return out, rows.Err()
+}
+
 // CountAdmins returns the number of admin-role memberships in the
 // community. Used as a last-admin-standing guard before remove/demote
 // so an op can't accidentally lock everyone out.

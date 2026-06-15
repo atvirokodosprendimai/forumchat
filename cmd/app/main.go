@@ -33,6 +33,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/history"
 	"github.com/atvirokodosprendimai/forumchat/internal/invites"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
+	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
 	"github.com/atvirokodosprendimai/forumchat/internal/lobbies"
@@ -281,6 +282,34 @@ func run() error {
 		return &projects.CommunityRef{ID: c.ID, Slug: c.Slug, Name: c.Name}, nil
 	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
+
+	// ----- Mailbox (IMAP ingest) -------------------------------------------
+	// Single shared read-only IMAP account → per-community filter routing
+	// into /inbox. The feature flag toggles the route, the topbar link,
+	// and (later phases) the poll worker. DB tables exist regardless so
+	// toggling the flag never needs a schema migration.
+	var mailboxHandler *mailbox.Handler
+	if cfg.MailboxEnabled {
+		mailboxRepo := mailbox.NewRepo(db)
+		mailboxHandler = &mailbox.Handler{
+			Repo:          mailboxRepo,
+			AuthRepo:      aRepo,
+			CommunityRepo: cRepo,
+			Log:           log,
+		}
+		if cfg.MailboxHost != "" && cfg.MailboxUser != "" {
+			if _, err := mailboxRepo.EnsureAccount(ctx, mailbox.AccountConfig{
+				Host:     cfg.MailboxHost,
+				Port:     cfg.MailboxPort,
+				Username: cfg.MailboxUser,
+				Password: cfg.MailboxPass,
+				TLSMode:  cfg.MailboxTLS,
+			}); err != nil {
+				log.Warn("mailbox: EnsureAccount failed", "err", err)
+			}
+		}
+	}
+	webtempl.MailboxEnabled = cfg.MailboxEnabled
 
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
 
@@ -663,6 +692,12 @@ func run() error {
 	go roomsState.RunJanitor(ctx, log)
 
 	r.Get("/", dashboardHandler.GetIndex)
+	if cfg.MailboxEnabled && mailboxHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth)
+			r.Get("/inbox", mailboxHandler.GetGlobalInbox)
+		})
+	}
 	r.Get("/explore", exploreHandler.GetIndex)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)

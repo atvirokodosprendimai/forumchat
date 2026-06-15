@@ -1,0 +1,127 @@
+package templ
+
+import (
+	"strconv"
+	"time"
+)
+
+// InboxPill is one community filter chip across the top of /inbox.
+// "All" is rendered separately and is not part of this slice.
+type InboxPill struct {
+	ID   string
+	Slug string
+	Name string
+}
+
+// InboxAttachment is one attachment row under an InboxRow.
+type InboxAttachment struct {
+	ID             string
+	Filename       string
+	MIME           string
+	SizeBytes      int64
+	IsMaterialised bool
+}
+
+// InboxRow is one email_ingest entry rendered in the queue list.
+type InboxRow struct {
+	ID              string
+	CommunityName   string
+	CommunitySlug   string
+	FromAddr        string
+	FromName        string
+	Subject         string
+	ReceivedAtUnix  int64
+	AttachmentCount int
+	Attachments     []InboxAttachment
+}
+
+// InboxPageData is the full payload the handler hands to InboxPage.
+type InboxPageData struct {
+	Viewer          Viewer
+	Pills           []InboxPill
+	ActiveCommunity string // empty = "All"
+	Rows            []InboxRow
+	NextCursor      string // empty = no more
+}
+
+// InboxPage renders /inbox: community filter pills along the top + the
+// list of queued emails, ordered newest-first. The infinite-scroll
+// sentinel is always rendered; when NextCursor is empty it is a no-op.
+templ InboxPage(d InboxPageData) {
+	@Layout("Inbox", d.Viewer) {
+		<section class="inbox">
+			<header class="inbox-head">
+				<h1>Inbox</h1>
+				<p class="muted">Emails matched by community filters land here. Move attachments into projects; create issues from full messages.</p>
+			</header>
+			<nav class="inbox-pills" aria-label="Community filter">
+				@inboxPill("", "All", d.ActiveCommunity == "")
+				for _, p := range d.Pills {
+					@inboxPill(p.ID, p.Name, d.ActiveCommunity == p.ID)
+				}
+			</nav>
+			<div id="inbox-rows" class="inbox-rows">
+				if len(d.Rows) == 0 {
+					<p class="empty">No emails yet. As soon as the IMAP poller finds a message matching any of your community's filters, it will appear here.</p>
+				} else {
+					for _, row := range d.Rows {
+						@inboxRow(row)
+					}
+				}
+			</div>
+			<div id="inbox-more"
+				if d.NextCursor != "" {
+					data-on:scrollend={ "@get('/inbox/more?cursor=" + d.NextCursor + "&community=' + ($inbox_community || ''))" }
+				}
+			></div>
+		</section>
+	}
+}
+
+templ inboxPill(id, name string, active bool) {
+	if active {
+		<a class="pill pill-active" href={ inboxPillHref(id) }>{ name }</a>
+	} else {
+		<a class="pill" href={ inboxPillHref(id) }>{ name }</a>
+	}
+}
+
+func inboxPillHref(communityID string) templ.SafeURL {
+	if communityID == "" {
+		return templ.SafeURL("/inbox")
+	}
+	return templ.SafeURL("/inbox?community=" + communityID)
+}
+
+templ inboxRow(r InboxRow) {
+	<article id={ "ingest-" + r.ID } class="inbox-row">
+		<header class="inbox-row-head">
+			<span class="from">
+				if r.FromName != "" {
+					<strong>{ r.FromName }</strong>
+					<span class="addr">&lt;{ r.FromAddr }&gt;</span>
+				} else {
+					<strong>{ r.FromAddr }</strong>
+				}
+			</span>
+			<span class="community-badge">{ r.CommunityName }</span>
+			<time datetime={ time.Unix(r.ReceivedAtUnix, 0).UTC().Format(time.RFC3339) }>
+				{ time.Unix(r.ReceivedAtUnix, 0).UTC().Format("2006-01-02 15:04") }
+			</time>
+		</header>
+		<h3 class="subject">{ r.Subject }</h3>
+		if len(r.Attachments) > 0 {
+			<ul class="attachments">
+				for _, a := range r.Attachments {
+					<li>
+						<span class="att-name">{ a.Filename }</span>
+						<span class="att-meta">{ a.MIME } · { strconv.FormatInt(a.SizeBytes, 10) } B</span>
+						if a.IsMaterialised {
+							<span class="att-moved">moved</span>
+						}
+					</li>
+				}
+			</ul>
+		}
+	</article>
+}

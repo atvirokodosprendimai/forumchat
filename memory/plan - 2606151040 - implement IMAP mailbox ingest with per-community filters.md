@@ -53,23 +53,25 @@ Goal: the spec's UI section reflects user intent: **global `/inbox` page** (admi
 3. [x] Committed spec refine on `task/spec-mailbox-imap-ingest`.
    - => commit hash to be filled by the refine commit below
 
-### Phase 1 — Feature flag, schema, empty global inbox page — status: open
+### Phase 1 — Feature flag, schema, empty global inbox page — status: completed
 
 Goal: `MAILBOX_ENABLED=true` shows an "Inbox" link in the topbar (visible only to admins of any community) and `/inbox` renders an empty-state page. `false` hides everything. DB tables exist regardless so toggling on later requires no schema work.
 
-1. [ ] Migration `internal/storage/sqlite/migrations/00015_mailbox.sql` — `mailbox_account`, `mailbox_folder`, `community_mail_filter`, `email_ingest`, `email_ingest_attachment`, `email_ingest_issue` per spec §Domain model
-   - FK ordering note: `email_ingest_issue.issue_id` → `project_issues(id)`. Projects migration `00014` is already in the chain. We are `00015`. OK.
-2. [ ] `internal/config/config.go` — add 8 env vars per spec §Config additions (`MAILBOX_ENABLED`, `MAILBOX_HOST/PORT/USER/PASS/TLS`, `MAILBOX_POLL_INTERVAL`, `MAILBOX_ATTACHMENT_MAX`, `MAILBOX_SYSTEM_USER_ID`)
-3. [ ] `internal/mailbox/types.go` — `Account`, `Folder`, `Filter`, `Ingest`, `Attachment`, view types `QueuedEmailView`, `QueuedAttachmentView`
-4. [ ] `internal/mailbox/repo.go` — Phase 1 surface only: `EnsureAccount(ctx, cfg) (Account, error)` (insert-or-fetch singleton), `ListEnabledFolders(ctx, accountID) ([]Folder, error)`, `QueueForViewer(ctx, viewerAdminCommunityIDs []string, communityFilter *string, cursor *Cursor, limit int) ([]QueuedEmailView, *Cursor, error)`
-5. [ ] `internal/mailbox/handler.go` — `Handler{Repo, Log}` + `GetGlobalInbox` only (renders the page shell with the empty state for now)
-6. [ ] `web/templ/inbox.templ` — `InboxPage(data InboxPageData)` with community filter pills (data slice in struct), the queue list section (empty state "No emails yet"), an `Infinite scroll` sentinel `<div id="inbox-more" data-on:scrollend="@get('/inbox/more')">` (no-op until Phase 5)
-7. [ ] `cmd/app/main.go` — wire `mailboxRepo`, `mailboxHandler`, `webtempl.MailboxEnabled = cfg.MailboxEnabled` global, `/inbox` GET mounted only when flag true
-   - Pattern: same shape as `projectsHandler` and `webtempl.ProjectsEnabled` (see Phase 1 of [[plan - 2606141411 - implement projects feature per spec]])
-8. [ ] `web/templ/layout.templ` — when `MailboxEnabled && viewer.IsAdminOfAnyCommunity`, render "Inbox" topbar link. New `Viewer` field `IsAdminOfAnyCommunity bool` computed in middleware
-9. [ ] Spec + plan + Phase 1 ship together to main via `task/spec-mailbox-imap-ingest`'s PR. Subsequent phases get their own task branches.
+1. [x] Migration `internal/storage/sqlite/migrations/00020_mailbox.sql` — `mailbox_account`, `mailbox_folder`, `community_mail_filter`, `email_ingest`, `email_ingest_attachment`, `email_ingest_issue` per spec §Domain model
+   - => Chose `00020` because chain reached `00019_lobbies.sql` already.
+   - => FK chain works: `email_ingest_issue.issue_id` → `project_issues(id)` already exists in `00014`.
+2. [x] `internal/config/config.go` — added 8 env vars: `MAILBOX_ENABLED/HOST/PORT/USER/PASS/TLS`, `MAILBOX_POLL_INTERVAL`, `MAILBOX_ATTACHMENT_MAX`, `MAILBOX_SYSTEM_USER_ID`.
+3. [x] `internal/mailbox/types.go` — `Account`, `Folder`, `Filter` (+`FilterKind` enum), `Ingest` (+`IngestStatus` enum), `Attachment`, `QueueCursor`, `QueueQuery`.
+4. [x] `internal/mailbox/repo.go` — Phase 1 surface: `EnsureAccount` (insert-or-update singleton), `ListEnabledFolders`, `QueueForViewer` (cursor-paginated, scoped to viewer's admin community set, optional community pill, batched attachment fetch).
+   - => Cursor format: opaque base64-url of `received_at_unix_ms || ':' || id`. Roundtrip + bad-input tests in `cursor_test.go`.
+5. [x] `internal/mailbox/handler.go` — `Handler{Repo, AuthRepo, CommunityRepo, Log}` + `GetGlobalInbox`. Anti-enum: non-admin → `404 not found`. Wrong-community-pill → `404`.
+6. [x] `web/templ/inbox.templ` — `InboxPage(d InboxPageData)` with community pills, empty-state, `#inbox-more` scrollend sentinel.
+7. [x] `cmd/app/main.go` — wired `mailboxRepo`, `mailboxHandler`, `webtempl.MailboxEnabled = cfg.MailboxEnabled`, `/inbox` GET mounted only when flag true. EnsureAccount runs at boot when host+user envs are set.
+8. [x] `web/templ/layout.templ` — `Viewer.IsAdminOfAnyCommunity` added; "Inbox" topbar entry inside `if MailboxEnabled && v.IsAdminOfAnyCommunity`.
+9. [x] `internal/auth/repo.go` — `AdminCommunityIDs(ctx, userID) ([]string, error)` returns the admin/mod set, used by `GetGlobalInbox`.
+10. [x] `internal/mailbox/cursor_test.go` — roundtrip + bad-input tests.
 
-Verification: with `MAILBOX_ENABLED=true`, log in as an admin → topbar shows "Inbox" → `/inbox` returns 200 with empty grid + community filter pills (just "All" since no rows). With `=false`, link absent, route 404. With `=true` and a non-admin user, link absent, route 403.
+Verification (deferred to manual smoke once a `.env` has `MAILBOX_ENABLED=true`): admin viewer sees topbar link, `/inbox` returns 200 with empty state. Non-admin viewer sees no link and gets 404 on `/inbox`. Disabled flag — link absent, route 404.
 
 ### Phase 2 — IMAP poll loop shell, all folders, no DB writes — status: open
 
@@ -199,3 +201,4 @@ End-to-end acceptance:
 
 - `2606151040` — Plan drafted off `task/spec-mailbox-imap-ingest`. Spec already committed at `1741fd7`. User clarified global inbox shape; Phase 0 captures the spec refinement before any code lands.
 - `2606151105` — Phase 0 done. Spec refined inline via `/eidos:refine`: §Global inbox replaces §Sorting queue, click-sender popover added, anti-enumeration tightened, Future bullet updated. No code yet — implementation starts at Phase 1.
+- `2606151140` — Phase 1 done. Migration 00020 + 8 config envs + `internal/mailbox` (types/repo/handler/cursor_test) + `internal/auth/AdminCommunityIDs` + `web/templ/inbox.templ` + topbar wiring. All tests green (`go test ./...`). Empty `/inbox` reachable behind the flag for admins of any community; anti-enum 404 elsewhere.
