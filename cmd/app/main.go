@@ -629,6 +629,7 @@ func run() error {
 				r.Get("/{id}/activity", projectsHandler.GetActivityTab)
 				r.Get("/{id}/issues", projectsHandler.GetIssuesTab)
 				r.Post("/{id}/issues", projectsHandler.PostCreateIssue)
+				r.Post("/{id}/issues/close-all", projectsHandler.PostCloseAllIssues)
 				r.Get("/{id}/issues/{iid}", projectsHandler.GetIssue)
 				r.Post("/{id}/issues/{iid}", projectsHandler.PostIssueEdit)
 				r.Post("/{id}/issues/{iid}/delete", projectsHandler.PostIssueDelete)

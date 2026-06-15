@@ -61,6 +61,12 @@ type ProjectPageData struct {
 	// the user can move attachments / issues into. Empty when this
 	// project is the only active one.
 	MovePeers []ProjectMovePeer
+	// IssuesActiveStatus is the status the issues tab is filtering on
+	// (one of open / triaged / in_progress / closed / all). Driven by
+	// the ?status= query param.
+	IssuesActiveStatus string
+	// IssuesCounts maps status -> count for the per-tab badges.
+	IssuesCounts map[string]int
 }
 
 // ProjectMovePeer is one option in the "Move to project" picker.
@@ -601,7 +607,23 @@ templ ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) {
 		@projectShell(d, "issues") {
 			<section class="project-panel project-panel-issues"
 				data-signals="{projects_issue_title:'',projects_issue_body:'',projects_issue_body_image:''}">
-				<h3>Issues</h3>
+				<header class="project-issues-head">
+					<h3>Issues</h3>
+					<nav class="project-issues-tabs">
+						@issueTab(d.CommunitySlug, d.Project.ID, "open", "Open", d.IssuesActiveStatus, d.IssuesCounts)
+						@issueTab(d.CommunitySlug, d.Project.ID, "triaged", "Triaged", d.IssuesActiveStatus, d.IssuesCounts)
+						@issueTab(d.CommunitySlug, d.Project.ID, "in_progress", "In progress", d.IssuesActiveStatus, d.IssuesCounts)
+						@issueTab(d.CommunitySlug, d.Project.ID, "closed", "Closed", d.IssuesActiveStatus, d.IssuesCounts)
+						@issueTab(d.CommunitySlug, d.Project.ID, "all", "All", d.IssuesActiveStatus, d.IssuesCounts)
+					</nav>
+					if d.Viewer.Role == "admin" || d.Viewer.Role == "moderator" {
+						<button class="btn ghost danger"
+							title="Close every non-closed issue in this project"
+							data-on:click={ "confirm('Close every open issue in this project?') && @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/close-all')" }>
+							🗂 Close all
+						</button>
+					}
+				</header>
 				<form class="project-issue-add"
 					data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues')" }>
 					<input type="text" maxlength="200" placeholder="Issue title"
@@ -657,6 +679,43 @@ templ ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) {
 			</section>
 		}
 	}
+}
+
+// issueTab renders one subtab link in the issues-tab nav.
+templ issueTab(slug, projectID, status, label, active string, counts map[string]int) {
+	if status == active {
+		<a class="project-issues-tab project-issues-tab-active"
+			href={ templ.URL("/c/" + slug + "/projects/" + projectID + "/issues?status=" + status) }>
+			{ label }
+			@issueTabBadge(status, counts)
+		</a>
+	} else {
+		<a class="project-issues-tab"
+			href={ templ.URL("/c/" + slug + "/projects/" + projectID + "/issues?status=" + status) }>
+			{ label }
+			@issueTabBadge(status, counts)
+		</a>
+	}
+}
+
+templ issueTabBadge(status string, counts map[string]int) {
+	if status == "all" {
+		<span class="project-issues-tab-count">{ issueTabCountStr(allIssueCount(counts)) }</span>
+	} else if counts != nil {
+		<span class="project-issues-tab-count">{ issueTabCountStr(counts[status]) }</span>
+	}
+}
+
+func issueTabCountStr(n int) string {
+	return strconv.Itoa(n)
+}
+
+func allIssueCount(counts map[string]int) int {
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	return total
 }
 
 // IssueStatusPill is a small color-coded chip per status.

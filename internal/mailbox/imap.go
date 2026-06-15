@@ -324,6 +324,7 @@ func (i *imapClient) fetchTextBodies(uid uint32, bs imap.BodyStructure) (textBod
 		return "", "", nil
 	}
 	var textPath, htmlPath []int
+	var textEnc, textCs, htmlEnc, htmlCs string
 	bs.Walk(func(path []int, part imap.BodyStructure) bool {
 		sp, ok := part.(*imap.BodyStructureSinglePart)
 		if !ok {
@@ -333,10 +334,18 @@ func (i *imapClient) fetchTextBodies(uid uint32, bs imap.BodyStructure) (textBod
 		case "text/plain":
 			if textPath == nil {
 				textPath = append([]int(nil), path...)
+				textEnc = sp.Encoding
+				if sp.Params != nil {
+					textCs = sp.Params["charset"]
+				}
 			}
 		case "text/html":
 			if htmlPath == nil {
 				htmlPath = append([]int(nil), path...)
+				htmlEnc = sp.Encoding
+				if sp.Params != nil {
+					htmlCs = sp.Params["charset"]
+				}
 			}
 		}
 		return true
@@ -346,14 +355,14 @@ func (i *imapClient) fetchTextBodies(uid uint32, bs imap.BodyStructure) (textBod
 		if err != nil {
 			return "", "", fmt.Errorf("fetch text/plain: %w", err)
 		}
-		textBody = string(b)
+		textBody = decodeTextBody(b, textEnc, textCs)
 	}
 	if htmlPath != nil {
 		b, err := i.fetchPartPath(uid, htmlPath)
 		if err != nil {
 			return "", "", fmt.Errorf("fetch text/html: %w", err)
 		}
-		htmlBody = string(b)
+		htmlBody = decodeTextBody(b, htmlEnc, htmlCs)
 	}
 	return textBody, htmlBody, nil
 }

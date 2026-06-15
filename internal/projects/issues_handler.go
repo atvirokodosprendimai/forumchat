@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -187,7 +188,8 @@ func (h *Handler) GetGuestBounce(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/c/"+c.Slug+"/projects/"+p.ID, http.StatusSeeOther)
 }
 
-// GetIssuesTab renders the Issues list tab.
+// GetIssuesTab renders the Issues list tab. ?status= narrows the list
+// to one of {open,triaged,in_progress,closed,all}; default is open.
 func (h *Handler) GetIssuesTab(w http.ResponseWriter, r *http.Request) {
 	data, ok := h.loadProjectData(w, r, struct {
 		Todos, Atts, Comments, Activity bool
@@ -196,14 +198,62 @@ func (h *Handler) GetIssuesTab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pid := chi.URLParam(r, "id")
-	issues, err := h.Repo.ListIssues(r.Context(), pid, true)
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if status == "" {
+		status = IssueOpen
+	}
+	if !validStatusFilter(status) {
+		http.Error(w, "bad status", http.StatusBadRequest)
+		return
+	}
+	issues, err := h.Repo.ListIssues(r.Context(), pid, true, status)
 	if err != nil {
 		h.Log.Error("projects issues list", "err", err, "id", pid)
 	}
+	counts, _ := h.Repo.CountIssuesByStatus(r.Context(), pid)
 	id, _ := h.callerIdentity(r)
 	isAdmin := id.Role == auth.RoleAdmin
 	views := toIssueViews(issues, id, isAdmin)
+	data.IssuesActiveStatus = status
+	data.IssuesCounts = counts
 	_ = webtempl.ProjectIssuesPage(data, views).Render(r.Context(), w)
+}
+
+// PostCloseAllIssues bulk-closes every non-closed issue in the project.
+// Admin-edit gated; non-admin members cannot mass-mutate state.
+func (h *Handler) PostCloseAllIssues(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	id, ok := h.callerIdentity(r)
+	if !ok || (id.Role != auth.RoleAdmin && id.Role != auth.RoleMod) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	n, err := h.Repo.CloseAllOpenIssues(r.Context(), pid, time.Now().UTC())
+	if err != nil {
+		h.Log.Warn("projects close-all", "err", err, "project", pid)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.Bus.PublishProject(pid, Event{Kind: "issues"})
+	h.Log.Info("projects close-all done", "project", pid, "closed", n)
+	slug := chi.URLParam(r, "slug")
+	sse := render.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + slug + "/projects/" + pid + "/issues?status=closed")
+}
+
+func validStatusFilter(s string) bool {
+	if s == "all" {
+		return true
+	}
+	for _, v := range IssueStatuses {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }
 
 // PostIssueComment adds a comment.

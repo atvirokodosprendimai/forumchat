@@ -7,19 +7,29 @@ import (
 	"time"
 )
 
-// ListIssues returns a project's issues. If includeClosed is false,
-// closed rows are omitted. Ordered by updated_at descending.
-func (r *Repo) ListIssues(ctx context.Context, projectID string, includeClosed bool) ([]Issue, error) {
+// ListIssues returns a project's issues. statusFilter "" or "all"
+// includes every status; any specific status string narrows the query
+// to WHERE status = ?. Ordered by updated_at descending.
+//
+// includeClosed is retained for backwards compatibility — true behaves
+// the same as statusFilter="all", false the same as statusFilter="open"
+// + triaged + in_progress. Prefer statusFilter on new callers.
+func (r *Repo) ListIssues(ctx context.Context, projectID string, includeClosed bool, statusFilter ...string) ([]Issue, error) {
 	q := `SELECT id, project_id, title, body_md, body_html, status,
 	             COALESCE(creator_user_id,''), COALESCE(creator_guest_id,''),
 	             creator_name, created_at, updated_at
 	      FROM project_issues
 	      WHERE project_id = ?`
-	if !includeClosed {
+	args := []any{projectID}
+	switch {
+	case len(statusFilter) > 0 && statusFilter[0] != "" && statusFilter[0] != "all":
+		q += ` AND status = ?`
+		args = append(args, statusFilter[0])
+	case !includeClosed:
 		q += ` AND status != 'closed'`
 	}
 	q += ` ORDER BY updated_at DESC`
-	rows, err := r.DB.QueryContext(ctx, q, projectID)
+	rows, err := r.DB.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list issues: %w", err)
 	}
@@ -38,6 +48,43 @@ func (r *Repo) ListIssues(ctx context.Context, projectID string, includeClosed b
 		out = append(out, i)
 	}
 	return out, rows.Err()
+}
+
+// CountIssuesByStatus returns a map of status -> count for one project.
+// Used by the issues-tab header to render per-tab badges.
+func (r *Repo) CountIssuesByStatus(ctx context.Context, projectID string) (map[string]int, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT status, COUNT(*) FROM project_issues WHERE project_id = ?
+		GROUP BY status`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("count issues by status: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var s string
+		var n int
+		if err := rows.Scan(&s, &n); err != nil {
+			return nil, err
+		}
+		out[s] = n
+	}
+	return out, rows.Err()
+}
+
+// CloseAllOpenIssues sets every non-closed issue in a project to
+// status=closed. Returns the number of rows touched. Idempotent —
+// re-running on an already-closed project is a no-op.
+func (r *Repo) CloseAllOpenIssues(ctx context.Context, projectID string, now time.Time) (int64, error) {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE project_issues SET status = 'closed', updated_at = ?
+		WHERE project_id = ? AND status != 'closed'`,
+		now.UnixMilli(), projectID)
+	if err != nil {
+		return 0, fmt.Errorf("close all issues: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 // IssueByID loads one issue row.
