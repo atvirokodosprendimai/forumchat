@@ -53,6 +53,10 @@ type Handler struct {
 	// main.go to the push package's Sender. Used to broadcast new-project,
 	// new-issue and new-comment events to community subscribers.
 	PushNotify func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
+	// RefetchEmailFn powers the "Refetch from email" button on auto-
+	// created issues. nil → button is hidden + endpoint returns 503.
+	// Wired in main.go to mailbox.Service.RefetchIssueFromEmail.
+	RefetchEmailFn func(ctx context.Context, issueID string) (bodyUpdated bool, attached int, err error)
 	// ChatRepo + ChatBus power the "Share to chat" buttons on project,
 	// issue and discussion pages. Optional — when nil the share endpoint
 	// returns 503 and the templates can still render the buttons.
@@ -639,6 +643,38 @@ func (h *Handler) PostAttachmentMove(w http.ResponseWriter, r *http.Request) {
 	h.Bus.PublishProject(from.ID, Event{Kind: "attachments"})
 	h.Bus.PublishProject(to.ID, Event{Kind: "attachments"})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostIssueRefetch re-runs the email→issue pipeline against the source
+// email of an auto-created issue. Overwrites the issue body with freshly
+// decoded text and appends attachments that aren't already present.
+// 503 when mailbox refetch isn't wired or this issue wasn't created
+// from an email.
+func (h *Handler) PostIssueRefetch(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	iid := chi.URLParam(r, "iid")
+	if iid == "" {
+		http.Error(w, "missing issue id", http.StatusBadRequest)
+		return
+	}
+	if h.RefetchEmailFn == nil {
+		http.Error(w, "refetch not enabled", http.StatusServiceUnavailable)
+		return
+	}
+	bodyUpdated, attached, err := h.RefetchEmailFn(r.Context(), iid)
+	if err != nil {
+		h.Log.Warn("issue refetch", "err", err, "issue", iid)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.Bus.PublishProject(pid, Event{Kind: "issues"})
+	h.Log.Info("issue refetch ok", "issue", iid, "body_updated", bodyUpdated, "attached", attached)
+	slug := chi.URLParam(r, "slug")
+	sse := render.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + slug + "/projects/" + pid + "/issues/" + iid)
 }
 
 // PostIssueMove re-parents one project_issues row to a different

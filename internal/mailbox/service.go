@@ -3,14 +3,17 @@ package mailbox
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 )
 
 // InboxProjectSentinel is the prefix used in the per-community "Inbox
@@ -258,6 +261,99 @@ func (s *Service) AutoCreateIssue(ctx context.Context, in AutoCreateIssueInput) 
 		return "", fmt.Errorf("link ingest issue: %w", err)
 	}
 	return issue.ID, nil
+}
+
+// RefetchResult reports what the refetch pass changed.
+type RefetchResult struct {
+	BodyUpdated      bool
+	AttachmentsAdded int
+}
+
+// RefetchIssueFromEmail re-runs the auto-issue pipeline (text decode,
+// markdown render, attachment download) against the SOURCE email of
+// the issue. Body is overwritten with freshly decoded text; attachments
+// not yet present (SHA256 not in the existing project_issue_attachments
+// set) are added. Used by the "Refetch from email" button on the issue
+// page after the IMAP decode pipeline gets fixed.
+func (s *Service) RefetchIssueFromEmail(ctx context.Context, issueID string) (RefetchResult, error) {
+	var res RefetchResult
+	if s.Projects == nil || s.Projs == nil {
+		return res, errors.New("mailbox: refetch requires projects service")
+	}
+	ing, folder, _, err := s.Repo.IngestByIssueID(ctx, issueID)
+	if err != nil {
+		return res, fmt.Errorf("ingest lookup: %w", err)
+	}
+	issue, err := s.Projs.IssueByID(ctx, issueID)
+	if err != nil {
+		return res, fmt.Errorf("issue lookup: %w", err)
+	}
+	proj, err := s.Projs.ByID(ctx, issue.ProjectID)
+	if err != nil {
+		return res, fmt.Errorf("project lookup: %w", err)
+	}
+
+	c, err := dial(s.Cfg)
+	if err != nil {
+		return res, fmt.Errorf("imap dial: %w", err)
+	}
+	defer c.close()
+	if _, err := c.examineReadOnly(folder); err != nil {
+		return res, fmt.Errorf("examine %s: %w", folder, err)
+	}
+	env, text, html, err := c.fetchEnvelopeWithBody(ing.UID)
+	if err != nil {
+		return res, fmt.Errorf("fetch envelope+body: %w", err)
+	}
+
+	// Body refresh.
+	body := ExtractIssueBody(text, html)
+	bodyHTML, mdErr := render.RenderMarkdown(body)
+	if mdErr != nil {
+		return res, fmt.Errorf("render md: %w", mdErr)
+	}
+	if err := s.Projs.UpdateIssueBody(ctx, issueID, body, bodyHTML, time.Now().UTC()); err != nil {
+		return res, fmt.Errorf("update issue body: %w", err)
+	}
+	res.BodyUpdated = true
+
+	// Dedup against existing attachments by SHA256.
+	existingSHA := map[string]struct{}{}
+	if existing, err := s.Projs.ListIssueAttachments(ctx, issueID); err == nil {
+		for _, a := range existing {
+			if u, err := s.Projects.Uploads.Get(ctx, a.UploadID); err == nil {
+				existingSHA[u.SHA256] = struct{}{}
+			}
+		}
+	}
+
+	creatorID, err := s.resolveCreator(ctx, proj.CommunityID)
+	if err != nil {
+		return res, fmt.Errorf("resolve creator: %w", err)
+	}
+
+	for _, p := range env.Attachments {
+		raw, err := c.fetchPartPath(ing.UID, parsePartPath(p.MIMEPartID))
+		if err != nil {
+			continue
+		}
+		decoded := decodeAttachmentBytes(raw, p.Encoding)
+		sum := sha256.Sum256(decoded)
+		hex := fmt.Sprintf("%x", sum[:])
+		if _, dup := existingSHA[hex]; dup {
+			continue
+		}
+		if _, err := s.Projects.AddIssueAttachment(ctx,
+			issue.ProjectID, issueID, "", proj.CommunityID, p.MIME, p.Filename,
+			bytes.NewReader(decoded),
+			projects.Identity{UserID: creatorID, Name: "Mailbox"},
+		); err != nil {
+			continue
+		}
+		existingSHA[hex] = struct{}{}
+		res.AttachmentsAdded++
+	}
+	return res, nil
 }
 
 // ApplyFilterToPast retro-applies a filter to past email_ingest rows:

@@ -278,6 +278,38 @@ func (r *Repo) ResetAllFolderCursors(ctx context.Context, accountID string) (int
 	return n, nil
 }
 
+// IngestByIssueID resolves the source email of an auto-created issue.
+// Joins email_ingest_issue → email_ingest → mailbox_folder so the
+// refetch path has everything to reopen the IMAP session: ingest UID,
+// folder name, account id.
+func (r *Repo) IngestByIssueID(ctx context.Context, issueID string) (Ingest, string, string, error) {
+	row := r.DB.QueryRowContext(ctx, `
+		SELECT i.id, i.folder_id, i.uid, i.uidvalidity,
+		       i.message_id, i.from_addr, i.from_name, i.subject,
+		       i.received_at, COALESCE(i.community_id,''),
+		       i.status, COALESCE(i.matched_filter_id,''), i.created_at,
+		       f.name, f.account_id
+		FROM email_ingest_issue ij
+		JOIN email_ingest i ON i.id = ij.ingest_id
+		JOIN mailbox_folder f ON f.id = i.folder_id
+		WHERE ij.issue_id = ?`, issueID)
+	var ing Ingest
+	var recvAt, createdAt int64
+	var folderName, accountID string
+	if err := row.Scan(
+		&ing.ID, &ing.FolderID, &ing.UID, &ing.UIDValidity,
+		&ing.MessageID, &ing.FromAddr, &ing.FromName, &ing.Subject,
+		&recvAt, &ing.CommunityID,
+		&ing.Status, &ing.MatchedFilterID, &createdAt,
+		&folderName, &accountID,
+	); err != nil {
+		return Ingest{}, "", "", err
+	}
+	ing.ReceivedAt = time.Unix(recvAt, 0).UTC()
+	ing.CreatedAt = time.Unix(createdAt, 0).UTC()
+	return ing, folderName, accountID, nil
+}
+
 // IngestBodyRow is what the one-shot decode-bodies CLI iterates over —
 // just id + body_text, no full ingest struct.
 type IngestBodyRow struct {

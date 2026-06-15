@@ -335,6 +335,10 @@ func run() error {
 			TLSMode:  cfg.MailboxTLS,
 		}
 		mailboxSvc := mailbox.NewService(mailboxRepo, mailboxAccCfg, projectsSvc, projectsRepo, aRepo, cfg.MailboxSystemUserID)
+		projectsHandler.RefetchEmailFn = func(ctx context.Context, issueID string) (bool, int, error) {
+			res, err := mailboxSvc.RefetchIssueFromEmail(ctx, issueID)
+			return res.BodyUpdated, res.AttachmentsAdded, err
+		}
 		mailboxHandler = &mailbox.Handler{
 			Repo:          mailboxRepo,
 			AuthRepo:      aRepo,
@@ -629,6 +633,7 @@ func run() error {
 				r.Post("/{id}/issues/{iid}", projectsHandler.PostIssueEdit)
 				r.Post("/{id}/issues/{iid}/delete", projectsHandler.PostIssueDelete)
 				r.Post("/{id}/issues/{iid}/move", projectsHandler.PostIssueMove)
+				r.Post("/{id}/issues/{iid}/refetch", projectsHandler.PostIssueRefetch)
 				r.Post("/{id}/issues/{iid}/comment", projectsHandler.PostIssueComment)
 				r.Post("/{id}/issues/{iid}/comment/{cid}", projectsHandler.PostIssueCommentEdit)
 				r.Post("/{id}/issues/{iid}/comment/{cid}/delete", projectsHandler.PostIssueCommentDelete)

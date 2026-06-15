@@ -737,6 +737,13 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 								<button class="btn ghost" type="submit">↗ Move</button>
 							</form>
 						}
+						if i.CanEdit {
+							<button class="btn ghost"
+								title="Re-pull body + attachments from the source email"
+								data-on:click={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/" + i.ID + "/refetch')" }>
+								↻ Refetch from email
+							</button>
+						}
 					</div>
 					@ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/issues/"+i.ID+"/share-to-chat", "Quick update on this issue — ")
 				</div>
@@ -833,14 +840,64 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 }
 
 templ issueImage(slug, projectID, issueID string, a ProjectIssueAttachmentView) {
-	<figure class="project-issue-image">
-		<img src={ a.URL } alt={ a.UploaderName + "'s upload" } loading="lazy"/>
-		if a.CanDelete {
-			<button class="btn ghost danger project-issue-image-delete"
-				title="Delete image"
-				data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + a.ID + "/delete')" }>×</button>
-		}
-	</figure>
+	if isImageMIME(a.MIME) {
+		<figure class="project-issue-image">
+			<img src={ a.URL } alt={ a.UploaderName + "'s upload" } loading="lazy"/>
+			if a.CanDelete {
+				<button class="btn ghost danger project-issue-image-delete"
+					title="Delete image"
+					data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + a.ID + "/delete')" }>×</button>
+			}
+		</figure>
+	} else {
+		<div class="project-issue-file">
+			<a href={ templ.URL(a.URL) } target="_blank" rel="noopener" download>
+				<span class="att-icon" aria-hidden="true">{ fileIcon(a.MIME) }</span>
+				<span class="att-label">{ fileLabel(a.MIME) }</span>
+			</a>
+			if a.CanDelete {
+				<button class="btn ghost danger project-issue-file-delete"
+					title="Delete attachment"
+					data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/issues/" + issueID + "/attachment/" + a.ID + "/delete')" }>×</button>
+			}
+		</div>
+	}
+}
+
+func isImageMIME(mime string) bool {
+	return len(mime) >= 6 && mime[:6] == "image/"
+}
+
+func fileIcon(mime string) string {
+	switch {
+	case mime == "application/pdf":
+		return "📕"
+	case mime == "application/zip", mime == "application/x-zip-compressed":
+		return "🗜"
+	case len(mime) >= 5 && mime[:5] == "text/":
+		return "📄"
+	case len(mime) >= 6 && mime[:6] == "audio/":
+		return "🎵"
+	case len(mime) >= 6 && mime[:6] == "video/":
+		return "🎬"
+	}
+	return "📎"
+}
+
+func fileLabel(mime string) string {
+	switch mime {
+	case "application/pdf":
+		return "PDF — open"
+	case "application/zip", "application/x-zip-compressed":
+		return "ZIP — download"
+	case "application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return "Word — open"
+	case "application/vnd.ms-excel",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		return "Excel — open"
+	}
+	return mime + " — open"
 }
 
 // ProjectHeaderFragment renders the title + description block with
