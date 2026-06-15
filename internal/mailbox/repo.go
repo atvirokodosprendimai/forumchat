@@ -415,6 +415,106 @@ func (r *Repo) ListFiltersForCommunity(ctx context.Context, communityID string) 
 	return out, rows.Err()
 }
 
+// AttachmentLookup is the shape AttachmentByID returns — both the row
+// and its parent ingest in one structure, since the materialise flow
+// needs the folder name (to EXAMINE) + UID + community + project list.
+type AttachmentLookup struct {
+	Attachment Attachment
+	Ingest     Ingest
+	FolderName string
+}
+
+// AttachmentByID resolves the attachment along with the parent ingest
+// + folder name. Returns sql.ErrNoRows when nothing matches.
+func (r *Repo) AttachmentByID(ctx context.Context, id string) (AttachmentLookup, error) {
+	var out AttachmentLookup
+	var movedAt sql.NullInt64
+	var uploadID, movedProjectID, movedCategory sql.NullString
+	var receivedAt int64
+	var createdEgg int64 // for ingest
+	var createdAtt int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT
+			a.id, a.ingest_id, a.filename, a.mime, a.size_bytes, a.mime_part_id,
+			a.upload_id, a.moved_to_project_id, a.moved_category, a.moved_at, a.created_at,
+			i.id, i.folder_id, i.uid, i.uidvalidity, i.message_id,
+			i.from_addr, i.from_name, i.subject, i.received_at,
+			i.community_id, i.status, COALESCE(i.matched_filter_id,''), i.created_at,
+			f.name
+		FROM email_ingest_attachment a
+		JOIN email_ingest i        ON i.id = a.ingest_id
+		JOIN mailbox_folder f      ON f.id = i.folder_id
+		WHERE a.id = ?`, id).Scan(
+		&out.Attachment.ID, &out.Attachment.IngestID, &out.Attachment.Filename,
+		&out.Attachment.MIME, &out.Attachment.SizeBytes, &out.Attachment.MIMEPartID,
+		&uploadID, &movedProjectID, &movedCategory, &movedAt, &createdAtt,
+		&out.Ingest.ID, &out.Ingest.FolderID, &out.Ingest.UID, &out.Ingest.UIDValidity,
+		&out.Ingest.MessageID, &out.Ingest.FromAddr, &out.Ingest.FromName, &out.Ingest.Subject,
+		&receivedAt, &out.Ingest.CommunityID, (*string)(&out.Ingest.Status), &out.Ingest.MatchedFilterID,
+		&createdEgg, &out.FolderName,
+	)
+	if err != nil {
+		return AttachmentLookup{}, err
+	}
+	if uploadID.Valid {
+		out.Attachment.UploadID = uploadID.String
+	}
+	if movedProjectID.Valid {
+		out.Attachment.MovedToProjectID = movedProjectID.String
+	}
+	if movedCategory.Valid {
+		out.Attachment.MovedCategory = movedCategory.String
+	}
+	if movedAt.Valid {
+		t := time.Unix(movedAt.Int64, 0).UTC()
+		out.Attachment.MovedAt = &t
+	}
+	out.Attachment.CreatedAt = time.Unix(createdAtt, 0).UTC()
+	out.Ingest.CreatedAt = time.Unix(createdEgg, 0).UTC()
+	out.Ingest.ReceivedAt = time.UnixMilli(receivedAt).UTC()
+	return out, nil
+}
+
+// MarkAttachmentMoved records the materialisation result: the uploads
+// row that holds the bytes, the target project, the chosen category.
+func (r *Repo) MarkAttachmentMoved(ctx context.Context, attID, uploadID, projectID, category string) error {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE email_ingest_attachment
+		SET upload_id = ?, moved_to_project_id = ?, moved_category = ?, moved_at = ?
+		WHERE id = ? AND upload_id IS NULL`,
+		uploadID, projectID, category, time.Now().Unix(), attID)
+	if err != nil {
+		return fmt.Errorf("mark attachment moved: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("mailbox: attachment already moved or missing")
+	}
+	return nil
+}
+
+// MarkIngestConsumedIfAllMoved flips the parent email's status to
+// 'consumed' once every attachment row has a non-null upload_id. Idempotent.
+// Returns whether the status flipped on this call.
+func (r *Repo) MarkIngestConsumedIfAllMoved(ctx context.Context, ingestID string) (bool, error) {
+	var remaining int
+	if err := r.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM email_ingest_attachment
+		WHERE ingest_id = ? AND upload_id IS NULL`, ingestID).Scan(&remaining); err != nil {
+		return false, err
+	}
+	if remaining > 0 {
+		return false, nil
+	}
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE email_ingest SET status = 'consumed'
+		WHERE id = ? AND status = 'queued'`, ingestID)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // InsertAttachments persists attachment metadata for one ingested
 // email. Bytes are NOT here — only filename/mime/size/mime_part_id.
 // The insert runs inside a single transaction so partial failure is

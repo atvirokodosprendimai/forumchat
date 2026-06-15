@@ -326,28 +326,30 @@ func run() error {
 	if cfg.MailboxEnabled {
 		mailboxRepo := mailbox.NewRepo(db)
 		mailboxBus = mailbox.NewBus()
+		mailboxAccCfg := mailbox.AccountConfig{
+			Host:     cfg.MailboxHost,
+			Port:     cfg.MailboxPort,
+			Username: cfg.MailboxUser,
+			Password: cfg.MailboxPass,
+			TLSMode:  cfg.MailboxTLS,
+		}
+		mailboxSvc := mailbox.NewService(mailboxRepo, mailboxAccCfg, projectsSvc, projectsRepo)
 		mailboxHandler = &mailbox.Handler{
 			Repo:          mailboxRepo,
 			AuthRepo:      aRepo,
 			CommunityRepo: cRepo,
+			Svc:           mailboxSvc,
 			Bus:           mailboxBus,
 			NATS:          nc,
 			Log:           log,
 		}
 		if cfg.MailboxHost != "" && cfg.MailboxUser != "" {
-			accCfg := mailbox.AccountConfig{
-				Host:     cfg.MailboxHost,
-				Port:     cfg.MailboxPort,
-				Username: cfg.MailboxUser,
-				Password: cfg.MailboxPass,
-				TLSMode:  cfg.MailboxTLS,
-			}
-			acc, err := mailboxRepo.EnsureAccount(ctx, accCfg)
+			acc, err := mailboxRepo.EnsureAccount(ctx, mailboxAccCfg)
 			if err != nil {
 				log.Warn("mailbox: EnsureAccount failed", "err", err)
 			} else {
 				(&mailbox.PollWorker{
-					Cfg:       accCfg,
+					Cfg:       mailboxAccCfg,
 					AccountID: acc.ID,
 					Interval:  cfg.MailboxPollInterval,
 					Repo:      mailboxRepo,
@@ -717,6 +719,7 @@ func run() error {
 			r.Get("/inbox/more", mailboxHandler.GetMore)
 			r.Get("/inbox/stream", mailboxHandler.GetStream)
 			r.Post("/inbox/attach-sender", mailboxHandler.PostAttachSender)
+			r.Post("/inbox/attachments/{id}/move", mailboxHandler.PostMoveAttachment)
 		})
 	}
 	r.Get("/explore", exploreHandler.GetIndex)

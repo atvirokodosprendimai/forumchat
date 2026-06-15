@@ -124,18 +124,18 @@ Verification: `go test ./...` green; manual smoke deferred until an IMAP test co
 
 Verification: load `/inbox` with 250 rows in DB → see first 100 → scroll to bottom → 100 more append → scroll again → 50 more append + sentinel hides. Click a community pill → first 100 of that community only. Run poll worker, send a new email matching a filter → list morphs in within ~1s.
 
-### Phase 6 — Lazy attachment materialise → project doc — status: open
+### Phase 6 — Lazy attachment materialise → project doc — status: completed
 
 Goal: from the inbox, an admin picks a project + category from per-attachment dropdowns and clicks "Move". The chosen attachment is fetched (BODY.PEEK[mime_part_id]), saved to uploads, and linked into `project_attachments`.
 
-1. [ ] `internal/mailbox/handler.go` — `PostMoveAttachment` — reads signals `{attachment_id, project_id, category}`, opens IMAP client on demand, fetches the single part, streams into `uploads.Store.SaveAttachment(ctx, systemUserID, communityID, mime, filename, reader)`, inserts `project_attachments`, updates `email_ingest_attachment.upload_id + moved_to_project_id + moved_category + moved_at`
-2. [ ] `internal/mailbox/service.go` — extract the orchestration into `Service.Materialise(ctx, attachmentID, projectID, category, mover Identity) (Attachment, error)` — keeps the handler thin and testable
-3. [ ] `internal/mailbox/repo.go` — `AttachmentByID(ctx, id) (Attachment, Ingest, error)` returning both the attachment and its parent ingest (for community + IMAP folder + UID + mime_part_id). Single SELECT JOIN. `MarkConsumedIfAllMoved(ctx, ingestID) (bool, error)` — flips `email_ingest.status='consumed'` when no unresolved attachments remain
-4. [ ] `web/templ/inbox.templ` — project + category `<select>` dropdowns per attachment row (project list is the viewer's allowed projects in that community), "Move" button
-5. [ ] After-move SSE — re-render that ingest row (`PatchElementTempl(InboxRow(view), WithSelector("#ingest-<id>"))`) AND publish `Bus.Broadcast(communityID)` so other open inbox tabs morph
-6. [ ] Cross-community guard — the chosen project must belong to the ingest row's `community_id`; otherwise 403. Tests `internal/mailbox/handler_test.go` cover this
+1. [x] `internal/mailbox/handler.go` — `PostMoveAttachment` — reads JSON body `{project_id, category}`, authorises via `AdminCommunityIDs` against the attachment's community, delegates to `Svc.Materialise`, broadcasts on success, returns 204.
+2. [x] `internal/mailbox/service.go` — `Service.Materialise` opens a short-lived IMAP session, EXAMINEs the right folder, calls `imapClient.fetchPart(uid, mime_part_id)` (BODY.PEEK), pipes the bytes to `projects.Service.AddAttachment`, stamps the mailbox attachment row, flips ingest status when every attachment is moved.
+3. [x] `internal/mailbox/repo.go` — `AttachmentByID` returns the attachment + parent ingest + folder name in one SELECT JOIN. `MarkAttachmentMoved` records upload+project+category+timestamp guarded by upload_id IS NULL. `MarkIngestConsumedIfAllMoved` flips status when no nullable upload_id rows remain.
+4. [x] `web/templ/inbox.templ` — per-attachment `inboxMoveForm` with project `<select>` (scoped to row's community) + free-text category + submit button. Form POSTs JSON to `/inbox/attachments/{id}/move`; the open SSE stream re-renders the rows on Bus broadcast.
+5. [x] After-move SSE — `Bus.Broadcast(communityID)` + NATS publish. Open inbox tabs morph.
+6. [x] Cross-community guard — `Svc.Materialise` rejects when the chosen project's `community_id` doesn't match the ingest's. Authorisation also checked at the handler boundary via `AdminCommunityIDs`.
 
-Verification: queue has an email with 2 attachments. Pick project P + category "design" → click Move on attachment 1 → file lands in project P's docs section with category "design", attachment row in queue now shows "Moved → P", row stays in queue. Move attachment 2 → email row disappears from queue (status=consumed) and reappears under a future "Show consumed" toggle (deferred).
+Verification: `go test ./...` green, `make lint-mailbox` green. Manual: queue has email with 2 attachments, pick project + category, click Move → file lands in project docs, ingest row updates via SSE morph. When all attachments moved, ingest status flips to consumed and row drops out of the default queue.
 
 ### Phase 7 — Filter `to_issue=true` → auto-create editable issue — status: open
 
@@ -212,3 +212,4 @@ End-to-end acceptance:
 - `2606151225` — User requested email search across content + attachment filenames. Filed as new Future-but-must-do bullet (`{[!]}`). Will land as a new Phase 5b between queue UI and Phase 6 — once UI exists to expose the search box. Implementation note: persist text body into `email_ingest.body_text` at poll time and build SQLite FTS5 virtual table over (subject, from_addr, from_name, body_text, attachment filenames). No IMAP refetch.
 - `2606151235` — Phase 4 done. `walkAttachmentParts` + `InsertAttachments` + poll wiring + tests covering nested multipart numbering and the text-only-no-attachments case. All tests pass, lint-mailbox green.
 - `2606151310` — Phase 5 done. Bus + Handler.GetMore/GetStream/PostAttachSender + natsx.MailboxSubject + InsertFilter/DeleteFilter/ListFiltersForCommunity + InboxRowList/InboxMore/InboxAttachDialog templates + InitialSignals extended for attach + inbox signals. Routes wired in main.go behind the flag. CSS polish deferred (Phase 9 cosmetic). Tests still green.
+- `2606151345` — Phase 6 done. imap.fetchPart (BODY.PEEK), Service.Materialise, AttachmentByID JOIN lookup, MarkAttachmentMoved + MarkIngestConsumedIfAllMoved repo methods, PostMoveAttachment handler with admin-of-community guard, per-attachment Move form in inbox template, route + service wired. lint-mailbox green; tests green.

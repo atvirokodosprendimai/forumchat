@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
@@ -24,11 +25,13 @@ import (
 )
 
 // Handler renders the global /inbox page, the infinite-scroll fetch,
-// the per-community SSE stream, and the click-sender-attach popover.
+// the per-community SSE stream, the click-sender-attach popover, and
+// the lazy attachment materialise endpoint.
 type Handler struct {
 	Repo          *Repo
 	AuthRepo      *auth.Repo
 	CommunityRepo *community.Repo
+	Svc           *Service // optional — required for PostMoveAttachment
 	Bus           *Bus
 	NATS          *natsgo.Conn // optional — nil disables cross-process fan-out
 	Log           *slog.Logger
@@ -88,14 +91,48 @@ func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	projsByCommunity, err := h.loadProjectsForViews(r.Context(), views)
+	if err != nil {
+		h.Log.Error("mailbox: load projects", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+
 	page := webtempl.InboxPageData{
 		Viewer:          viewerOf(id),
 		Pills:           pills,
 		ActiveCommunity: communityFilter,
-		Rows:            toViewRows(views, pills),
+		Rows:            toViewRows(views, pills, projsByCommunity),
 		NextCursor:      encodeCursor(next),
 	}
 	_ = webtempl.InboxPage(page).Render(r.Context(), w)
+}
+
+// loadProjectsForViews fetches active project options for every
+// community represented in the page. One query per community is fine
+// at our row cap.
+func (h *Handler) loadProjectsForViews(ctx context.Context, views []QueuedEmailView) (projectOptionsByCommunity, error) {
+	if h.Svc == nil || h.Svc.Projs == nil {
+		return projectOptionsByCommunity{}, nil
+	}
+	seen := map[string]struct{}{}
+	out := projectOptionsByCommunity{}
+	for _, v := range views {
+		if _, dup := seen[v.CommunityID]; dup {
+			continue
+		}
+		seen[v.CommunityID] = struct{}{}
+		rows, err := h.Svc.Projs.ListActiveForCommunity(ctx, v.CommunityID)
+		if err != nil {
+			return nil, err
+		}
+		opts := make([]webtempl.InboxProjectOption, len(rows))
+		for i, r := range rows {
+			opts[i] = webtempl.InboxProjectOption{ID: r.ID, Title: r.Title}
+		}
+		out[v.CommunityID] = opts
+	}
+	return out, nil
 }
 
 // viewerOf assembles the Viewer the layout needs. The mailbox-link
@@ -112,6 +149,13 @@ func viewerOf(id auth.Identity) webtempl.Viewer {
 	}
 }
 
+// loadProjectOptionsByCommunity returns active project options grouped
+// by community id, used by the per-attachment Move dropdown. Phase 6
+// queries this once per page render which is fine for the cap of 100
+// rows; if it ever bites perf the answer is a single JOIN inside the
+// queue query.
+type projectOptionsByCommunity = map[string][]webtempl.InboxProjectOption
+
 // loadCommunityPills resolves community IDs the viewer is admin in to
 // their (id, slug, name) tuples so the UI can render labelled pills.
 func (h *Handler) loadCommunityPills(ctx context.Context, ids []string) ([]webtempl.InboxPill, error) {
@@ -126,7 +170,7 @@ func (h *Handler) loadCommunityPills(ctx context.Context, ids []string) ([]webte
 	return out, nil
 }
 
-func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill) []webtempl.InboxRow {
+func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill, projects projectOptionsByCommunity) []webtempl.InboxRow {
 	pillByID := make(map[string]webtempl.InboxPill, len(pills))
 	for _, p := range pills {
 		pillByID[p.ID] = p
@@ -154,6 +198,7 @@ func toViewRows(rows []QueuedEmailView, pills []webtempl.InboxPill) []webtempl.I
 			ReceivedAtUnix:  r.ReceivedAt.Unix(),
 			AttachmentCount: len(atts),
 			Attachments:     atts,
+			Projects:        projects[r.CommunityID],
 		}
 	}
 	return out
@@ -240,8 +285,15 @@ func (h *Handler) GetMore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	projsByCommunity, err := h.loadProjectsForViews(r.Context(), views)
+	if err != nil {
+		h.Log.Error("mailbox: GetMore projects", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
+
 	sse := render.NewSSE(w, r)
-	rows := toViewRows(views, pills)
+	rows := toViewRows(views, pills, projsByCommunity)
 	_ = sse.PatchElementTempl(
 		webtempl.InboxRowList(rows),
 		datastar.WithSelector("#inbox-rows"),
@@ -336,8 +388,12 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
+		projsByCommunity, err := h.loadProjectsForViews(r.Context(), views)
+		if err != nil {
+			return err
+		}
 		if err := sse.PatchElementTempl(
-			webtempl.InboxRowList(toViewRows(views, pills)),
+			webtempl.InboxRowList(toViewRows(views, pills, projsByCommunity)),
 			datastar.WithSelector("#inbox-rows"),
 			datastar.WithModeOuter(),
 		); err != nil {
@@ -426,6 +482,71 @@ func (h *Handler) PostAttachSender(w http.ResponseWriter, r *http.Request) {
 
 	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals([]byte(`{"attach_open":false,"attach_addr":"","attach_kind":"address","attach_community":"","attach_to_issue":false}`))
+}
+
+// moveSignals captures the per-attachment Move form payload. Field
+// names match the JSON keys the inbox template fetch() body sends.
+type moveSignals struct {
+	ProjectID string `json:"project_id"`
+	Category  string `json:"category"`
+}
+
+// PostMoveAttachment lazily fetches the chosen attachment's bytes from
+// IMAP and pipes them through projects.Service.AddAttachment so the
+// file lands as a project_attachments row. The viewer must be admin in
+// the ingest's community AND the chosen project must belong to that
+// community (guard inside Svc.Materialise). Returns 204 on success;
+// the inbox SSE morph picks up the change via Bus.Broadcast.
+func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if h.Svc == nil {
+		http.Error(w, "mailbox service not wired", http.StatusServiceUnavailable)
+		return
+	}
+	attID := chi.URLParam(r, "id")
+	if attID == "" {
+		http.Error(w, "missing attachment id", http.StatusBadRequest)
+		return
+	}
+	var in moveSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad payload", http.StatusBadRequest)
+		return
+	}
+	if in.ProjectID == "" {
+		http.Error(w, "project required", http.StatusBadRequest)
+		return
+	}
+
+	// Authorisation: viewer must be admin in the attachment's community.
+	look, err := h.Repo.AttachmentByID(r.Context(), attID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
+	if err != nil || !contains(adminCIDs, look.Ingest.CommunityID) {
+		http.NotFound(w, r)
+		return
+	}
+
+	res, err := h.Svc.Materialise(r.Context(), MaterialiseInput{
+		AttachmentID: attID,
+		ProjectID:    in.ProjectID,
+		Category:     strings.TrimSpace(in.Category),
+		MoverID:      id.User.ID,
+	})
+	if err != nil {
+		h.Log.Error("mailbox: Materialise", "err", err)
+		http.Error(w, "materialise failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.broadcast(r.Context(), res.CommunityID)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // broadcast pings the in-process Bus and (if connected) publishes the

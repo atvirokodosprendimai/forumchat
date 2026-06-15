@@ -20,6 +20,14 @@ type InboxAttachment struct {
 	MIME           string
 	SizeBytes      int64
 	IsMaterialised bool
+	MovedProjectID string // empty when not moved
+}
+
+// InboxProjectOption is one project option in the per-attachment "Move
+// to project" dropdown. Scoped to the parent row's community.
+type InboxProjectOption struct {
+	ID    string
+	Title string
 }
 
 // InboxRow is one email_ingest entry rendered in the queue list.
@@ -34,6 +42,7 @@ type InboxRow struct {
 	ReceivedAtUnix  int64
 	AttachmentCount int
 	Attachments     []InboxAttachment
+	Projects        []InboxProjectOption
 }
 
 // InboxPageData is the full payload the handler hands to InboxPage.
@@ -144,6 +153,8 @@ templ inboxRow(r InboxRow) {
 						<span class="att-meta">{ a.MIME } · { strconv.FormatInt(a.SizeBytes, 10) } B</span>
 						if a.IsMaterialised {
 							<span class="att-moved">moved</span>
+						} else {
+							@inboxMoveForm(r.ID, a.ID, r.Projects)
 						}
 					</li>
 				}
@@ -158,6 +169,27 @@ templ inboxRow(r InboxRow) {
 // interaction.
 func inboxAttachOpenExpr(addr string) string {
 	return "$attach_addr = '" + addr + "'; $attach_kind = 'address'; $attach_community = ''; $attach_to_issue = false; $attach_open = true"
+}
+
+// inboxMoveForm renders the per-attachment "Move to project" controls:
+// project select scoped to the row's community + free-text category +
+// Move button. The signals are namespaced by attachment id so multiple
+// open rows don't fight over the same $move_project / $move_category.
+templ inboxMoveForm(ingestID, attID string, options []InboxProjectOption) {
+	<form class="move-form" data-on:submit__prevent={ inboxMoveSubmitExpr(attID) }>
+		<select required>
+			<option value="">project…</option>
+			for _, p := range options {
+				<option value={ p.ID }>{ p.Title }</option>
+			}
+		</select>
+		<input type="text" placeholder="category" value="common" data-attr:name={ "move_cat_" + attID }/>
+		<button type="submit" class="primary">Move</button>
+	</form>
+}
+
+func inboxMoveSubmitExpr(attID string) string {
+	return "fetch('/inbox/attachments/" + attID + "/move', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({project_id: el.querySelector('select').value, category: el.querySelector('input').value || 'common'})})"
 }
 
 // InboxAttachDialog is the popover the sender-chip click opens. Lives

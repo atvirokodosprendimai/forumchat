@@ -233,6 +233,50 @@ func formatPath(path []int) string {
 	return strings.Join(parts, ".")
 }
 
+// fetchPart streams the bytes of a single BODYSTRUCTURE part by UID +
+// MIMEPartID. Used by the lazy materialise path: when a user clicks
+// "Move attachment to project", we open a short-lived IMAP session,
+// SELECT the right folder, and request only the part we need via
+// BODY.PEEK[partID]. The Peek=true flag guarantees \Seen is not
+// affected — the user's mail client still sees the message as unread.
+func (i *imapClient) fetchPart(uid uint32, partID string) ([]byte, error) {
+	section := &imap.FetchItemBodySection{Peek: true}
+	// Parse partID like "2.1" into the protocol path numbers.
+	for _, segment := range strings.Split(partID, ".") {
+		n, err := strconv.Atoi(segment)
+		if err != nil {
+			return nil, fmt.Errorf("imap: bad part id %q", partID)
+		}
+		section.Part = append(section.Part, n)
+	}
+	set := imap.UIDSet{imap.UIDRange{Start: imap.UID(uid), Stop: imap.UID(uid)}}
+	cmd := i.c.Fetch(set, &imap.FetchOptions{
+		UID:         true,
+		BodySection: []*imap.FetchItemBodySection{section},
+	})
+	var data []byte
+	for {
+		msg := cmd.Next()
+		if msg == nil {
+			break
+		}
+		buf, err := msg.Collect()
+		if err != nil {
+			return nil, fmt.Errorf("imap fetch part: %w", err)
+		}
+		if got := buf.FindBodySection(section); got != nil {
+			data = got
+		}
+	}
+	if err := cmd.Close(); err != nil {
+		return nil, fmt.Errorf("imap fetch part close: %w", err)
+	}
+	if data == nil {
+		return nil, errors.New("imap: server returned no bytes for part")
+	}
+	return data, nil
+}
+
 func envelopeFromBuffer(buf *imapclient.FetchMessageBuffer) FetchedEnvelope {
 	env := FetchedEnvelope{
 		UID:          uint32(buf.UID),
