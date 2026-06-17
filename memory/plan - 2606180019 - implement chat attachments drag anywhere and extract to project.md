@@ -28,22 +28,31 @@ status: active
 
 ## Phases
 
-### Phase 1 — Uploads relaxation: denylist + 100MB + content sniff — status: open
+### Phase 1 — Uploads relaxation: denylist + 100MB + content sniff — status: completed
 
 Goal: the existing single-file paste / drop / file-picker path accepts any non-executable file up to 100 MB. Image render path unchanged. No DB changes. Visible test: paste a PDF into the composer today and see it land as an `<a>` link in the chat body via the current image-only render — the upload itself succeeds.
 
-1. [ ] Replace `allowedMIME` map in `internal/uploads/uploads.go` with a denylist helper + content-sniff
-   - keep `extFor(mime)` for download filename, derived from a wider extension map
-   - reject `application/x-msdownload`, `application/x-msdos-program`, `application/x-sh`, `application/x-bsh`, `application/x-csh`, `application/x-perl`, `application/x-python`, `application/x-php`, `text/x-shellscript`
-   - sniff via `http.DetectContentType` on first 512 bytes; trust sniff over client-declared MIME
-2. [ ] Raise the per-file `MaxBytes` ceiling to 100 MB; expose `UPLOADS_MAX_BYTES` env override
-   - default config bumps from 5 MB → 100 MB; document in `.env.example`
-3. [ ] Preserve original filename
-   - new column `uploads.filename TEXT NOT NULL DEFAULT ''`
-   - migration `00027_uploads_filename.sql`
-   - `Save()` sanitises (`filepath.Base`, strips path traversal + control bytes), persists
-   - `Open()` returns it; signed-URL handler emits `Content-Disposition` for chip-only kinds
-4. [ ] Update `uploads_test.go` — denylist round-trip, sniff overrides bad client MIME, 100 MB boundary
+1. [x] Replace `allowedMIME` map gate in `Save()` with a denylist + content-sniff
+   - => kept `allowedMIME` as the extension lookup map (expanded with video/audio/pdf entries) so paste / data-URL paths still get a canonical extension.
+   - => added `denyMIME` set with executable + shellscript MIMEs.
+   - => `Save()` now sniffs first 512 bytes; `sniffMIME` wraps `http.DetectContentType` and additionally catches MZ (Windows PE), ELF, Mach-O, and `#!` shebang scripts which the stdlib sniffer misses → maps them onto denylisted MIMEs.
+   - => declared MIME wins over sniff only when the family matches OR the sniff returned `application/octet-stream`. Otherwise the sniff wins. `isAllowedMIME` is consulted on the final MIME.
+2. [x] Raise the per-file `MaxBytes` ceiling to 100 MB; expose `UPLOADS_MAX_BYTES` env override
+   - => `internal/config/config.go` envDefault bumped to `104857600`; `.env.example` updated.
+3. [x] Preserve original filename
+   - => migration `00027_uploads_filename.sql` adds `uploads.filename TEXT NOT NULL DEFAULT ''`.
+   - => `Save()` and `SaveAttachment()` accept a `filename` parameter and persist it via the new column.
+   - => `sanitiseFilename` strips path components (uses `filepath.Base`), control bytes, NULs, and trims to 200 chars.
+   - => `Upload` struct gains `Filename string`; `Get()` reads it.
+   - => `handler.GetFile` emits `Content-Disposition: inline; filename="..."` when present so browsers download chip-only kinds with the right name.
+4. [x] Update `uploads_test.go`
+   - => `TestSaveAndSign` asserts the filename round-trips.
+   - => `TestAcceptArbitraryDoc` confirms a PDF with empty declared MIME sniffs as `application/pdf` and lands.
+   - => `TestRejectExecutable` confirms MZ-header bodies are rejected regardless of declared MIME.
+   - => `TestSanitiseFilename` confirms `../../etc/pass\x00wd.png` becomes `passwd.png`.
+   - => `TestRejectTooLarge` retained.
+
+=> Other call sites (`SaveDataURL`, `internal/uploads/handler.go PostUpload`) pass empty / `hdr.Filename` accordingly. Build + tests green.
 
 ### Phase 2 — Multi-attachment chat schema + send path — status: open
 
@@ -189,3 +198,4 @@ Goal: small finishing items so the feature feels shipped.
 - **2606180019** — plan created from [[spec - chat-attachments - drag-anywhere-multi-mime-extract-to-project]] after /eidos:spec Q&A on 2026-06-17. Phases 1–7 drafted. Status = active.
 - **2606180024** — Phase 7a inserted to address responsive-shell regression observed during testing.
 - **2606180030** — Phase 7a completed. Single CSS-only commit: dropped centred max-width on `main`, introduced `--sb-width: 232px` custom property, fixed the desktop offset to match the sidebar exactly. Build + tests green. User to verify visually.
+- **2606180038** — Phase 1 completed. Migration 00027 adds `uploads.filename`. `Save()` switched from allowlist to denylist + 512-byte content sniff (with extra MZ/ELF/Mach-O/`#!` detectors that stdlib misses). Default cap bumped to 100 MB. New tests cover the PDF accept path, executable reject, filename sanitisation.

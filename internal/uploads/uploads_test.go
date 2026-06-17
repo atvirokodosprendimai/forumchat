@@ -52,7 +52,7 @@ func TestSaveAndSign(t *testing.T) {
 	// Pad with arbitrary bytes so MIME sniff sees PNG header.
 	body := append([]byte{}, pngHeader...)
 	body = append(body, make([]byte, 200)...)
-	u, err := store.Save(ctx, ownerID, communityID, "image/png", bytes.NewReader(body))
+	u, err := store.Save(ctx, ownerID, communityID, "image/png", "ping.png", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -61,6 +61,9 @@ func TestSaveAndSign(t *testing.T) {
 	}
 	if u.MIME != "image/png" {
 		t.Fatalf("mime: %s", u.MIME)
+	}
+	if u.Filename != "ping.png" {
+		t.Fatalf("filename: %q", u.Filename)
 	}
 	sig := store.Sign(u.ID, "viewer-1", time.Now().Add(time.Hour))
 	if err := store.Verify(u.ID, "viewer-1", sig, time.Now().Add(time.Hour).Unix()); err != nil {
@@ -71,12 +74,52 @@ func TestSaveAndSign(t *testing.T) {
 	}
 }
 
-func TestRejectBadMIME(t *testing.T) {
+// TestAcceptArbitraryDoc — denylist policy now lets any non-executable
+// MIME through. A PDF claimed under a fuzzy/missing MIME still lands.
+func TestAcceptArbitraryDoc(t *testing.T) {
 	t.Parallel()
 	store, communityID, ownerID := setup(t)
 	ctx := context.Background()
-	if _, err := store.Save(ctx, ownerID, communityID, "application/x-evil", bytes.NewReader([]byte("hi"))); err == nil {
-		t.Fatal("expected ErrBadMIME")
+	// Minimal PDF header so DetectContentType sniffs "application/pdf".
+	body := append([]byte("%PDF-1.4\n"), make([]byte, 64)...)
+	u, err := store.Save(ctx, ownerID, communityID, "", "invoice 2026.pdf", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("save pdf: %v", err)
+	}
+	if u.MIME != "application/pdf" {
+		t.Fatalf("expected sniffed pdf MIME, got %q", u.MIME)
+	}
+	if u.Filename != "invoice 2026.pdf" {
+		t.Fatalf("filename: %q", u.Filename)
+	}
+}
+
+// TestRejectExecutable — windows MZ header lands the sniffed MIME on
+// the denylist, regardless of what the caller declared.
+func TestRejectExecutable(t *testing.T) {
+	t.Parallel()
+	store, communityID, ownerID := setup(t)
+	ctx := context.Background()
+	// PE/EXE header — DetectContentType returns application/x-msdownload.
+	body := append([]byte{'M', 'Z'}, make([]byte, 256)...)
+	if _, err := store.Save(ctx, ownerID, communityID, "image/png", "trojan.exe", bytes.NewReader(body)); err == nil {
+		t.Fatal("expected ErrBadMIME on executable sniff")
+	}
+}
+
+// TestSanitiseFilename — path traversal + control bytes get stripped.
+func TestSanitiseFilename(t *testing.T) {
+	t.Parallel()
+	store, communityID, ownerID := setup(t)
+	ctx := context.Background()
+	body := append([]byte{}, pngHeader...)
+	body = append(body, make([]byte, 32)...)
+	u, err := store.Save(ctx, ownerID, communityID, "image/png", "../../etc/pass\x00wd.png", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if u.Filename != "passwd.png" {
+		t.Fatalf("expected sanitised filename, got %q", u.Filename)
 	}
 }
 
@@ -86,7 +129,7 @@ func TestRejectTooLarge(t *testing.T) {
 	store.MaxSize = 100
 	body := make([]byte, 200)
 	copy(body, pngHeader)
-	if _, err := store.Save(context.Background(), ownerID, communityID, "image/png", bytes.NewReader(body)); err == nil {
+	if _, err := store.Save(context.Background(), ownerID, communityID, "image/png", "", bytes.NewReader(body)); err == nil {
 		t.Fatal("expected ErrTooLarge")
 	}
 }

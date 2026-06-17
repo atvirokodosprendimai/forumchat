@@ -21,7 +21,7 @@ type Config struct {
 	SessionKey     string        `env:"SESSION_KEY" envDefault:"dev-only-change-me-32-bytes-min!!"`
 	SessionMaxAge  time.Duration `env:"SESSION_MAX_AGE" envDefault:"720h"`
 	UploadsDir     string        `env:"UPLOADS_DIR" envDefault:"./uploads"`
-	UploadsMaxSize int64         `env:"UPLOADS_MAX_BYTES" envDefault:"5242880"`
+	UploadsMaxSize int64         `env:"UPLOADS_MAX_BYTES" envDefault:"104857600"`
 	UploadsSignKey string        `env:"UPLOADS_SIGN_KEY" envDefault:"dev-only-uploads-sign-key-change!!"`
 	SMTPHost       string        `env:"SMTP_HOST" envDefault:"127.0.0.1"`
 	SMTPPort       int           `env:"SMTP_PORT" envDefault:"1025"`

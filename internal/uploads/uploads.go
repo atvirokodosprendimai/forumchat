@@ -29,11 +29,111 @@ var (
 	ErrCrossComm  = errors.New("uploads: cross-community access denied")
 )
 
+// allowedMIME is the legacy image-only extension map. Still used by
+// ExtForMIME for paste / data-URL paths that mint a sha-named file
+// and need a canonical extension when the original filename is empty.
+// Adding rich-media MIMEs here is welcome — they all get the same
+// fallback ext lookup.
 var allowedMIME = map[string]string{
 	"image/jpeg": ".jpg",
 	"image/png":  ".png",
 	"image/gif":  ".gif",
 	"image/webp": ".webp",
+	"video/mp4":  ".mp4",
+	"video/webm": ".webm",
+	"video/quicktime": ".mov",
+	"audio/mpeg": ".mp3",
+	"audio/mp4":  ".m4a",
+	"audio/wav":  ".wav",
+	"audio/ogg":  ".ogg",
+	"application/pdf": ".pdf",
+}
+
+// denyMIME is the executable / script denylist. Any MIME in this set
+// is rejected at Save time regardless of how it was sniffed or
+// declared. Adding to this list shrinks what users can upload; it
+// should never be expanded to "everything that isn't an image" — that
+// was the bug Phase 1 of the chat-attachments plan fixed.
+var denyMIME = map[string]struct{}{
+	"application/x-msdownload":     {},
+	"application/x-msdos-program":  {},
+	"application/x-dosexec":        {},
+	"application/x-mach-binary":    {},
+	"application/x-executable":     {},
+	"application/x-sh":             {},
+	"application/x-bsh":            {},
+	"application/x-csh":            {},
+	"application/x-shellscript":    {},
+	"text/x-shellscript":           {},
+	"application/x-perl":           {},
+	"application/x-python":         {},
+	"application/x-python-code":    {},
+	"application/x-php":            {},
+	"application/x-httpd-php":      {},
+	"application/x-bat":            {},
+}
+
+// isAllowedMIME returns true when the MIME (lower-cased) is not on
+// the denylist. Empty MIMEs default to true and let the sniffer + DB
+// owner take the call — Save() always sniffs and re-checks.
+func isAllowedMIME(mime string) bool {
+	if mime == "" {
+		return true
+	}
+	_, denied := denyMIME[strings.ToLower(mime)]
+	return !denied
+}
+
+// sniffMIME is a thin wrapper over http.DetectContentType that also
+// catches executable signatures Go's sniffer doesn't recognise
+// (Windows PE/EXE, ELF, Mach-O). Those map onto denylisted MIMEs so
+// the deny check downstream rejects them, regardless of what the
+// client declared.
+func sniffMIME(head []byte) string {
+	if len(head) >= 2 && head[0] == 'M' && head[1] == 'Z' {
+		return "application/x-msdownload"
+	}
+	if len(head) >= 4 && head[0] == 0x7f && head[1] == 'E' && head[2] == 'L' && head[3] == 'F' {
+		return "application/x-executable"
+	}
+	// Mach-O 32 / 64 / fat (big & little endian) magic bytes.
+	if len(head) >= 4 {
+		m := uint32(head[0])<<24 | uint32(head[1])<<16 | uint32(head[2])<<8 | uint32(head[3])
+		switch m {
+		case 0xFEEDFACE, 0xFEEDFACF, 0xCEFAEDFE, 0xCFFAEDFE, 0xCAFEBABE, 0xBEBAFECA:
+			return "application/x-mach-binary"
+		}
+	}
+	// Shebang scripts — anything starting with `#!`.
+	if len(head) >= 2 && head[0] == '#' && head[1] == '!' {
+		return "application/x-shellscript"
+	}
+	return http.DetectContentType(head)
+}
+
+// sanitiseFilename trims path components, control bytes, and trailing
+// whitespace so a hostile filename can't escape its bucket or break
+// HTTP headers. Empty input → empty output (no synthetic name).
+func sanitiseFilename(name string) string {
+	name = filepath.Base(name)
+	if name == "." || name == string(filepath.Separator) {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		if r == '/' || r == '\\' || r == 0 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if len(out) > 200 {
+		out = out[:200]
+	}
+	return out
 }
 
 type Upload struct {
@@ -44,6 +144,7 @@ type Upload struct {
 	MIME        string
 	Size        int64
 	RelPath     string
+	Filename    string
 	CreatedAt   time.Time
 }
 
@@ -58,11 +159,14 @@ func NewStore(db *sql.DB, dir string, max int64, signKey string) *Store {
 	return &Store{DB: db, Dir: dir, MaxSize: max, SignKey: []byte(signKey)}
 }
 
-func (s *Store) Save(ctx context.Context, ownerID, communityID, mime string, r io.Reader) (Upload, error) {
-	ext, ok := allowedMIME[mime]
-	if !ok {
-		return Upload{}, ErrBadMIME
-	}
+// Save persists a single upload. mime is the caller-declared MIME
+// (e.g. from a multipart Content-Type or an inferred data: URL prefix);
+// the first 512 bytes are sniffed and the sniff wins over the
+// declared value when it disagrees. The denylist is consulted on the
+// final MIME; matches → ErrBadMIME. filename is the user-supplied
+// display name (empty for paste / data-URL paths) and is sanitised
+// before storage.
+func (s *Store) Save(ctx context.Context, ownerID, communityID, mime, filename string, r io.Reader) (Upload, error) {
 	tmp, err := os.CreateTemp(s.Dir, "up-*.tmp")
 	if err != nil {
 		if err := os.MkdirAll(s.Dir, 0o755); err != nil {
@@ -77,15 +181,51 @@ func (s *Store) Save(ctx context.Context, ownerID, communityID, mime string, r i
 	defer tmp.Close()
 
 	h := sha256.New()
+	// Snip the leading 512 bytes for the MIME sniff while streaming
+	// to disk + hash. We can't seek the reader, so we hold the first
+	// chunk in memory and re-emit it via a multi-source reader.
+	sniffBuf := &bytes.Buffer{}
+	headLimit := io.LimitReader(r, 512)
+	if _, err := io.Copy(sniffBuf, headLimit); err != nil && !errors.Is(err, io.EOF) {
+		return Upload{}, fmt.Errorf("sniff: %w", err)
+	}
+	sniffed := sniffMIME(sniffBuf.Bytes())
+	declared := strings.ToLower(strings.TrimSpace(mime))
+	// Prefer the sniff unless the declared MIME matches the
+	// sniff-family (e.g. both image/* or both video/*). This lets a
+	// generic application/octet-stream from a browser pick up a
+	// real PDF / MP4 / etc.
+	finalMIME := sniffed
+	if declared != "" && declared != "application/octet-stream" {
+		if sniffed == "application/octet-stream" || mimeFamily(declared) == mimeFamily(sniffed) {
+			finalMIME = declared
+		}
+	}
+	if !isAllowedMIME(finalMIME) {
+		return Upload{}, ErrBadMIME
+	}
+
 	mw := io.MultiWriter(tmp, h)
-	n, err := io.CopyN(mw, r, s.MaxSize+1)
+	if _, err := mw.Write(sniffBuf.Bytes()); err != nil {
+		return Upload{}, fmt.Errorf("write sniff: %w", err)
+	}
+	headBytes := int64(sniffBuf.Len())
+	// MaxSize is the BODY cap; allow one more byte to trip ErrTooLarge.
+	remaining := s.MaxSize + 1 - headBytes
+	if remaining < 0 {
+		remaining = 0
+	}
+	tail, err := io.CopyN(mw, r, remaining)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return Upload{}, fmt.Errorf("copy: %w", err)
 	}
+	n := headBytes + tail
 	if n > s.MaxSize {
 		return Upload{}, ErrTooLarge
 	}
+
 	digest := hex.EncodeToString(h.Sum(nil))
+	ext := extFor(finalMIME, filename)
 	rel := filepath.Join(digest[:2], digest+ext)
 	dst := filepath.Join(s.Dir, rel)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -97,26 +237,54 @@ func (s *Store) Save(ctx context.Context, ownerID, communityID, mime string, r i
 		}
 	}
 
+	cleanName := sanitiseFilename(filename)
 	u := Upload{
 		ID: uuid.NewString(), OwnerID: ownerID, CommunityID: communityID,
-		SHA256: digest, MIME: mime, Size: n, RelPath: rel, CreatedAt: time.Now(),
+		SHA256: digest, MIME: finalMIME, Size: n, RelPath: rel,
+		Filename: cleanName, CreatedAt: time.Now(),
 	}
 	if _, err := s.DB.ExecContext(ctx, `
-		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.CreatedAt.Unix()); err != nil {
+		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.Filename, u.CreatedAt.Unix()); err != nil {
 		return Upload{}, err
 	}
 	return u, nil
+}
+
+// mimeFamily returns the slash-prefix of a MIME (or the whole value
+// if no slash). Used to compare declared vs sniffed for the "agree
+// enough to trust the declared" check.
+func mimeFamily(m string) string {
+	if i := strings.IndexByte(m, '/'); i > 0 {
+		return m[:i]
+	}
+	return m
+}
+
+// extFor picks a canonical extension. Filename's extension wins when
+// non-empty + ≤ 10 bytes, so PDFs come back as .pdf even when the
+// MIME is octet-stream. Falls back to the allowedMIME map, then ".bin".
+func extFor(mime, filename string) string {
+	if filename != "" {
+		ext := strings.ToLower(filepath.Ext(filename))
+		if ext != "" && len(ext) <= 10 {
+			return ext
+		}
+	}
+	if e, ok := allowedMIME[strings.ToLower(mime)]; ok {
+		return e
+	}
+	return ".bin"
 }
 
 func (s *Store) Get(ctx context.Context, id string) (Upload, error) {
 	var u Upload
 	var created int64
 	err := s.DB.QueryRowContext(ctx, `
-		SELECT id, owner_id, community_id, sha256, mime, size, rel_path, created_at
+		SELECT id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at
 		FROM uploads WHERE id = ?`, id).
-		Scan(&u.ID, &u.OwnerID, &u.CommunityID, &u.SHA256, &u.MIME, &u.Size, &u.RelPath, &created)
+		Scan(&u.ID, &u.OwnerID, &u.CommunityID, &u.SHA256, &u.MIME, &u.Size, &u.RelPath, &u.Filename, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Upload{}, ErrNotFound
 	}
@@ -239,7 +407,7 @@ func (s *Store) SaveDataURL(ctx context.Context, ownerID, communityID, dataURL s
 	if int64(len(data)) > maxBytes {
 		return Upload{}, ErrTooLarge
 	}
-	return s.Save(ctx, ownerID, communityID, mime, bytes.NewReader(data))
+	return s.Save(ctx, ownerID, communityID, mime, "", bytes.NewReader(data))
 }
 
 // SaveAttachment persists a file under the uploads table WITHOUT the
@@ -291,14 +459,16 @@ func (s *Store) SaveAttachment(ctx context.Context, ownerID, communityID, mime, 
 		}
 	}
 
+	cleanName := sanitiseFilename(filename)
 	u := Upload{
 		ID: uuid.NewString(), OwnerID: ownerID, CommunityID: communityID,
-		SHA256: digest, MIME: mime, Size: n, RelPath: rel, CreatedAt: time.Now(),
+		SHA256: digest, MIME: mime, Size: n, RelPath: rel,
+		Filename: cleanName, CreatedAt: time.Now(),
 	}
 	if _, err := s.DB.ExecContext(ctx, `
-		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.CreatedAt.Unix()); err != nil {
+		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.Filename, u.CreatedAt.Unix()); err != nil {
 		return Upload{}, err
 	}
 	return u, nil

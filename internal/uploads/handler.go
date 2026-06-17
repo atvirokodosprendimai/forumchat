@@ -67,7 +67,7 @@ func (h *Handler) PostUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	mime := MIMEFromHeader(hdr.Header.Get("Content-Type"), sniff)
 
-	u, err := h.Store.Save(r.Context(), id.User.ID, h.cid(r), mime, file)
+	u, err := h.Store.Save(r.Context(), id.User.ID, h.cid(r), mime, hdr.Filename, file)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrBadMIME):
@@ -119,6 +119,14 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 	// restructure.
 	w.Header().Set("Content-Type", u.MIME)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
+	// Preserve the user-supplied filename for inline-rendered kinds AND
+	// download-chip kinds. The browser inlines image/video/audio/pdf
+	// regardless of disposition — for application/* and unknown kinds
+	// the browser triggers a download with the right name instead of
+	// "<sha>.bin".
+	if u.Filename != "" {
+		w.Header().Set("Content-Disposition", `inline; filename="`+u.Filename+`"`)
+	}
 	http.ServeFile(w, r, h.Store.PathFor(u))
 }
 
