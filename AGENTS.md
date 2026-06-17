@@ -654,6 +654,42 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 
 Don't bring them back without rethinking the whole pattern.
 
+### 6.7 Multi-attachment invariant — chat messages carry N uploads
+
+After the chat-attachments plan (Jun 2026), a `chat_messages` row can
+carry zero or more `chat_message_attachments` link rows pointing at
+`uploads`. **Never** write a code path that assumes one-attachment-per-
+message — even the image paste path stays separate (writes a markdown
+image into `body_md`, no link row). Concrete consequences:
+
+- `chat.Repo.Recent` / `Before` eager-load attachments AND extracts in
+  two batch queries — never N+1 by msg id.
+- `chat.Service.Send` accepts `AttachmentIDs []string`; ownership is
+  verified against `(owner_id, community_id)` BEFORE any link row is
+  inserted. Both the message and its links go through
+  `InsertWithAttachments` in one tx.
+- The bubble templ renders `MessageAttachments(atts, isMod)` ONCE per
+  message under the body — image / video / audio / pdf branches go
+  inline, everything else stays a chip.
+- `$attachment_ids` is a JSON-encoded STRING signal, not an array.
+  Datastar's `data-bind` hidden-input bridge can't round-trip arrays;
+  server `json.Unmarshal`s the string. See commit `6aa73d2`.
+- Uploads orphans are swept hourly by `internal/uploads/sweep.go` —
+  any upload row older than 24h with no chat / project / issue link
+  AND no markdown reference is deleted. Don't add a write path that
+  uploads now-and-links-later more than 24h apart.
+
+Extract-to-project (mod + admin only):
+
+- The endpoint lives in `projects.Handler.PostExtractFromChat` even
+  though its URL is `/c/{slug}/chat/extract`. Reason: it writes to
+  project tables, can't be in `chat` without an import cycle. Modal +
+  signals live in `chat.templ`; `chatHandler.ListProjects` closure
+  bridges to `projects.Repo.ListActiveForCommunity`.
+- Extract duplicates the **upload reference** — there's no file copy.
+  `chat_attachment_extracts` records the badge state so the bubble
+  shows "↗ Docs of X" / "↗ Issue in X" on next render.
+
 ---
 
 ## 6b. CQRS in this codebase — what writes and reads actually look like

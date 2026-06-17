@@ -317,6 +317,12 @@ func run() error {
 	digestCtx, cancelDigest := context.WithCancel(context.Background())
 	defer cancelDigest()
 	(&push.DigestWorker{Repo: pushRepo, Sender: pushSender, Log: log}).Start(digestCtx)
+	// ----- Uploads orphan sweep -------------------------------------------
+	// Runs every hour, deletes upload rows older than 24h with no
+	// reference anywhere (chat attachments, project Docs, issue
+	// attachments, or markdown body). Trims the storage footprint
+	// of "user picked a file then closed the tab" cases.
+	(&uploads.SweepWorker{Store: uploadStore, Log: log}).Start(digestCtx)
 
 	// ----- Mailbox (IMAP ingest) -------------------------------------------
 	// Single shared read-only IMAP account → per-community filter routing

@@ -1,6 +1,6 @@
 ---
 tldr: Implement the chat-attachments spec in phased, shippable PRs — uploads relaxation, multi-attachment chat schema, drag-anywhere overlay + multi-file XHR, rich inline previews, then the mod/admin extract-to-project flow (Docs + Issue).
-status: active
+status: completed
 ---
 
 # Plan: Chat attachments — drag anywhere, any file, extract to project
@@ -171,7 +171,7 @@ Folded in mid-plan after user-observed regression: on medium-width screens (betw
 => Out of scope for this phase: any new feature work. Strictly a responsive-shell correctness fix discovered mid-implementation of the attachment plan.
 => Shipped as commit (Phase 7a — responsive shell fix). See Progress Log.
 
-### Phase 7 — Polish, hardening, docs — status: open
+### Phase 7 — Polish, hardening, docs — status: completed
 
 Goal: small finishing items so the feature feels shipped.
 
@@ -206,3 +206,4 @@ Goal: small finishing items so the feature feels shipped.
 - **2606180056** — Phase 3 completed. Drag-anywhere overlay on `.chat-layout`, per-file row in `#composer-pending` with XHR progress + cancel + retry. Old `composer { data-on:drop=fcDropImage }` removed (was double-firing alongside the new handler). Send button gating left for Phase 7 polish.
 - **2606180103** — Phase 4 completed. `MessageAttachment` branches per Kind into `<img>` / `<video>` / `<audio>` / `<iframe>` / chip. Each branch carries a meta strip with filename + size + download link. CSS layouts the grid for 1 / 2 / N attachments. ffprobe poster pipeline deferred (logged under Future).
 - **2606180155** — Phase 5+6 completed together. Migration 00029 adds `chat_attachment_extracts(id, chat_attachment_id, project_id, project_attachment_id, issue_id, mode, extracted_by, created_at)`. Per-attachment "↗ Extract" button (mod/admin gated) opens a modal with project dropdown + Docs/Issue toggle. New endpoint `projects.Handler.PostExtractFromChat` (mounted as `POST /c/{slug}/chat/extract`) duplicates the upload reference into `project_attachments` (Docs mode) or creates a new `project_issues` + `project_issue_attachments` row (Issue mode) and records the link in `chat_attachment_extracts`. Bubble badges render "Docs of X" / "Issue in X" and link to the destination. Chat bus broadcast triggers cross-tab re-render so the badge appears immediately.
+- **2606180210** — Phase 7 completed (light). `internal/uploads/sweep.go` adds an hourly `SweepWorker` that deletes uploads older than 24h with no reference (chat, project, issue link OR markdown body match). AGENTS.md §6.7 documents the multi-attachment invariant + extract-to-project pattern for future agents. Plan marked completed.
