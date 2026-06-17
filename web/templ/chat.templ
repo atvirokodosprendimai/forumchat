@@ -293,7 +293,7 @@ templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerNam
 	<div id="messages" class="messages"
 		data-current-user-id={ currentUserID }
 		data-community-slug={ slug }
-		data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
+		data-init="requestAnimationFrame(()=>requestAnimationFrame(()=>{el.scrollTop=el.scrollHeight}))">
 		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
 			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
 		}

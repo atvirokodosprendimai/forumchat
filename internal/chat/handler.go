@@ -166,8 +166,14 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 	); err != nil {
 		return err
 	}
+	// Two RAFs: idiomorph mutates the DOM before this script lands but
+	// layout/paint hasn't necessarily run yet. Waiting one frame lets
+	// the new bubbles compute their height; two frames is safer when
+	// inline previews (video poster, pdf iframe) bump scrollHeight on
+	// load. behavior:'auto' (instant) avoids the smooth-scroll race
+	// where a second fan-out interrupts the first animation.
 	return sse.ExecuteScript(
-		`document.querySelector('#messages')?.scrollTo({top: 1e9, behavior: 'smooth'})`,
+		`requestAnimationFrame(()=>requestAnimationFrame(()=>{const m=document.querySelector('#messages');if(m){m.scrollTop=m.scrollHeight}}))`,
 	)
 }
 

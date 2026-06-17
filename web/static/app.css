@@ -382,6 +382,11 @@ button.link:hover, .link-button:hover {
   box-shadow: var(--shadow);
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
+  /* Disable browser scroll-anchor so server-driven `scrollTop =
+     scrollHeight` after fatMorph actually reaches the bottom. With
+     anchor on, the browser tries to preserve whatever the user was
+     looking at and silently undoes our jump-to-bottom. */
+  overflow-anchor: none;
 }
 .messages::-webkit-scrollbar { width: 8px; }
 .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
