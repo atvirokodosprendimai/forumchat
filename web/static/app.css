@@ -3280,6 +3280,29 @@ hr {
   vertical-align: top;
 }
 
+/* Author avatar — coloured initial next to the author name in the
+   first message of a group. Colour is keyed off user_id (FNV-1a →
+   palette index in mentionColor), so two members with the same
+   display name still light up differently. */
+.author-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  line-height: 1;
+  flex: 0 0 auto;
+  cursor: default;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  user-select: none;
+  margin-right: 0.1rem;
+}
+
 /* Chat read receipts — small stack of avatar initials under the
    viewer's most recent own message. Telegram-style. */
 .read-receipts {
