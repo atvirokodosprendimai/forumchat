@@ -40,6 +40,17 @@ type MsgView struct {
 	ReplyTo          *ReplySnippet
 	PromotedThreadID string
 	TitleSnippet     string // single-line title derived from body for todo/bookmark dialogs
+	// ReadBy is the read-receipt list rendered under this message.
+	// Server-side attached only to the viewer's MOST RECENT own user
+	// message so the DOM stays small. Empty for everyone else.
+	ReadBy []ReaderView
+}
+
+// ReaderView is one entry in a message's seen-by stack.
+type ReaderView struct {
+	UserID      string
+	DisplayName string
+	AvatarURL   string
 }
 
 type ChatPageData struct {
@@ -76,6 +87,7 @@ templ ChatPage(d ChatPageData) {
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
+		<script src={ "/static/chat-notify.js?v=" + AssetVer("chat-notify.js") } defer></script>
 	}
 }
 
@@ -224,6 +236,8 @@ func groupClass(g MsgGroup) string {
 // regardless via isMod). viewerName drives @mention "ping me" highlighting.
 templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName, slug string) {
 	<div id="messages" class="messages"
+		data-current-user-id={ currentUserID }
+		data-community-slug={ slug }
 		data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
 		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
 			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
@@ -318,8 +332,30 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 				</blockquote>
 			}
 			<div class="body">@templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
+			if len(m.ReadBy) > 0 {
+				@ReadReceipts(m.ReadBy)
+			}
 		}
 	</article>
+}
+
+// ReadReceipts renders a compact "seen by" stack of coloured initials
+// under an own message. Tooltip lists each name; on overflow we show
+// "+N" so the row stays single-line.
+templ ReadReceipts(readers []ReaderView) {
+	<div class="read-receipts" aria-label="Seen by">
+		<span class="rr-eye" aria-hidden="true">✓✓</span>
+		for i, r := range readers {
+			if i < 5 {
+				<span class="rr-dot"
+					style={ "background:" + mentionColor(r.UserID) }
+					title={ r.DisplayName }>{ mentionInitial(r.DisplayName) }</span>
+			}
+		}
+		if len(readers) > 5 {
+			<span class="rr-more">+{ itoaNotif(len(readers)-5) }</span>
+		}
+	</div>
 }
 
 func msgClass(m MsgView) string {

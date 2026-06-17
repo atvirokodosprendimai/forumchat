@@ -3279,3 +3279,46 @@ hr {
   margin: 0.25rem 0.35rem 0.25rem 0;
   vertical-align: top;
 }
+
+/* Chat read receipts — small stack of avatar initials under the
+   viewer's most recent own message. Telegram-style. */
+.read-receipts {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  flex-wrap: wrap;
+}
+.read-receipts .rr-eye {
+  font-size: 0.78rem;
+  color: var(--accent, #4f46e5);
+  letter-spacing: -0.05em;
+  margin-right: 0.15rem;
+}
+.read-receipts .rr-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #fff;
+  text-transform: uppercase;
+  line-height: 1;
+  margin-left: -0.3rem;
+  border: 1.5px solid var(--bg, #fff);
+  flex: 0 0 auto;
+  cursor: default;
+}
+.read-receipts .rr-dot:first-of-type { margin-left: 0; }
+.read-receipts .rr-more {
+  margin-left: 0.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}

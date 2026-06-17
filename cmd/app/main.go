@@ -514,6 +514,7 @@ func run() error {
 		r.Post("/chat/send", chatHandler.PostSend)
 		r.Get("/chat/mention", chatHandler.GetMentionSearch)
 		r.Get("/chat/stream", chatHandler.GetStream)
+		r.Post("/chat/read", chatHandler.PostMarkRead)
 
 		r.Get("/presence/stream", presenceHandler.GetStream)
 

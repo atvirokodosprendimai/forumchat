@@ -192,6 +192,7 @@ type saveSignals struct {
 	IssueNew   bool `json:"notif_issue_new"`
 	CommentNew bool `json:"notif_comment_new"`
 	ThreadNew  bool `json:"notif_thread_new"`
+	ChatNew    bool `json:"notif_chat_new"`
 	// 0 = immediate. Bigger values bucket events into a digest sent
 	// at most every N minutes. Clamped server-side to [0, 1440].
 	DigestMinutes int `json:"notif_digest_minutes"`
@@ -220,6 +221,7 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		"issue_new":   in.IssueNew,
 		"comment_new": in.CommentNew,
 		"thread_new":  in.ThreadNew,
+		"chat_new":    in.ChatNew,
 	}
 	digest := in.DigestMinutes
 	if digest < 0 {
@@ -251,6 +253,7 @@ func toTempl(s Settings, digestMinutes int) webtempl.NotificationSettings {
 		IssueNew:      get("issue_new"),
 		CommentNew:    get("comment_new"),
 		ThreadNew:     get("thread_new"),
+		ChatNew:       get("chat_new"),
 		DigestMinutes: digestMinutes,
 	}
 }

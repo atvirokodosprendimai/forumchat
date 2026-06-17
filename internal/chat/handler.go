@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -37,6 +38,13 @@ type Handler struct {
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
+
+	// readBroadcastMu + readBroadcastAt throttle read-receipt fan-out so
+	// every focus pulse from a user doesn't trigger a community-wide
+	// fat-morph storm. Key is (community_id|user_id), value is the unix
+	// time of the last broadcast.
+	readBroadcastMu sync.Mutex
+	readBroadcastAt map[string]time.Time
 }
 
 const PasteImageMaxBytes = 1 << 20 // 1 MiB
@@ -81,6 +89,52 @@ func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
 		return nil, err
 	}
 	return toMsgViews(msgs), nil
+}
+
+// loadRecentFor returns the latest N views and attaches the read-receipt
+// list to the viewer's most recent own user message. Receipts are only
+// computed for the viewer; other viewers see their own.
+func (h *Handler) loadRecentFor(ctx context.Context, currentUserID string) ([]webtempl.MsgView, error) {
+	views, err := h.loadRecent(ctx)
+	if err != nil {
+		return nil, err
+	}
+	h.attachReadReceipts(ctx, views, currentUserID)
+	return views, nil
+}
+
+// attachReadReceipts walks views (desc, newest-first) and decorates the
+// FIRST own non-deleted user message it finds with the readers whose
+// last_read_at is at or past that message's created_at. No-op for guest
+// viewers / empty list / missing repo.
+func (h *Handler) attachReadReceipts(ctx context.Context, views []webtempl.MsgView, currentUserID string) {
+	if currentUserID == "" || h.Repo == nil {
+		return
+	}
+	for i := range views {
+		v := views[i]
+		if v.Kind != webtempl.MsgKindUser || v.Deleted || v.AuthorID != currentUserID {
+			continue
+		}
+		readers, err := h.Repo.ReadersSince(ctx, h.cid(ctx), v.CreatedAt.Unix(), currentUserID, 30)
+		if err != nil {
+			h.Log.Warn("read receipts", "err", err)
+			return
+		}
+		if len(readers) == 0 {
+			return
+		}
+		out := make([]webtempl.ReaderView, 0, len(readers))
+		for _, r := range readers {
+			out = append(out, webtempl.ReaderView{
+				UserID:      r.UserID,
+				DisplayName: r.DisplayName,
+				AvatarURL:   r.AvatarURL,
+			})
+		}
+		views[i].ReadBy = out
+		return
+	}
 }
 
 // fatMorph emits the chat patches the UI expects:
@@ -150,7 +204,7 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	views, err := h.loadRecent(r.Context())
+	views, err := h.loadRecentFor(r.Context(), id.User.ID)
 	if err != nil {
 		http.Error(w, "load chat: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -218,7 +272,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	views, err := h.loadRecent(r.Context())
+	views, err := h.loadRecentFor(r.Context(), id.User.ID)
 	if err == nil {
 		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
@@ -227,34 +281,116 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 
 	h.broadcast(r.Context())
 
-	// Fire-and-forget push notification for @mentions. Runs in the
-	// background so a slow push service doesn't make the chat send
-	// look stalled to the sender.
+	// Fire-and-forget push notifications. Runs in the background so a
+	// slow push service doesn't make the chat send look stalled to the
+	// sender. Two distinct push kinds fire:
+	//
+	//   - "mention" — to every @name resolved out of the body.
+	//   - "chat_new" — to every other approved member of the community
+	//     EXCEPT the sender and those already targeted by a mention.
+	//     The service worker suppresses the toast when a focused client
+	//     is already viewing /chat, so this kind is safe to broadcast.
 	if h.PushNotify != nil && h.AuthRepo != nil {
+		cid := h.cid(r.Context())
+		cslug := h.cslug(r.Context())
+		senderID := id.User.ID
+		senderName := id.Membership.DisplayName
 		mentions := parseMentions(body)
-		if len(mentions) > 0 {
-			cid := h.cid(r.Context())
-			cslug := h.cslug(r.Context())
-			senderName := id.Membership.DisplayName
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
+		preview := bodyPreview(body, 120)
+		url := "/c/" + cslug + "/chat"
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			mentioned := map[string]struct{}{}
+			if len(mentions) > 0 {
 				ids, err := h.AuthRepo.UserIDsByDisplayName(ctx, cid, mentions)
-				if err != nil || len(ids) == 0 {
-					return
+				if err == nil && len(ids) > 0 {
+					ids = filterOut(ids, senderID)
+					for _, uid := range ids {
+						mentioned[uid] = struct{}{}
+					}
+					if len(ids) > 0 {
+						title := senderName + " mentioned you"
+						h.PushNotify(ctx, cid, "mention", ids, title, preview, url)
+					}
 				}
-				// Drop the sender from the recipient list — no self-pings.
-				ids = filterOut(ids, id.User.ID)
-				if len(ids) == 0 {
-					return
+			}
+
+			// chat_new — every other approved member not already pinged by
+			// the mention loop. Skip when chat itself has no recipients.
+			members, err := h.AuthRepo.ListMembers(ctx, cid)
+			if err != nil || len(members) == 0 {
+				return
+			}
+			rest := make([]string, 0, len(members))
+			for _, m := range members {
+				uid := m.Membership.UserID
+				if uid == "" || uid == senderID {
+					continue
 				}
-				title := senderName + " mentioned you"
-				preview := bodyPreview(body, 120)
-				url := "/c/" + cslug + "/chat"
-				h.PushNotify(ctx, cid, "mention", ids, title, preview, url)
-			}()
-		}
+				if _, already := mentioned[uid]; already {
+					continue
+				}
+				rest = append(rest, uid)
+			}
+			if len(rest) == 0 {
+				return
+			}
+			title := senderName + " in " + h.cname(r.Context())
+			h.PushNotify(ctx, cid, "chat_new", rest, title, preview, url)
+		}()
 	}
+}
+
+type markReadSignals struct {
+	LastID string `json:"last_id"`
+}
+
+// PostMarkRead upserts the viewer's chat read high-water mark and, when
+// the timestamp moved by enough, broadcasts a chat-changed signal so
+// other tabs re-render the receipt stacks. Throttled to once per 2s per
+// (user, community) so a typing/focus-pulse heavy client doesn't fan
+// out a fat-morph storm.
+func (h *Handler) PostMarkRead(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in markReadSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	cid := h.cid(r.Context())
+	if err := h.Repo.MarkRead(r.Context(), id.User.ID, cid, strings.TrimSpace(in.LastID), time.Now()); err != nil {
+		h.Log.Warn("mark read", "err", err)
+		return
+	}
+	if !h.shouldBroadcastRead(cid, id.User.ID, time.Now()) {
+		return
+	}
+	h.broadcast(r.Context())
+}
+
+// shouldBroadcastRead returns true at most once every 2s per (community,
+// user). Read calls below the throttle still hit the DB (so the stack
+// is correct on the next fat-morph) but don't kick a community-wide
+// re-render.
+func (h *Handler) shouldBroadcastRead(communityID, userID string, now time.Time) bool {
+	const cooldown = 2 * time.Second
+	key := communityID + "|" + userID
+	h.readBroadcastMu.Lock()
+	defer h.readBroadcastMu.Unlock()
+	if h.readBroadcastAt == nil {
+		h.readBroadcastAt = make(map[string]time.Time)
+	}
+	if last, ok := h.readBroadcastAt[key]; ok && now.Sub(last) < cooldown {
+		return false
+	}
+	h.readBroadcastAt[key] = now
+	return true
 }
 
 // parseMentions finds @name tokens in the body. Returns the unique
@@ -335,7 +471,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	// re-establishes SSE after tab sleep — push the latest 100 immediately.
 	// Without this, a reconnecting client would see stale messages until the
 	// next chat event fires.
-	if views, err := h.loadRecent(r.Context()); err == nil {
+	if views, err := h.loadRecentFor(r.Context(), id.User.ID); err == nil {
 		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
 
@@ -366,7 +502,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		views, err := h.loadRecent(r.Context())
+		views, err := h.loadRecentFor(r.Context(), id.User.ID)
 		if err != nil {
 			continue
 		}
@@ -393,7 +529,7 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sse := render.NewSSE(w, r)
-	views, err := h.loadRecent(r.Context())
+	views, err := h.loadRecentFor(r.Context(), id.User.ID)
 	if err == nil {
 		_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}

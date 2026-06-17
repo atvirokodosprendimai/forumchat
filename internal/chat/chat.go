@@ -47,6 +47,15 @@ type ReplyContext struct {
 
 func (m Message) IsDeleted() bool { return m.DeletedAt != nil }
 
+// Reader is one row in the read-receipt list shown under an own message.
+// LastReadAt is the unix-seconds high-water mark this user has acked.
+type Reader struct {
+	UserID      string
+	DisplayName string
+	AvatarURL   string
+	LastReadAt  time.Time
+}
+
 type Repo struct{ DB *sql.DB }
 
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
@@ -220,6 +229,54 @@ func (r *Repo) SoftDelete(ctx context.Context, id string) error {
 		return errors.New("chat message not found or already deleted")
 	}
 	return nil
+}
+
+// MarkRead upserts the user's read high-water mark in a community.
+// msgID is optional (kept for diagnostics); when empty the row still
+// updates the timestamp so the readers query keeps working.
+func (r *Repo) MarkRead(ctx context.Context, userID, communityID, msgID string, at time.Time) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO chat_reads (user_id, community_id, last_read_at, last_read_msg_id)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(user_id, community_id) DO UPDATE SET
+		    last_read_at     = excluded.last_read_at,
+		    last_read_msg_id = excluded.last_read_msg_id
+	`, userID, communityID, at.Unix(), msgID)
+	return err
+}
+
+// ReadersSince returns every member of communityID whose last_read_at is
+// at least sinceUnix, excluding excludeUserID (typically the sender so
+// their own row is not shown as a reader). Ordered most-recent-first.
+func (r *Repo) ReadersSince(ctx context.Context, communityID string, sinceUnix int64, excludeUserID string, limit int) ([]Reader, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT r.user_id, COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''), r.last_read_at
+		FROM chat_reads r
+		LEFT JOIN memberships mb ON mb.user_id = r.user_id AND mb.community_id = r.community_id
+		WHERE r.community_id = ?
+		  AND r.last_read_at >= ?
+		  AND r.user_id != ?
+		ORDER BY r.last_read_at DESC
+		LIMIT ?
+	`, communityID, sinceUnix, excludeUserID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Reader
+	for rows.Next() {
+		var rd Reader
+		var at int64
+		if err := rows.Scan(&rd.UserID, &rd.DisplayName, &rd.AvatarURL, &at); err != nil {
+			return nil, err
+		}
+		rd.LastReadAt = time.Unix(at, 0)
+		out = append(out, rd)
+	}
+	return out, rows.Err()
 }
 
 // snippet returns up to 80 chars of plain-text from a markdown body for

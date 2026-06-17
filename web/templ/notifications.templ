@@ -9,6 +9,7 @@ type NotificationSettings struct {
 	IssueNew      bool
 	CommentNew    bool
 	ThreadNew     bool
+	ChatNew       bool
 	DigestMinutes int // 0 = immediate; 5 / 15 / 60 / 240 sample options
 }
 
@@ -74,6 +75,10 @@ templ NotificationsPage(d NotificationsPageData) {
 			<h3>Send me a notification when…</h3>
 
 			<label class="check-row">
+				<input type="checkbox" data-bind="notif_chat_new"/>
+				<span><strong>any new chat message</strong> in this community (suppressed while you're focused on the chat tab)</span>
+			</label>
+			<label class="check-row">
 				<input type="checkbox" data-bind="notif_mention"/>
 				<span><strong>mentioned by name</strong> in chat or a forum post</span>
 			</label>
@@ -124,6 +129,7 @@ func notifSignalsJSON(s NotificationSettings) string {
 		"\"notif_issue_new\":" + bs(s.IssueNew) + "," +
 		"\"notif_comment_new\":" + bs(s.CommentNew) + "," +
 		"\"notif_thread_new\":" + bs(s.ThreadNew) + "," +
+		"\"notif_chat_new\":" + bs(s.ChatNew) + "," +
 		"\"notif_digest_minutes\":" + itoaNotif(s.DigestMinutes) +
 		"}"
 }

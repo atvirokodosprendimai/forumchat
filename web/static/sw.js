@@ -21,14 +21,36 @@ self.addEventListener('push', (event) => {
   const tag   = data.tag   || undefined;
   const icon  = data.icon  || '/static/icon-192.png';
 
-  event.waitUntil(
-    self.registration.showNotification(title, {
+  event.waitUntil((async () => {
+    // Suppress chat_new toasts when a focused client is already viewing
+    // the destination chat URL — the in-page script handles sound + an
+    // optional in-tab Notification, and stacking a second OS toast on
+    // top would be noise. Other kinds (mention, etc.) always notify so
+    // an @mention still wakes the user even if they were on the chat
+    // page but with the tab blurred.
+    if (tag === 'chat_new') {
+      try {
+        const list = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        for (const c of list) {
+          if (!c.focused) continue;
+          try {
+            const here = new URL(c.url);
+            // url is server-supplied like "/c/<slug>/chat"; match by suffix
+            // so query strings / hash fragments on the client don't break it.
+            if (here.pathname.endsWith('/chat') && url.endsWith('/chat')) {
+              return;
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    await self.registration.showNotification(title, {
       body, tag, icon,
       badge: '/static/icon-192.png',
       data: { url },
       renotify: !!tag,
-    })
-  );
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {
