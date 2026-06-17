@@ -157,8 +157,14 @@ func (h *Handler) attachReadReceipts(ctx context.Context, views []webtempl.MsgVi
 }
 
 // fatMorph emits the chat patches the UI expects:
-//   1. #messages outer-morph → full latest-N list.
-//   2. ExecuteScript → scroll #messages to its own bottom.
+//  1. PatchElementTempl(#messages, Outer) → full latest-N list,
+//     idiomorph-merged so existing image / video / iframe nodes that
+//     were already loaded stay loaded.
+//  2. PatchElementTempl(#chat-scroll-anchor, Replace) → swap the
+//     anchor element for a fresh one, re-firing its data-init that
+//     scrolls itself into view. Replace (not Outer) is essential —
+//     idiomorph's same-id merge would keep the old anchor and
+//     data-init would no-op.
 func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool, currentUserID, viewerName, slug string) error {
 	if err := sse.PatchElementTempl(
 		webtempl.MessagesContainer(views, isMod, currentUserID, viewerName, slug),
@@ -166,8 +172,9 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 	); err != nil {
 		return err
 	}
-	return sse.ExecuteScript(
-		`document.querySelector('#messages')?.scrollTo({top: 1e9, behavior: 'smooth'})`,
+	return sse.PatchElementTempl(
+		webtempl.ChatScrollAnchor(),
+		datastar.WithModeReplace(),
 	)
 }
 

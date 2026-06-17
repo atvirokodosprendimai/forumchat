@@ -292,12 +292,23 @@ func groupClass(g MsgGroup) string {
 templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName, slug string) {
 	<div id="messages" class="messages"
 		data-current-user-id={ currentUserID }
-		data-community-slug={ slug }
-		data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
+		data-community-slug={ slug }>
 		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
 			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
 		}
+		@ChatScrollAnchor()
 	</div>
+}
+
+// ChatScrollAnchor sits as the LAST child of #messages. Initial page
+// render fires its data-init once. Every fatMorph after that patches
+// it with WithModeReplace — Replace removes the old element and
+// inserts a fresh one, re-firing data-init. scrollIntoView walks the
+// containing scroll ancestor (#messages) and brings the anchor's
+// bottom edge to the viewport bottom — which is exactly the chat's
+// bottom because the anchor is the last child.
+templ ChatScrollAnchor() {
+	<div id="chat-scroll-anchor" data-init="el.scrollIntoView({block:'end'})"></div>
 }
 
 // reverseMessages flips the desc-from-DB slice so groupMessages walks
