@@ -171,7 +171,7 @@ templ ChatComposer(slug string) {
 				class="composer-text"
 				data-bind="body"
 				rows="1"
-				placeholder="Say something — markdown ok (paste, drop or attach an image). Shift+Enter for newline."
+				placeholder="Message — markdown, paste, drop, @mention"
 				autocomplete="off"
 				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcMentionDetect(el)){$_mention_open=true; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false}" }
 				data-on:blur="setTimeout(()=>{$_mention_open=false},150)"
