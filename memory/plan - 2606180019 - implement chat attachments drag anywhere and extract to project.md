@@ -137,6 +137,30 @@ Goal: second extract path. Mod / admin picks a project, the modal expands into a
 2. [ ] Modal UI — mode toggle (Docs / Issue), shows extra fields only when mode = issue
 3. [ ] Badge text branches: "↗ Docs of X" vs "↗ Issue #N of X"
 
+### Phase 7a — Responsive content width — content must not slide under the left sidebar — status: open
+
+Folded in mid-plan after user-observed regression: on medium-width screens (between the 720px mobile breakpoint and ~1280px) `main { max-width: 1080px; margin: 0 auto }` centers the content block relative to the viewport — so the left half of chat / forum slips behind the fixed `.sidebar`. The fix is layout-shaped, not page-shaped: the whole site shell needs to be a single flex/grid row where the sidebar takes its width and `main` fluid-fills the rest. Visible test: shrink the window from 1400px down to 800px slowly — the chat composer + messages stay fully visible and grow narrower, never tucked under the sidebar.
+
+1. [ ] Audit current shell layout
+   - `body` is currently `display: flex`-or-default with `aside.sidebar` + `main` siblings; sidebar likely `position: fixed` or floated
+   - confirm the exact rule that lets `main` overlap the sidebar in the 720–1280px band
+   - decide between two fixes:
+     - **A. CSS Grid shell**: `body > { grid-template-columns: var(--sb-width) 1fr }` — clean, the sidebar takes the column, `main` fluid-fills.
+     - **B. Flex shell**: `body { display: flex }`, sidebar fixed-width, `main { flex: 1 1 0; min-width: 0 }` — simpler, same result.
+   - => pick during the action; record under `=>` notes
+2. [ ] `web/static/app.css` — apply the chosen shell
+   - drop `main { max-width: 1080px; margin: 0 auto }` and replace with a `max-width: 1080px` on inner `section` / `.chat-layout` / `.forum-list` where centered content is still desired
+   - sidebar gets a CSS custom property `--sb-width: 240px` so the grid/flex math is one line to tweak later
+   - `main { min-width: 0 }` so grid children don't blow out the column on long unbreakable lines (codeblocks, long URLs)
+3. [ ] Mobile (≤720px) keeps current behavior — sidebar collapses into the hamburger drawer (`.topbar-hamburger`), `main` becomes full-width
+   - verify the existing `@media (max-width: 720px)` block still wins
+4. [ ] Chat layout (`.chat-layout { grid-template-columns: 1fr 220px }`) — re-verify after the shell change
+   - on narrow desktops the presence rail may need an earlier collapse breakpoint (e.g. ≤960px → single column, presence moves to the FAB drawer that already exists)
+5. [ ] Manual smoke at 1440 / 1280 / 1100 / 960 / 800 / 600 / 360 px viewport widths
+   - record any rough edges as `=>` notes; small fixes land in the same commit, larger ones become new actions
+
+=> Out of scope for this phase: any new feature work. Strictly a responsive-shell correctness fix discovered mid-implementation of the attachment plan.
+
 ### Phase 7 — Polish, hardening, docs — status: open
 
 Goal: small finishing items so the feature feels shipped.
@@ -160,8 +184,9 @@ Goal: small finishing items so the feature feels shipped.
 
 ## Adjustments
 
-<!-- to be filled as the plan evolves -->
+- **2606180024** — added Phase 7a (responsive content width). User reported chat/forum content sliding under the left nav on narrower viewports. Layout-shell fix, not feature work, but it's blocking real-world testing of the attachment changes so it goes ahead of Phase 7 polish.
 
 ## Progress Log
 
 - **2606180019** — plan created from [[spec - chat-attachments - drag-anywhere-multi-mime-extract-to-project]] after /eidos:spec Q&A on 2026-06-17. Phases 1–7 drafted. Status = active.
+- **2606180024** — Phase 7a inserted to address responsive-shell regression observed during testing.
