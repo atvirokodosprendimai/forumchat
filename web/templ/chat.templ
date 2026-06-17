@@ -281,7 +281,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 		} else {
 			if showMeta {
 				<header class="meta">
-					if m.AuthorID != "" {
+					if m.AuthorID != "" && m.AuthorID != currentUserID {
 						<span class="author-dot"
 							style={ "background:" + mentionColor(m.AuthorID) }
 							title={ m.AuthorName }>{ mentionInitial(m.AuthorName) }</span>
