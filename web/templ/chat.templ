@@ -133,9 +133,9 @@ templ ChatComposer(slug string) {
 			<button class="link" data-on:click="$image_data=''">remove image</button>
 		</div>
 		<div id="composer-pending" class="composer-pending-stack"></div>
-		<div class="attach-pending" data-show="$attachment_ids.length > 0">
-			<span class="muted">📎 <span data-text="$attachment_ids.length"></span> file(s) ready — Send to ship them.</span>
-			<button class="link" data-on:click="$attachment_ids=[]">clear</button>
+		<div class="attach-pending" data-show="$attachment_ids !== '' && $attachment_ids !== '[]'">
+			<span class="muted">📎 files ready — Send to ship them.</span>
+			<button class="link" data-on:click="$attachment_ids=''">clear</button>
 		</div>
 		@MentionPopup(nil)
 		<div class="composer-row">

@@ -191,6 +191,21 @@ func (h *Handler) Welcome(ctx context.Context, communityID, displayName string) 
 	}
 }
 
+// parseAttachmentIDs decodes the JSON-encoded `attachment_ids` signal
+// (a string in the Datastar bag — see sendSignals comment) into a
+// slice, trims, deduplicates, and caps the count. Empty input → nil.
+func parseAttachmentIDs(raw string) []string {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "[]" {
+		return nil
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(s), &ids); err != nil {
+		return nil
+	}
+	return sanitiseAttachmentIDs(ids)
+}
+
 // sanitiseAttachmentIDs trims whitespace, drops empties, and caps the
 // list at a small ceiling so a malicious / runaway client can't
 // trigger a giant join in VerifyUploadsOwned. Order is preserved so
@@ -280,13 +295,16 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 }
 
 type sendSignals struct {
-	Body          string   `json:"body"`
-	ReplyToID     string   `json:"reply_to_id"`
-	ImageData     string   `json:"image_data"`
-	// AttachmentIDs are upload row ids returned by /c/{slug}/chat/upload.
-	// The composer stages them as an array of strings; empty / missing
-	// is fine.
-	AttachmentIDs []string `json:"attachment_ids"`
+	Body      string `json:"body"`
+	ReplyToID string `json:"reply_to_id"`
+	ImageData string `json:"image_data"`
+	// AttachmentIDs is the JSON-encoded array of upload row ids the
+	// composer staged via /chat/upload. Datastar treats array signals
+	// as opaque from `data-bind`'d hidden inputs — value strings don't
+	// round-trip back to arrays — so we keep this as a string in the
+	// bag and json-decode it server-side. Empty / "" / "[]" all mean
+	// "no attachments".
+	AttachmentIDs string `json:"attachment_ids"`
 }
 
 func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +339,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	attIDs := sanitiseAttachmentIDs(in.AttachmentIDs)
+	attIDs := parseAttachmentIDs(in.AttachmentIDs)
 	if (body == "" && len(attIDs) == 0) || len(body) > 4000 {
 		return
 	}
@@ -346,7 +364,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	}
 	// Clear composer signals — including attachment_ids so the next
 	// send starts with a fresh empty stage.
-	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":[]}`))
+	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
 
 	h.broadcastNewMsg(r.Context())
 
