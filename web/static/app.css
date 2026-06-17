@@ -112,8 +112,8 @@ code, kbd, pre, samp { font-family: var(--font-mono); font-size: .9em; }
 .topbar nav a:hover { color: var(--fg); text-decoration: none; }
 
 main {
-  padding: 1.25rem; max-width: 1080px; margin: 0 auto;
-  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: 1.25rem;
+  flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto;
   width: 100%;
   -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
 }
@@ -1657,10 +1657,15 @@ img.thread-announce-img {
   border-radius: 1px;
 }
 
+/* --sb-width keeps sidebar width and the main-content offset in one
+   place so we never get an off-by-N-pixels overlap again. Used by
+   .sidebar, body > main, body > .site-footer. */
+:root { --sb-width: 232px; }
+
 .sidebar {
   position: fixed;
   top: 0; left: 0;
-  width: 232px;
+  width: var(--sb-width);
   height: 100vh;
   background:
     linear-gradient(180deg,
@@ -1748,11 +1753,14 @@ img.thread-announce-img {
 }
 
 @media (min-width: 900px) {
-  /* Desktop: sidebar always visible, content shifts right. The mobile
-     topbar (hamburger + brand) hides entirely. */
+  /* Desktop: sidebar always visible, content shifts right by exactly
+     the sidebar's width (var --sb-width). Dropping the old 1080px
+     centred max-width — content is now fluid-width and fills the
+     post-sidebar viewport. Inner blocks (.chat-layout, .forum-list,
+     etc.) cap themselves where readability needs it. */
   body > .topbar { display: none; }
-  body > main { margin-left: 220px; }
-  body > .site-footer { margin-left: 220px; }
+  body > main { margin-left: var(--sb-width); width: calc(100% - var(--sb-width)); max-width: none; }
+  body > .site-footer { margin-left: var(--sb-width); }
   body > .nav-overlay { display: none !important; }
 }
 
