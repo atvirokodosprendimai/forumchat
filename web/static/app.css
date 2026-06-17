@@ -3566,6 +3566,13 @@ hr {
   font-size: 0.78rem;
   color: var(--fg-muted, #6c6c75);
   flex-wrap: wrap;
+  /* The bubble carries the per-message action menu at top-right
+     (.msg-menu, 32px circle pinned at top:.35rem right:.35rem). On
+     short attachments (audio strips, narrow PDFs) the meta strip's
+     right-aligned download link drifts under the menu and becomes
+     unclickable. 2.5rem of right padding mirrors what `.bubble .meta`
+     uses for the same reason. */
+  padding-right: 2.5rem;
 }
 .msg-attach-meta .msg-attach-name {
   color: var(--fg, #1c1c22);
