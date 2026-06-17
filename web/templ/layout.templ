@@ -184,8 +184,7 @@ templ Layout(title string, v Viewer) {
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 			<script src={ "/static/mention.js?v=" + AssetVer("mention.js") } defer></script>
 		</head>
-		<body data-signals={ InitialSignals }
-			data-init="document.querySelectorAll('[data-cloak]').forEach(e=>e.removeAttribute('data-cloak'))">
+		<body data-signals={ InitialSignals }>
 			<script src={ "/static/nav.js?v=" + AssetVer("nav.js") } defer></script>
 			<header class="topbar">
 				<button class="topbar-hamburger" aria-label="Toggle navigation"
