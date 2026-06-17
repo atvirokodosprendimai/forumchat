@@ -69,8 +69,16 @@ func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler 
 			}
 			u, err := repo.UserByID(r.Context(), uid)
 			if err != nil {
-				logDestroy("user-not-found", uid, cid, r.URL.Path, err)
-				_ = Logout(r.Context(), sm)
+				// Only destroy the session when the user row is GONE
+				// (sql.ErrNoRows / our ErrNotFound). For any other
+				// error (context.Canceled when the browser walks away,
+				// transient DB error, etc.) leave the session alone
+				// and just skip identity for this request — the next
+				// request that does succeed will set identity again.
+				if errors.Is(err, ErrNotFound) {
+					logDestroy("user-not-found", uid, cid, r.URL.Path, err)
+					_ = Logout(r.Context(), sm)
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
