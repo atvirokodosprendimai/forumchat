@@ -385,11 +385,49 @@ templ MessageAttachments(atts []AttachmentView) {
 }
 
 templ MessageAttachment(a AttachmentView) {
-	<a class="msg-attach-chip" href={ templ.URL(a.URL) } target="_blank" rel="noopener" title={ a.Filename }>
-		<span class="msg-attach-icon" aria-hidden="true">{ attachIcon(a.Kind) }</span>
-		<span class="msg-attach-name">{ a.Filename }</span>
-		<span class="msg-attach-size">{ humanSize(a.Size) }</span>
-	</a>
+	switch a.Kind {
+		case "image":
+			<a class="msg-attach-image" href={ templ.URL(a.URL) } target="_blank" rel="noopener" title={ a.Filename }>
+				<img loading="lazy" alt={ a.Filename } src={ a.URL }/>
+				<span class="msg-attach-image-caption">{ a.Filename } · { humanSize(a.Size) }</span>
+			</a>
+		case "video":
+			<div class="msg-attach-video">
+				<video controls preload="metadata" src={ a.URL }></video>
+				<div class="msg-attach-meta">
+					<span class="msg-attach-icon" aria-hidden="true">🎬</span>
+					<span class="msg-attach-name">{ a.Filename }</span>
+					<span class="msg-attach-size">{ humanSize(a.Size) }</span>
+					<a class="msg-attach-download" href={ templ.URL(a.URL) } target="_blank" rel="noopener">⬇</a>
+				</div>
+			</div>
+		case "audio":
+			<div class="msg-attach-audio">
+				<audio controls preload="metadata" src={ a.URL }></audio>
+				<div class="msg-attach-meta">
+					<span class="msg-attach-icon" aria-hidden="true">🎵</span>
+					<span class="msg-attach-name">{ a.Filename }</span>
+					<span class="msg-attach-size">{ humanSize(a.Size) }</span>
+					<a class="msg-attach-download" href={ templ.URL(a.URL) } target="_blank" rel="noopener">⬇</a>
+				</div>
+			</div>
+		case "pdf":
+			<div class="msg-attach-pdf">
+				<iframe src={ a.URL } title={ a.Filename }></iframe>
+				<div class="msg-attach-meta">
+					<span class="msg-attach-icon" aria-hidden="true">📄</span>
+					<span class="msg-attach-name">{ a.Filename }</span>
+					<span class="msg-attach-size">{ humanSize(a.Size) }</span>
+					<a class="msg-attach-download" href={ templ.URL(a.URL) } target="_blank" rel="noopener">Open PDF ↗</a>
+				</div>
+			</div>
+		default:
+			<a class="msg-attach-chip" href={ templ.URL(a.URL) } target="_blank" rel="noopener" title={ a.Filename }>
+				<span class="msg-attach-icon" aria-hidden="true">{ attachIcon(a.Kind) }</span>
+				<span class="msg-attach-name">{ a.Filename }</span>
+				<span class="msg-attach-size">{ humanSize(a.Size) }</span>
+			</a>
+	}
 }
 
 // attachGridClass picks a flexible grid sizing hint based on count.

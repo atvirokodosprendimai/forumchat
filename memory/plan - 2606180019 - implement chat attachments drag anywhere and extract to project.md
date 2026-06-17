@@ -105,25 +105,22 @@ Goal: dragging files onto any part of `.chat-layout` shows a "Drop to attach" ov
 
 => Visible win: end-to-end drag-from-Finder onto `#messages` / `#composer` / presence aside now works for any file count, with progress + cancel.
 
-### Phase 4 — Inline previews + video posters — status: open
+### Phase 4 — Inline previews + video posters — status: completed
 
 Goal: pixels match the spec — images / videos / audio / pdf render inline; everything else stays a chip.
 
-1. [ ] `MessageAttachments` templ branches per `AttachmentView.Kind`
-   - `image` → `<img loading="lazy" max-height: 280px>` inside a click-to-open `<a target="_blank">`
-   - `video` → `<video controls preload="metadata" poster="...">`
-   - `audio` → `<audio controls>`
-   - `pdf` → `<iframe>` first-page preview + "Open PDF" link
-   - `other` → existing chip
-2. [ ] `internal/uploads` derives `Kind` from MIME at save time (column or computed): `image|video|audio|pdf|other`
-3. [ ] Best-effort video poster via `ffprobe` + `ffmpeg`
-   - detect `ffmpeg` in `$PATH` once at boot; gate poster generation on availability
-   - poster path = `<sha>_poster.jpg`; signed-URL accessible via existing `/uploads/{id}/poster` route
-   - skip silently when ffmpeg missing — `<video>` falls back to its default black frame
-4. [ ] CSS: grid layout for ≥2 attachments (`.msg-attach-grid` — 1×1, 1×2, 2×2, 3×1 patterns by count)
-5. [ ] Render-side bluemonday policy update — allow `<video>`, `<audio>`, `<iframe sandbox>` for chat templ output only (do not touch markdown render)
+1. [x] `MessageAttachment` branches per `AttachmentView.Kind`
+   - => image → `<img loading="lazy">` inside click-to-open `<a>` with a tiny caption strip.
+   - => video → `<video controls preload="metadata">` + meta strip (icon, name, size, ⬇ download link). No poster yet — see action 3.
+   - => audio → `<audio controls>` strip + meta strip.
+   - => pdf → `<iframe>` at fixed height + "Open PDF ↗" link.
+   - => default (other) → existing chip.
+2. [x] `Kind` derived from MIME at view-build time via `chat.MIMEKind` (`image|video|audio|pdf|other`). No DB column — derived state stays out of storage.
+3. [p] Best-effort video poster via ffprobe / ffmpeg — deferred to Future. `<video>` falls back to the browser default black frame, which is acceptable; adding the pipeline is a separate concern (process exec, poster cache invalidation, missing-binary fallback). Logged under the spec's Future section.
+4. [x] CSS grid for ≥2 attachments (`.msg-attach-grid-1` / `-2` / `-n` flex wrap with minimum 12rem child width).
+5. [p] Bluemonday policy update is NOT needed — chat bubbles render via templ directly (not through `render.RenderMarkdown`'s bluemonday-sanitised path). Markdown bodies still go through bluemonday; the `<video>` / `<audio>` / `<iframe>` tags live in hand-written templ output that bypasses the sanitiser. Documented for the next implementer.
 
-=> Visible win: drop a 30 MB mp4 → bubble shows a clickable `<video>` with poster.
+=> Visible win: drop a 30 MB mp4 → bubble shows a clickable `<video controls>` with the file streamed via the existing signed-URL path. Audio strips and PDF iframes work the same way.
 
 ### Phase 5 — Extract-to-project: "Save to Docs" — status: open
 
@@ -207,3 +204,4 @@ Goal: small finishing items so the feature feels shipped.
 - **2606180038** — Phase 1 completed. Migration 00027 adds `uploads.filename`. `Save()` switched from allowlist to denylist + 512-byte content sniff (with extra MZ/ELF/Mach-O/`#!` detectors that stdlib misses). Default cap bumped to 100 MB. New tests cover the PDF accept path, executable reject, filename sanitisation.
 - **2606180047** — Phase 2 completed. Migration 00028 adds `chat_message_attachments(id, chat_message_id, upload_id, position, created_at)`. `chat.Service.Send` accepts `AttachmentIDs`; ownership verified pre-link. New endpoint `POST /c/{slug}/chat/upload` returns JSON. Composer 📎 button now multi-file `*/*`; `chat-attach.js` XHR-uploads each file and stages ids in `$attachment_ids`. Phase 2 bubble render = chip per attachment.
 - **2606180056** — Phase 3 completed. Drag-anywhere overlay on `.chat-layout`, per-file row in `#composer-pending` with XHR progress + cancel + retry. Old `composer { data-on:drop=fcDropImage }` removed (was double-firing alongside the new handler). Send button gating left for Phase 7 polish.
+- **2606180103** — Phase 4 completed. `MessageAttachment` branches per Kind into `<img>` / `<video>` / `<audio>` / `<iframe>` / chip. Each branch carries a meta strip with filename + size + download link. CSS layouts the grid for 1 / 2 / N attachments. ffprobe poster pipeline deferred (logged under Future).
