@@ -157,14 +157,8 @@ func (h *Handler) attachReadReceipts(ctx context.Context, views []webtempl.MsgVi
 }
 
 // fatMorph emits the chat patches the UI expects:
-//   1. #messages outer-morph → full latest-N list (idiomorph-merged).
-//   2. #chat-scroll-anchor REPLACE-morph → fresh anchor element whose
-//      data-init scrolls itself into view.
-//
-// We use Replace (not Outer) on the anchor so the element is removed
-// and a brand-new one inserted — that's what re-fires data-init.
-// idiomorph's same-id merge would otherwise keep the old anchor and
-// data-init would no-op.
+//   1. #messages outer-morph → full latest-N list.
+//   2. ExecuteScript → scroll #messages to its own bottom.
 func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool, currentUserID, viewerName, slug string) error {
 	if err := sse.PatchElementTempl(
 		webtempl.MessagesContainer(views, isMod, currentUserID, viewerName, slug),
@@ -172,9 +166,8 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 	); err != nil {
 		return err
 	}
-	return sse.PatchElementTempl(
-		webtempl.ChatScrollAnchor(),
-		datastar.WithModeReplace(),
+	return sse.ExecuteScript(
+		`document.querySelector('#messages')?.scrollTo({top: 1e9, behavior: 'smooth'})`,
 	)
 }
 
@@ -622,17 +615,13 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 	sse := render.NewSSE(w, r)
 
-	// NOTE: do NOT emit an initial fatMorph here. The chat page's HTML
-	// already carries the latest 100 messages + the scroll anchor, so
-	// the page's data-init scroll lands the user at the bottom on
-	// first paint. Emitting an immediate duplicate fatMorph from the
-	// stream caused a second scrollIntoView that fired BEFORE inline
-	// media finished loading — landing 1-2 messages short of the new
-	// bottom. The trade-off: on automatic EventSource reconnect (rare,
-	// triggered by network glitch or tab sleep), the client briefly
-	// sees stale messages until the next Bus / NATS event arrives.
-	// Acceptable — the chat is high-traffic enough that another
-	// event is normally seconds away.
+	// Initial sync: on every (re)connection — including when the browser
+	// re-establishes SSE after tab sleep — push the latest 100 immediately.
+	// Without this, a reconnecting client would see stale messages until the
+	// next chat event fires.
+	if views, err := h.loadRecentFor(r.Context(), id.User.ID); err == nil {
+		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+	}
 
 	local, unsubscribe := h.Bus.Subscribe()
 	defer unsubscribe()

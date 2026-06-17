@@ -292,27 +292,12 @@ func groupClass(g MsgGroup) string {
 templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName, slug string) {
 	<div id="messages" class="messages"
 		data-current-user-id={ currentUserID }
-		data-community-slug={ slug }>
+		data-community-slug={ slug }
+		data-init="el.scrollTo({top: el.scrollHeight, behavior:'instant'})">
 		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
 			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
 		}
-		@ChatScrollAnchor()
 	</div>
-}
-
-// ChatScrollAnchor sits as the LAST child of #messages. Every fatMorph
-// also patches this element with ds.WithModeReplace — Replace removes
-// the old element and inserts a fresh one, re-firing data-init.
-//
-// We deliberately do NOT use el.scrollIntoView({block:'end'}) — that
-// API scrolls EVERY scrollable ancestor (including <main> and the
-// document scrolling root) to make the element visible. In a layout
-// where main has overflow-y: auto, every other call ended up
-// shifting the page sideways or scrolling the wrong container. Going
-// straight at the parent's scrollTop only touches the messages list,
-// which is what we want.
-templ ChatScrollAnchor() {
-	<div id="chat-scroll-anchor" data-init="el.scrollIntoView({block:'end'})"></div>
 }
 
 // reverseMessages flips the desc-from-DB slice so groupMessages walks
