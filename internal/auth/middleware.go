@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
+
+// LoaderLog is the package-level logger used by Loader's diagnostic
+// lines. Wired by main.go at boot; nil-safe (no-op when unset).
+var LoaderLog *slog.Logger
 
 type ctxKey int
 
@@ -47,6 +52,13 @@ func WithAdminOfAnyCommunity(ctx context.Context, v bool) context.Context {
 }
 
 func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler {
+	logDestroy := func(reason, uid, cid, path string, err error) {
+		if LoaderLog == nil {
+			return
+		}
+		LoaderLog.Warn("auth.Loader destroying session",
+			"reason", reason, "uid", uid, "cid", cid, "path", path, "err", err)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			uid := CurrentUserID(r.Context(), sm)
@@ -57,11 +69,13 @@ func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler 
 			}
 			u, err := repo.UserByID(r.Context(), uid)
 			if err != nil {
+				logDestroy("user-not-found", uid, cid, r.URL.Path, err)
 				_ = Logout(r.Context(), sm)
 				next.ServeHTTP(w, r)
 				return
 			}
 			if u.Status != StatusActive {
+				logDestroy("user-not-active", uid, cid, r.URL.Path, nil)
 				_ = Logout(r.Context(), sm)
 				next.ServeHTTP(w, r)
 				return
@@ -69,12 +83,17 @@ func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler 
 			m, err := repo.MembershipFor(r.Context(), uid, cid)
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
+					logDestroy("membership-not-found", uid, cid, r.URL.Path, err)
 					_ = Logout(r.Context(), sm)
+				} else if LoaderLog != nil {
+					LoaderLog.Warn("auth.Loader membership lookup error",
+						"uid", uid, "cid", cid, "path", r.URL.Path, "err", err)
 				}
 				next.ServeHTTP(w, r)
 				return
 			}
 			if m.IsBanned(time.Now()) {
+				logDestroy("user-banned", uid, cid, r.URL.Path, nil)
 				_ = Logout(r.Context(), sm)
 				http.Redirect(w, r, "/login?banned=1", http.StatusSeeOther)
 				return

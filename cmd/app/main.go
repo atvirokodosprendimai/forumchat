@@ -116,6 +116,7 @@ func run() error {
 		InviteTTL: 30 * 24 * time.Hour,
 	}
 	sessions := auth.NewSessionManager(cfg.SessionMaxAge, cfg.IsProd())
+	auth.LoaderLog = log
 	// Persistent sessions in SQLite so users stay signed in across restarts.
 	sessions.Store = auth.NewSQLStore(ctx, db)
 	authHandler := &auth.Handler{
