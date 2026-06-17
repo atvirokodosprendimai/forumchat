@@ -377,7 +377,12 @@ button.link:hover, .link-button:hover {
   background:
     linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg); padding: .85rem;
+  border-radius: var(--radius-lg);
+  /* Bigger bottom padding so the last bubble has breathing room
+     between itself and the composer / read-receipts row. Without
+     it the autoscroll lands the final message flush against the
+     composer's top edge and looks like it's tucked under. */
+  padding: .85rem .85rem 1.75rem;
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
   box-shadow: var(--shadow);
   scrollbar-width: thin;
