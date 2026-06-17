@@ -29,6 +29,11 @@ type Handler struct {
 	Chat     *chat.Service
 	ChatRepo *chat.Repo
 	ChatBus  *chat.Bus
+	// ChatNewMsgBus is the strict "new chat message" fan-out — wakes
+	// the cross-page chat-events SSE so a viewer on /forum still
+	// hears a ping when a thread-announce row hits chat. Optional;
+	// nil-safe.
+	ChatNewMsgBus *chat.Bus
 	Bus      *Bus
 	NATS     *nats.Conn
 	Uploads  *uploads.Store
@@ -211,10 +216,17 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		_, err := h.Chat.PostSystem(r.Context(), h.cid(r.Context()), announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("post thread-announce", "err", err)
-		} else if h.NATS != nil && h.NATS.IsConnected() {
-			// Just ping the chat channel; subscribers refetch the latest 100
-			// from the DB (which now includes the thread_announce row).
-			_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
+		} else {
+			if h.ChatNewMsgBus != nil {
+				h.ChatNewMsgBus.Broadcast()
+			}
+			if h.NATS != nil && h.NATS.IsConnected() {
+				// Two fan-outs: chat-page subscribers re-render via the
+				// generic chat subject; cross-page event listeners ping
+				// off the strict chat.new subject.
+				_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
+				_ = h.NATS.Publish(natsx.ChatNewSubject(h.cid(r.Context())), []byte("new"))
+			}
 		}
 	}
 
@@ -599,12 +611,18 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 			h.Log.Error("promote thread-announce", "err", err)
 		}
 	}
-	// Refresh open chat tabs so the thread_announce shows up live.
+	// Refresh open chat tabs so the thread_announce shows up live,
+	// and ping cross-page event listeners so viewers on /forum etc
+	// also hear the new chat row.
 	if h.ChatBus != nil {
 		h.ChatBus.Broadcast()
 	}
+	if h.ChatNewMsgBus != nil {
+		h.ChatNewMsgBus.Broadcast()
+	}
 	if h.NATS != nil && h.NATS.IsConnected() {
 		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatNewSubject(h.cid(r.Context())), []byte("new"))
 	}
 	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)

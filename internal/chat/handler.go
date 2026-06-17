@@ -26,6 +26,11 @@ type Handler struct {
 	Repo          *Repo
 	NATS          *nats.Conn
 	Bus           *Bus
+	// NewMsgBus carries ONLY "a new message just landed" events. The
+	// global events SSE that powers cross-page notifications subscribes
+	// here so it doesn't ping on edits, deletes, or read-receipt
+	// updates (which still fire on Bus).
+	NewMsgBus     *Bus
 	Uploads       *uploads.Store
 	// AuthRepo is used to resolve @mentions in chat messages to user ids
 	// before firing PushNotify. Optional — when nil, mention notifications
@@ -169,8 +174,12 @@ func (h *Handler) Welcome(ctx context.Context, communityID, displayName string) 
 	if h.Bus != nil {
 		h.Bus.Broadcast()
 	}
+	if h.NewMsgBus != nil {
+		h.NewMsgBus.Broadcast()
+	}
 	if h.NATS != nil && h.NATS.IsConnected() {
 		_ = h.NATS.Publish(natsx.ChatSubject(communityID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
 	}
 }
 
@@ -189,12 +198,29 @@ func htmlEscape(s string) string {
 
 // broadcast fans out a chat-changed signal locally (this process) AND over
 // NATS (other processes). Either may be down; the other still works.
+// Used for edits, deletes, read-receipt updates — anything where the
+// chat page should re-render but nobody should hear a fresh ping.
 func (h *Handler) broadcast(ctx context.Context) {
 	if h.Bus != nil {
 		h.Bus.Broadcast()
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
 		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(ctx)), []byte("changed"))
+	}
+}
+
+// broadcastNewMsg is broadcast() plus a fan-out on the strict
+// "new-message-only" channel that the cross-page events stream
+// listens on. Called from PostSend, Welcome, the forum bridge —
+// anywhere a brand-new chat row appears. NOT from PostDelete or
+// PostMarkRead.
+func (h *Handler) broadcastNewMsg(ctx context.Context) {
+	h.broadcast(ctx)
+	if h.NewMsgBus != nil {
+		h.NewMsgBus.Broadcast()
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.ChatNewSubject(h.cid(ctx)), []byte("new"))
 	}
 }
 
@@ -279,7 +305,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	// Clear composer signals.
 	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":""}`))
 
-	h.broadcast(r.Context())
+	h.broadcastNewMsg(r.Context())
 
 	// Fire-and-forget push notifications. Runs in the background so a
 	// slow push service doesn't make the chat send look stalled to the
@@ -507,6 +533,59 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context())); err != nil {
+			return
+		}
+	}
+}
+
+// GetEventsStream is the lightweight cross-page chat-event SSE.
+// Mounted at /c/{slug}/chat/events and opened from layout.templ on
+// every authed page in a community, it does NOTHING on the wire
+// except emit `window.fcChatPing && window.fcChatPing()` whenever a
+// genuinely new chat message lands. The client decides whether to
+// sound + toast based on which page the viewer is on — chat-notify.js
+// owns the /chat page, chat-events.js handles everywhere else.
+//
+// Listens on NewMsgBus + ChatNewSubject; edits / deletes / read
+// receipts deliberately don't fire here.
+func (h *Handler) GetEventsStream(w http.ResponseWriter, r *http.Request) {
+	if _, ok := auth.FromContext(r.Context()); !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	sse := render.NewSSE(w, r)
+
+	var local <-chan struct{}
+	var unsubscribe func()
+	if h.NewMsgBus != nil {
+		local, unsubscribe = h.NewMsgBus.Subscribe()
+		defer unsubscribe()
+	}
+
+	var natsCh chan *nats.Msg
+	if h.NATS != nil && h.NATS.IsConnected() {
+		natsCh = make(chan *nats.Msg, 32)
+		sub, err := h.NATS.ChanSubscribe(natsx.ChatNewSubject(h.cid(r.Context())), natsCh)
+		if err == nil {
+			defer sub.Unsubscribe()
+		} else {
+			h.Log.Warn("nats subscribe chat.new", "err", err)
+			natsCh = nil
+		}
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-local:
+		case _, ok := <-natsCh:
+			if !ok {
+				natsCh = nil
+				continue
+			}
+		}
+		if err := sse.ExecuteScript(`window.fcChatPing && window.fcChatPing()`); err != nil {
 			return
 		}
 	}

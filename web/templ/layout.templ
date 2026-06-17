@@ -245,6 +245,15 @@ templ Layout(title string, v Viewer) {
 				{ children... }
 			</main>
 			if v.IsAuthed {
+				if v.CommunitySlug != "" {
+					// Global chat event stream — opened on every page in
+					// the community so a viewer on /forum still hears a
+					// ping when a new chat message lands. Server emits
+					// only `window.fcChatPing()` calls; chat-events.js
+					// decides sound + Notification.
+					<div id="chat-events-open" hidden data-init={ "@get('/c/" + v.CommunitySlug + "/chat/events', {openWhenHidden: true})" }></div>
+					<script src={ "/static/chat-events.js?v=" + AssetVer("chat-events.js") } defer></script>
+				}
 				<div id="pm-stream-open" hidden data-init="@get('/messages/stream', {openWhenHidden: true})"></div>
 				<div class="pm-toast" data-cloak data-show="$_pm_toast_text !== ''"
 					data-on:animationend="$_pm_toast_text=''; $_pm_toast_href=''">

@@ -197,11 +197,13 @@ func run() error {
 	chatRepo := chat.NewRepo(db)
 	chatSvc := chat.NewService(chatRepo)
 	chatBus := chat.NewBus()
+	chatNewMsgBus := chat.NewBus()
 	chatHandler := &chat.Handler{
 		Svc:           chatSvc,
 		Repo:          chatRepo,
 		NATS:          nc,
 		Bus:           chatBus,
+		NewMsgBus:     chatNewMsgBus,
 		Uploads:       uploadStore,
 		AuthRepo:      aRepo,
 		CommunityID:   bootCommunity.ID,
@@ -235,6 +237,7 @@ func run() error {
 		Chat:          chatSvc,
 		ChatRepo:      chatRepo,
 		ChatBus:       chatBus,
+		ChatNewMsgBus: chatNewMsgBus,
 		Bus:           forumBus,
 		NATS:          nc,
 		Uploads:       uploadStore,
@@ -514,6 +517,7 @@ func run() error {
 		r.Post("/chat/send", chatHandler.PostSend)
 		r.Get("/chat/mention", chatHandler.GetMentionSearch)
 		r.Get("/chat/stream", chatHandler.GetStream)
+		r.Get("/chat/events", chatHandler.GetEventsStream)
 		r.Post("/chat/read", chatHandler.PostMarkRead)
 
 		r.Get("/presence/stream", presenceHandler.GetStream)

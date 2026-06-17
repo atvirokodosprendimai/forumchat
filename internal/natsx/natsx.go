@@ -34,6 +34,15 @@ func ChatSubject(communityID string) string {
 	return fmt.Sprintf("community.%s.chat", communityID)
 }
 
+// ChatNewSubject is the "a brand-new message just landed" fan-out — a
+// strict subset of ChatSubject. Subscribers that want to ping/toast on
+// real new messages (not edits, deletes, read-receipt updates) listen
+// here. PostSend / Welcome / forum-bridge publish on this AND
+// ChatSubject so chat-page re-renders stay correct.
+func ChatNewSubject(communityID string) string {
+	return fmt.Sprintf("community.%s.chat.new", communityID)
+}
+
 func ForumSubject(communityID string) string {
 	return fmt.Sprintf("community.%s.forum", communityID)
 }
