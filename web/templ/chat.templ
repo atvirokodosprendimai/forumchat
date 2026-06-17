@@ -78,6 +78,13 @@ type ChatPageData struct {
 templ ChatPage(d ChatPageData) {
 	@Layout("Chat", d.Viewer) {
 		<section class="chat-layout">
+			<div id="chat-drop-overlay" class="chat-drop-overlay" aria-hidden="true">
+				<div class="chat-drop-overlay-card">
+					<div class="chat-drop-overlay-icon" aria-hidden="true">⤓</div>
+					<div class="chat-drop-overlay-text">Drop to attach</div>
+					<div class="chat-drop-overlay-hint">Up to 100 MB per file. Multiple files become one bubble.</div>
+				</div>
+			</div>
 			<div>
 				<h1>{ d.Viewer.CommunityName }</h1>
 				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID, d.Viewer.DisplayName, d.Viewer.CommunitySlug)
@@ -108,9 +115,7 @@ templ ChatPage(d ChatPageData) {
 }
 
 templ ChatComposer(slug string) {
-	<div id="composer" class="composer"
-		data-on:dragover="evt.preventDefault()"
-		data-on:drop="window.fcDropImage(evt,'image_data')">
+	<div id="composer" class="composer">
 		<div id="reply-indicator" class="reply-hint" data-show="$reply_to_id !== ''">
 			<span class="muted">Replying — <span data-text="'…' + ($reply_to_id || '').slice(0,8)"></span></span>
 			<button class="link" data-on:click="$reply_to_id = ''">cancel</button>
@@ -122,8 +127,9 @@ templ ChatComposer(slug string) {
 			<img alt="attached image preview" data-attr:src="$image_data"/>
 			<button class="link" data-on:click="$image_data=''">remove image</button>
 		</div>
+		<div id="composer-pending" class="composer-pending-stack"></div>
 		<div class="attach-pending" data-show="$attachment_ids.length > 0">
-			<span class="muted">📎 <span data-text="$attachment_ids.length"></span> file(s) staged — Send to ship them.</span>
+			<span class="muted">📎 <span data-text="$attachment_ids.length"></span> file(s) ready — Send to ship them.</span>
 			<button class="link" data-on:click="$attachment_ids=[]">clear</button>
 		</div>
 		@MentionPopup(nil)

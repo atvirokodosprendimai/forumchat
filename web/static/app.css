@@ -3288,6 +3288,104 @@ hr {
   vertical-align: top;
 }
 
+/* Drag-anywhere overlay — full-cover hint while the user is mid-drag
+   over .chat-layout. JS toggles .chat-drop-overlay-active. */
+.chat-drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  background: color-mix(in srgb, var(--accent, #4f46e5) 12%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  border: 2px dashed color-mix(in srgb, var(--accent, #4f46e5) 60%, transparent);
+  border-radius: var(--radius, 0.6rem);
+  z-index: 30;
+  transition: opacity var(--t-fast, 120ms) ease-out;
+}
+.chat-drop-overlay-active { opacity: 1; }
+.chat-drop-overlay-card {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e4e4ea);
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  padding: 1.5rem 2rem;
+  border-radius: var(--radius, 0.6rem);
+  text-align: center;
+  max-width: 22rem;
+}
+.chat-drop-overlay-icon { font-size: 2.5rem; line-height: 1; margin-bottom: .35rem; color: var(--accent, #4f46e5); }
+.chat-drop-overlay-text { font-size: 1.05rem; font-weight: 600; margin-bottom: .25rem; }
+.chat-drop-overlay-hint { color: var(--fg-muted, #6c6c75); font-size: 0.85rem; }
+/* chat-layout needs position to anchor the absolute overlay. */
+.chat-layout { position: relative; }
+
+/* Composer pending uploads — one row per in-flight file. */
+.composer-pending-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.3rem 0;
+}
+.composer-pending-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.55rem;
+  background: var(--surface, #f4f4f7);
+  border: 1px solid var(--border, #e4e4ea);
+  border-radius: var(--radius-sm, 0.45rem);
+  font-size: 0.82rem;
+  transition: opacity var(--t-fast, 120ms) ease-out, background var(--t-fast, 120ms) ease-out;
+}
+.composer-pending-icon { font-size: 1.1rem; line-height: 1; }
+.composer-pending-meta { display: flex; flex-direction: column; min-width: 0; }
+.composer-pending-name {
+  font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 18rem;
+}
+.composer-pending-size { color: var(--fg-muted, #6c6c75); font-variant-numeric: tabular-nums; }
+.composer-pending-bar {
+  display: inline-block;
+  width: 8rem;
+  height: 0.45rem;
+  background: var(--bg-alt, #ececf2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.composer-pending-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--accent, #4f46e5);
+  transition: width 80ms linear;
+}
+.composer-pending-done .composer-pending-fill { background: #4caf50; }
+.composer-pending-fail {
+  background: color-mix(in srgb, #ef4444 10%, var(--surface, #fff));
+  border-color: color-mix(in srgb, #ef4444 35%, var(--border, #e4e4ea));
+}
+.composer-pending-fail .composer-pending-fill { background: #ef4444; }
+.composer-pending-error {
+  grid-column: 1 / -1;
+  color: #c4341c;
+  font-size: 0.78rem;
+}
+.composer-pending-cancel {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--fg-muted, #6c6c75);
+  font-size: 0.95rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-sm, 0.45rem);
+}
+.composer-pending-cancel:hover { color: var(--fg, #1c1c22); background: var(--bg-alt, #ececf2); }
+
 /* Chat message attachments — grid of file chips under .body.
    Phase 2 = chip-only render; Phase 4 will add per-kind inline
    preview branches (image / video / audio / pdf). */

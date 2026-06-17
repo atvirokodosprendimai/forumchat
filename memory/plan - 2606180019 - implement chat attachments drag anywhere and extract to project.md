@@ -84,25 +84,26 @@ Goal: a chat message can carry N upload refs. Single existing paste-image flow c
 => New endpoint: `chat.Handler.PostUpload(POST /c/{slug}/chat/upload)` — single-file multipart, returns JSON `{id, mime, kind, size, filename}`. Wired in main.go inside the community route group.
 => Build + tests green; migration 28 applies cleanly on boot; static script serves 200.
 
-### Phase 3 — Drag-anywhere overlay + per-file progress + cancel — status: open
+### Phase 3 — Drag-anywhere overlay + per-file progress + cancel — status: completed
 
 Goal: dragging files onto any part of `.chat-layout` shows a "Drop to attach" overlay; releasing uploads each file in parallel with a progress row + ✕ cancel; chat send waits until every row is uploaded or removed. Visible test: drag 3 files anywhere on the chat surface, see overlay, watch 3 progress bars, click one ✕ to cancel, send the remaining two.
 
-1. [ ] `web/static/chat-attach.js` — new module replacing the inline phase-2 uploader
-   - `dragenter` (with `DataTransfer.types.includes('Files')`) → set `$_chat_drop_active = true`
-   - `dragleave` / `drop` → reset
-   - drop handler uploads each file via `XMLHttpRequest` to `POST /c/{slug}/chat/upload` (multipart, single file per request — keeps progress events clean)
-   - per-file row in `#composer-pending` shows thumbnail (object URL) or MIME icon, filename, size, progress bar, ✕ cancel button
-   - failed upload turns row red with a retry link
-2. [ ] `chat.Handler.PostUpload(w, r)` — multipart endpoint, single file
-   - returns JSON `{upload_id, mime, kind, size, filename}`
-   - rate-limit per-user via existing `httprate` middleware
-3. [ ] `chat.templ` — full-cover `<div class="chat-drop-overlay" data-show="$_chat_drop_active">Drop to attach</div>` mounted at the `.chat-layout` root
-   - CSS: `pointer-events: none` while hidden; `position: absolute; inset: 0; backdrop-filter: blur(2px)` while visible
-4. [ ] Composer Send button + Enter listener gated on `$attachment_ids.length === pending_rows`
-5. [ ] `data-on:dragover` on `.chat-layout` calls `evt.preventDefault()` so Chrome doesn't navigate when files drop outside the overlay
+1. [x] `web/static/chat-attach.js` — full Phase-3 module
+   - => `dragenter`/`dragleave`/`drop` on `.chat-layout` with depth counter (dragenter fires per child element on bubble, balance with dragleave).
+   - => `hasFiles(evt)` gates so dragging text / DOM elements doesn't trigger.
+   - => `dragover` `preventDefault` on `.chat-layout` so Chrome doesn't navigate.
+   - => per-file row in `#composer-pending` with XHR progress (`xhr.upload.onprogress`) → `.composer-pending-fill` width.
+   - => `cancel` aborts the XHR and unstages the id if already staged.
+   - => failure paints the row red with `retry` link that re-fires the upload.
+   - => `fcChatStageFiles(files)` kept as a public hook.
+2. [x] `chat.Handler.PostUpload` already shipped in Phase 2; retained as-is. Rate-limit deferred to Phase 7 polish.
+3. [x] `chat.templ` — `<div id="chat-drop-overlay" class="chat-drop-overlay">` mounted at the `.chat-layout` root with `chat-drop-overlay-card` inside.
+   - => CSS: absolute inset, blur backdrop, dashed accent border, JS toggles `chat-drop-overlay-active` for opacity.
+   - => `.chat-layout` gains `position: relative` so the overlay anchors.
+4. [p] Send button gating: deferred — current UX shows the per-row progress, and an in-flight row that lands after Send simply orphans (server side it's an upload row no chat message references; Phase 7's orphan sweep cleans those). Re-evaluate after Phase 7 if it still feels rough.
+5. [x] `data-on:dragover` removed from `#composer` (was firing alongside the new `.chat-layout` handler and stamping `image_data` for any drop). The new handler covers the composer region.
 
-=> Visible win: end-to-end drag-from-Finder onto `#messages` works for any file count, with progress + cancel.
+=> Visible win: end-to-end drag-from-Finder onto `#messages` / `#composer` / presence aside now works for any file count, with progress + cancel.
 
 ### Phase 4 — Inline previews + video posters — status: open
 
@@ -205,3 +206,4 @@ Goal: small finishing items so the feature feels shipped.
 - **2606180030** — Phase 7a completed. Single CSS-only commit: dropped centred max-width on `main`, introduced `--sb-width: 232px` custom property, fixed the desktop offset to match the sidebar exactly. Build + tests green. User to verify visually.
 - **2606180038** — Phase 1 completed. Migration 00027 adds `uploads.filename`. `Save()` switched from allowlist to denylist + 512-byte content sniff (with extra MZ/ELF/Mach-O/`#!` detectors that stdlib misses). Default cap bumped to 100 MB. New tests cover the PDF accept path, executable reject, filename sanitisation.
 - **2606180047** — Phase 2 completed. Migration 00028 adds `chat_message_attachments(id, chat_message_id, upload_id, position, created_at)`. `chat.Service.Send` accepts `AttachmentIDs`; ownership verified pre-link. New endpoint `POST /c/{slug}/chat/upload` returns JSON. Composer 📎 button now multi-file `*/*`; `chat-attach.js` XHR-uploads each file and stages ids in `$attachment_ids`. Phase 2 bubble render = chip per attachment.
+- **2606180056** — Phase 3 completed. Drag-anywhere overlay on `.chat-layout`, per-file row in `#composer-pending` with XHR progress + cancel + retry. Old `composer { data-on:drop=fcDropImage }` removed (was double-firing alongside the new handler). Send button gating left for Phase 7 polish.
