@@ -312,7 +312,7 @@ templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerNam
 // straight at the parent's scrollTop only touches the messages list,
 // which is what we want.
 templ ChatScrollAnchor() {
-	<div id="chat-scroll-anchor" data-init="const m=el.parentElement;if(m){m.scrollTop=m.scrollHeight}"></div>
+	<div id="chat-scroll-anchor" data-init="el.scrollIntoView({block:'end'})"></div>
 }
 
 // reverseMessages flips the desc-from-DB slice so groupMessages walks
