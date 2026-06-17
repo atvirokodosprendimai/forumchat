@@ -605,8 +605,9 @@ func fmtTime(t time.Time) string {
 // "↗ Extract" button stages signals + flips $_extract_open.
 templ ExtractDialog(slug string, projects []ChatProjectView) {
 	<div class="modal-overlay" data-cloak data-show="$_extract_open"
-		data-on:click__self="$_extract_open=false">
-		<div class="modal extract-dialog">
+		data-on:click="if(evt.target===el){$_extract_open=false}"
+		data-on:keydown__window="if(evt.key==='Escape' && $_extract_open){$_extract_open=false}">
+		<div class="modal extract-dialog" data-on:click="evt.stopPropagation()">
 			<header class="modal-head">
 				<strong>Extract to project</strong>
 				<button class="link" data-on:click="$_extract_open=false">✕</button>
