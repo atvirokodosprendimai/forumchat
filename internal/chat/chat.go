@@ -372,7 +372,7 @@ func (r *Repo) ExtractsForAttachments(ctx context.Context, attIDs []string) (map
 	}
 	q := `
 		SELECT e.id, e.chat_attachment_id, e.project_id,
-		       COALESCE(p.name, ''),
+		       COALESCE(p.title, ''),
 		       e.project_attachment_id, e.issue_id, e.mode, e.created_at
 		FROM chat_attachment_extracts e
 		LEFT JOIN projects p ON p.id = e.project_id
