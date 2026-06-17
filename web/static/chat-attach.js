@@ -94,39 +94,45 @@
 
   function startUpload(rowId, file, row) {
     const url = `/c/${encodeURIComponent(slug)}/chat/upload`;
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
-    xhr.withCredentials = true;
-    xhr.responseType = 'text';
     const fillEl = row.querySelector('.composer-pending-fill');
-    xhr.upload.addEventListener('progress', (evt) => {
-      if (!evt.lengthComputable) return;
-      const pct = Math.round((evt.loaded / evt.total) * 100);
-      fillEl.style.width = pct + '%';
-    });
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const j = JSON.parse(xhr.responseText);
-          rows.set(rowId, { ...rows.get(rowId), state: 'done', uploadID: j.id });
-          stageID(j.id);
-          row.classList.add('composer-pending-done');
-          fillEl.style.width = '100%';
-          // Fade the row out after a moment so the staged-count UI takes over.
-          setTimeout(() => { row.remove(); rows.delete(rowId); }, 600);
-        } catch (e) {
-          failRow(rowId, row, 'bad json from server');
-        }
-      } else {
-        failRow(rowId, row, (xhr.responseText || xhr.statusText || ('http ' + xhr.status)).trim());
-      }
-    };
-    xhr.onerror = () => failRow(rowId, row, 'network error');
-    xhr.onabort  = () => { /* cancel path handles UI */ };
     const fd = new FormData();
     fd.append('file', file, file.name);
-    rows.set(rowId, { id: rowId, file, xhr, state: 'uploading' });
-    xhr.send(fd);
+
+    // Fetch with explicit credentials: 'include' so the session cookie
+    // is sent even through proxies that mangle XHR cookie handling.
+    // We lose the live progress events (fetch has no upload.onprogress)
+    // and instead show a perpetual indeterminate animation; the bar
+    // jumps to 100% on success. Trade-off is acceptable in exchange
+    // for the cookie-included guarantee.
+    const ctrl = new AbortController();
+    fillEl.classList.add('composer-pending-fill-indeterminate');
+    rows.set(rowId, { id: rowId, file, ctrl, state: 'uploading' });
+    fetch(url, {
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+      signal: ctrl.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '');
+          throw new Error((txt || res.statusText || ('http ' + res.status)).trim());
+        }
+        return res.json();
+      })
+      .then((j) => {
+        rows.set(rowId, { ...rows.get(rowId), state: 'done', uploadID: j.id });
+        stageID(j.id);
+        row.classList.add('composer-pending-done');
+        fillEl.classList.remove('composer-pending-fill-indeterminate');
+        fillEl.style.width = '100%';
+        setTimeout(() => { row.remove(); rows.delete(rowId); }, 600);
+      })
+      .catch((err) => {
+        if (err && err.name === 'AbortError') return; // cancel path
+        fillEl.classList.remove('composer-pending-fill-indeterminate');
+        failRow(rowId, row, err && err.message ? err.message : String(err));
+      });
   }
 
   function failRow(rowId, row, msg) {
@@ -152,8 +158,8 @@
   function cancelRow(rowId) {
     const e = rows.get(rowId);
     if (!e) return;
-    if (e.state === 'uploading' && e.xhr) {
-      try { e.xhr.abort(); } catch {}
+    if (e.state === 'uploading' && e.ctrl) {
+      try { e.ctrl.abort(); } catch {}
     }
     if (e.state === 'done' && e.uploadID) {
       unstageID(e.uploadID);

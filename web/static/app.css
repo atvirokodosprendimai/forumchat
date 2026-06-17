@@ -3464,6 +3464,15 @@ hr {
   transition: width 80ms linear;
 }
 .composer-pending-done .composer-pending-fill { background: #4caf50; }
+.composer-pending-fill-indeterminate {
+  width: 35% !important;
+  background: linear-gradient(90deg, transparent, var(--accent, #4f46e5), transparent);
+  animation: composerPendingSlide 1.2s linear infinite;
+}
+@keyframes composerPendingSlide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(280%); }
+}
 .composer-pending-fail {
   background: color-mix(in srgb, #ef4444 10%, var(--surface, #fff));
   border-color: color-mix(in srgb, #ef4444 35%, var(--border, #e4e4ea));
