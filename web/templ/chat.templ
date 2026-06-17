@@ -78,13 +78,6 @@ type ChatPageData struct {
 templ ChatPage(d ChatPageData) {
 	@Layout("Chat", d.Viewer) {
 		<section class="chat-layout">
-			<div id="chat-drop-overlay" class="chat-drop-overlay" aria-hidden="true">
-				<div class="chat-drop-overlay-card">
-					<div class="chat-drop-overlay-icon" aria-hidden="true">⤓</div>
-					<div class="chat-drop-overlay-text">Drop to attach</div>
-					<div class="chat-drop-overlay-hint">Up to 100 MB per file. Multiple files become one bubble.</div>
-				</div>
-			</div>
 			<div>
 				<h1>{ d.Viewer.CommunityName }</h1>
 				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID, d.Viewer.DisplayName, d.Viewer.CommunitySlug)
@@ -99,6 +92,18 @@ templ ChatPage(d ChatPageData) {
 					</div>
 				</div>
 			</aside>
+			// Drag-anywhere overlay — absolutely positioned (via CSS), so
+			// it's out of the grid flow but rendered inside .chat-layout
+			// so position: absolute anchors to it. Placed LAST so the
+			// `.chat-layout > div:first-child` selector still targets the
+			// content column above.
+			<div id="chat-drop-overlay" class="chat-drop-overlay" aria-hidden="true">
+				<div class="chat-drop-overlay-card">
+					<div class="chat-drop-overlay-icon" aria-hidden="true">⤓</div>
+					<div class="chat-drop-overlay-text">Drop to attach</div>
+					<div class="chat-drop-overlay-hint">Up to 100 MB per file. Multiple files become one bubble.</div>
+				</div>
+			</div>
 		</section>
 		// Mobile-only floating button (>=900px hides via CSS). Toggles
 		// the presence panel into a right-side drawer on small screens.
