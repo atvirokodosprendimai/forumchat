@@ -297,7 +297,19 @@ templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerNam
 		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
 			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
 		}
+		@ChatScrollAnchor()
 	</div>
+}
+
+// ChatScrollAnchor sits as the LAST child of #messages. Every fatMorph
+// also patches this element with ds.WithModeReplace — Replace removes
+// the old element and inserts a fresh one, re-firing data-init. The
+// scrollIntoView call brings the anchor (and therefore the chat's
+// bottom) into view without the smooth-animation race or layout-
+// timing fragility of an explicit scrollTo. Empty body so it has no
+// visual footprint.
+templ ChatScrollAnchor() {
+	<div id="chat-scroll-anchor" data-init="el.scrollIntoView({block:'end'})"></div>
 }
 
 // reverseMessages flips the desc-from-DB slice so groupMessages walks

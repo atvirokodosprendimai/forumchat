@@ -157,8 +157,14 @@ func (h *Handler) attachReadReceipts(ctx context.Context, views []webtempl.MsgVi
 }
 
 // fatMorph emits the chat patches the UI expects:
-//   1. #messages outer-morph → full latest-N list.
-//   2. ExecuteScript → scroll #messages to its own bottom.
+//   1. #messages outer-morph → full latest-N list (idiomorph-merged).
+//   2. #chat-scroll-anchor REPLACE-morph → fresh anchor element whose
+//      data-init scrolls itself into view.
+//
+// We use Replace (not Outer) on the anchor so the element is removed
+// and a brand-new one inserted — that's what re-fires data-init.
+// idiomorph's same-id merge would otherwise keep the old anchor and
+// data-init would no-op.
 func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool, currentUserID, viewerName, slug string) error {
 	if err := sse.PatchElementTempl(
 		webtempl.MessagesContainer(views, isMod, currentUserID, viewerName, slug),
@@ -166,14 +172,9 @@ func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, 
 	); err != nil {
 		return err
 	}
-	// Two RAFs: idiomorph mutates the DOM before this script lands but
-	// layout/paint hasn't necessarily run yet. Waiting one frame lets
-	// the new bubbles compute their height; two frames is safer when
-	// inline previews (video poster, pdf iframe) bump scrollHeight on
-	// load. behavior:'auto' (instant) avoids the smooth-scroll race
-	// where a second fan-out interrupts the first animation.
-	return sse.ExecuteScript(
-		`requestAnimationFrame(()=>requestAnimationFrame(()=>{const m=document.querySelector('#messages');if(m){m.scrollTop=m.scrollHeight}}))`,
+	return sse.PatchElementTempl(
+		webtempl.ChatScrollAnchor(),
+		datastar.WithModeReplace(),
 	)
 }
 
