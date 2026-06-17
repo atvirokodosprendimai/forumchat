@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,6 +36,7 @@ type Message struct {
 	ReplyTo          *ReplyContext
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
+	Attachments      []Attachment
 }
 
 // ReplyContext is a denormalised snippet of the message being replied to,
@@ -54,6 +56,37 @@ type Reader struct {
 	DisplayName string
 	AvatarURL   string
 	LastReadAt  time.Time
+}
+
+// Attachment is one upload linked to a chat message.
+type Attachment struct {
+	ID            string
+	ChatMessageID string
+	UploadID      string
+	Position      int
+	// Joined from uploads — populated by repo eager-loaders for the
+	// render path. Empty on freshly-created rows.
+	MIME      string
+	Size      int64
+	Filename  string
+	Kind      string // image|video|audio|pdf|other (derived from MIME)
+	CreatedAt time.Time
+}
+
+// MIMEKind maps a MIME to one of the render-shape buckets the UI
+// uses to decide how to render the attachment in a chat bubble.
+func MIMEKind(mime string) string {
+	switch {
+	case strings.HasPrefix(mime, "image/"):
+		return "image"
+	case strings.HasPrefix(mime, "video/"):
+		return "video"
+	case strings.HasPrefix(mime, "audio/"):
+		return "audio"
+	case mime == "application/pdf":
+		return "pdf"
+	}
+	return "other"
 }
 
 type Repo struct{ DB *sql.DB }
@@ -79,11 +112,40 @@ func (r *Repo) Insert(ctx context.Context, m Message) error {
 }
 
 func (r *Repo) Recent(ctx context.Context, communityID string, limit int) ([]Message, error) {
-	return r.listBefore(ctx, communityID, time.Now().Add(48*time.Hour), limit)
+	msgs, err := r.listBefore(ctx, communityID, time.Now().Add(48*time.Hour), limit)
+	if err != nil {
+		return nil, err
+	}
+	return r.hydrateAttachments(ctx, msgs)
 }
 
 func (r *Repo) Before(ctx context.Context, communityID string, before time.Time, limit int) ([]Message, error) {
-	return r.listBefore(ctx, communityID, before, limit)
+	msgs, err := r.listBefore(ctx, communityID, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	return r.hydrateAttachments(ctx, msgs)
+}
+
+// hydrateAttachments runs one batch query to eager-load attachments
+// for the given message list, then mutates the Messages in place.
+// Empty input → empty output. Errors propagate.
+func (r *Repo) hydrateAttachments(ctx context.Context, msgs []Message) ([]Message, error) {
+	if len(msgs) == 0 {
+		return msgs, nil
+	}
+	ids := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		ids = append(ids, m.ID)
+	}
+	byMsg, err := r.AttachmentsForMessages(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range msgs {
+		msgs[i].Attachments = byMsg[msgs[i].ID]
+	}
+	return msgs, nil
 }
 
 func (r *Repo) listBefore(ctx context.Context, communityID string, before time.Time, limit int) ([]Message, error) {
@@ -231,6 +293,113 @@ func (r *Repo) SoftDelete(ctx context.Context, id string) error {
 	return nil
 }
 
+// VerifyUploadsOwned asserts every id in ids is an uploads row owned
+// by ownerID + scoped to communityID. Returns nil when every id checks
+// out; otherwise the first mismatched/missing id wins. Used by the
+// chat send path to defeat a replayed upload-id of someone else's
+// file.
+func (r *Repo) VerifyUploadsOwned(ctx context.Context, ids []string, ownerID, communityID string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := []any{ownerID, communityID}
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	q := `
+		SELECT COUNT(*) FROM uploads
+		WHERE owner_id = ? AND community_id = ? AND id IN (` + placeholders + `)`
+	var have int
+	if err := r.DB.QueryRowContext(ctx, q, args...).Scan(&have); err != nil {
+		return fmt.Errorf("verify uploads: %w", err)
+	}
+	if have != len(ids) {
+		return errors.New("chat: attachment not owned or in community")
+	}
+	return nil
+}
+
+// InsertWithAttachments persists a message AND its attachment links in
+// a single transaction so a partial failure can never leave a message
+// with missing attachments (or vice versa). uploadIDs is the ordered
+// list of upload row ids to link; position is taken from the slice index.
+func (r *Repo) InsertWithAttachments(ctx context.Context, m Message, uploadIDs []string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var authorID, refThread, replyTo sql.NullString
+	if m.AuthorID != nil {
+		authorID = sql.NullString{String: *m.AuthorID, Valid: true}
+	}
+	if m.RefThreadID != nil {
+		refThread = sql.NullString{String: *m.RefThreadID, Valid: true}
+	}
+	if m.ReplyToID != nil {
+		replyTo = sql.NullString{String: *m.ReplyToID, Valid: true}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO chat_messages (id, community_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, m.CreatedAt.Unix()); err != nil {
+		return fmt.Errorf("insert chat_messages: %w", err)
+	}
+	now := time.Now().Unix()
+	for i, uid := range uploadIDs {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO chat_message_attachments (id, chat_message_id, upload_id, position, created_at)
+			VALUES (?, ?, ?, ?, ?)`,
+			uuid.NewString(), m.ID, uid, i, now); err != nil {
+			return fmt.Errorf("insert chat_message_attachments[%d]: %w", i, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// AttachmentsForMessages eager-loads every attachment + the joined
+// upload row data for a batch of message ids. Returned in
+// (message_id, position) order. Empty input → empty output.
+func (r *Repo) AttachmentsForMessages(ctx context.Context, msgIDs []string) (map[string][]Attachment, error) {
+	if len(msgIDs) == 0 {
+		return map[string][]Attachment{}, nil
+	}
+	placeholders := strings.Repeat("?,", len(msgIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(msgIDs))
+	for _, id := range msgIDs {
+		args = append(args, id)
+	}
+	q := `
+		SELECT a.id, a.chat_message_id, a.upload_id, a.position, a.created_at,
+		       u.mime, u.size, u.filename
+		FROM chat_message_attachments a
+		JOIN uploads u ON u.id = a.upload_id
+		WHERE a.chat_message_id IN (` + placeholders + `)
+		ORDER BY a.chat_message_id, a.position`
+	rows, err := r.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string][]Attachment, len(msgIDs))
+	for rows.Next() {
+		var a Attachment
+		var created int64
+		if err := rows.Scan(&a.ID, &a.ChatMessageID, &a.UploadID, &a.Position, &created,
+			&a.MIME, &a.Size, &a.Filename); err != nil {
+			return nil, err
+		}
+		a.CreatedAt = time.Unix(created, 0)
+		a.Kind = MIMEKind(a.MIME)
+		out[a.ChatMessageID] = append(out[a.ChatMessageID], a)
+	}
+	return out, rows.Err()
+}
+
 // MarkRead upserts the user's read high-water mark in a community.
 // msgID is optional (kept for diagnostics); when empty the row still
 // updates the timestamp so the readers query keeps working.
@@ -296,17 +465,23 @@ type Service struct {
 func NewService(repo *Repo) *Service { return &Service{Repo: repo} }
 
 type SendInput struct {
-	CommunityID  string
-	AuthorID     string
-	BodyMarkdown string
-	ReplyToID    *string
+	CommunityID   string
+	AuthorID      string
+	BodyMarkdown  string
+	ReplyToID     *string
+	// AttachmentIDs are upload row ids already persisted (e.g. via the
+	// chat upload endpoint) that the caller wants linked to this new
+	// message. Empty slice → no attachments. The repo verifies each id
+	// belongs to AuthorID + CommunityID before linking.
+	AttachmentIDs []string
 }
 
 func (s *Service) Send(ctx context.Context, in SendInput) (Message, error) {
-	if in.BodyMarkdown == "" {
+	body := strings.TrimSpace(in.BodyMarkdown)
+	if body == "" && len(in.AttachmentIDs) == 0 {
 		return Message{}, errors.New("empty message")
 	}
-	html, err := render.RenderMarkdown(in.BodyMarkdown)
+	html, err := render.RenderMarkdown(body)
 	if err != nil {
 		return Message{}, fmt.Errorf("render markdown: %w", err)
 	}
@@ -316,13 +491,22 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, error) {
 		CommunityID:  in.CommunityID,
 		AuthorID:     &aid,
 		Kind:         KindUser,
-		BodyMarkdown: in.BodyMarkdown,
+		BodyMarkdown: body,
 		BodyHTML:     html,
 		ReplyToID:    in.ReplyToID,
 		CreatedAt:    time.Now(),
 	}
-	if err := s.Repo.Insert(ctx, m); err != nil {
-		return Message{}, fmt.Errorf("insert chat: %w", err)
+	if len(in.AttachmentIDs) == 0 {
+		if err := s.Repo.Insert(ctx, m); err != nil {
+			return Message{}, fmt.Errorf("insert chat: %w", err)
+		}
+		return m, nil
+	}
+	if err := s.Repo.VerifyUploadsOwned(ctx, in.AttachmentIDs, in.AuthorID, in.CommunityID); err != nil {
+		return Message{}, err
+	}
+	if err := s.Repo.InsertWithAttachments(ctx, m, in.AttachmentIDs); err != nil {
+		return Message{}, fmt.Errorf("insert chat with atts: %w", err)
 	}
 	return m, nil
 }

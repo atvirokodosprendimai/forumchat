@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -96,13 +98,19 @@ func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
 	return toMsgViews(msgs), nil
 }
 
-// loadRecentFor returns the latest N views and attaches the read-receipt
-// list to the viewer's most recent own user message. Receipts are only
-// computed for the viewer; other viewers see their own.
+// loadRecentFor returns the latest N views, attaches the read-receipt
+// list to the viewer's most recent own user message, and decorates
+// every view with viewer-signed AttachmentView URLs. Receipts and
+// signed URLs are viewer-specific so each connected SSE stream gets
+// its own.
 func (h *Handler) loadRecentFor(ctx context.Context, currentUserID string) ([]webtempl.MsgView, error) {
-	views, err := h.loadRecent(ctx)
+	msgs, err := h.Repo.Recent(ctx, h.cid(ctx), RecentLimit)
 	if err != nil {
 		return nil, err
+	}
+	views := make([]webtempl.MsgView, 0, len(msgs))
+	for _, m := range msgs {
+		views = append(views, h.toMsgViewWith(m, currentUserID))
 	}
 	h.attachReadReceipts(ctx, views, currentUserID)
 	return views, nil
@@ -183,6 +191,34 @@ func (h *Handler) Welcome(ctx context.Context, communityID, displayName string) 
 	}
 }
 
+// sanitiseAttachmentIDs trims whitespace, drops empties, and caps the
+// list at a small ceiling so a malicious / runaway client can't
+// trigger a giant join in VerifyUploadsOwned. Order is preserved so
+// the rendered grid follows the user's drop order.
+func sanitiseAttachmentIDs(in []string) []string {
+	const maxAttachments = 12
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	seen := map[string]struct{}{}
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+		if len(out) >= maxAttachments {
+			break
+		}
+	}
+	return out
+}
+
 // htmlEscape is a tiny stand-in for html.EscapeString so chat doesn't
 // have to pull in the whole `html` package for this single use.
 func htmlEscape(s string) string {
@@ -244,9 +280,13 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 }
 
 type sendSignals struct {
-	Body      string `json:"body"`
-	ReplyToID string `json:"reply_to_id"`
-	ImageData string `json:"image_data"`
+	Body          string   `json:"body"`
+	ReplyToID     string   `json:"reply_to_id"`
+	ImageData     string   `json:"image_data"`
+	// AttachmentIDs are upload row ids returned by /c/{slug}/chat/upload.
+	// The composer stages them as an array of strings; empty / missing
+	// is fine.
+	AttachmentIDs []string `json:"attachment_ids"`
 }
 
 func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
@@ -281,7 +321,8 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if body == "" || len(body) > 4000 {
+	attIDs := sanitiseAttachmentIDs(in.AttachmentIDs)
+	if (body == "" && len(attIDs) == 0) || len(body) > 4000 {
 		return
 	}
 	var replyTo *string
@@ -289,10 +330,11 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		replyTo = &rid
 	}
 	if _, err := h.Svc.Send(r.Context(), SendInput{
-		CommunityID:  h.cid(r.Context()),
-		AuthorID:     id.User.ID,
-		BodyMarkdown: body,
-		ReplyToID:    replyTo,
+		CommunityID:   h.cid(r.Context()),
+		AuthorID:      id.User.ID,
+		BodyMarkdown:  body,
+		ReplyToID:     replyTo,
+		AttachmentIDs: attIDs,
 	}); err != nil {
 		h.Log.Error("send", "err", err)
 		return
@@ -302,8 +344,9 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
-	// Clear composer signals.
-	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":""}`))
+	// Clear composer signals — including attachment_ids so the next
+	// send starts with a fresh empty stage.
+	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":[]}`))
 
 	h.broadcastNewMsg(r.Context())
 
@@ -367,6 +410,56 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 			h.PushNotify(ctx, cid, "chat_new", rest, title, preview, url)
 		}()
 	}
+}
+
+// PostUpload accepts a single multipart file from the chat composer
+// and returns JSON describing the persisted upload. chat-attach.js
+// fires this once per dropped / picked file via XHR so it can render
+// progress per row. Returns 200 + JSON on success or a plain-text
+// http.Error on failure (the JS path maps the body into a row-level
+// error message).
+func (h *Handler) PostUpload(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	if h.Uploads == nil {
+		http.Error(w, "uploads disabled", http.StatusServiceUnavailable)
+		return
+	}
+	if err := r.ParseMultipartForm(h.Uploads.MaxSize + 1024); err != nil {
+		http.Error(w, "bad multipart: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "missing file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	u, err := h.Uploads.Save(r.Context(), id.User.ID, h.cid(r.Context()),
+		hdr.Header.Get("Content-Type"), hdr.Filename, file)
+	if err != nil {
+		switch {
+		case errors.Is(err, uploads.ErrBadMIME):
+			http.Error(w, "file type blocked", http.StatusUnsupportedMediaType)
+		case errors.Is(err, uploads.ErrTooLarge):
+			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		default:
+			h.Log.Error("chat upload", "err", err)
+			http.Error(w, "upload failed", http.StatusInternalServerError)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"id":       u.ID,
+		"mime":     u.MIME,
+		"kind":     MIMEKind(u.MIME),
+		"size":     u.Size,
+		"filename": u.Filename,
+	})
 }
 
 type markReadSignals struct {
@@ -679,6 +772,28 @@ func toMsgView(m Message) webtempl.MsgView {
 			AuthorName: m.ReplyTo.AuthorName,
 			Snippet:    m.ReplyTo.Snippet,
 		}
+	}
+	return v
+}
+
+// toMsgViewWith builds a view AND attaches signed-URL-bearing
+// attachment views for the given viewer. Used by loadRecentFor so the
+// view-model carries everything the templ needs.
+func (h *Handler) toMsgViewWith(m Message, viewerID string) webtempl.MsgView {
+	v := toMsgView(m)
+	if len(m.Attachments) > 0 && h.Uploads != nil {
+		out := make([]webtempl.AttachmentView, 0, len(m.Attachments))
+		for _, a := range m.Attachments {
+			out = append(out, webtempl.AttachmentView{
+				ID:       a.ID,
+				URL:      h.Uploads.SignedURL(a.UploadID, viewerID, 24*time.Hour),
+				MIME:     a.MIME,
+				Kind:     a.Kind,
+				Filename: a.Filename,
+				Size:     a.Size,
+			})
+		}
+		v.Attachments = out
 	}
 	return v
 }

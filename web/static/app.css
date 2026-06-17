@@ -3288,6 +3288,64 @@ hr {
   vertical-align: top;
 }
 
+/* Chat message attachments — grid of file chips under .body.
+   Phase 2 = chip-only render; Phase 4 will add per-kind inline
+   preview branches (image / video / audio / pdf). */
+.msg-attach-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+.msg-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  padding: 0.4rem 0.65rem;
+  background: var(--surface, #f4f4f7);
+  border: 1px solid var(--border, #e4e4ea);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  color: var(--fg, #1c1c22);
+  text-decoration: none;
+  transition: background var(--t-fast, 120ms) ease-out, border-color var(--t-fast, 120ms) ease-out;
+}
+.msg-attach-chip:hover {
+  background: var(--surface-alt, #ececf2);
+  border-color: var(--accent, #4f46e5);
+  text-decoration: none;
+}
+.msg-attach-icon { font-size: 0.95rem; line-height: 1; flex: 0 0 auto; }
+.msg-attach-name {
+  font-weight: 500;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-attach-size {
+  color: var(--fg-muted, #6c6c75);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+/* Pending-attachment indicator inside the composer between picker
+   click and Send press. Phase 3 replaces this with a per-file
+   progress row stack. */
+.attach-pending {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.55rem;
+  margin: 0.3rem 0;
+  background: color-mix(in srgb, var(--accent, #4f46e5) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #4f46e5) 25%, transparent);
+  border-radius: var(--radius-sm, 0.45rem);
+  font-size: 0.82rem;
+}
+
 /* Author avatar — coloured initial next to the author name in the
    first message of a group. Colour is keyed off user_id (FNV-1a →
    palette index in mentionColor), so two members with the same

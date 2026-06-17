@@ -44,6 +44,9 @@ type MsgView struct {
 	// Server-side attached only to the viewer's MOST RECENT own user
 	// message so the DOM stays small. Empty for everyone else.
 	ReadBy []ReaderView
+	// Attachments rendered under the body. Empty for bodies-only
+	// messages.
+	Attachments []AttachmentView
 }
 
 // ReaderView is one entry in a message's seen-by stack.
@@ -51,6 +54,18 @@ type ReaderView struct {
 	UserID      string
 	DisplayName string
 	AvatarURL   string
+}
+
+// AttachmentView is one upload linked to a chat message. Kind drives
+// the render branch (image inline, video inline, audio strip, pdf
+// iframe, other → chip).
+type AttachmentView struct {
+	ID       string
+	URL      string
+	MIME     string
+	Kind     string // image|video|audio|pdf|other
+	Filename string
+	Size     int64
 }
 
 type ChatPageData struct {
@@ -88,6 +103,7 @@ templ ChatPage(d ChatPageData) {
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
 		<script src={ "/static/chat-notify.js?v=" + AssetVer("chat-notify.js") } defer></script>
+		<script src={ "/static/chat-attach.js?v=" + AssetVer("chat-attach.js") } defer></script>
 	}
 }
 
@@ -101,16 +117,20 @@ templ ChatComposer(slug string) {
 		</div>
 		<input type="hidden" data-bind="image_data"/>
 		<input type="hidden" data-bind="mention_query"/>
+		<input type="hidden" data-bind="attachment_ids"/>
 		<div class="paste-preview" data-show="$image_data">
 			<img alt="attached image preview" data-attr:src="$image_data"/>
 			<button class="link" data-on:click="$image_data=''">remove image</button>
 		</div>
+		<div class="attach-pending" data-show="$attachment_ids.length > 0">
+			<span class="muted">📎 <span data-text="$attachment_ids.length"></span> file(s) staged — Send to ship them.</span>
+			<button class="link" data-on:click="$attachment_ids=[]">clear</button>
+		</div>
 		@MentionPopup(nil)
 		<div class="composer-row">
-			<label class="btn ghost icon-btn" aria-label="Attach image" title="Attach image">
+			<label class="btn ghost icon-btn" aria-label="Attach files" title="Attach files (images, video, audio, documents)">
 				📎
-				<input type="file" accept="image/*" style="display:none"
-					data-on:change="window.fcPickImage(evt,'image_data')"/>
+				<input type="file" accept="*/*" multiple style="display:none"/>
 			</label>
 			<textarea
 				class="composer-text"
@@ -337,11 +357,117 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 				</blockquote>
 			}
 			<div class="body">@templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
+			if len(m.Attachments) > 0 {
+				@MessageAttachments(m.Attachments)
+			}
 			if len(m.ReadBy) > 0 {
 				@ReadReceipts(m.ReadBy)
 			}
 		}
 	</article>
+}
+
+// MessageAttachments renders the grid of files linked to a chat
+// message. Phase 2 renders every kind as a download chip — Phase 4
+// will switch to inline preview branches per Kind.
+templ MessageAttachments(atts []AttachmentView) {
+	<div class={ "msg-attach-grid", attachGridClass(len(atts)) }>
+		for _, a := range atts {
+			@MessageAttachment(a)
+		}
+	</div>
+}
+
+templ MessageAttachment(a AttachmentView) {
+	<a class="msg-attach-chip" href={ templ.URL(a.URL) } target="_blank" rel="noopener" title={ a.Filename }>
+		<span class="msg-attach-icon" aria-hidden="true">{ attachIcon(a.Kind) }</span>
+		<span class="msg-attach-name">{ a.Filename }</span>
+		<span class="msg-attach-size">{ humanSize(a.Size) }</span>
+	</a>
+}
+
+// attachGridClass picks a flexible grid sizing hint based on count.
+// Phase 4 turns these into per-kind layout rules; Phase 2 just uses
+// them to space chips reasonably.
+func attachGridClass(n int) string {
+	switch {
+	case n == 1:
+		return "msg-attach-grid-1"
+	case n == 2:
+		return "msg-attach-grid-2"
+	default:
+		return "msg-attach-grid-n"
+	}
+}
+
+func attachIcon(kind string) string {
+	switch kind {
+	case "image":
+		return "🖼"
+	case "video":
+		return "🎬"
+	case "audio":
+		return "🎵"
+	case "pdf":
+		return "📄"
+	}
+	return "📎"
+}
+
+// humanSize is a small kB / MB formatter for chip labels.
+func humanSize(n int64) string {
+	const (
+		kib = 1024
+		mib = 1024 * kib
+	)
+	switch {
+	case n >= mib:
+		return formatFloat(float64(n)/float64(mib), 1) + " MB"
+	case n >= kib:
+		return formatFloat(float64(n)/float64(kib), 0) + " KB"
+	}
+	return formatInt(n) + " B"
+}
+
+func formatInt(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		b[i] = '-'
+	}
+	return string(b[i:])
+}
+
+func formatFloat(f float64, decimals int) string {
+	if decimals == 0 {
+		return formatInt(int64(f + 0.5))
+	}
+	mult := int64(1)
+	for i := 0; i < decimals; i++ {
+		mult *= 10
+	}
+	scaled := int64(f*float64(mult) + 0.5)
+	whole := scaled / mult
+	frac := scaled % mult
+	// Pad frac with leading zeros to `decimals` width.
+	fracStr := formatInt(frac)
+	for len(fracStr) < decimals {
+		fracStr = "0" + fracStr
+	}
+	return formatInt(whole) + "." + fracStr
 }
 
 // ReadReceipts renders a compact "seen by" stack of coloured initials

@@ -54,30 +54,35 @@ Goal: the existing single-file paste / drop / file-picker path accepts any non-e
 
 => Other call sites (`SaveDataURL`, `internal/uploads/handler.go PostUpload`) pass empty / `hdr.Filename` accordingly. Build + tests green.
 
-### Phase 2 — Multi-attachment chat schema + send path — status: open
+### Phase 2 — Multi-attachment chat schema + send path — status: completed
 
 Goal: a chat message can carry N upload refs. Single existing paste-image flow continues writing markdown body (no behavior break). Composer's existing 📎 button gets `multiple` so a user can pick 3 files at once and the resulting bubble shows 3 download chips. Visible test: pick 3 PDFs, send, see all 3 in one bubble.
 
-1. [ ] Migration `00028_chat_message_attachments.sql`
-   - `id TEXT PK, chat_message_id TEXT FK chat_messages(id) ON DELETE CASCADE, upload_id TEXT FK uploads(id), position INTEGER DEFAULT 0, created_at INTEGER`
-   - index `(chat_message_id, position)` for ordered fetch
-2. [ ] `internal/chat/chat.go` — `Attachment` struct + repo methods
-   - `Repo.InsertAttachments(ctx, tx, msgID string, atts []Attachment)` — batch insert in the same tx as `chat_messages` insert
-   - extend `Repo.listBefore` / `Repo.ByID` to eager-load attachments per message (one extra query, IN-clause keyed by msg ids)
-3. [ ] `Service.Send` accepts `AttachmentIDs []string` slice on `SendInput`; wraps insert + attachments in a tx
-   - validates each upload row belongs to the sender + community
-   - empty body + ≥1 attachment is valid; both empty stays a no-op
-4. [ ] `PostSend` reads `attachment_ids[]` signal alongside `body`
-   - existing `image_data` paste path keeps its current markdown-rewrite shape; spec leaves room to migrate later
-   - clear `attachment_ids` signal after send
-5. [ ] `MsgView` carries `Attachments []AttachmentView{ID, MIME, Kind, Filename, Size, SignedURL}`; `toMsgView` populates from the eager load
-6. [ ] `web/templ/chat.templ` — `MessageAttachments(atts []AttachmentView)` block rendered under `.body`
-   - Phase 2 just renders a generic chip per attachment (filename + size + download). Inline previews land in Phase 4.
-7. [ ] Composer file-picker `accept="*/*"` + `multiple`. Submit drains pending uploads first.
-   - introduce a `$attachment_ids` JSON-array signal in `InitialSignals`
-   - basic per-file XHR uploader inlined in `chat-attach.js` (no progress UI yet)
+1. [x] Migration `00028_chat_message_attachments.sql`
+   - => columns id / chat_message_id / upload_id / position / created_at; FKs to chat_messages(ON DELETE CASCADE) and uploads; indexes on (chat_message_id, position) and (upload_id).
+2. [x] `internal/chat/chat.go` — `Attachment` struct + repo methods
+   - => `Repo.InsertWithAttachments(ctx, m, uploadIDs)` opens a tx, inserts the message + N attachment rows, commits. Single-writer SQLite keeps this safe.
+   - => `Repo.AttachmentsForMessages(ctx, msgIDs)` IN-clause batch query joining uploads → returns `map[msgID][]Attachment`. `Repo.Recent` and `Repo.Before` now eager-hydrate via `hydrateAttachments`.
+   - => `MIMEKind(mime)` derives image|video|audio|pdf|other.
+   - => `Repo.VerifyUploadsOwned(ids, owner, community)` defeats replayed upload ids.
+3. [x] `Service.Send` accepts `AttachmentIDs []string` slice on `SendInput`
+   - => empty body + ≥1 attachment is now valid; both empty stays an error. `Send` branches: no attachments → existing `Repo.Insert`; with attachments → `VerifyUploadsOwned` then `InsertWithAttachments`.
+4. [x] `PostSend` reads `attachment_ids[]` signal alongside `body`
+   - => `sanitiseAttachmentIDs` trims, deduplicates, caps at 12.
+   - => clear signal `{"body":"","reply_to_id":"","image_data":"","attachment_ids":[]}` after send.
+5. [x] `MsgView` carries `Attachments []AttachmentView{ID, URL, MIME, Kind, Filename, Size}`
+   - => `Handler.toMsgViewWith(m, viewerID)` signs the URL per viewer via `Uploads.SignedURL`. `loadRecentFor` now builds views with attachments + read-receipts in one walk.
+6. [x] `web/templ/chat.templ` — `MessageAttachments` block under `.body`
+   - => chip-only render in Phase 2 (filename + size + 🖼/🎬/🎵/📄/📎 icon). Phase 4 will switch to inline `<img>`/`<video>`/`<audio>`/`<iframe>` per Kind.
+   - => `attachIcon`, `humanSize`, `formatInt`, `formatFloat` helpers live in chat.templ; avoids a `fmt.Sprintf` import dance.
+7. [x] Composer file picker + chat-attach.js
+   - => 📎 button now `accept="*/*"` + `multiple`; old `data-on:change="fcPickImage"` removed.
+   - => new `web/static/chat-attach.js` listens for `change` on the picker, uploads each file via XHR to new endpoint `POST /c/{slug}/chat/upload`, accumulates ids into `$attachment_ids`.
+   - => `$attachment_ids` added to `InitialSignals` as `[]`; hidden `<input data-bind="attachment_ids">` bridges JS ↔ signal.
+   - => `attach-pending` row in composer surfaces `N file(s) staged` with a clear button.
 
-=> Output of phase 2: working multi-file send via the picker. Drag-from-outside lands a single file via existing `paste.js` drop handler. The drag-anywhere overlay + parallel uploads + progress UI come in Phase 3.
+=> New endpoint: `chat.Handler.PostUpload(POST /c/{slug}/chat/upload)` — single-file multipart, returns JSON `{id, mime, kind, size, filename}`. Wired in main.go inside the community route group.
+=> Build + tests green; migration 28 applies cleanly on boot; static script serves 200.
 
 ### Phase 3 — Drag-anywhere overlay + per-file progress + cancel — status: open
 
@@ -199,3 +204,4 @@ Goal: small finishing items so the feature feels shipped.
 - **2606180024** — Phase 7a inserted to address responsive-shell regression observed during testing.
 - **2606180030** — Phase 7a completed. Single CSS-only commit: dropped centred max-width on `main`, introduced `--sb-width: 232px` custom property, fixed the desktop offset to match the sidebar exactly. Build + tests green. User to verify visually.
 - **2606180038** — Phase 1 completed. Migration 00027 adds `uploads.filename`. `Save()` switched from allowlist to denylist + 512-byte content sniff (with extra MZ/ELF/Mach-O/`#!` detectors that stdlib misses). Default cap bumped to 100 MB. New tests cover the PDF accept path, executable reject, filename sanitisation.
+- **2606180047** — Phase 2 completed. Migration 00028 adds `chat_message_attachments(id, chat_message_id, upload_id, position, created_at)`. `chat.Service.Send` accepts `AttachmentIDs`; ownership verified pre-link. New endpoint `POST /c/{slug}/chat/upload` returns JSON. Composer 📎 button now multi-file `*/*`; `chat-attach.js` XHR-uploads each file and stages ids in `$attachment_ids`. Phase 2 bubble render = chip per attachment.
