@@ -193,7 +193,16 @@ button.link:hover, .link-button:hover {
 
 .bubble {
   background: var(--surface); border: 1px solid var(--border-subtle);
-  border-radius: var(--radius); padding: .7rem .95rem; margin: .45rem 0;
+  border-radius: var(--radius);
+  /* Right padding (2.75rem) reserves a clear lane for the absolute-
+     positioned .msg-menu trigger (32px wide, .35rem from edge → 37.6px
+     effective). All bubble content — body text, attachments, read
+     receipts — flows within the remaining width so the ⋮ dots never
+     sit on top of clickable content. Per-block padding-right hacks
+     (.bubble .meta, .msg-attach-meta) can drop to zero once we trust
+     this rule, but they're kept for now as belt-and-braces. */
+  padding: .7rem 2.75rem .7rem .95rem;
+  margin: .45rem 0;
   box-shadow: var(--shadow-xs);
   position: relative;
   transition: border-color var(--t-fast) var(--ease-out),
