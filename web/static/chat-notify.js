@@ -50,6 +50,30 @@
   });
   obs.observe(messages, { childList: true, subtree: true });
 
+  // Keep the view pinned to the bottom while late-loading media
+  // (images, video posters, pdf iframes) inflate scrollHeight. The
+  // ChatScrollAnchor element scrolls itself into view ONCE on initial
+  // mount + every fatMorph; after that data-init runs, the scroll
+  // position is fixed. When an <img>/<video>/<iframe> finishes
+  // loading and reflows the column, the absolute position of the
+  // anchor drifts down — viewport doesn't follow, the last messages
+  // disappear below the visible bottom.
+  //
+  // Listen for load events on those tags in capture phase (load
+  // doesn't bubble). When one fires AND the viewer was near the
+  // bottom, re-scroll. The near-bottom threshold lets users who
+  // scrolled up to read older messages stay put.
+  const STICK_THRESHOLD = 200; // px
+  function nearBottom() {
+    return messages.scrollHeight - messages.scrollTop - messages.clientHeight < STICK_THRESHOLD;
+  }
+  function pinIfNear() {
+    if (nearBottom()) messages.scrollTop = messages.scrollHeight;
+  }
+  messages.addEventListener('load', pinIfNear, true);
+  messages.addEventListener('loadedmetadata', pinIfNear, true);
+  messages.addEventListener('loadeddata', pinIfNear, true);
+
   // ------- 2. focus / visibility → mark-read -------
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) scheduleMarkRead();
