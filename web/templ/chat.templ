@@ -66,6 +66,23 @@ type AttachmentView struct {
 	Kind     string // image|video|audio|pdf|other
 	Filename string
 	Size     int64
+	Extracts []ExtractView
+}
+
+// ExtractView is one "filed into project X" record on an attachment.
+type ExtractView struct {
+	ProjectID   string
+	ProjectName string
+	Mode        string // docs | issue
+	IssueID     string
+	URL         string
+}
+
+// ChatProjectView is a tiny project descriptor for the extract modal
+// dropdown. Built server-side from projects.Repo.ListActiveForCommunity.
+type ChatProjectView struct {
+	ID   string
+	Name string
 }
 
 type ChatPageData struct {
@@ -73,6 +90,10 @@ type ChatPageData struct {
 	IsMod         bool
 	CurrentUserID string
 	Messages      []MsgView
+	// Projects populates the extract-to-project modal dropdown. Built
+	// from projects.Repo.ListActiveForCommunity on page render. Empty
+	// when projects feature is disabled.
+	Projects []ChatProjectView
 }
 
 templ ChatPage(d ChatPageData) {
@@ -114,6 +135,9 @@ templ ChatPage(d ChatPageData) {
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
+		if d.IsMod {
+			@ExtractDialog(d.Viewer.CommunitySlug, d.Projects)
+		}
 		<script src={ "/static/chat-notify.js?v=" + AssetVer("chat-notify.js") } defer></script>
 		<script src={ "/static/chat-attach.js?v=" + AssetVer("chat-attach.js") } defer></script>
 	}
@@ -369,7 +393,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 			}
 			<div class="body">@templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
 			if len(m.Attachments) > 0 {
-				@MessageAttachments(m.Attachments)
+				@MessageAttachments(m.Attachments, isMod)
 			}
 			if len(m.ReadBy) > 0 {
 				@ReadReceipts(m.ReadBy)
@@ -379,14 +403,41 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 }
 
 // MessageAttachments renders the grid of files linked to a chat
-// message. Phase 2 renders every kind as a download chip — Phase 4
-// will switch to inline preview branches per Kind.
-templ MessageAttachments(atts []AttachmentView) {
+// message. isMod controls visibility of the "Extract to project"
+// button on each attachment.
+templ MessageAttachments(atts []AttachmentView, isMod bool) {
 	<div class={ "msg-attach-grid", attachGridClass(len(atts)) }>
 		for _, a := range atts {
-			@MessageAttachment(a)
+			<div class="msg-attach-cell">
+				@MessageAttachment(a)
+				if isMod {
+					<button type="button" class="msg-attach-extract"
+						title="Extract to project"
+						data-on:click={ "$extract_attachment_id='" + a.ID + "'; $extract_attachment_name='" + jsString(a.Filename) + "'; $extract_title='" + jsString(extractTitleFromFilename(a.Filename)) + "'; $extract_project_id=''; $extract_mode='docs'; $_extract_open=true" }>
+						↗ Extract
+					</button>
+				}
+			</div>
 		}
 	</div>
+}
+
+// extractTitleFromFilename strips the trailing extension for use as
+// the prefilled issue title when the viewer picks "New issue from
+// this attachment". An empty filename → empty title.
+func extractTitleFromFilename(name string) string {
+	if name == "" {
+		return ""
+	}
+	for i := len(name) - 1; i >= 0; i-- {
+		if name[i] == '.' {
+			return name[:i]
+		}
+		if name[i] == '/' || name[i] == ' ' {
+			break
+		}
+	}
+	return name
 }
 
 templ MessageAttachment(a AttachmentView) {
@@ -547,4 +598,52 @@ func msgClass(m MsgView) string {
 
 func fmtTime(t time.Time) string {
 	return t.Local().Format("15:04 Jan 2")
+}
+
+// ExtractDialog is the mod / admin "extract attachment to project"
+// modal. Visibility is signal-driven: clicking the per-attachment
+// "↗ Extract" button stages signals + flips $_extract_open.
+templ ExtractDialog(slug string, projects []ChatProjectView) {
+	<div class="modal-overlay" data-cloak data-show="$_extract_open"
+		data-on:click__self="$_extract_open=false">
+		<div class="modal extract-dialog">
+			<header class="modal-head">
+				<strong>Extract to project</strong>
+				<button class="link" data-on:click="$_extract_open=false">✕</button>
+			</header>
+			<div class="modal-body">
+				<p class="muted"><span data-text="$extract_attachment_name"></span></p>
+				<label class="form-row">
+					<span>Project</span>
+					<select data-bind="extract_project_id">
+						<option value="">— pick a project —</option>
+						for _, p := range projects {
+							<option value={ p.ID }>{ p.Name }</option>
+						}
+					</select>
+				</label>
+				<div class="form-row">
+					<span>File as</span>
+					<div class="seg">
+						<button type="button" class="seg-btn"
+							data-class:active="$extract_mode === 'docs'"
+							data-on:click="$extract_mode='docs'">Project Docs</button>
+						<button type="button" class="seg-btn"
+							data-class:active="$extract_mode === 'issue'"
+							data-on:click="$extract_mode='issue'">New issue</button>
+					</div>
+				</div>
+				<label class="form-row" data-show="$extract_mode === 'issue'">
+					<span>Issue title</span>
+					<input type="text" data-bind="extract_title" placeholder="Title prefilled from filename"/>
+				</label>
+				<div id="extract-error" class="error" aria-live="polite"></div>
+			</div>
+			<footer class="modal-foot">
+				<button class="btn ghost" data-on:click="$_extract_open=false">Cancel</button>
+				<button class="btn" data-on:click={ "@post('/c/" + slug + "/chat/extract')" }
+					data-attr:disabled="$extract_project_id === '' ? true : null">Save</button>
+			</footer>
+		</div>
+	</div>
 }

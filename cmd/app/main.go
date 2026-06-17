@@ -392,6 +392,25 @@ func run() error {
 	forumHandler.PushNotify = pushNotifyFn
 	projectsHandler.PushNotify = pushNotifyFn
 
+	// Wire the projects list for the chat extract-to-project modal.
+	// Closure to avoid an import cycle (chat package can't depend on
+	// projects). Empty slice when projects feature is disabled.
+	chatHandler.ListProjects = func(ctx context.Context, communityID string) []webtempl.ChatProjectView {
+		if !cfg.ProjectsEnabled {
+			return nil
+		}
+		rows, err := projectsRepo.ListActiveForCommunity(ctx, communityID)
+		if err != nil {
+			log.Warn("chat extract: list projects", "err", err)
+			return nil
+		}
+		out := make([]webtempl.ChatProjectView, 0, len(rows))
+		for _, p := range rows {
+			out = append(out, webtempl.ChatProjectView{ID: p.ID, Name: p.Title})
+		}
+		return out
+	}
+
 	// ----- Lobbies (guest access) ------------------------------------------
 	var lobbiesHandler *lobbies.Handler
 	if cfg.GuestAccessEnabled {
@@ -520,6 +539,7 @@ func run() error {
 		r.Get("/chat/stream", chatHandler.GetStream)
 		r.Get("/chat/events", chatHandler.GetEventsStream)
 		r.Post("/chat/read", chatHandler.PostMarkRead)
+		r.Post("/chat/extract", projectsHandler.PostExtractFromChat)
 
 		r.Get("/presence/stream", presenceHandler.GetStream)
 

@@ -71,6 +71,21 @@ type Attachment struct {
 	Filename  string
 	Kind      string // image|video|audio|pdf|other (derived from MIME)
 	CreatedAt time.Time
+	Extracts  []Extract
+}
+
+// Extract is one "filed into a project" record. Mode is "docs"
+// (project_attachments target) or "issue" (project_issues + issue
+// attachment target). ProjectName joined for badge label.
+type Extract struct {
+	ID                  string
+	ChatAttachmentID    string
+	ProjectID           string
+	ProjectName         string
+	ProjectAttachmentID string
+	IssueID             string
+	Mode                string
+	CreatedAt           time.Time
 }
 
 // MIMEKind maps a MIME to one of the render-shape buckets the UI
@@ -127,9 +142,9 @@ func (r *Repo) Before(ctx context.Context, communityID string, before time.Time,
 	return r.hydrateAttachments(ctx, msgs)
 }
 
-// hydrateAttachments runs one batch query to eager-load attachments
-// for the given message list, then mutates the Messages in place.
-// Empty input → empty output. Errors propagate.
+// hydrateAttachments eager-loads attachments AND extracts for the
+// given message list — two batch queries total, joined into the
+// in-memory tree before the render path needs them.
 func (r *Repo) hydrateAttachments(ctx context.Context, msgs []Message) ([]Message, error) {
 	if len(msgs) == 0 {
 		return msgs, nil
@@ -142,8 +157,22 @@ func (r *Repo) hydrateAttachments(ctx context.Context, msgs []Message) ([]Messag
 	if err != nil {
 		return nil, err
 	}
+	allAttIDs := make([]string, 0, 16)
+	for _, atts := range byMsg {
+		for _, a := range atts {
+			allAttIDs = append(allAttIDs, a.ID)
+		}
+	}
+	byAtt, err := r.ExtractsForAttachments(ctx, allAttIDs)
+	if err != nil {
+		return nil, err
+	}
 	for i := range msgs {
-		msgs[i].Attachments = byMsg[msgs[i].ID]
+		atts := byMsg[msgs[i].ID]
+		for j := range atts {
+			atts[j].Extracts = byAtt[atts[j].ID]
+		}
+		msgs[i].Attachments = atts
 	}
 	return msgs, nil
 }
@@ -291,6 +320,81 @@ func (r *Repo) SoftDelete(ctx context.Context, id string) error {
 		return errors.New("chat message not found or already deleted")
 	}
 	return nil
+}
+
+// AttachmentByID returns a single chat attachment joined with the
+// upload metadata it points at. Used by the project-extract path to
+// duplicate the upload reference into a project_attachment / issue
+// attachment row.
+func (r *Repo) AttachmentByID(ctx context.Context, id string) (Attachment, error) {
+	var a Attachment
+	var created int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT a.id, a.chat_message_id, a.upload_id, a.position, a.created_at,
+		       u.mime, u.size, u.filename
+		FROM chat_message_attachments a
+		JOIN uploads u ON u.id = a.upload_id
+		WHERE a.id = ?`, id).
+		Scan(&a.ID, &a.ChatMessageID, &a.UploadID, &a.Position, &created,
+			&a.MIME, &a.Size, &a.Filename)
+	if err != nil {
+		return Attachment{}, err
+	}
+	a.CreatedAt = time.Unix(created, 0)
+	a.Kind = MIMEKind(a.MIME)
+	return a, nil
+}
+
+// InsertExtract records that a chat attachment was filed into a project.
+func (r *Repo) InsertExtract(ctx context.Context, e Extract) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO chat_attachment_extracts
+		    (id, chat_attachment_id, project_id, project_attachment_id,
+		     issue_id, mode, extracted_by, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.ChatAttachmentID, e.ProjectID, e.ProjectAttachmentID,
+		e.IssueID, e.Mode, "", e.CreatedAt.Unix())
+	return err
+}
+
+// ExtractsForAttachments batch-loads every extract row for the given
+// chat_message_attachment ids, joined with projects.name for the
+// badge label. Returns a map keyed by chat_attachment_id.
+func (r *Repo) ExtractsForAttachments(ctx context.Context, attIDs []string) (map[string][]Extract, error) {
+	if len(attIDs) == 0 {
+		return map[string][]Extract{}, nil
+	}
+	placeholders := strings.Repeat("?,", len(attIDs))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, 0, len(attIDs))
+	for _, id := range attIDs {
+		args = append(args, id)
+	}
+	q := `
+		SELECT e.id, e.chat_attachment_id, e.project_id,
+		       COALESCE(p.name, ''),
+		       e.project_attachment_id, e.issue_id, e.mode, e.created_at
+		FROM chat_attachment_extracts e
+		LEFT JOIN projects p ON p.id = e.project_id
+		WHERE e.chat_attachment_id IN (` + placeholders + `)
+		ORDER BY e.chat_attachment_id, e.created_at DESC`
+	rows, err := r.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string][]Extract, len(attIDs))
+	for rows.Next() {
+		var e Extract
+		var created int64
+		if err := rows.Scan(&e.ID, &e.ChatAttachmentID, &e.ProjectID,
+			&e.ProjectName, &e.ProjectAttachmentID, &e.IssueID, &e.Mode, &created); err != nil {
+			return nil, err
+		}
+		e.CreatedAt = time.Unix(created, 0)
+		out[e.ChatAttachmentID] = append(out[e.ChatAttachmentID], e)
+	}
+	return out, rows.Err()
 }
 
 // VerifyUploadsOwned asserts every id in ids is an uploads row owned

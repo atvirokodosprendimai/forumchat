@@ -3288,6 +3288,86 @@ hr {
   vertical-align: top;
 }
 
+/* Extract-to-project — per-attachment button + badge + modal. */
+.msg-attach-cell { display: inline-flex; flex-direction: column; gap: 0.25rem; flex: 1 1 auto; max-width: 100%; }
+.msg-attach-extract {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--border, #e4e4ea);
+  color: var(--fg-muted, #6c6c75);
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.msg-attach-extract:hover { color: var(--accent, #4f46e5); border-color: var(--accent, #4f46e5); }
+.msg-attach-extracts { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.msg-attach-extract-badge {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  background: color-mix(in srgb, var(--accent, #4f46e5) 12%, transparent);
+  color: var(--accent, #4f46e5);
+  font-size: 0.7rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  text-decoration: none;
+}
+.msg-attach-extract-badge:hover { text-decoration: underline; }
+
+/* Extract modal */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.4);
+  z-index: 70;
+  display: flex; align-items: center; justify-content: center;
+}
+.extract-dialog {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e4e4ea);
+  border-radius: var(--radius, 0.6rem);
+  width: min(28rem, calc(100vw - 2rem));
+  box-shadow: 0 12px 32px rgba(0,0,0,.18);
+  display: flex; flex-direction: column;
+}
+.modal-head, .modal-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border, #e4e4ea);
+}
+.modal-foot { border-bottom: none; border-top: 1px solid var(--border, #e4e4ea); gap: 0.5rem; justify-content: flex-end; }
+.modal-body { padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.modal-body .form-row {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  font-size: 0.82rem;
+}
+.modal-body .form-row span { color: var(--fg-muted, #6c6c75); }
+.modal-body .form-row input,
+.modal-body .form-row select {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border, #e4e4ea);
+  border-radius: var(--radius-sm, 0.45rem);
+  background: var(--bg, #fff);
+}
+.seg {
+  display: flex;
+  border: 1px solid var(--border, #e4e4ea);
+  border-radius: var(--radius-sm, 0.45rem);
+  overflow: hidden;
+}
+.seg-btn {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  color: var(--fg-muted, #6c6c75);
+  font-size: 0.82rem;
+}
+.seg-btn.active {
+  background: color-mix(in srgb, var(--accent, #4f46e5) 12%, transparent);
+  color: var(--accent, #4f46e5);
+  font-weight: 600;
+}
+
 /* Drag-anywhere overlay — full-cover hint while the user is mid-drag
    over .chat-layout. JS toggles .chat-drop-overlay-active. */
 .chat-drop-overlay {

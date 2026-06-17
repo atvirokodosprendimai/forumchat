@@ -42,6 +42,12 @@ type Handler struct {
 	// the push package's Sender so this package doesn't import push.
 	// userIDs may be empty to broadcast across the whole community.
 	PushNotify    func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
+	// ListProjects, if non-nil, returns the active projects in the
+	// current community for the extract-to-project modal dropdown.
+	// Set in main.go to avoid an import cycle with internal/projects.
+	// nil → no projects → mod button rendered but the dropdown is
+	// empty (which is fine — modal Save is gated on a non-empty pick).
+	ListProjects  func(ctx context.Context, communityID string) []webtempl.ChatProjectView
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
@@ -110,7 +116,7 @@ func (h *Handler) loadRecentFor(ctx context.Context, currentUserID string) ([]we
 	}
 	views := make([]webtempl.MsgView, 0, len(msgs))
 	for _, m := range msgs {
-		views = append(views, h.toMsgViewWith(m, currentUserID))
+		views = append(views, h.toMsgViewWith(m, currentUserID, h.cslug(ctx)))
 	}
 	h.attachReadReceipts(ctx, views, currentUserID)
 	return views, nil
@@ -286,11 +292,16 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load chat: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	var projs []webtempl.ChatProjectView
+	if h.ListProjects != nil {
+		projs = h.ListProjects(r.Context(), h.cid(r.Context()))
+	}
 	_ = webtempl.ChatPage(webtempl.ChatPageData{
 		Viewer:        h.viewer(r),
 		IsMod:         id.Membership.Role.AtLeast(auth.RoleMod),
 		CurrentUserID: id.User.ID,
 		Messages:      views,
+		Projects:      projs,
 	}).Render(r.Context(), w)
 }
 
@@ -797,23 +808,45 @@ func toMsgView(m Message) webtempl.MsgView {
 // toMsgViewWith builds a view AND attaches signed-URL-bearing
 // attachment views for the given viewer. Used by loadRecentFor so the
 // view-model carries everything the templ needs.
-func (h *Handler) toMsgViewWith(m Message, viewerID string) webtempl.MsgView {
+func (h *Handler) toMsgViewWith(m Message, viewerID, slug string) webtempl.MsgView {
 	v := toMsgView(m)
 	if len(m.Attachments) > 0 && h.Uploads != nil {
 		out := make([]webtempl.AttachmentView, 0, len(m.Attachments))
 		for _, a := range m.Attachments {
-			out = append(out, webtempl.AttachmentView{
+			av := webtempl.AttachmentView{
 				ID:       a.ID,
 				URL:      h.Uploads.SignedURL(a.UploadID, viewerID, 24*time.Hour),
 				MIME:     a.MIME,
 				Kind:     a.Kind,
 				Filename: a.Filename,
 				Size:     a.Size,
-			})
+			}
+			if len(a.Extracts) > 0 {
+				exs := make([]webtempl.ExtractView, 0, len(a.Extracts))
+				for _, e := range a.Extracts {
+					exs = append(exs, webtempl.ExtractView{
+						ProjectID:   e.ProjectID,
+						ProjectName: e.ProjectName,
+						Mode:        e.Mode,
+						IssueID:     e.IssueID,
+						URL:         extractURL(slug, e),
+					})
+				}
+				av.Extracts = exs
+			}
+			out = append(out, av)
 		}
 		v.Attachments = out
 	}
 	return v
+}
+
+// extractURL builds the per-badge anchor target.
+func extractURL(slug string, e Extract) string {
+	if e.Mode == "issue" && e.IssueID != "" {
+		return "/c/" + slug + "/projects/" + e.ProjectID + "/issues/" + e.IssueID
+	}
+	return "/c/" + slug + "/projects/" + e.ProjectID + "/docs"
 }
 
 func toMsgViews(ms []Message) []webtempl.MsgView {

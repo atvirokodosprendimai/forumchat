@@ -122,7 +122,7 @@ Goal: pixels match the spec — images / videos / audio / pdf render inline; eve
 
 => Visible win: drop a 30 MB mp4 → bubble shows a clickable `<video controls>` with the file streamed via the existing signed-URL path. Audio strips and PDF iframes work the same way.
 
-### Phase 5 — Extract-to-project: "Save to Docs" — status: open
+### Phase 5 — Extract-to-project: "Save to Docs" — status: completed
 
 Goal: mod / admin sees an "Extract to project" item in the per-attachment menu. Picking a project + "Save to Docs" duplicates the upload reference (no file copy) into `project_attachments`. Bubble shows a "↗ in project X" badge afterward. Visible test: as a mod, attach a PDF in chat, extract → see it under the project's Docs tab.
 
@@ -138,7 +138,7 @@ Goal: mod / admin sees an "Extract to project" item in the per-attachment menu. 
    - migration `00029_chat_attachment_extracts.sql`
 4. [ ] Eager-load `Extracts []ExtractRef` per attachment in `MsgView` so the read path stays cheap
 
-### Phase 6 — Extract-to-project: "New issue from this" — status: open
+### Phase 6 — Extract-to-project: "New issue from this" — status: completed
 
 Goal: second extract path. Mod / admin picks a project, the modal expands into a tiny issue composer (subject prefilled from filename, body empty), submit creates a new `project_issues` + `project_issue_attachments` row, response redirects to the new issue page. Visible test: extract a PDF as "new issue" → land on the issue with the file attached and the filename as title.
 
@@ -205,3 +205,4 @@ Goal: small finishing items so the feature feels shipped.
 - **2606180047** — Phase 2 completed. Migration 00028 adds `chat_message_attachments(id, chat_message_id, upload_id, position, created_at)`. `chat.Service.Send` accepts `AttachmentIDs`; ownership verified pre-link. New endpoint `POST /c/{slug}/chat/upload` returns JSON. Composer 📎 button now multi-file `*/*`; `chat-attach.js` XHR-uploads each file and stages ids in `$attachment_ids`. Phase 2 bubble render = chip per attachment.
 - **2606180056** — Phase 3 completed. Drag-anywhere overlay on `.chat-layout`, per-file row in `#composer-pending` with XHR progress + cancel + retry. Old `composer { data-on:drop=fcDropImage }` removed (was double-firing alongside the new handler). Send button gating left for Phase 7 polish.
 - **2606180103** — Phase 4 completed. `MessageAttachment` branches per Kind into `<img>` / `<video>` / `<audio>` / `<iframe>` / chip. Each branch carries a meta strip with filename + size + download link. CSS layouts the grid for 1 / 2 / N attachments. ffprobe poster pipeline deferred (logged under Future).
+- **2606180155** — Phase 5+6 completed together. Migration 00029 adds `chat_attachment_extracts(id, chat_attachment_id, project_id, project_attachment_id, issue_id, mode, extracted_by, created_at)`. Per-attachment "↗ Extract" button (mod/admin gated) opens a modal with project dropdown + Docs/Issue toggle. New endpoint `projects.Handler.PostExtractFromChat` (mounted as `POST /c/{slug}/chat/extract`) duplicates the upload reference into `project_attachments` (Docs mode) or creates a new `project_issues` + `project_issue_attachments` row (Issue mode) and records the link in `chat_attachment_extracts`. Bubble badges render "Docs of X" / "Issue in X" and link to the destination. Chat bus broadcast triggers cross-tab re-render so the badge appears immediately.
