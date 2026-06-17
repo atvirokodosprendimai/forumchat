@@ -20,6 +20,9 @@
   const slug          = messages.dataset.communitySlug || '';
   if (!currentUserID || !slug) return;
 
+  // Hoisted state — declared BEFORE scheduleMarkRead() can fire so the
+  // `let` temporal dead zone doesn't blow up on the initial focus call.
+  let markTimer  = 0;
   let lastSeenID = newestMsgId();
 
   // ------- 1. observe new bubbles -------
@@ -79,7 +82,6 @@
     return arts[arts.length - 1].getAttribute('data-id') || '';
   }
 
-  let markTimer = 0;
   function scheduleMarkRead() {
     if (markTimer) clearTimeout(markTimer);
     markTimer = setTimeout(postMarkRead, 1000);
