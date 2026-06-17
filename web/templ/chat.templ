@@ -292,8 +292,7 @@ func groupClass(g MsgGroup) string {
 templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName, slug string) {
 	<div id="messages" class="messages"
 		data-current-user-id={ currentUserID }
-		data-community-slug={ slug }
-		data-init="requestAnimationFrame(()=>requestAnimationFrame(()=>{el.scrollTop=el.scrollHeight}))">
+		data-community-slug={ slug }>
 		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
 			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
 		}
