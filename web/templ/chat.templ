@@ -176,7 +176,7 @@ templ ChatComposer(slug string) {
 				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcMentionDetect(el)){$_mention_open=true; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false}" }
 				data-on:blur="setTimeout(()=>{$_mention_open=false},150)"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
-				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open){evt.preventDefault(); @post('/c/" + slug + "/chat/send'); el.style.height='auto'}" }></textarea>
+				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open){evt.preventDefault(); @post('/c/" + slug + "/chat/send'); el.style.height='auto'}" }></textarea>
 			<button data-on:click={ "@post('/c/" + slug + "/chat/send'); document.querySelector('.composer-text').style.height='auto'" }>Send</button>
 		</div>
 	</div>
@@ -605,8 +605,7 @@ func fmtTime(t time.Time) string {
 // "↗ Extract" button stages signals + flips $_extract_open.
 templ ExtractDialog(slug string, projects []ChatProjectView) {
 	<div class="modal-overlay" data-cloak data-show="$_extract_open"
-		data-on:click="if(evt.target===el){$_extract_open=false}"
-		data-on:keydown__window="if(evt.key==='Escape' && $_extract_open){$_extract_open=false}">
+		data-on:click="if(evt.target===el){$_extract_open=false}">
 		<div class="modal extract-dialog" data-on:click="evt.stopPropagation()">
 			<header class="modal-head">
 				<strong>Extract to project</strong>
