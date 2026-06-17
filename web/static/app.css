@@ -2469,13 +2469,18 @@ hr {
 }
 .bubble-group.system { align-self: center; background: transparent; border: 0; padding: 0; max-width: 90%; }
 /* Flatten inner bubble articles when grouped — group wrapper owns the
-   visual bubble. System groups keep their original .bubble.system look. */
+   visual bubble. RIGHT padding is preserved so the absolutely-
+   positioned .msg-menu trigger (32px + .35rem offset → 37.6px) keeps
+   its dead zone (2.75rem = 44px → ~6px breathing). Without this the
+   menu sits on top of body text / "Open" links / em-dashes on every
+   grouped bubble. System groups keep their original .bubble.system
+   look. */
 .bubble-group.own > .bubble,
 .bubble-group.other > .bubble {
   background: transparent;
   border: 0;
   box-shadow: none;
-  padding: 0;
+  padding: 0 2.75rem 0 0;
   margin: 0;
   border-radius: 0;
 }
