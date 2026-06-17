@@ -622,13 +622,17 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 	sse := render.NewSSE(w, r)
 
-	// Initial sync: on every (re)connection — including when the browser
-	// re-establishes SSE after tab sleep — push the latest 100 immediately.
-	// Without this, a reconnecting client would see stale messages until the
-	// next chat event fires.
-	if views, err := h.loadRecentFor(r.Context(), id.User.ID); err == nil {
-		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
-	}
+	// NOTE: do NOT emit an initial fatMorph here. The chat page's HTML
+	// already carries the latest 100 messages + the scroll anchor, so
+	// the page's data-init scroll lands the user at the bottom on
+	// first paint. Emitting an immediate duplicate fatMorph from the
+	// stream caused a second scrollIntoView that fired BEFORE inline
+	// media finished loading — landing 1-2 messages short of the new
+	// bottom. The trade-off: on automatic EventSource reconnect (rare,
+	// triggered by network glitch or tab sleep), the client briefly
+	// sees stale messages until the next Bus / NATS event arrives.
+	// Acceptable — the chat is high-traffic enough that another
+	// event is normally seconds away.
 
 	local, unsubscribe := h.Bus.Subscribe()
 	defer unsubscribe()
