@@ -526,7 +526,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					} else if isMod || m.AuthorID == currentUserID {
 						<button class="msg-menu-item" role="menuitem"
 							data-on:click={ "@post('/c/" + slug + "/forum/promote-chat?id=" + m.ID + "')" }>
-							<span class="mi-icon">→</span><span class="mi-label">Promote</span>
+							<span class="mi-icon">→</span><span class="mi-label">Promote to thread</span>
 						</button>
 					}
 					if isMod {

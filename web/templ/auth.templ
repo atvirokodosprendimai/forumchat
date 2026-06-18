@@ -10,7 +10,7 @@ templ RegisterPage(openReg bool) {
 			<div id="auth-error" class="error"></div>
 			<div class="field">
 				<label>Email</label>
-				<input type="email" data-bind="email" autocomplete="email" autofocus/>
+				<input type="email" data-bind="email" autocomplete="one-time-code" autofocus/>
 			</div>
 			<div class="field">
 				<label>Password</label>
@@ -44,7 +44,7 @@ templ RegisterAsAdminPage(communityName string) {
 			<div id="auth-error" class="error"></div>
 			<div class="field">
 				<label>Email</label>
-				<input type="email" data-bind="email" autocomplete="email" autofocus/>
+				<input type="email" data-bind="email" autocomplete="one-time-code" autofocus/>
 			</div>
 			<div class="field">
 				<label>Password</label>
@@ -89,7 +89,7 @@ templ LoginStep1() {
 		<div id="auth-error" class="error"></div>
 		<div class="field">
 			<label>Email</label>
-			<input type="email" data-bind="email" autocomplete="email" autofocus
+			<input type="email" data-bind="email" autocomplete="one-time-code" autofocus
 				data-on:keydown="evt.key==='Enter' && (evt.preventDefault(), @post('/login/check'))"/>
 		</div>
 		<button data-on:click="@post('/login/check')">Continue</button>

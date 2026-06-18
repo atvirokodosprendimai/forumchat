@@ -238,7 +238,7 @@ templ Layout(title string, v Viewer) {
 						if v.CommunitySlug != "" {
 							<h3 class="sidebar-group">{ v.CommunityName }</h3>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Forum</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Threads</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") }><span class="sb-icon" aria-hidden="true">🎥</span>Rooms</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") }><span class="sb-icon" aria-hidden="true">★</span>Bookmarks</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") }><span class="sb-icon" aria-hidden="true">☑</span>Todos</a>

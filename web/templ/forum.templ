@@ -55,10 +55,10 @@ type PostView struct {
 }
 
 templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
-	@Layout("Forum", v) {
+	@Layout("Threads", v) {
 		<section>
 			<header class="page-head">
-				<h1>Forum</h1>
+				<h1>Threads</h1>
 				<div class="page-head-actions">
 					<a class="btn" href={ templ.URL("/c/" + v.CommunitySlug + "/forum/new") }>+ New thread</a>
 				</div>
@@ -185,7 +185,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 					<button class="btn ghost" data-on:click="$_rename_open=false">cancel</button>
 				</div>
 			}
-			<p class="muted"><a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>← Forum</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
+			<p class="muted"><a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>← Threads</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
 
 			<article class="bubble">
 				<div class="body">@templ.Raw(render.WrapUploadImages(t.BodyHTML))</div>
