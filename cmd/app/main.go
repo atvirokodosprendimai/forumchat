@@ -114,6 +114,7 @@ func run() error {
 		BaseURL:                     cfg.BaseURL,
 		VerifyTTL:                   48 * time.Hour,
 		InviteTTL:                   30 * 24 * time.Hour,
+		Log:                         log,
 		OpenRegistration:            cfg.OpenRegistration,
 		OpenRegistrationAutoApprove: cfg.OpenRegistrationAutoApprove,
 	}

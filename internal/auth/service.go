@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ type Service struct {
 	BaseURL   string
 	VerifyTTL time.Duration
 	InviteTTL time.Duration
+	Log       *slog.Logger
 
 	// OpenRegistration allows Register to proceed without an invite code.
 	OpenRegistration bool
@@ -97,7 +99,13 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 	body := fmt.Sprintf("Welcome to forumchat.\n\nClick to verify your account:\n%s\n\nLink expires %s.\n",
 		verifyURL, exp.Format(time.RFC1123))
 	if err := s.Mailer.Send(ctx, in.Email, "Verify your forumchat account", body); err != nil {
-		// Don't fail registration if mail fails — the token still exists; log only.
+		// Don't fail registration if mail fails (e.g. SMTP unreachable) — the
+		// token is valid. Log the verify URL so an operator can recover by
+		// visiting it manually instead of silently swallowing the failure.
+		if s.Log != nil {
+			s.Log.Warn("verify email send failed; visit verify_url to verify manually",
+				"to", in.Email, "verify_url", verifyURL, "err", err)
+		}
 	}
 
 	return RegisterResult{

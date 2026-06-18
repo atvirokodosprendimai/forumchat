@@ -14,7 +14,7 @@ templ RegisterPage(openReg bool) {
 			</div>
 			<div class="field">
 				<label>Password</label>
-				<input type="password" data-bind="password" autocomplete="new-password"/>
+				<input type="password" data-bind="password" autocomplete="one-time-code"/>
 			</div>
 			if openReg {
 				<details class="field">
@@ -48,7 +48,7 @@ templ RegisterAsAdminPage(communityName string) {
 			</div>
 			<div class="field">
 				<label>Password</label>
-				<input type="password" data-bind="password" autocomplete="new-password"/>
+				<input type="password" data-bind="password" autocomplete="one-time-code"/>
 			</div>
 			<div class="field">
 				<label>Display name</label>
@@ -112,7 +112,7 @@ templ LoginStep2(email string) {
 		</div>
 		<div class="field">
 			<label>Password</label>
-			<input type="password" data-bind="password" autocomplete="current-password" autofocus
+			<input type="password" data-bind="password" autocomplete="one-time-code" autofocus
 				data-on:keydown="evt.key==='Enter' && (evt.preventDefault(), @post('/login'))"/>
 		</div>
 		<button data-on:click="@post('/login')">Sign in with password</button>
