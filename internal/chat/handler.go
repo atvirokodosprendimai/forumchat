@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
@@ -108,21 +109,32 @@ func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 	return v
 }
 
-func (h *Handler) loadRecent(ctx context.Context) ([]webtempl.MsgView, error) {
-	msgs, err := h.Repo.Recent(ctx, h.cid(ctx), RecentLimit)
-	if err != nil {
-		return nil, err
+// activeChannel resolves the channel a request is scoped to. A non-empty
+// route {channel} slug resolves that channel; an empty or unknown slug
+// falls back to the community's undeletable #general. This keeps every
+// read/write path channel-aware while a community that never makes a
+// second channel behaves exactly as before.
+func (h *Handler) activeChannel(ctx context.Context, slug string) (Channel, error) {
+	cid := h.cid(ctx)
+	if slug != "" {
+		if ch, err := h.Repo.ChannelBySlug(ctx, cid, slug); err == nil {
+			return ch, nil
+		}
 	}
-	return toMsgViews(msgs), nil
+	return h.Repo.DefaultChannel(ctx, cid)
 }
 
-// loadRecentFor returns the latest N views, attaches the read-receipt
-// list to the viewer's most recent own user message, and decorates
-// every view with viewer-signed AttachmentView URLs. Receipts and
-// signed URLs are viewer-specific so each connected SSE stream gets
+// channelSlug pulls the {channel} route param (empty when the route has
+// none — e.g. the legacy /chat path that lands on #general).
+func channelSlug(r *http.Request) string { return chi.URLParam(r, "channel") }
+
+// loadRecentFor returns the latest N views for channelID, attaches the
+// read-receipt list to the viewer's most recent own user message, and
+// decorates every view with viewer-signed AttachmentView URLs. Receipts
+// and signed URLs are viewer-specific so each connected SSE stream gets
 // its own.
-func (h *Handler) loadRecentFor(ctx context.Context, currentUserID string) ([]webtempl.MsgView, error) {
-	msgs, err := h.Repo.Recent(ctx, h.cid(ctx), RecentLimit)
+func (h *Handler) loadRecentFor(ctx context.Context, channelID, currentUserID string) ([]webtempl.MsgView, error) {
+	msgs, err := h.Repo.Recent(ctx, channelID, RecentLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +149,7 @@ func (h *Handler) loadRecentFor(ctx context.Context, currentUserID string) ([]we
 		}
 		views = append(views, h.toMsgViewWith(m, currentUserID, h.cslug(ctx)))
 	}
-	h.attachReadReceipts(ctx, views, currentUserID)
+	h.attachReadReceipts(ctx, channelID, views, currentUserID)
 	return views, nil
 }
 
@@ -166,7 +178,7 @@ func (h *Handler) blockedSet(ctx context.Context, currentUserID string) map[stri
 // FIRST own non-deleted user message it finds with the readers whose
 // last_read_at is at or past that message's created_at. No-op for guest
 // viewers / empty list / missing repo.
-func (h *Handler) attachReadReceipts(ctx context.Context, views []webtempl.MsgView, currentUserID string) {
+func (h *Handler) attachReadReceipts(ctx context.Context, channelID string, views []webtempl.MsgView, currentUserID string) {
 	if currentUserID == "" || h.Repo == nil {
 		return
 	}
@@ -175,7 +187,7 @@ func (h *Handler) attachReadReceipts(ctx context.Context, views []webtempl.MsgVi
 		if v.Kind != webtempl.MsgKindUser || v.Deleted || v.AuthorID != currentUserID {
 			continue
 		}
-		readers, err := h.Repo.ReadersSince(ctx, h.cid(ctx), v.CreatedAt.Unix(), currentUserID, 30)
+		readers, err := h.Repo.ReadersSince(ctx, channelID, v.CreatedAt.Unix(), currentUserID, 30)
 		if err != nil {
 			h.Log.Warn("read receipts", "err", err)
 			return
@@ -334,7 +346,12 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	views, err := h.loadRecentFor(r.Context(), id.User.ID)
+	ch, err := h.activeChannel(r.Context(), channelSlug(r))
+	if err != nil {
+		http.Error(w, "load channel: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	views, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID)
 	if err != nil {
 		http.Error(w, "load chat: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -405,8 +422,17 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	if rid := strings.TrimSpace(in.ReplyToID); rid != "" {
 		replyTo = &rid
 	}
+	ch, err := h.activeChannel(r.Context(), channelSlug(r))
+	if err != nil {
+		h.Log.Error("send: resolve channel", "err", err)
+		return
+	}
+	if ch.IsArchived() {
+		return // archived channels are read-only
+	}
 	if _, err := h.Svc.Send(r.Context(), SendInput{
 		CommunityID:   h.cid(r.Context()),
+		ChannelID:     ch.ID,
 		AuthorID:      id.User.ID,
 		BodyMarkdown:  body,
 		ReplyToID:     replyTo,
@@ -416,7 +442,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	views, err := h.loadRecentFor(r.Context(), id.User.ID)
+	views, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID)
 	if err == nil {
 		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
@@ -559,11 +585,16 @@ func (h *Handler) PostMarkRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cid := h.cid(r.Context())
-	if err := h.Repo.MarkRead(r.Context(), id.User.ID, cid, strings.TrimSpace(in.LastID), time.Now()); err != nil {
+	ch, err := h.activeChannel(r.Context(), channelSlug(r))
+	if err != nil {
+		h.Log.Warn("mark read: resolve channel", "err", err)
+		return
+	}
+	if err := h.Repo.MarkRead(r.Context(), id.User.ID, cid, ch.ID, strings.TrimSpace(in.LastID), time.Now()); err != nil {
 		h.Log.Warn("mark read", "err", err)
 		return
 	}
-	if !h.shouldBroadcastRead(cid, id.User.ID, time.Now()) {
+	if !h.shouldBroadcastRead(ch.ID, id.User.ID, time.Now()) {
 		return
 	}
 	h.broadcast(r.Context())
@@ -660,13 +691,18 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+	ch, err := h.activeChannel(r.Context(), channelSlug(r))
+	if err != nil {
+		http.Error(w, "load channel: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	sse := render.NewSSE(w, r)
 
 	// Initial sync: on every (re)connection — including when the browser
 	// re-establishes SSE after tab sleep — push the latest 100 immediately.
 	// Without this, a reconnecting client would see stale messages until the
 	// next chat event fires.
-	if views, err := h.loadRecentFor(r.Context(), id.User.ID); err == nil {
+	if views, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); err == nil {
 		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
 
@@ -697,7 +733,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		views, err := h.loadRecentFor(r.Context(), id.User.ID)
+		views, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID)
 		if err != nil {
 			continue
 		}
@@ -777,9 +813,10 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sse := render.NewSSE(w, r)
-	views, err := h.loadRecentFor(r.Context(), id.User.ID)
-	if err == nil {
-		_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+	if ch, cerr := h.activeChannel(r.Context(), channelSlug(r)); cerr == nil {
+		if views, lerr := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); lerr == nil {
+			_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+		}
 	}
 	h.broadcast(r.Context())
 }
@@ -820,9 +857,11 @@ func (h *Handler) setBlock(w http.ResponseWriter, r *http.Request, block bool) {
 	}
 
 	sse := render.NewSSE(w, r)
-	if views, lerr := h.loadRecentFor(r.Context(), id.User.ID); lerr == nil {
-		isMod := id.Membership.Role.AtLeast(auth.RoleMod)
-		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+	if ch, cerr := h.activeChannel(r.Context(), channelSlug(r)); cerr == nil {
+		if views, lerr := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); lerr == nil {
+			isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+			_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+		}
 	}
 	if h.Roster != nil {
 		h.Roster.Bump(cid)
@@ -975,14 +1014,6 @@ func extractURL(slug string, e Extract) string {
 		return "/c/" + slug + "/projects/" + e.ProjectID + "/issues/" + e.IssueID
 	}
 	return "/c/" + slug + "/projects/" + e.ProjectID + "/docs"
-}
-
-func toMsgViews(ms []Message) []webtempl.MsgView {
-	out := make([]webtempl.MsgView, 0, len(ms))
-	for _, m := range ms {
-		out = append(out, toMsgView(m))
-	}
-	return out
 }
 
 func valueOrEmpty(p *string) string {

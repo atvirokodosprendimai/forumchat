@@ -30,7 +30,7 @@ status: active
 
 ## Phases
 
-### Phase 1 - Data model + scope existing chat to a channel - status: open
+### Phase 1 - Data model + scope existing chat to a channel - status: completed
 
 Goal: schema + backfill land, existing single-channel chat keeps working unchanged (lands on `#general`). No new UI yet. Verifiable: app boots on an existing DB, chat works, tests pass.
 
@@ -50,13 +50,16 @@ Goal: schema + backfill land, existing single-channel chat keeps working unchang
    - => also added `ChannelByID` + `EnsureDefaultChannel` (idempotent #general creator) + shared `scanChannel`.
    - => wired `chatRepo.EnsureDefaultChannel(bootCommunity.ID)` into `cmd/app/main.go` boot (next to rooms seed). New communities created via UI must also call it (Phase 2/handler).
    - => build green.
-3. [ ] Thread `channelID` through existing read/write repo + service methods
-   - `Repo.Recent/Before/MarkRead/ReadersSince` key on `channel_id` (keep `community_id` for auth).
-   - `Service.Send/PostSystem` accept `ChannelID`; reject archived/foreign-community channel.
-   - Handler page-load + stream resolve channel from URL (`/c/{slug}/chat/{channelSlug}`), default to `#general`; bare `/c/{slug}/chat` 302 → `/c/{slug}/chat/general`.
-   - => keep one commit per method-group if it gets large; otherwise one commit.
-4. [ ] Update `internal/chat/handler_test.go` setup + green `make test`
-   - seed a `general` channel in the test fixture; assert existing send/recent still pass scoped by channel.
+3. [x] Thread `channelID` through existing read/write repo + service methods
+   - `Repo.Recent/Before/listBefore/MarkRead/ReadersSince` now key on `channel_id`. `Message` gained `ChannelID`; `listBefore`/`ByID` select it. `MarkRead` upserts on `(user_id, channel_id)`, stores `community_id` for the readers join.
+   - `Service.Send` + `SendInput` accept `ChannelID`. **PostSystem signature unchanged** — system/bridge messages leave `ChannelID` empty and `Repo.Insert` resolves `#general` as a fallback, so forum/projects/rooms callers needed **zero** edits.
+   - Handler: added `activeChannel(ctx, slug)` resolver (reads chi `{channel}` param, falls back to `#general`) + `channelSlug(r)`. Threaded `ch.ID` through GetPage/GetStream/PostSend/PostDelete/setBlock/PostMarkRead. PostSend rejects archived channels. (URL routing/redirect deferred to Phase 2 — no `{channel}` route exists yet, so everything lands on `#general`.)
+   - => added `Repo.UnreadChannels` (page-load dot seed, used Phase 4).
+   - => removed dead `loadRecent` + `toMsgViews` (orphaned when `loadRecentFor` took over).
+   - => build + vet + full `go test ./...` green.
+4. [x] Update `internal/chat/handler_test.go` setup + green `make test`
+   - fixture now calls `EnsureDefaultChannel` (BootstrapOrFetch doesn't seed #general; main.go does on boot).
+   - => added `TestChannelScope_InsertRecent`: insert (explicit + empty-channel fallback) → Recent(general) returns both, Recent(unknown) returns none.
 
 ### Phase 2 - Inline switcher + admin channel CRUD - status: open
 
@@ -120,4 +123,5 @@ Goal: unread dots correct across reload; all existing chat features work per cha
 
 ## Progress Log
 
-- 2606181114 — Plan created from [[spec - chat-channels - admin-curated-public-text-channels]]. UX forks resolved: inline switcher management + dot-only unread. Friction items resolved: chat_reads keyed per (channel_id, user_id), unread baseline = newer-than-last_read / no-row ⇒ unread. 5 phases, visible result by end of Phase 2.
+- 2606181114 — Plan created from [[spec - chat-channels - admin-curated-public-text-channels]].
+- 2606181150 — **Phase 1 complete.** Migration 00032 (chat_channels + per-channel chat_messages/chat_reads, #general backfill), channel read queries + EnsureDefaultChannel, all repo/service/handler read+write paths channel-scoped, fixture + scope test. Build/vet/test green. Key call: PostSystem unchanged + Insert default-channel fallback ⇒ forum/projects/rooms bridge callers untouched. Phase 1 end-state = existing chat works exactly as before, now backed by #general. UX forks resolved: inline switcher management + dot-only unread. Friction items resolved: chat_reads keyed per (channel_id, user_id), unread baseline = newer-than-last_read / no-row ⇒ unread. 5 phases, visible result by end of Phase 2.

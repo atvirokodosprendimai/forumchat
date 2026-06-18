@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -55,6 +56,11 @@ func setupMentionHandler(t *testing.T) (*chat.Handler, string, auth.Identity) {
 	if err := aRepo.CreateMembership(ctx, nil, callerMembership); err != nil {
 		t.Fatalf("create caller membership: %v", err)
 	}
+	// BootstrapOrFetch doesn't seed #general (main.go does that on boot);
+	// the test fixture must, so channel-scoped reads/writes have a home.
+	if _, err := chat.NewRepo(db).EnsureDefaultChannel(ctx, c.ID); err != nil {
+		t.Fatalf("ensure default channel: %v", err)
+	}
 	h := &chat.Handler{
 		Repo:          chat.NewRepo(db),
 		AuthRepo:      aRepo,
@@ -63,6 +69,55 @@ func setupMentionHandler(t *testing.T) (*chat.Handler, string, auth.Identity) {
 		Log:           slog.Default(),
 	}
 	return h, c.ID, auth.Identity{User: callerUser, Membership: callerMembership}
+}
+
+// TestChannelScope_InsertRecent asserts messages are scoped by channel:
+// a message inserted into #general is returned by Recent(general) but not
+// by Recent(some-other-channel-id). Also exercises the Insert default-
+// channel fallback (empty ChannelID → #general).
+func TestChannelScope_InsertRecent(t *testing.T) {
+	t.Parallel()
+	h, cid, _ := setupMentionHandler(t)
+	ctx := context.Background()
+
+	general, err := h.Repo.DefaultChannel(ctx, cid)
+	if err != nil {
+		t.Fatalf("default channel: %v", err)
+	}
+	if general.Slug != "general" || !general.IsDefault {
+		t.Fatalf("want default #general, got %+v", general)
+	}
+
+	// Explicit channel id.
+	if err := h.Repo.Insert(ctx, chat.Message{
+		ID: uuid.NewString(), CommunityID: cid, ChannelID: general.ID,
+		Kind: chat.KindUser, BodyMarkdown: "hi", BodyHTML: "hi", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("insert explicit: %v", err)
+	}
+	// Empty channel id → falls back to #general.
+	if err := h.Repo.Insert(ctx, chat.Message{
+		ID: uuid.NewString(), CommunityID: cid,
+		Kind: chat.KindSystem, BodyMarkdown: "sys", BodyHTML: "sys", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("insert fallback: %v", err)
+	}
+
+	got, err := h.Repo.Recent(ctx, general.ID, 100)
+	if err != nil {
+		t.Fatalf("recent general: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 messages in #general, got %d", len(got))
+	}
+
+	other, err := h.Repo.Recent(ctx, "no-such-channel", 100)
+	if err != nil {
+		t.Fatalf("recent other: %v", err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("want 0 messages in unknown channel, got %d", len(other))
+	}
 }
 
 func TestGetMentionSearch_PrefixHits(t *testing.T) {

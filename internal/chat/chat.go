@@ -24,6 +24,7 @@ const (
 type Message struct {
 	ID               string
 	CommunityID      string
+	ChannelID        string
 	AuthorID         *string
 	AuthorName       string
 	AuthorAvatar     string
@@ -237,6 +238,18 @@ func scanChannel(s channelScanner) (Channel, error) {
 }
 
 func (r *Repo) Insert(ctx context.Context, m Message) error {
+	// Bridge / system writers (forum thread-announce, project digest,
+	// room-live) don't pick a channel — those messages belong in
+	// #general. Resolve the default channel when ChannelID is empty so
+	// those callers don't all need to look it up. The hot user-send path
+	// always sets ChannelID explicitly and skips this query.
+	if m.ChannelID == "" {
+		ch, err := r.DefaultChannel(ctx, m.CommunityID)
+		if err != nil {
+			return fmt.Errorf("resolve default channel: %w", err)
+		}
+		m.ChannelID = ch.ID
+	}
 	var authorID, refThread, replyTo sql.NullString
 	if m.AuthorID != nil {
 		authorID = sql.NullString{String: *m.AuthorID, Valid: true}
@@ -248,22 +261,22 @@ func (r *Repo) Insert(ctx context.Context, m Message) error {
 		replyTo = sql.NullString{String: *m.ReplyToID, Valid: true}
 	}
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO chat_messages (id, community_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.CommunityID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, m.CreatedAt.Unix())
+		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, m.CreatedAt.Unix())
 	return err
 }
 
-func (r *Repo) Recent(ctx context.Context, communityID string, limit int) ([]Message, error) {
-	msgs, err := r.listBefore(ctx, communityID, time.Now().Add(48*time.Hour), limit)
+func (r *Repo) Recent(ctx context.Context, channelID string, limit int) ([]Message, error) {
+	msgs, err := r.listBefore(ctx, channelID, time.Now().Add(48*time.Hour), limit)
 	if err != nil {
 		return nil, err
 	}
 	return r.hydrateAttachments(ctx, msgs)
 }
 
-func (r *Repo) Before(ctx context.Context, communityID string, before time.Time, limit int) ([]Message, error) {
-	msgs, err := r.listBefore(ctx, communityID, before, limit)
+func (r *Repo) Before(ctx context.Context, channelID string, before time.Time, limit int) ([]Message, error) {
+	msgs, err := r.listBefore(ctx, channelID, before, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -305,9 +318,9 @@ func (r *Repo) hydrateAttachments(ctx context.Context, msgs []Message) ([]Messag
 	return msgs, nil
 }
 
-func (r *Repo) listBefore(ctx context.Context, communityID string, before time.Time, limit int) ([]Message, error) {
+func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Time, limit int) ([]Message, error) {
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT m.id, m.community_id, m.author_id, m.kind, m.body_md, m.body_html,
+		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
 		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, '')
@@ -315,9 +328,9 @@ func (r *Repo) listBefore(ctx context.Context, communityID string, before time.T
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
 		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
 		LEFT JOIN memberships pmb ON pmb.user_id = p.author_id AND pmb.community_id = p.community_id
-		WHERE m.community_id = ? AND m.created_at < ?
+		WHERE m.channel_id = ? AND m.created_at < ?
 		ORDER BY m.created_at DESC
-		LIMIT ?`, communityID, before.Unix(), limit)
+		LIMIT ?`, channelID, before.Unix(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +343,7 @@ func (r *Repo) listBefore(ctx context.Context, communityID string, before time.T
 		var created int64
 		var kind string
 		var pID, pAuthor, pBody string
-		if err := rows.Scan(&m.ID, &m.CommunityID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
+		if err := rows.Scan(&m.ID, &m.CommunityID, &m.ChannelID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
 			&ref, &promoted, &reply, &del, &created,
 			&m.AuthorName, &m.AuthorAvatar,
 			&pID, &pAuthor, &pBody); err != nil {
@@ -364,7 +377,7 @@ func (r *Repo) listBefore(ctx context.Context, communityID string, before time.T
 
 func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT m.id, m.community_id, m.author_id, m.kind, m.body_md, m.body_html,
+		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
 		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, '')
@@ -386,7 +399,7 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	var created int64
 	var kind string
 	var pID, pAuthor, pBody string
-	if err := rows.Scan(&m.ID, &m.CommunityID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
+	if err := rows.Scan(&m.ID, &m.CommunityID, &m.ChannelID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
 		&ref, &promoted, &reply, &del, &created,
 		&m.AuthorName, &m.AuthorAvatar,
 		&pID, &pAuthor, &pBody); err != nil {
@@ -575,9 +588,9 @@ func (r *Repo) InsertWithAttachments(ctx context.Context, m Message, uploadIDs [
 		replyTo = sql.NullString{String: *m.ReplyToID, Valid: true}
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO chat_messages (id, community_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.CommunityID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, m.CreatedAt.Unix()); err != nil {
+		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, m.CreatedAt.Unix()); err != nil {
 		return fmt.Errorf("insert chat_messages: %w", err)
 	}
 	now := time.Now().Unix()
@@ -632,24 +645,57 @@ func (r *Repo) AttachmentsForMessages(ctx context.Context, msgIDs []string) (map
 	return out, rows.Err()
 }
 
-// MarkRead upserts the user's read high-water mark in a community.
-// msgID is optional (kept for diagnostics); when empty the row still
-// updates the timestamp so the readers query keeps working.
-func (r *Repo) MarkRead(ctx context.Context, userID, communityID, msgID string, at time.Time) error {
+// MarkRead upserts the user's read high-water mark in a channel. The row
+// is keyed (user_id, channel_id); community_id is stored for the readers
+// query's memberships join. msgID is optional (kept for diagnostics);
+// when empty the row still updates the timestamp.
+func (r *Repo) MarkRead(ctx context.Context, userID, communityID, channelID, msgID string, at time.Time) error {
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO chat_reads (user_id, community_id, last_read_at, last_read_msg_id)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(user_id, community_id) DO UPDATE SET
+		INSERT INTO chat_reads (user_id, community_id, channel_id, last_read_at, last_read_msg_id)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(user_id, channel_id) DO UPDATE SET
+		    community_id     = excluded.community_id,
 		    last_read_at     = excluded.last_read_at,
 		    last_read_msg_id = excluded.last_read_msg_id
-	`, userID, communityID, at.Unix(), msgID)
+	`, userID, communityID, channelID, at.Unix(), msgID)
 	return err
 }
 
-// ReadersSince returns every member of communityID whose last_read_at is
-// at least sinceUnix, excluding excludeUserID (typically the sender so
-// their own row is not shown as a reader). Ordered most-recent-first.
-func (r *Repo) ReadersSince(ctx context.Context, communityID string, sinceUnix int64, excludeUserID string, limit int) ([]Reader, error) {
+// UnreadChannels returns the set of channel ids in the community that
+// have at least one message newer than the viewer's per-channel
+// last_read_at. A channel with no chat_reads row for the viewer counts
+// as unread when it has any message. Used to seed switcher dots on page
+// load. The viewer's own messages don't suppress their channel's dot —
+// callers clear the active channel's dot on open regardless.
+func (r *Repo) UnreadChannels(ctx context.Context, communityID, userID string) (map[string]bool, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT ch.id
+		FROM chat_channels ch
+		JOIN chat_messages m ON m.channel_id = ch.id AND m.deleted_at IS NULL
+		LEFT JOIN chat_reads rd ON rd.channel_id = ch.id AND rd.user_id = ?
+		WHERE ch.community_id = ? AND ch.archived_at IS NULL
+		GROUP BY ch.id
+		HAVING MAX(m.created_at) > COALESCE(MAX(rd.last_read_at), 0)
+	`, userID, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// ReadersSince returns every member who has read channelID at or past
+// sinceUnix, excluding excludeUserID (typically the sender so their own
+// row is not shown as a reader). Ordered most-recent-first.
+func (r *Repo) ReadersSince(ctx context.Context, channelID string, sinceUnix int64, excludeUserID string, limit int) ([]Reader, error) {
 	if limit <= 0 {
 		limit = 30
 	}
@@ -657,12 +703,12 @@ func (r *Repo) ReadersSince(ctx context.Context, communityID string, sinceUnix i
 		SELECT r.user_id, COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''), r.last_read_at
 		FROM chat_reads r
 		LEFT JOIN memberships mb ON mb.user_id = r.user_id AND mb.community_id = r.community_id
-		WHERE r.community_id = ?
+		WHERE r.channel_id = ?
 		  AND r.last_read_at >= ?
 		  AND r.user_id != ?
 		ORDER BY r.last_read_at DESC
 		LIMIT ?
-	`, communityID, sinceUnix, excludeUserID, limit)
+	`, channelID, sinceUnix, excludeUserID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -698,6 +744,7 @@ func NewService(repo *Repo) *Service { return &Service{Repo: repo} }
 
 type SendInput struct {
 	CommunityID   string
+	ChannelID     string
 	AuthorID      string
 	BodyMarkdown  string
 	ReplyToID     *string
@@ -721,6 +768,7 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, error) {
 	m := Message{
 		ID:           uuid.NewString(),
 		CommunityID:  in.CommunityID,
+		ChannelID:    in.ChannelID,
 		AuthorID:     &aid,
 		Kind:         KindUser,
 		BodyMarkdown: body,
