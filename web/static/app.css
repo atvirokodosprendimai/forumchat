@@ -3705,3 +3705,87 @@ hr {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
+
+/* ── Roster sidebar (full membership, online + offline) ───────────────
+   Replaces the old plain presence <li> list. Rows carry data-* identity
+   and target the floating .ucm context menu on right-click / ⋮ button. */
+.roster-group {
+  margin: .5rem 0 .15rem; font-size: .72rem; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.roster-group:first-child { margin-top: 0; }
+.roster { list-style: none; padding: 0; margin: 0; }
+/* suppress the legacy ::before green dot — roster draws its own */
+.presence li.roster-row::before { content: none; display: none; }
+.roster-row {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .3rem .35rem; border-radius: var(--radius-sm);
+  cursor: default; position: relative;
+}
+.roster-row:hover { background: var(--surface-alt); }
+.roster-offline .roster-row { opacity: .55; }
+.roster-offline .roster-row:hover { opacity: 1; }
+.roster-avatar {
+  position: relative; flex: 0 0 auto;
+  width: 1.7rem; height: 1.7rem; border-radius: 50%;
+  display: grid; place-items: center;
+  color: #fff; font-size: .8rem; font-weight: 700; line-height: 1;
+}
+.roster-dot {
+  position: absolute; right: -1px; bottom: -1px;
+  width: .55rem; height: .55rem; border-radius: 50%;
+  background: #2ec27a; border: 2px solid var(--surface);
+}
+.roster-name {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .92rem;
+}
+.roster-badge { flex: 0 0 auto; font-size: .8rem; opacity: .7; }
+.roster-menu-btn {
+  flex: 0 0 auto; opacity: 0;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--fg-muted); font-size: 1.1rem; line-height: 1;
+  padding: 0 .2rem; border-radius: var(--radius-sm);
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.roster-row:hover .roster-menu-btn,
+.roster-menu-btn:focus-visible { opacity: 1; }
+@media (hover: none) { .roster-menu-btn { opacity: .7; } }
+
+/* ── User context menu (floating popup) ───────────────────────────────
+   One element, positioned via data-attr:style (left/top from _ctx_x/y),
+   shown via data-class:open. Consumes the bubbling fc:user-menu event. */
+.ucm {
+  position: fixed; z-index: 120; display: none;
+  min-width: 13rem; max-width: 15rem;
+  flex-direction: column; gap: .15rem;
+  padding: .35rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  animation: ucmPop .12s cubic-bezier(.2,.8,.2,1);
+}
+.ucm.open { display: flex; }
+@keyframes ucmPop {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+.ucm-head {
+  padding: .35rem .55rem .45rem; margin-bottom: .15rem;
+  border-bottom: 1px solid var(--border-subtle);
+  font-weight: 700; font-size: .9rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ucm-list { display: flex; flex-direction: column; gap: .1rem; }
+.ucm-item {
+  background: transparent; color: var(--fg); border: none;
+  text-align: left; padding: .55rem .6rem; border-radius: var(--radius-sm);
+  font-weight: 500; font-size: .92rem; text-decoration: none;
+  display: flex; align-items: center; gap: .6rem;
+  cursor: pointer; width: 100%; min-height: 38px;
+}
+.ucm-item:hover { background: var(--surface-alt); }
+.ucm-item.danger { color: oklch(55% 0.2 25); }
+.ucm-item.danger:hover { background: oklch(95% 0.04 25); }
+.ucm-icon { flex: 0 0 1.1rem; text-align: center; opacity: .8; }
+.ucm-sep { height: 1px; background: var(--border-subtle); margin: .2rem .3rem; }

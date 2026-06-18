@@ -226,7 +226,7 @@ func run() error {
 		}
 	}()
 	presenceHandler := &presence.Handler{
-		Tracker: presenceTracker, CommunityID: bootCommunity.ID, Log: log,
+		Tracker: presenceTracker, Members: aRepo, CommunityID: bootCommunity.ID, Log: log,
 	}
 
 	forumRepo := forum.NewRepo(db)

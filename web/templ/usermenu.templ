@@ -1,0 +1,41 @@
+package templ
+
+// UserContextMenu is the single floating popup that every roster row
+// targets. Mounted once on the chat page; a roster row's right-click
+// (or ⋮ button) dispatches a bubbling fc:user-menu CustomEvent which
+// this element consumes via __window, stashing the target's identity in
+// _ctx_* UI-only signals (never sent to the server — see
+// [[feedback_datastar_underscore_signals]]). Target identity reaches
+// moderation endpoints via query params, so the body payload stays clean.
+//
+// Visibility is class-toggled (data-class:open) so data-attr:style is
+// free to own left/top — combining data-show with data-attr:style would
+// have both fight over the inline `display`/`style`.
+templ UserContextMenu(slug, currentUserID string) {
+	<div id="user-ctx-menu" class="ucm" role="menu"
+		data-class:open="$_ctx_open"
+		data-attr:style="'left:' + $_ctx_x + 'px;top:' + $_ctx_y + 'px'"
+		data-on:click__stop=""
+		data-on:fc:user-menu__window="$_ctx_user_id=evt.detail.id; $_ctx_membership_id=evt.detail.mid; $_ctx_name=evt.detail.name; $_ctx_role=evt.detail.role; $_ctx_online=evt.detail.online; $_ctx_banned=evt.detail.banned; $_ctx_x=Math.min(evt.detail.x, window.innerWidth-220); $_ctx_y=Math.min(evt.detail.y, window.innerHeight-260); $_ctx_open=true"
+		data-on:click__window="$_ctx_open=false"
+		data-on:keydown__window="evt.key==='Escape' && ($_ctx_open=false)">
+		<div class="ucm-head">
+			<span class="ucm-name" data-text="$_ctx_name"></span>
+		</div>
+		<div class="ucm-list">
+			<button class="ucm-item" role="menuitem"
+				data-show={ "$_ctx_user_id !== '" + currentUserID + "'" }
+				data-on:click="$_pm_open_to_user=$_ctx_user_id; $_pm_open_to_name=$_ctx_name; $pm_source_chat_id=''; $_ctx_open=false">
+				<span class="ucm-icon">✉</span><span class="ucm-label">Send private message</span>
+			</button>
+			<button class="ucm-item" role="menuitem"
+				data-on:click="$body=($body ? $body + ' ' : '') + '@' + $_ctx_name + ' '; var t=document.querySelector('.composer-text'); t && t.focus(); $_ctx_open=false">
+				<span class="ucm-icon">{ "@" }</span><span class="ucm-label">Mention in chat</span>
+			</button>
+			<button class="ucm-item" role="menuitem"
+				data-on:click="navigator.clipboard && navigator.clipboard.writeText($_ctx_name); $_ctx_open=false">
+				<span class="ucm-icon">⧉</span><span class="ucm-label">Copy name</span>
+			</button>
+		</div>
+	</div>
+}

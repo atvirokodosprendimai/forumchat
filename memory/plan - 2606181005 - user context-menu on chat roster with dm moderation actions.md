@@ -30,32 +30,26 @@ status: active
 
 ## Phases
 
-### Phase 1 - Roster sidebar + menu shell + baseline actions - status: open
+### Phase 1 - Roster sidebar + menu shell + baseline actions - status: completed
 
-> Visible result: right-click (or ⋮) any member, online or offline → menu with Send private message, View profile, Mention, Copy name. Works for every viewer.
+> Visible result: right-click (or ⋮) any member, online or offline → menu with Send private message, Mention, Copy name. Works for every viewer.
 
-1. [ ] `auth.Repo.ListApprovedMembers(ctx, communityID)` → `[]MemberRow{MembershipID, UserID, DisplayName, AvatarURL, Role, BannedUntil}`
-   - approved (`approved_at IS NOT NULL`), not rejected/soft-deleted; ordered by DisplayName
-   - service/repo test against `t.TempDir()` DB (§11 convention)
-2. [ ] View-model + templ: `RosterSidebar` / `RosterList(online []RosterMember, offline []RosterMember, v Viewer)` replacing `#presence-list`
-   - `RosterMember` view struct in `web/templ` (no domain import — §4.13); map in handler
-   - each `<li>` carries `data-user-id`, `data-membership-id`, `data-role`, online dot; offline group dimmed
-   - row: `data-on:contextmenu__prevent="el.dispatchEvent(new CustomEvent('fc:user-menu',{bubbles:true,detail:{id,mid,name,role,online,banned}})); $_ctx_x=evt.clientX; $_ctx_y=evt.clientY"` — set coords in the datastar expr (numbers from `evt`, fine per §4.6)
-   - `⋮` button per row dispatches the **same** `fc:user-menu` (touch fallback) using `el.getBoundingClientRect()` for coords
-3. [ ] `presence.Handler`: build roster from `auth.Repo.ListApprovedMembers` + overlay Tracker online set; `push()` renders `RosterList` templ (drop raw-string HTML)
-   - inject `ListApprovedMembers` via a small local interface in `presence` (no direct service import — §6b anti-pattern)
-   - re-render on Tracker change (existing SSE trigger); roster-on-membership-edit refresh is out of scope here
-4. [ ] `UserContextMenu(v Viewer)` floating component, mounted once in `chat.templ`
-   - consumer wrapper: `data-on:fc:user-menu="$_ctx_user_id=evt.detail.id; $_ctx_membership_id=evt.detail.mid; $_ctx_name=evt.detail.name; $_ctx_role=evt.detail.role; $_ctx_online=evt.detail.online; $_ctx_banned=evt.detail.banned; $_ctx_open=true"`
-   - menu `position:fixed`, left/top from `_ctx_x/_ctx_y` (via `data-attr:style` or CSS vars); flip when near viewport edge
-   - close: `data-on:click__window="$_ctx_open=false"` (stop-propagation on the menu itself), `data-on:keydown__window="evt.key==='Escape' && ($_ctx_open=false)"`
-   - add `_ctx_*` keys to `InitialSignals` so the bag declares them up-front (§4.2)
-5. [ ] Baseline menu items (member-level, all viewers)
-   - **Send private message** → reuse `$_pm_open_to_user/_pm_open_to_name`, hide for self (`data-show="$_ctx_user_id !== '<myId>'"`)
-   - **View profile** → `<a href>` to profile route (verify the route during impl)
-   - **Mention** → `$body = ($body? $body+' ':'') + '@' + $_ctx_name + ' '` then focus composer textarea; close menu
-   - **Copy name** → `navigator.clipboard.writeText($_ctx_name)`
-   - `make gen` after templ edits
+1. [x] Roster source
+   - => **Reused existing `auth.Repo.ListMembers(ctx, communityID)`** — already returns approved memberships JOIN users (membership id, user id, role, banned_until). No new repo method needed; no new test (covered).
+2. [x] View-model + templ: `RosterPanel(online, offline []RosterMember)` replacing `#presence-list` → `web/templ/roster.templ`
+   - => `RosterMember{UserID, MembershipID, DisplayName, AvatarURL, Role, Online, Banned}` (leaf struct, §4.13)
+   - => each `<li.roster-row>` carries `data-user-id/-membership-id/-name/-role/-online/-banned`; online dot on avatar; offline group dimmed via `.roster-offline`
+   - => `data-on:contextmenu__prevent` + `⋮` button both fire the shared `fc:user-menu` CustomEvent; coords come in `detail.x/y` (cursor for right-click, button rect for ⋮). Dispatch JS factored into `userMenuDispatch` / `rosterMenuBtnDispatch` helpers
+3. [x] `presence.Handler`: roster from `Members.ListMembers` + overlay Tracker online set; `push()` renders `RosterPanel` via `PatchElementTempl` (default outer-morph), raw-string HTML dropped
+   - => injected via local `MemberLister` interface (`internal/presence/handler.go`), wired `Members: aRepo` in `cmd/app/main.go`
+   - => `push` now takes `ctx`; removed dead `itoa`/`escape`/`strings` import
+4. [x] `UserContextMenu(slug, currentUserID string)` floating component mounted in `chat.templ` → `web/templ/usermenu.templ`
+   - => consumer is `data-on:fc:user-menu__window` on the menu itself (global listener, §4.12); clamps x/y to viewport
+   - => visibility via `data-class:open` (so `data-attr:style` owns left/top without fighting `display`); close on `data-on:click__window` + Esc `data-on:keydown__window`; menu swallows its own clicks with `data-on:click__stop`
+   - => added `_ctx_*` keys to `InitialSignals`
+5. [x] Baseline menu items (member-level, all viewers): Send private message (reuse `$_pm_open_to_user/_pm_open_to_name`, self-hidden), Mention (`$body += '@name '` + focus composer), Copy name (`navigator.clipboard`)
+   - => **View profile dropped** — no public per-user profile route exists (`/profile` is self-only). Revisit if a profile page is added.
+   - => CSS for `.roster*` + `.ucm*` appended to `app.css`; legacy `.presence li::before` green dot suppressed for roster rows
 
 ### Phase 2 - Moderation: Ban / Unban / Kick (mod + admin) - status: open
 
@@ -115,8 +109,10 @@ status: active
 
 ## Adjustments
 
-<!-- timestamped changes as work proceeds -->
+- **2606181015** — `/admin/ban|unban|remove` are gated `RequireRole(auth.RoleAdmin)` (admin-only), not mod. Decision: keep moderation menu items (Ban/Unban/Kick + role change) **admin-only** — reuse existing authz, no new mod-ban surface. Resolves the open question parked in Phase 2.4. The menu's `isMod`-style gating becomes `isAdmin`.
+- **2606181015** — Reused `auth.Repo.ListMembers` instead of building `ListApprovedMembers` (it already exists and fits). "View profile" dropped from the menu — no public per-user profile route.
 
 ## Progress Log
 
+- **2606181015** — Phase 1 complete. Roster sidebar (online+offline) + floating `UserContextMenu` (right-click + ⋮ touch) + baseline actions (DM/Mention/Copy). New: `web/templ/roster.templ`, `web/templ/usermenu.templ`, `MemberLister` in presence, `.roster*`/`.ucm*` CSS. `make gen` + `make build` clean; `go test ./internal/presence ./internal/auth` green.
 - **2606181005** — Plan created. Scope confirmed via AskUserQuestion: full roster (online+offline), all action groups (DM/Profile/Mention + Ban/Unban/Kick + Make/Remove moderator + Copy/Block/Report), ⋮ touch fallback alongside `data-on:contextmenu`. Code recon captured current presence/DM/ban building blocks and the missing pieces (no membership-id on presence, no role-change endpoint, no contextmenu usage). Mempalace search returned mostly unrelated (vvs) context — nothing reusable for this feature.

@@ -1,9 +1,9 @@
 package presence
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	datastar "github.com/starfederation/datastar-go/datastar"
@@ -11,10 +11,19 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
+	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
+
+// MemberLister supplies the full approved-member roster the sidebar
+// renders (online + offline). Satisfied by *auth.Repo.ListMembers. Kept
+// as a local interface so presence depends on a method, not the repo.
+type MemberLister interface {
+	ListMembers(ctx context.Context, communityID string) ([]auth.MemberRow, error)
+}
 
 type Handler struct {
 	Tracker     *Tracker
+	Members     MemberLister
 	CommunityID string
 	Log         *slog.Logger
 }
@@ -44,62 +53,59 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		UserID: id.User.ID, DisplayName: id.Membership.DisplayName, AvatarURL: id.Membership.AvatarURL,
 	})
 	cid := h.cid(r)
-	h.push(sse, cid)
+	h.push(r.Context(), sse, cid)
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ch:
-			h.push(sse, cid)
+			h.push(r.Context(), sse, cid)
 		case <-heartbeat.C:
 			h.Tracker.Touch(cid, Member{
 				UserID: id.User.ID, DisplayName: id.Membership.DisplayName, AvatarURL: id.Membership.AvatarURL,
 			})
-			h.push(sse, cid)
+			h.push(r.Context(), sse, cid)
 		}
 	}
 }
 
-func (h *Handler) push(sse *datastar.ServerSentEventGenerator, communityID string) {
-	members := h.Tracker.Members(communityID)
-	var sb strings.Builder
-	sb.WriteString(`<div id="presence-list"><p class="muted">Online · `)
-	sb.WriteString(itoa(len(members)))
-	sb.WriteString(`</p><ul>`)
-	for _, m := range members {
-		sb.WriteString(`<li>`)
-		sb.WriteString(escape(m.DisplayName))
-		sb.WriteString(`</li>`)
+// push renders the full roster — every approved member, split into
+// online (present in the Tracker) and offline groups — and morphs it
+// into #presence-list. The roster carries each member's membership id +
+// role so the right-click UserContextMenu can drive moderation actions.
+func (h *Handler) push(ctx context.Context, sse *datastar.ServerSentEventGenerator, communityID string) {
+	online := map[string]bool{}
+	for _, m := range h.Tracker.Members(communityID) {
+		online[m.UserID] = true
 	}
-	sb.WriteString(`</ul></div>`)
-	_ = sse.PatchElements(sb.String(),
-		datastar.WithSelector("#presence-list"),
-		datastar.WithModeReplace())
-}
 
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+	var rows []auth.MemberRow
+	if h.Members != nil {
+		var err error
+		rows, err = h.Members.ListMembers(ctx, communityID)
+		if err != nil && h.Log != nil {
+			h.Log.Error("presence roster list", "err", err)
+		}
 	}
-	negative := n < 0
-	if negative {
-		n = -n
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if negative {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
-}
 
-func escape(s string) string {
-	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(s)
+	now := time.Now()
+	var on, off []webtempl.RosterMember
+	for _, mr := range rows {
+		rm := webtempl.RosterMember{
+			UserID:       mr.UserID,
+			MembershipID: mr.ID,
+			DisplayName:  mr.DisplayName,
+			AvatarURL:    mr.AvatarURL,
+			Role:         string(mr.Role),
+			Online:       online[mr.UserID],
+			Banned:       mr.IsBanned(now),
+		}
+		if rm.Online {
+			on = append(on, rm)
+		} else {
+			off = append(off, rm)
+		}
+	}
+	_ = sse.PatchElementTempl(webtempl.RosterPanel(on, off))
 }

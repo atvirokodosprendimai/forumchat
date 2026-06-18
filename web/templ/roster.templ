@@ -1,0 +1,98 @@
+package templ
+
+// RosterMember is one entry in the chat presence sidebar. Built in
+// presence.Handler from auth.Repo.ListMembers (carries the membership
+// id + role the context-menu's moderation actions need) overlaid with
+// the in-process presence Tracker's online set.
+type RosterMember struct {
+	UserID       string
+	MembershipID string
+	DisplayName  string
+	AvatarURL    string
+	Role         string // member|moderator|admin
+	Online       bool
+	Banned       bool
+}
+
+// RosterPanel renders the full community roster (online + offline) into
+// #presence-list. presence.Handler patches this on every Tracker change
+// via PatchElementTempl (default outer-morph by id). Each row carries
+// data-* identity and dispatches the shared fc:user-menu CustomEvent on
+// right-click (data-on:contextmenu) and from the ⋮ touch button — one
+// floating UserContextMenu consumes it (see usermenu.templ, CLAUDE.md
+// §4.12 EDA).
+templ RosterPanel(online []RosterMember, offline []RosterMember) {
+	<div id="presence-list">
+		<p class="roster-group muted">Online · { itoaNotif(len(online)) }</p>
+		<ul class="roster">
+			for _, m := range online {
+				@RosterRow(m)
+			}
+		</ul>
+		if len(offline) > 0 {
+			<p class="roster-group muted">Offline · { itoaNotif(len(offline)) }</p>
+			<ul class="roster roster-offline">
+				for _, m := range offline {
+					@RosterRow(m)
+				}
+			</ul>
+		}
+	</div>
+}
+
+templ RosterRow(m RosterMember) {
+	<li class="roster-row"
+		data-user-id={ m.UserID }
+		data-membership-id={ m.MembershipID }
+		data-name={ m.DisplayName }
+		data-role={ m.Role }
+		data-online={ boolDigit(m.Online) }
+		data-banned={ boolDigit(m.Banned) }
+		data-on:contextmenu__prevent={ userMenuDispatch("evt.clientX", "evt.clientY") }>
+		<span class="roster-avatar" style={ "background:" + mentionColor(m.UserID) }>
+			{ mentionInitial(m.DisplayName) }
+			if m.Online {
+				<span class="roster-dot" aria-label="online"></span>
+			}
+		</span>
+		<span class="roster-name">{ m.DisplayName }</span>
+		if m.Role == "admin" {
+			<span class="roster-badge" title="Admin">★</span>
+		} else if m.Role == "moderator" {
+			<span class="roster-badge" title="Moderator">⚑</span>
+		}
+		<button type="button" class="roster-menu-btn" aria-label="Actions"
+			data-on:click__stop={ rosterMenuBtnDispatch() }>⋮</button>
+	</li>
+}
+
+// userMenuDispatch builds the JS that fires the fc:user-menu CustomEvent
+// from the row element (which carries the data-* identity). xExpr/yExpr
+// are JS expressions for the popup anchor — cursor for right-click, the
+// button's rect for the touch button.
+func userMenuDispatch(xExpr, yExpr string) string {
+	return "el.dispatchEvent(new CustomEvent('fc:user-menu',{bubbles:true,detail:{" +
+		"id:el.dataset.userId,mid:el.dataset.membershipId,name:el.dataset.name," +
+		"role:el.dataset.role,online:el.dataset.online==='1',banned:el.dataset.banned==='1'," +
+		"x:" + xExpr + ",y:" + yExpr + "}}))"
+}
+
+// rosterMenuBtnDispatch is the ⋮ touch-button handler: climb to the row
+// li (the element holding the data-* identity), anchor the popup at the
+// button's bottom-left, and dispatch the same event.
+func rosterMenuBtnDispatch() string {
+	return "const li=el.closest('.roster-row');const r=el.getBoundingClientRect();" +
+		"li.dispatchEvent(new CustomEvent('fc:user-menu',{bubbles:true,detail:{" +
+		"id:li.dataset.userId,mid:li.dataset.membershipId,name:li.dataset.name," +
+		"role:li.dataset.role,online:li.dataset.online==='1',banned:li.dataset.banned==='1'," +
+		"x:r.left,y:r.bottom}}))"
+}
+
+// boolDigit renders a bool as "1"/"0" for a data-* attribute the menu
+// dispatch coerces back to a JS boolean.
+func boolDigit(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}

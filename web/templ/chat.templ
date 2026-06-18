@@ -105,7 +105,7 @@ templ ChatPage(d ChatPageData) {
 				@ChatComposer(d.Viewer.CommunitySlug)
 			</div>
 			<aside id="presence" class="presence" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/presence/stream', {openWhenHidden: true})" }>
-				<h3>Online</h3>
+				<h3>Members</h3>
 				<div id="presence-list">
 					<div class="loading-row" aria-live="polite">
 						<span class="dot-spinner" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -135,6 +135,7 @@ templ ChatPage(d ChatPageData) {
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
+		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID)
 		if d.IsMod {
 			@ExtractDialog(d.Viewer.CommunitySlug, d.Projects)
 		}
