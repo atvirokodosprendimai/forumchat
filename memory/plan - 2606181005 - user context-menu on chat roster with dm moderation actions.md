@@ -83,15 +83,16 @@ status: active
 5. [x] Test `internal/auth/blocks_test.go` — block/unblock/list round-trip, idempotency, directionality, self-block no-op. The `loadRecentFor` filter itself is 3 lines covered by reasoning.
    - => `chat.Handler.Roster` (RosterNotifier) wired post-hoc in main (tracker built after chatHandler); routes under `RequireApproved`.
 
-### Phase 5 - Report user (to mods) - status: open
+### Phase 5 - Report user (to mods) - status: completed
 
-> Visible result: report a user with a reason → lands in an admin/mod reports queue.
+> Visible result: report a user with a reason → lands in the /admin reports queue.
 
-1. [ ] Migration: `user_reports(id, reporter_id, reported_user_id, community_id, reason, context_ref, status DEFAULT 'open', created_at)`
-2. [ ] Repo: insert + `ListOpenReports(communityID)`
-3. [ ] Menu Report → small reason modal (real body signal `report_reason`) → `@post('/c/{slug}/report?user=' + $_ctx_user_id)`
-4. [ ] Notify mods (`chat.Bus`/NATS ping) + surface open reports in `/admin` (reuse admin templ list pattern)
-5. [ ] Test: report row created with status `open`; appears in `ListOpenReports`
+1. [x] Migration `00031_user_reports.sql` — `user_reports(id, reporter_id, reported_user_id, community_id, reason, context_ref, status DEFAULT 'open', created_at)` + index `(community_id, status, created_at)`
+2. [x] `auth.Repo.CreateUserReport` / `ListOpenReports` (LEFT JOIN memberships for reporter+reported display names) / `ResolveUserReport`
+3. [x] Menu "Report to moderators" (member-level, self-excluded) → `ReportDialog` modal (`report_reason` body signal) → `chat.Handler.PostReport` (`/c/{slug}/report?user=`); confirms via the global `_pm_toast_text` toast and clears the signal
+4. [x] Surfaced in `/admin` — new `AdminReports` section + `AdminReport` view struct + `reportsToAdminReports` adapter; `admin.PostResolveReport` (`/admin/report/resolve?id=`) drops it from the open queue; included in `refreshAdminLists`
+   - => **Realtime mod ping skipped** — reports appear in `/admin` on load/refresh (no live NATS/Bus push). Sufficient for the queue; add a badge/ping later if needed.
+5. [x] Test `internal/auth/reports_test.go` — create → appears open with resolved names → resolve → empty. `go test ./internal/...` all green.
 
 ### Phase 6 - Polish, a11y, smoke - status: open
 

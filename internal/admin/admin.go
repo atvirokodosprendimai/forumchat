@@ -96,6 +96,11 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load invites: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	reports, err := h.Repo.ListOpenReports(r.Context(), h.cid(r))
+	if err != nil {
+		http.Error(w, "load reports: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	now := time.Now()
 	isPublic := false
@@ -108,6 +113,7 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		Pending:  memberRowsToAdminMembers(pending, now),
 		Members:  memberRowsToAdminMembers(members, now),
 		Invites:  invitesToAdminInvites(invites),
+		Reports:  reportsToAdminReports(reports),
 	}
 	_ = webtempl.AdminPage(data).Render(r.Context(), w)
 }
@@ -344,6 +350,24 @@ func (h *Handler) refreshAdminLists(w http.ResponseWriter, r *http.Request) {
 	if members, err := h.Repo.ListMembers(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminMembers(h.cslug(r), memberRowsToAdminMembers(members, now)))
 	}
+	if reports, err := h.Repo.ListOpenReports(r.Context(), h.cid(r)); err == nil {
+		_ = sse.PatchElementTempl(webtempl.AdminReports(h.cslug(r), reportsToAdminReports(reports)))
+	}
+}
+
+// PostResolveReport marks a moderation report resolved, dropping it from
+// the open queue. Admin-gated by the route.
+func (h *Handler) PostResolveReport(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.ResolveUserReport(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.refreshAdminLists(w, r)
 }
 
 // bumpRoster re-renders every open chat roster so role/ban changes show
@@ -638,6 +662,20 @@ func memberRowsToAdminMembers(rows []auth.MemberRow, now time.Time) []webtempl.A
 			CreatedAt:    r.CreatedAt,
 		}
 		out = append(out, am)
+	}
+	return out
+}
+
+func reportsToAdminReports(rows []auth.UserReport) []webtempl.AdminReport {
+	out := make([]webtempl.AdminReport, 0, len(rows))
+	for _, rep := range rows {
+		out = append(out, webtempl.AdminReport{
+			ID:           rep.ID,
+			ReporterName: rep.ReporterName,
+			ReportedName: rep.ReportedName,
+			Reason:       rep.Reason,
+			When:         rep.CreatedAt.Local().Format("15:04 Jan 2"),
+		})
 	}
 	return out
 }

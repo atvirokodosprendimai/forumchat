@@ -3792,3 +3792,8 @@ hr {
 .ucm-sep { height: 1px; background: var(--border-subtle); margin: .2rem .3rem; }
 .ucm-check { display: flex; align-items: center; gap: .45rem; font-size: .9rem; margin: .15rem 0; }
 .ucm-check input { width: auto; }
+.report-reason {
+  margin-top: .35rem; padding: .4rem .6rem;
+  background: var(--surface-alt); border-radius: var(--radius-sm);
+  font-size: .9rem; white-space: pre-wrap;
+}

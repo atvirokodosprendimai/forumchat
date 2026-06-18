@@ -553,6 +553,7 @@ func run() error {
 		r.Post("/chat/extract", projectsHandler.PostExtractFromChat)
 		r.Post("/block", chatHandler.PostBlock)
 		r.Post("/unblock", chatHandler.PostUnblock)
+		r.Post("/report", chatHandler.PostReport)
 
 		r.Get("/presence/stream", presenceHandler.GetStream)
 
@@ -622,6 +623,7 @@ func run() error {
 			r.Post("/admin/unban", adminHandler.PostUnban)
 			r.Post("/admin/remove", adminHandler.PostRemoveMember)
 			r.Post("/admin/set-role", adminHandler.PostSetRole)
+			r.Post("/admin/report/resolve", adminHandler.PostResolveReport)
 			r.Post("/admin/invite", adminHandler.PostInvite)
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
 			r.Post("/admin/add-member", adminHandler.PostAddMember)

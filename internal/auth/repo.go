@@ -653,6 +653,67 @@ func (r *Repo) ListBlocked(ctx context.Context, blockerID, communityID string) (
 	return out, rows.Err()
 }
 
+// --- user reports (moderation queue) ---
+
+// UserReport is one row of the moderation queue, decorated with the
+// reporter's and reported user's community display names for the admin UI.
+type UserReport struct {
+	ID             string
+	ReporterID     string
+	ReporterName   string
+	ReportedUserID string
+	ReportedName   string
+	Reason         string
+	ContextRef     string
+	Status         string
+	CreatedAt      time.Time
+}
+
+// CreateUserReport files a report. Caller supplies the id (uuid).
+func (r *Repo) CreateUserReport(ctx context.Context, id, reporterID, reportedUserID, communityID, reason, contextRef string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO user_reports (id, reporter_id, reported_user_id, community_id, reason, context_ref, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'open', ?)`,
+		id, reporterID, reportedUserID, communityID, reason, contextRef, time.Now().Unix())
+	return err
+}
+
+// ListOpenReports returns open reports for the community, newest first,
+// with display names resolved from memberships in the same community.
+func (r *Repo) ListOpenReports(ctx context.Context, communityID string) ([]UserReport, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT ur.id, ur.reporter_id, COALESCE(rm.display_name, ''),
+		       ur.reported_user_id, COALESCE(tm.display_name, ''),
+		       ur.reason, ur.context_ref, ur.status, ur.created_at
+		FROM user_reports ur
+		LEFT JOIN memberships rm ON rm.user_id = ur.reporter_id      AND rm.community_id = ur.community_id
+		LEFT JOIN memberships tm ON tm.user_id = ur.reported_user_id AND tm.community_id = ur.community_id
+		WHERE ur.community_id = ? AND ur.status = 'open'
+		ORDER BY ur.created_at DESC`, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UserReport
+	for rows.Next() {
+		var ur UserReport
+		var created int64
+		if err := rows.Scan(&ur.ID, &ur.ReporterID, &ur.ReporterName,
+			&ur.ReportedUserID, &ur.ReportedName, &ur.Reason, &ur.ContextRef, &ur.Status, &created); err != nil {
+			return nil, err
+		}
+		ur.CreatedAt = time.Unix(created, 0)
+		out = append(out, ur)
+	}
+	return out, rows.Err()
+}
+
+// ResolveUserReport marks a report resolved.
+func (r *Repo) ResolveUserReport(ctx context.Context, id string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE user_reports SET status = 'resolved' WHERE id = ?`, id)
+	return err
+}
+
 // CountAdmins returns the number of admin-role memberships in the
 // community. Used as a last-admin-standing guard before remove/demote
 // so an op can't accidentally lock everyone out.

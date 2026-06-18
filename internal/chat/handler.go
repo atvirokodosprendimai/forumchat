@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
@@ -826,6 +827,42 @@ func (h *Handler) setBlock(w http.ResponseWriter, r *http.Request, block bool) {
 	if h.Roster != nil {
 		h.Roster.Bump(cid)
 	}
+}
+
+type reportSignals struct {
+	Reason string `json:"report_reason"`
+}
+
+// PostReport files a moderation report against the target user (query
+// param `user`) with the `report_reason` signal. Any approved member can
+// report; mods see open reports in /admin. Confirms via the global toast.
+func (h *Handler) PostReport(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in reportSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	target := r.URL.Query().Get("user")
+	reason := strings.TrimSpace(in.Reason)
+	if target == "" || target == id.User.ID || reason == "" {
+		http.Error(w, "bad report", http.StatusBadRequest)
+		return
+	}
+	if h.AuthRepo == nil {
+		http.Error(w, "reporting unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if err := h.AuthRepo.CreateUserReport(r.Context(), uuid.NewString(), id.User.ID, target, h.cid(r.Context()), reason, ""); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"report_reason":"","_ctx_report_open":false,"_pm_toast_text":"Thanks — moderators have been notified","_pm_toast_href":""}`))
 }
 
 // MentionLimit caps how many suggestions the @mention popup shows. 7 was
