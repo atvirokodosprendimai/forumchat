@@ -43,10 +43,13 @@ Goal: schema + backfill land, existing single-channel chat keeps working unchang
    - => `chat_reads` PK changed (user_id, community_id) → (user_id, channel_id); SQLite can't ALTER a PK, so the table is **rebuilt** (create-new + copy + drop + rename) rather than ADD COLUMN. Down rebuilds it back. created_by is **nullable** (FK ON DELETE SET NULL) so system-seeded #general has NULL creator.
    - => general channel ids generated in-SQL via `lower(hex(randomblob(16)))` (not uuid format — TEXT PK, format irrelevant).
    - => verified: migration chain applies clean (auth package tests migrate full chain green).
-2. [ ] Add channel types + read queries to `internal/chat/chat.go`
+2. [x] Add channel types + read queries to `internal/chat/chat.go`
    - `type Channel struct{ ID, CommunityID, Slug, Name, Topic string; Position int; IsDefault bool; ArchivedAt *time.Time; ... }`.
    - `Repo.ListChannels(ctx, communityID string, includeArchived bool) ([]Channel, error)` ordered by `position`.
    - `Repo.ChannelBySlug(ctx, communityID, slug) (Channel, error)`; `Repo.DefaultChannel(ctx, communityID) (Channel, error)`.
+   - => also added `ChannelByID` + `EnsureDefaultChannel` (idempotent #general creator) + shared `scanChannel`.
+   - => wired `chatRepo.EnsureDefaultChannel(bootCommunity.ID)` into `cmd/app/main.go` boot (next to rooms seed). New communities created via UI must also call it (Phase 2/handler).
+   - => build green.
 3. [ ] Thread `channelID` through existing read/write repo + service methods
    - `Repo.Recent/Before/MarkRead/ReadersSince` key on `channel_id` (keep `community_id` for auth).
    - `Service.Send/PostSystem` accept `ChannelID`; reject archived/foreign-community channel.

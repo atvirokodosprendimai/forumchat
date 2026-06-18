@@ -104,9 +104,137 @@ func MIMEKind(mime string) string {
 	return "other"
 }
 
+// Channel is one named text channel within a community's chat. All
+// channels are public — every member reads + writes every non-archived
+// channel; there is no membership table. IsDefault marks the
+// undeletable #general. ArchivedAt != nil hides it from the switcher and
+// makes it read-only.
+type Channel struct {
+	ID          string
+	CommunityID string
+	Slug        string
+	Name        string
+	Topic       string
+	Position    int
+	IsDefault   bool
+	ArchivedAt  *time.Time
+	CreatedBy   *string
+	CreatedAt   time.Time
+}
+
+func (c Channel) IsArchived() bool { return c.ArchivedAt != nil }
+
 type Repo struct{ DB *sql.DB }
 
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
+
+// ListChannels returns a community's channels ordered by position.
+// Archived channels are included only when includeArchived is true.
+func (r *Repo) ListChannels(ctx context.Context, communityID string, includeArchived bool) ([]Channel, error) {
+	q := `
+		SELECT id, community_id, slug, name, topic, position, is_default, archived_at, created_by, created_at
+		FROM chat_channels
+		WHERE community_id = ?`
+	if !includeArchived {
+		q += ` AND archived_at IS NULL`
+	}
+	q += ` ORDER BY position, created_at`
+	rows, err := r.DB.QueryContext(ctx, q, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Channel
+	for rows.Next() {
+		c, err := scanChannel(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ChannelBySlug resolves one channel within a community. Returns
+// sql.ErrNoRows when the slug is unknown.
+func (r *Repo) ChannelBySlug(ctx context.Context, communityID, slug string) (Channel, error) {
+	row := r.DB.QueryRowContext(ctx, `
+		SELECT id, community_id, slug, name, topic, position, is_default, archived_at, created_by, created_at
+		FROM chat_channels WHERE community_id = ? AND slug = ?`, communityID, slug)
+	return scanChannel(row)
+}
+
+// ChannelByID resolves one channel by primary key.
+func (r *Repo) ChannelByID(ctx context.Context, id string) (Channel, error) {
+	row := r.DB.QueryRowContext(ctx, `
+		SELECT id, community_id, slug, name, topic, position, is_default, archived_at, created_by, created_at
+		FROM chat_channels WHERE id = ?`, id)
+	return scanChannel(row)
+}
+
+// DefaultChannel returns the community's undeletable #general channel.
+func (r *Repo) DefaultChannel(ctx context.Context, communityID string) (Channel, error) {
+	row := r.DB.QueryRowContext(ctx, `
+		SELECT id, community_id, slug, name, topic, position, is_default, archived_at, created_by, created_at
+		FROM chat_channels WHERE community_id = ? AND is_default = 1`, communityID)
+	return scanChannel(row)
+}
+
+// EnsureDefaultChannel creates the #general channel for a community if it
+// doesn't already have one. Idempotent — safe to call on every boot and
+// after creating a new community. Returns the default channel.
+func (r *Repo) EnsureDefaultChannel(ctx context.Context, communityID string) (Channel, error) {
+	if c, err := r.DefaultChannel(ctx, communityID); err == nil {
+		return c, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return Channel{}, err
+	}
+	c := Channel{
+		ID:          uuid.NewString(),
+		CommunityID: communityID,
+		Slug:        "general",
+		Name:        "general",
+		Position:    0,
+		IsDefault:   true,
+		CreatedAt:   time.Now(),
+	}
+	if _, err := r.DB.ExecContext(ctx, `
+		INSERT INTO chat_channels (id, community_id, slug, name, topic, position, is_default, created_by, created_at)
+		VALUES (?, ?, ?, ?, '', ?, 1, NULL, ?)`,
+		c.ID, c.CommunityID, c.Slug, c.Name, c.Position, c.CreatedAt.Unix()); err != nil {
+		return Channel{}, err
+	}
+	return c, nil
+}
+
+// channelScanner is the shared row shape for *sql.Row and *sql.Rows.
+type channelScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanChannel(s channelScanner) (Channel, error) {
+	var c Channel
+	var topic sql.NullString
+	var archived sql.NullInt64
+	var createdBy sql.NullString
+	var isDefault int
+	var created int64
+	if err := s.Scan(&c.ID, &c.CommunityID, &c.Slug, &c.Name, &topic, &c.Position,
+		&isDefault, &archived, &createdBy, &created); err != nil {
+		return Channel{}, err
+	}
+	c.Topic = topic.String
+	c.IsDefault = isDefault == 1
+	if archived.Valid {
+		t := time.Unix(archived.Int64, 0)
+		c.ArchivedAt = &t
+	}
+	if createdBy.Valid {
+		c.CreatedBy = &createdBy.String
+	}
+	c.CreatedAt = time.Unix(created, 0)
+	return c, nil
+}
 
 func (r *Repo) Insert(ctx context.Context, m Message) error {
 	var authorID, refThread, replyTo sql.NullString

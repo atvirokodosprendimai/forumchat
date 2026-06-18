@@ -522,6 +522,12 @@ func run() error {
 	if err := roomsRepo.EnsureSeeded(ctx, bootCommunity.ID); err != nil {
 		log.Warn("rooms seed bootstrap community failed", "err", err)
 	}
+	// Ensure the bootstrap community has its undeletable #general chat
+	// channel (migration seeds existing communities; this covers a
+	// freshly-created bootstrap community).
+	if _, err := chatRepo.EnsureDefaultChannel(ctx, bootCommunity.ID); err != nil {
+		log.Warn("ensure default chat channel failed", "err", err)
+	}
 
 	// Per-community JOIN landing — LoadCommunity runs so the templ can render
 	// the community name, but RequireMember does NOT (this is the path that
