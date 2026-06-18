@@ -34,13 +34,15 @@ status: active
 
 Goal: schema + backfill land, existing single-channel chat keeps working unchanged (lands on `#general`). No new UI yet. Verifiable: app boots on an existing DB, chat works, tests pass.
 
-1. [ ] Write migration `00032_chat_channels.sql`
+1. [x] Write migration `00032_chat_channels.sql`
    - `chat_channels(id, community_id FK ON DELETE CASCADE, slug, name, topic, position INT, is_default INT NOT NULL DEFAULT 0, archived_at INT NULL, created_by FK users, created_at INT NOT NULL)`, `UNIQUE(community_id, slug)`.
    - `ALTER TABLE chat_messages ADD COLUMN channel_id TEXT REFERENCES chat_channels(id) ON DELETE CASCADE`.
-   - `ALTER TABLE chat_reads ADD COLUMN channel_id TEXT`.
    - Backfill (FK order §8 — insert channels BEFORE updates): one `general` per community (`is_default=1, position=0, slug='general', name='general'`), then `UPDATE chat_messages / chat_reads SET channel_id = <that general's id>` per community.
    - `CREATE INDEX idx_chat_messages_channel_created ON chat_messages(channel_id, created_at)`.
    - goose down: drop index, columns, table.
+   - => `chat_reads` PK changed (user_id, community_id) → (user_id, channel_id); SQLite can't ALTER a PK, so the table is **rebuilt** (create-new + copy + drop + rename) rather than ADD COLUMN. Down rebuilds it back. created_by is **nullable** (FK ON DELETE SET NULL) so system-seeded #general has NULL creator.
+   - => general channel ids generated in-SQL via `lower(hex(randomblob(16)))` (not uuid format — TEXT PK, format irrelevant).
+   - => verified: migration chain applies clean (auth package tests migrate full chain green).
 2. [ ] Add channel types + read queries to `internal/chat/chat.go`
    - `type Channel struct{ ID, CommunityID, Slug, Name, Topic string; Position int; IsDefault bool; ArchivedAt *time.Time; ... }`.
    - `Repo.ListChannels(ctx, communityID string, includeArchived bool) ([]Channel, error)` ordered by `position`.
