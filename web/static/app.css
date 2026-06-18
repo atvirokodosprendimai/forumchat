@@ -376,6 +376,7 @@ button.link:hover, .link-button:hover {
 
 /* ---- Channel switcher (tabs above #messages) ---- */
 .chat-head { flex: 0 0 auto; margin-bottom: 0.6rem; }
+.chat-community { margin: 0 0 0.5rem; font-size: 1.15rem; line-height: 1.2; }
 .chat-switcher {
   display: flex; align-items: center; gap: 0.5rem;
   flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin;

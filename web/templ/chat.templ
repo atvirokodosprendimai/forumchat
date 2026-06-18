@@ -123,6 +123,7 @@ templ ChatPage(d ChatPageData) {
 		<section class="chat-layout">
 			<div>
 				<div class="chat-head">
+					<h1 class="chat-community">{ d.Viewer.CommunityName }</h1>
 					@ChannelSwitcher(d.Viewer.CommunitySlug, d.Channels, d.ActiveID, d.CanManage)
 					if d.ActiveTopic != "" {
 						<p class="chat-topic">{ d.ActiveTopic }</p>
