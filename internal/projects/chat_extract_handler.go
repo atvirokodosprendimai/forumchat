@@ -163,7 +163,7 @@ func (h *Handler) PostExtractFromChat(w http.ResponseWriter, r *http.Request) {
 	// broadcast path; this in-process Bus.Broadcast is enough for the
 	// extracting tab's siblings.)
 	if h.ChatBus != nil {
-		h.ChatBus.Broadcast()
+		h.ChatBus.Broadcast("")
 	}
 
 	// Close the modal + clear signals. For issue mode, redirect the

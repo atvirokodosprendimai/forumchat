@@ -228,7 +228,7 @@ func (w *ChatDigestWorker) postDigest(ctx context.Context, c communityRow, proje
 	if err := w.ChatRepo.Insert(ctx, msg); err != nil {
 		return err
 	}
-	w.ChatBus.Broadcast()
+	w.ChatBus.Broadcast("")
 	return nil
 }
 

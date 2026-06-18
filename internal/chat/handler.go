@@ -244,14 +244,17 @@ func (h *Handler) Welcome(ctx context.Context, communityID, displayName string) 
 		h.Log.Warn("welcome system msg", "err", err)
 		return
 	}
+	// Welcome lands in #general (PostSystem → Insert default-channel
+	// fallback). Broadcast empty channel id → every open stream refreshes
+	// its active channel safely.
 	if h.Bus != nil {
-		h.Bus.Broadcast()
+		h.Bus.Broadcast("")
 	}
 	if h.NewMsgBus != nil {
-		h.NewMsgBus.Broadcast()
+		h.NewMsgBus.Broadcast("")
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ChatSubject(communityID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatSubject(communityID), []byte(""))
 		_ = h.NATS.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
 	}
 }
@@ -316,12 +319,12 @@ func htmlEscape(s string) string {
 // NATS (other processes). Either may be down; the other still works.
 // Used for edits, deletes, read-receipt updates — anything where the
 // chat page should re-render but nobody should hear a fresh ping.
-func (h *Handler) broadcast(ctx context.Context) {
+func (h *Handler) broadcast(ctx context.Context, channelID string) {
 	if h.Bus != nil {
-		h.Bus.Broadcast()
+		h.Bus.Broadcast(channelID)
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(ctx)), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(ctx)), []byte(channelID))
 	}
 }
 
@@ -330,10 +333,10 @@ func (h *Handler) broadcast(ctx context.Context) {
 // listens on. Called from PostSend, Welcome, the forum bridge —
 // anywhere a brand-new chat row appears. NOT from PostDelete or
 // PostMarkRead.
-func (h *Handler) broadcastNewMsg(ctx context.Context) {
-	h.broadcast(ctx)
+func (h *Handler) broadcastNewMsg(ctx context.Context, channelID string) {
+	h.broadcast(ctx, channelID)
 	if h.NewMsgBus != nil {
-		h.NewMsgBus.Broadcast()
+		h.NewMsgBus.Broadcast(channelID)
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
 		_ = h.NATS.Publish(natsx.ChatNewSubject(h.cid(ctx)), []byte("new"))
@@ -450,7 +453,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	// send starts with a fresh empty stage.
 	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
 
-	h.broadcastNewMsg(r.Context())
+	h.broadcastNewMsg(r.Context(), ch.ID)
 
 	// Fire-and-forget push notifications. Runs in the background so a
 	// slow push service doesn't make the chat send look stalled to the
@@ -597,7 +600,7 @@ func (h *Handler) PostMarkRead(w http.ResponseWriter, r *http.Request) {
 	if !h.shouldBroadcastRead(ch.ID, id.User.ID, time.Now()) {
 		return
 	}
-	h.broadcast(r.Context())
+	h.broadcast(r.Context(), ch.ID)
 }
 
 // shouldBroadcastRead returns true at most once every 2s per (community,
@@ -722,16 +725,27 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for {
+		var changed string
 		select {
 		case <-r.Context().Done():
 			return
-		case <-local:
-			// fall through to refresh
-		case _, ok := <-natsCh:
+		case changed = <-local:
+			// in-process bus carries the changed channel id
+		case msg, ok := <-natsCh:
 			if !ok {
 				natsCh = nil
 				continue
 			}
+			changed = string(msg.Data)
+		}
+		// A different channel changed: light its switcher unread dot and
+		// leave this viewer's #messages untouched. Empty changed id means
+		// "unknown / bridge" — fall through and refresh the active channel.
+		if changed != "" && changed != ch.ID {
+			if err := pushUnreadDot(sse, changed); err != nil {
+				return
+			}
+			continue
 		}
 		views, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID)
 		if err != nil {
@@ -741,6 +755,14 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// pushUnreadDot merges a single channel's unread flag into the client's
+// chat_unread map signal (Datastar deep-merges nested signal objects, so
+// other channels' dots are preserved). channelID is a DB-minted id
+// (uuid / hex), safe to inline without escaping.
+func pushUnreadDot(sse *datastar.ServerSentEventGenerator, channelID string) error {
+	return sse.PatchSignals([]byte(`{"chat_unread":{"` + channelID + `":true}}`))
 }
 
 // GetEventsStream is the lightweight cross-page chat-event SSE.
@@ -760,7 +782,10 @@ func (h *Handler) GetEventsStream(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := render.NewSSE(w, r)
 
-	var local <-chan struct{}
+	// The cross-page events stream is channel-agnostic — it pings on ANY
+	// new message regardless of which channel it landed in, so it ignores
+	// the channel id the bus carries.
+	var local <-chan string
 	var unsubscribe func()
 	if h.NewMsgBus != nil {
 		local, unsubscribe = h.NewMsgBus.Subscribe()
@@ -813,12 +838,13 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sse := render.NewSSE(w, r)
-	if ch, cerr := h.activeChannel(r.Context(), channelSlug(r)); cerr == nil {
+	ch, cerr := h.activeChannel(r.Context(), channelSlug(r))
+	if cerr == nil {
 		if views, lerr := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); lerr == nil {
 			_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 		}
 	}
-	h.broadcast(r.Context())
+	h.broadcast(r.Context(), ch.ID)
 }
 
 // PostBlock mutes the target user (query param `user`) for the current

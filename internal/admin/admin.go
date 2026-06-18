@@ -210,7 +210,7 @@ func (h *Handler) PostBan(w http.ResponseWriter, r *http.Request) {
 	}
 	// If any chat content was wiped, push a chat fan-out so open chat tabs refresh.
 	if opts.Chat && h.Chat != nil {
-		h.Chat.Bus.Broadcast()
+		h.Chat.Bus.Broadcast("")
 	}
 	h.bumpRoster(r)
 	h.refreshAdminLists(w, r)
@@ -269,7 +269,7 @@ func (h *Handler) PostRemoveMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if opts.Chat && h.Chat != nil {
-		h.Chat.Bus.Broadcast()
+		h.Chat.Bus.Broadcast("")
 	}
 	h.bumpRoster(r)
 	h.refreshAdminLists(w, r)

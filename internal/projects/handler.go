@@ -1331,7 +1331,7 @@ func (h *Handler) postShareCore(w http.ResponseWriter, r *http.Request, kind, em
 		http.Error(w, "post failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	h.ChatBus.Broadcast()
+	h.ChatBus.Broadcast("")
 
 	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals([]byte(`{"share_message":""}`))

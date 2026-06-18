@@ -218,7 +218,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 			h.Log.Error("post thread-announce", "err", err)
 		} else {
 			if h.ChatNewMsgBus != nil {
-				h.ChatNewMsgBus.Broadcast()
+				h.ChatNewMsgBus.Broadcast("")
 			}
 			if h.NATS != nil && h.NATS.IsConnected() {
 				// Two fan-outs: chat-page subscribers re-render via the
@@ -615,10 +615,10 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	// and ping cross-page event listeners so viewers on /forum etc
 	// also hear the new chat row.
 	if h.ChatBus != nil {
-		h.ChatBus.Broadcast()
+		h.ChatBus.Broadcast("")
 	}
 	if h.ChatNewMsgBus != nil {
-		h.ChatNewMsgBus.Broadcast()
+		h.ChatNewMsgBus.Broadcast("")
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
 		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))

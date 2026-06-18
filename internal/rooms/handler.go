@@ -750,7 +750,7 @@ func (h *Handler) PostShareToChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "post failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	h.ChatBus.Broadcast()
+	h.ChatBus.Broadcast("")
 	w.WriteHeader(http.StatusNoContent)
 }
 
