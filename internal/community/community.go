@@ -140,19 +140,26 @@ func (r *Repo) Create(ctx context.Context, slug, name string) (Community, error)
 var ErrSlugTaken = errors.New("community: slug already taken")
 
 // CommunityStat is one row of the /superadmin community roster: a community
-// plus its approved-member count.
+// plus a count of the heaviest content a delete would destroy. The counts
+// power the honest destructive-delete confirmation (see the super-admin
+// handler) — they are an indication of blast radius, NOT an exhaustive
+// inventory of every cascading table.
 type CommunityStat struct {
 	Community
-	MemberCount int
+	MemberCount  int
+	MessageCount int
+	ThreadCount  int
 }
 
-// ListAll returns every community with its approved-member count, newest
-// first. Drives the platform super-admin dashboard.
+// ListAll returns every community with its approved-member, chat-message and
+// thread counts, newest first. Drives the platform super-admin dashboard.
 func (r *Repo) ListAll(ctx context.Context) ([]CommunityStat, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT c.id, c.slug, c.name, COALESCE(c.is_public,0), c.created_at,
 		       (SELECT COUNT(*) FROM memberships mb
-		          WHERE mb.community_id = c.id AND mb.approved_at IS NOT NULL) AS member_count
+		          WHERE mb.community_id = c.id AND mb.approved_at IS NOT NULL) AS member_count,
+		       (SELECT COUNT(*) FROM chat_messages cm WHERE cm.community_id = c.id) AS message_count,
+		       (SELECT COUNT(*) FROM threads t WHERE t.community_id = c.id) AS thread_count
 		FROM communities c
 		ORDER BY c.created_at DESC`)
 	if err != nil {
@@ -165,7 +172,7 @@ func (r *Repo) ListAll(ctx context.Context) ([]CommunityStat, error) {
 		var created int64
 		var isPublic int
 		if err := rows.Scan(&row.Community.ID, &row.Community.Slug, &row.Community.Name,
-			&isPublic, &created, &row.MemberCount); err != nil {
+			&isPublic, &created, &row.MemberCount, &row.MessageCount, &row.ThreadCount); err != nil {
 			return nil, err
 		}
 		row.Community.IsPublic = isPublic != 0
@@ -175,11 +182,13 @@ func (r *Repo) ListAll(ctx context.Context) ([]CommunityStat, error) {
 	return out, rows.Err()
 }
 
-// Delete removes a community row. Foreign-key constraints (memberships,
-// channels, …) make this fail while dependent rows still exist, so in
-// practice only a truly empty community can be deleted — a safe default
-// that prevents a super-admin from nuking an active community by accident.
-// The raw DB error is surfaced so the handler can show it.
+// Delete removes a community row. ⚠️ This is DESTRUCTIVE: most community-owned
+// tables (memberships, invites, chat_messages, threads, channels, rooms,
+// projects, todos, bookmarks, mailbox rows, …) declare
+// `REFERENCES communities(id) ON DELETE CASCADE`, so deleting the community
+// cascades and erases that data too. It does NOT "fail safely" when content
+// exists. The caller (super-admin handler) is responsible for confirmation
+// (slug match), surfacing the blast radius, and auditing.
 func (r *Repo) Delete(ctx context.Context, id string) error {
 	_, err := r.DB.ExecContext(ctx, `DELETE FROM communities WHERE id = ?`, id)
 	return err

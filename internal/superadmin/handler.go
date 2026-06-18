@@ -75,12 +75,14 @@ func toSACommunities(in []community.CommunityStat) []webtempl.SACommunity {
 	out := make([]webtempl.SACommunity, 0, len(in))
 	for _, c := range in {
 		out = append(out, webtempl.SACommunity{
-			ID:          c.ID,
-			Slug:        c.Slug,
-			Name:        c.Name,
-			IsPublic:    c.IsPublic,
-			MemberCount: c.MemberCount,
-			CreatedAt:   c.CreatedAt.Format(dateFmt),
+			ID:           c.ID,
+			Slug:         c.Slug,
+			Name:         c.Name,
+			IsPublic:     c.IsPublic,
+			MemberCount:  c.MemberCount,
+			MessageCount: c.MessageCount,
+			ThreadCount:  c.ThreadCount,
+			CreatedAt:    c.CreatedAt.Format(dateFmt),
 		})
 	}
 	return out
@@ -158,27 +160,52 @@ func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
 	_ = sse.Redirect("/superadmin")
 }
 
-type cidSignals struct {
-	CID string `json:"sa_cid"`
+type deleteSignals struct {
+	CID         string `json:"sa_cid"`
+	ConfirmSlug string `json:"sa_confirm_slug"`
 }
 
-// PostDeleteCommunity removes a community. Foreign-key constraints make this
-// succeed only for an empty community; otherwise the DB error is surfaced.
+// PostDeleteCommunity permanently deletes a community AND cascades its
+// content (see community.Repo.Delete — this is destructive, not a safe
+// no-op). To prevent accidental nukes it requires the caller to type the
+// community's slug back: the delete proceeds only when sa_confirm_slug
+// exactly matches the target community's slug. The action is audit-logged.
 func (h *Handler) PostDeleteCommunity(w http.ResponseWriter, r *http.Request) {
-	var in cidSignals
+	var in deleteSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "bad signals: "+err.Error()))
 		return
 	}
 	sse := render.NewSSE(w, r)
-	if strings.TrimSpace(in.CID) == "" {
+	cid := strings.TrimSpace(in.CID)
+	if cid == "" {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No community selected"))
 		return
 	}
-	if err := h.Communities.Delete(r.Context(), in.CID); err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Delete refused — community still has members or content: "+err.Error()))
+	c, err := h.Communities.ByID(r.Context(), cid)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No such community"))
 		return
+	}
+	// Server-side guard — never trust the client prompt. The typed slug must
+	// match exactly, or we refuse without touching the database.
+	if strings.TrimSpace(in.ConfirmSlug) != c.Slug {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result",
+			"Delete cancelled — the typed slug did not match \""+c.Slug+"\". Nothing was deleted."))
+		return
+	}
+	if err := h.Communities.Delete(r.Context(), cid); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Delete failed: "+err.Error()))
+		return
+	}
+	actor := "unknown"
+	if id, ok := auth.FromContext(r.Context()); ok {
+		actor = id.User.Email
+	}
+	if h.Log != nil {
+		h.Log.Warn("super-admin deleted community (cascaded)",
+			"actor", actor, "community_id", cid, "slug", c.Slug, "name", c.Name)
 	}
 	_ = sse.Redirect("/superadmin")
 }

@@ -595,10 +595,21 @@ allowlist that grants god-mode across every community:
   write it back to the DB.
 - Global surface: `auth.RequireSuperAdmin` gates `/superadmin`
   (`internal/superadmin`): list all communities (each links to its existing
-  `/admin`), create/delete a community, list all users, disable/enable an
-  account (`users.status` — `Loader` signs out non-active users). Per-community
-  admin still happens in each community's own `/admin`; the super-admin just
-  reaches it via bypass #2. A super-admin can't disable their own account.
+  `/admin`), create a community, **delete** a community, list all users,
+  disable/enable an account (`users.status` — `Loader` signs out non-active
+  users). Per-community admin still happens in each community's own `/admin`;
+  the super-admin just reaches it via bypass #2. A super-admin can't disable
+  their own account.
+- **Delete is destructive, NOT FK-safe.** Most community-owned tables declare
+  `REFERENCES communities(id) ON DELETE CASCADE` (memberships, chat_messages,
+  threads, channels, invites, rooms, projects, todos, bookmarks, mailbox …),
+  so `community.Repo.Delete` cascades and erases that data — it does **not**
+  fail when content exists. (Original code wrongly assumed FK RESTRICT; caught
+  by adversarial review.) The handler guards it: `PostDeleteCommunity` requires
+  the caller to type the slug back (`sa_confirm_slug` must equal the
+  community's slug, re-checked server-side) and audit-logs the deletion. The
+  dashboard shows member/message/thread counts as blast-radius. Regression
+  tests in `internal/superadmin/handler_test.go` cover both branches.
 - Note: the **pre-existing** `PostRegisterAsAdmin` calls `commitSession`
   *after* `render.NewSSE` (handlers.go), so its login cookie is dropped per
   §4.4 — unrelated to super-admin, but don't copy that ordering.
