@@ -253,6 +253,7 @@ func run() error {
 		Svc:           svc,
 		Chat:          chatHandler,
 		Communities:   cRepo,
+		Roster:        presenceTracker,
 		Mail:          mailer,
 		BaseURL:       cfg.BaseURL,
 		CommunityID:   bootCommunity.ID,
@@ -615,6 +616,7 @@ func run() error {
 			r.Post("/admin/ban", adminHandler.PostBan)
 			r.Post("/admin/unban", adminHandler.PostUnban)
 			r.Post("/admin/remove", adminHandler.PostRemoveMember)
+			r.Post("/admin/set-role", adminHandler.PostSetRole)
 			r.Post("/admin/invite", adminHandler.PostInvite)
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
 			r.Post("/admin/add-member", adminHandler.PostAddMember)

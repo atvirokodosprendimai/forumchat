@@ -48,6 +48,16 @@ templ UserContextMenu(slug, currentUserID string, isAdmin bool) {
 					data-on:click={ "@post('/c/" + slug + "/admin/unban?id=' + $_ctx_membership_id); $_ctx_open=false" }>
 					<span class="ucm-icon">↺</span><span class="ucm-label">Unban</span>
 				</button>
+				<button class="ucm-item" role="menuitem"
+					data-show={ "$_ctx_user_id !== '" + currentUserID + "' && $_ctx_role === 'member'" }
+					data-on:click={ "@post('/c/" + slug + "/admin/set-role?id=' + $_ctx_membership_id + '&role=moderator'); $_ctx_open=false" }>
+					<span class="ucm-icon">⚑</span><span class="ucm-label">Make moderator</span>
+				</button>
+				<button class="ucm-item" role="menuitem"
+					data-show="$_ctx_role === 'moderator'"
+					data-on:click={ "@post('/c/" + slug + "/admin/set-role?id=' + $_ctx_membership_id + '&role=member'); $_ctx_open=false" }>
+					<span class="ucm-icon">⚐</span><span class="ucm-label">Remove moderator</span>
+				</button>
 				<button class="ucm-item danger" role="menuitem"
 					data-show={ "$_ctx_user_id !== '" + currentUserID + "'" }
 					data-on:click={ "if(confirm('Remove ' + $_ctx_name + ' from the community?')){$cleanup_chat=false; $cleanup_threads=false; $cleanup_posts=false; @post('/c/" + slug + "/admin/remove?id=' + $_ctx_membership_id)}; $_ctx_open=false" }>

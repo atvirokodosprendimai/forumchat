@@ -7,6 +7,20 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3818 | 4:27 PM | 🟣 | Mobile presence panel redesigned as right-side slide-in drawer with floating action button | ~550 |
+| #3817 | " | 🟣 | Mobile right-drawer presence panel with FAB trigger added | ~433 |
+| #3814 | 4:26 PM | 🟣 | Added presence panel mobile toggle to navigation script | ~444 |
+| #3810 | 4:25 PM | 🔴 | Fixed mobile hamburger menu rendering from text icon to CSS-drawn bars | ~374 |
+| #3804 | 4:23 PM | ✅ | Created mobile navigation drawer toggle script with accessibility features | ~682 |
+| #3801 | 4:22 PM | 🔴 | Reading chat layout CSS styles around messages container | ~301 |
+| #3725 | 3:40 PM | 🟣 | Project Discussions forum feature (Phase 1) - threads CRUD + tab | ~755 |
+| #3708 | 3:30 PM | 🔴 | Issue page dropzone reloads after successful upload to surface new attachments | ~408 |
+| #3658 | 3:01 PM | 🟣 | Extended dropzone JavaScript to support issue attachments | ~468 |
+| #3648 | 2:57 PM | ✅ | Added CSS styling for project issues list, detail page, and status pills | ~419 |
+| #3638 | 2:53 PM | ✅ | Added CSS for MPA tab navigation and single-column layout in projects | ~400 |
+| #3619 | 2:43 PM | 🔴 | Fixed duplicate attachment uploads caused by MutationObserver re-binding event listeners | ~220 |
+| #3618 | " | 🔴 | Fixed duplicate upload POST requests from stacked event listeners in projects dropzone | ~498 |
+| #3615 | 2:39 PM | ✅ | Committed Phase 8 documentation updates for projects feature | ~313 |
 | #3604 | 2:37 PM | ✅ | Added comprehensive CSS styling for projects feature UI components | ~431 |
 | #3575 | 2:31 PM | 🟣 | Phase 5 attachments shipped - drag-drop upload, download, permission-checked delete with SSE updates | ~578 |
 | #3466 | 1:12 PM | 🔴 | Fixed leave operation race where EnsureMember re-admitted departing users | ~417 |

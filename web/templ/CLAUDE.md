@@ -7,6 +7,29 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3818 | 4:27 PM | 🟣 | Mobile presence panel redesigned as right-side slide-in drawer with floating action button | ~550 |
+| #3813 | 4:26 PM | 🟣 | Mobile drawer UI added for presence panel with floating action button | ~451 |
+| #3809 | 4:25 PM | 🔴 | Hamburger menu icon refactored from Unicode to semantic spans | ~337 |
+| #3794 | 4:18 PM | 🔴 | Examined global layout template structure and script loading | ~578 |
+| #3791 | 4:11 PM | ✅ | Added render package import to forum.templ for WrapUploadImages function | ~144 |
+| #3789 | " | 🔴 | Added missing render package import to chat.templ | ~330 |
+| #3772 | 4:06 PM | 🟣 | Image paste and file picker added to issue create and edit forms | ~464 |
+| #3768 | " | 🟣 | Image attachment signal added to issue edit flow | ~357 |
+| #3752 | 3:53 PM | ✅ | Uploads shared signing and discussion file-picker merged to main branch | ~435 |
+| #3748 | " | 🟣 | Added explicit image attach button to discussion thread creation form | ~444 |
+| #3738 | 3:43 PM | 🟣 | Added image paste support to discussion reply form | ~430 |
+| #3725 | 3:40 PM | 🟣 | Project Discussions forum feature (Phase 1) - threads CRUD + tab | ~755 |
+| #3682 | 3:09 PM | ✅ | Updated fragment component calls to pass IsGuestViewer flag for permission-gated UI | ~578 |
+| #3681 | 3:08 PM | 🔄 | ProjectHeaderFragment accepts isGuest parameter for conditional write affordance rendering | ~426 |
+| #3680 | " | ✅ | Modified projectShell template to conditionally disable SSE stream for guest viewers | ~409 |
+| #3679 | " | 🔴 | IsMember accessor documented for gating write affordances in guest-aware templates | ~389 |
+| #3668 | 3:05 PM | 🔴 | ProjectPageData extended with guest access fields | ~337 |
+| #3657 | 3:00 PM | 🟣 | Added issue comments and attachments template rendering for project-issues Phase 2 | ~642 |
+| #3647 | 2:57 PM | ✅ | Created project issues templates with list view and single-issue page | ~798 |
+| #3636 | 2:52 PM | 🔄 | Projects UI refactored from single-page to tabbed multi-page navigation | ~577 |
+| #3622 | 2:44 PM | 🔴 | Fixed visibility toggle failure by removing hidden attribute conflicting with data-show | ~440 |
+| #3620 | " | 🔴 | Removed conflicting hidden attribute from project header edit section | ~427 |
+| #3615 | 2:39 PM | ✅ | Committed Phase 8 documentation updates for projects feature | ~313 |
 | #3602 | 2:36 PM | 🟣 | Added activity sidebar showing recent project events with emoji labels | ~407 |
 | #3601 | " | 🟣 | Added Phase 7 lifecycle action buttons to project header template | ~471 |
 | #3600 | " | 🔄 | Replaced hardcoded activity placeholder with ProjectActivityFragment template call | ~442 |
@@ -34,10 +57,4 @@
 | #3518 | " | 🟣 | Completed Phase 1 of projects feature with flag, schema, and empty index | ~451 |
 | #3514 | 2:18 PM | 🔵 | Projects feature flag infrastructure already exists in layout template | ~334 |
 | #3510 | 2:17 PM | 🔄 | Projects feature flag changed from per-Viewer field to global package variable | ~399 |
-| #3507 | " | 🔄 | Refactored Projects feature flag from Viewer field to package-level global variable | ~399 |
-| #3506 | " | 🟣 | Created projects grid template with card-based layout for community projects | ~431 |
-| #3500 | 2:15 PM | 🟣 | Added ProjectsEnabled field to Viewer struct for nav link control | ~384 |
-| #3452 | 1:00 PM | ✅ | Merged WebRTC eviction resilience and TURN configuration to main branch | ~459 |
-| #3432 | 12:47 PM | 🔵 | Participant list template renders data-key attributes identically for guests and auth users | ~458 |
-| #3431 | 12:46 PM | 🔵 | Guest WebRTC signaling follows same path as authenticated users with participant key routing | ~468 |
 </claude-mem-context>

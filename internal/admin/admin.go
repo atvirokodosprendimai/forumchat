@@ -20,11 +20,22 @@ import (
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
+// RosterNotifier lets admin mutations nudge every open presence sidebar
+// to re-render (role badge / banned state changed in the DB). Satisfied
+// by *presence.Tracker.Bump. Optional — nil-safe.
+type RosterNotifier interface {
+	Bump(communityID string)
+}
+
 type Handler struct {
 	Repo        *auth.Repo
 	Svc         *auth.Service
 	Chat        *chat.Handler
 	Communities *community.Repo
+	// Roster, when set, is pinged after member-state mutations so the
+	// chat roster reflects role/ban changes without waiting for the next
+	// presence heartbeat.
+	Roster RosterNotifier
 	// Mail is optional. When set, "Add member by email" can email the
 	// join link directly to the recipient (existing or invited user).
 	Mail auth.Mailer
@@ -119,6 +130,7 @@ func (h *Handler) PostApprove(w http.ResponseWriter, r *http.Request) {
 			h.Chat.Welcome(r.Context(), m.CommunityID, m.DisplayName)
 		}
 	}
+	h.bumpRoster(r)
 	h.refreshAdminLists(w, r)
 }
 
@@ -194,6 +206,7 @@ func (h *Handler) PostBan(w http.ResponseWriter, r *http.Request) {
 	if opts.Chat && h.Chat != nil {
 		h.Chat.Bus.Broadcast()
 	}
+	h.bumpRoster(r)
 	h.refreshAdminLists(w, r)
 }
 
@@ -252,6 +265,7 @@ func (h *Handler) PostRemoveMember(w http.ResponseWriter, r *http.Request) {
 	if opts.Chat && h.Chat != nil {
 		h.Chat.Bus.Broadcast()
 	}
+	h.bumpRoster(r)
 	h.refreshAdminLists(w, r)
 }
 
@@ -265,6 +279,7 @@ func (h *Handler) PostUnban(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	h.bumpRoster(r)
 	h.refreshAdminLists(w, r)
 }
 
@@ -329,6 +344,47 @@ func (h *Handler) refreshAdminLists(w http.ResponseWriter, r *http.Request) {
 	if members, err := h.Repo.ListMembers(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminMembers(h.cslug(r), memberRowsToAdminMembers(members, now)))
 	}
+}
+
+// bumpRoster re-renders every open chat roster so role/ban changes show
+// without waiting for a presence heartbeat. No-op when Roster is unset.
+func (h *Handler) bumpRoster(r *http.Request) {
+	if h.Roster != nil {
+		h.Roster.Bump(h.cid(r))
+	}
+}
+
+// PostSetRole promotes a member to moderator or demotes a moderator back
+// to member. Reached from the chat roster's right-click menu (admin-only
+// route). role + target id arrive as query params. Guards: can't change
+// your own role, can't touch an admin's role through this path (admins
+// are managed via the CLI / explicit flows).
+func (h *Handler) PostSetRole(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	role := auth.Role(r.URL.Query().Get("role"))
+	if id == "" || (role != auth.RoleMember && role != auth.RoleMod) {
+		http.Error(w, "missing id or invalid role", http.StatusBadRequest)
+		return
+	}
+	m, err := h.Repo.MembershipByID(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if vid, ok := auth.FromContext(r.Context()); ok && vid.User.ID == m.UserID {
+		http.Error(w, "cannot change your own role", http.StatusBadRequest)
+		return
+	}
+	if m.Role == auth.RoleAdmin {
+		http.Error(w, "cannot change an admin's role here", http.StatusBadRequest)
+		return
+	}
+	if err := h.Repo.UpdateMembershipRole(r.Context(), id, role); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.bumpRoster(r)
+	h.refreshAdminLists(w, r)
 }
 
 type createCommunitySignals struct {

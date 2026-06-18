@@ -61,15 +61,16 @@ status: active
 4. [x] Verified `/admin/{ban,unban,remove}` sit under `RequireRole(auth.RoleAdmin)` and that `refreshAdminLists` only morphs `#admin-*` ids (no-op + no Redirect on the chat page) — safe to call from chat. **Decision: admin-only** (see Adjustments)
 5. [x] Ban-with-cleanup already calls `chat.Bus.Broadcast()` (chat refreshes). => Roster's banned badge only updates on the next presence push (no Tracker change on ban) — acceptable; the banned user's session is destroyed next request, dropping them from the Tracker which then refreshes the roster.
 
-### Phase 3 - Role management: Make / Remove moderator (admin only) - status: open
+### Phase 3 - Role management: Make / Remove moderator (admin only) - status: completed
 
 > Visible result: an admin promotes a member to moderator (or demotes) from the menu; role badge updates live.
 
-1. [ ] `auth.Repo.UpdateRole(ctx, membershipID, role)`; admin handler `PostSetRole` (`?id=` + `role` signal, or distinct `/promote` `/demote`)
-   - guards (server-side): admin-only, cannot change own role, cannot demote the last admin (`CountAdmins`)
-2. [ ] Menu items gated admin + `data-show` on `$_ctx_role` (member → "Make moderator"; moderator → "Remove moderator")
-3. [ ] Broadcast roster refresh after change (Tracker push or presence re-render); role badge re-renders
-4. [ ] Service test: promote → role==mod; demote-last-admin → rejected
+1. [x] `admin.Handler.PostSetRole` (`?id=` + `?role=moderator|member`); reuses existing `auth.Repo.UpdateMembershipRole`
+   - => guards: rejects self, rejects invalid role, rejects changing an **admin's** role via this path (admins managed elsewhere). Last-admin guard not needed here — set-role never demotes admins.
+2. [x] Menu items in the `if isAdmin` section, `data-show` on `$_ctx_role` (member → "Make moderator"; moderator → "Remove moderator"), self-excluded
+3. [x] **Live roster refresh**: added `presence.Tracker.Bump(communityID)` + an `admin.RosterNotifier` hook (`Roster: presenceTracker` in main). `bumpRoster` now fires after set-role **and** ban/unban/remove/approve → every open presence stream re-renders the roster from fresh DB rows. (This also resolves the Phase 2 banned-badge staleness note.)
+4. [x] Test: `internal/auth/role_test.go` — promote member→moderator→member round-trip via `UpdateMembershipRole`. `go test ./internal/auth` green. (Handler guards are HTTP-level; covered by reasoning + the admin-gated route.)
+   - => Route `POST /c/{slug}/admin/set-role` registered in the admin-gated group.
 
 ### Phase 4 - Block user (per-viewer mute) - status: open
 

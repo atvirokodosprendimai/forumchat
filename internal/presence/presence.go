@@ -83,6 +83,15 @@ func (t *Tracker) Watch(communityID string) (<-chan struct{}, func()) {
 	return ch, cancel
 }
 
+// Bump wakes every watcher for the community without changing presence
+// state. Used by admin mutations (role change, ban) so open chat rosters
+// re-render against the fresh DB rows immediately.
+func (t *Tracker) Bump(communityID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.notify(communityID)
+}
+
 func (t *Tracker) notify(communityID string) {
 	for key, ch := range t.changed {
 		if len(key) < len(communityID)+1 || key[:len(communityID)] != communityID {
