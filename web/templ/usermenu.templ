@@ -15,7 +15,7 @@ templ UserContextMenu(slug, currentUserID string, isAdmin bool) {
 	<div id="user-ctx-menu" class="ucm" role="menu"
 		data-class:open="$_ctx_open"
 		data-attr:style="'left:' + $_ctx_x + 'px;top:' + $_ctx_y + 'px'"
-		data-on:click__stop=""
+		data-on:click="evt.stopPropagation()"
 		data-on:fc:user-menu__window="$_ctx_user_id=evt.detail.id; $_ctx_membership_id=evt.detail.mid; $_ctx_name=evt.detail.name; $_ctx_role=evt.detail.role; $_ctx_online=evt.detail.online; $_ctx_banned=evt.detail.banned; $_ctx_x=Math.min(evt.detail.x, window.innerWidth-220); $_ctx_y=Math.min(evt.detail.y, window.innerHeight-260); $_ctx_open=true"
 		data-on:click__window="$_ctx_open=false"
 		data-on:keydown__window="evt.key==='Escape' && ($_ctx_open=false)">
