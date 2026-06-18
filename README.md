@@ -1,5 +1,10 @@
 # forumchat
 
+
+[![Watch the video](https://img.youtube.com/vi/rFDVdcsU5lU/hqdefault.jpg)](https://youtu.be/rFDVdcsU5lU)
+
+
+
 > **Self-hosted community platform in a single Go binary.** Realtime chat,
 > a durable forum, WebRTC video rooms, projects with issues, private
 > messages, web push, and per-community moderation — one process backed
