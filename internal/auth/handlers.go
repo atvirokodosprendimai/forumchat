@@ -151,8 +151,12 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 	sse := render.NewSSE(w, r)
 	email := strings.TrimSpace(in.Email)
 	invite := strings.TrimSpace(strings.ToUpper(in.InviteCode))
-	if email == "" || in.Password == "" || invite == "" {
-		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("All fields required"))
+	if email == "" || in.Password == "" {
+		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Email and password required"))
+		return
+	}
+	if invite == "" && !h.Svc.OpenRegistration {
+		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Invite code required"))
 		return
 	}
 	res, err := h.Svc.Register(r.Context(), RegisterInput{Email: email, Password: in.Password, InviteCode: invite})
@@ -179,6 +183,8 @@ func registerErrMsg(err error) string {
 		return "Invite code is invalid or expired"
 	case errors.Is(err, ErrInviteUsed):
 		return "Invite code has already been used"
+	case errors.Is(err, ErrInviteRequired):
+		return "Invite code required"
 	}
 	return ""
 }

@@ -58,25 +58,22 @@ Related specs (extends, not replaced):
      struct; wired in `svc := &auth.Service{...}` from `cfg.*`
    - => `CGO_ENABLED=0 go build ./cmd/app` green; both flags default false
 
-### Phase 2 - Backend: optional invite + approval decision - status: open
+### Phase 2 - Backend: optional invite + approval decision - status: completed
 
-1. [ ] Make the invite optional in `Service.Register`
-   - when `in.InviteCode == ""`:
-     - if `s.OpenRegistration` → skip `ConsumeInvite`, return result with
-       `CommunityID` left as the bootstrap (or empty — handler doesn't read it)
-     - else → return a new typed `ErrInviteRequired`
-   - when `in.InviteCode != ""` → consume as today (unchanged path)
-2. [ ] Auto-approve at verify when configured
-   - in `Service.Verify`, set `m.ApprovedAt = &now` when
-     `s.OpenRegistration && s.OpenRegistrationAutoApprove`; otherwise leave nil
-     (current pending-queue behaviour)
-   - gate on BOTH flags so enabling auto-approve alone (open reg off) never
-     changes invite-only behaviour
-3. [ ] Relax the handler validation in `PostRegister`
-   - require email + password always; require invite **only** when
-     `!h.Svc.OpenRegistration` (uppercase/trim invite as today)
-   - add an `ErrInviteRequired` case to `registerErrMsg`
-   - verify: unit test register-with-no-invite succeeds when flag on (Phase 4)
+1. [x] Make the invite optional in `Service.Register`
+   - => empty code: consume skipped when `s.OpenRegistration`, else
+     `ErrInviteRequired`; non-empty consumed as before. `communityID` local
+     replaces `invite.CommunityID` in the result (empty on open path; handler
+     doesn't read it)
+   - => added `ErrInviteRequired` sentinel in `internal/auth/errors.go`
+2. [x] Auto-approve at verify when configured
+   - => `Service.Verify` stamps `m.ApprovedAt = &time.Now()` when
+     `s.OpenRegistration && s.OpenRegistrationAutoApprove`; nil otherwise
+   - => `ApprovedAt` is `*time.Time` (not int64) — confirmed in `user.go:45`
+3. [x] Relax the handler validation in `PostRegister`
+   - => email+password always required; invite required only when
+     `!h.Svc.OpenRegistration`; added `ErrInviteRequired` case to `registerErrMsg`
+   - => `go build ./...` + `go test ./internal/auth/` green
 
 ### Phase 3 - Frontend: register form adapts to mode (visible result) - status: open
 
@@ -132,3 +129,6 @@ Related specs (extends, not replaced):
 - 2606181624 — Phase 1 done. Added `OPEN_REGISTRATION` +
   `OPEN_REGISTRATION_AUTO_APPROVE` to config, `Service` struct fields, wired in
   main.go. Build green, defaults off = no behaviour change.
+- 2606181624 — Phase 2 done. `Register` invite optional + `ErrInviteRequired`;
+  `Verify` auto-approves when both flags set; `PostRegister` validation relaxed.
+  Build + auth tests green.

@@ -64,9 +64,18 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 		return RegisterResult{}, fmt.Errorf("insert user: %w", err)
 	}
 
-	invite, err := s.Repo.ConsumeInvite(ctx, tx, in.InviteCode, userID)
-	if err != nil {
-		return RegisterResult{}, err
+	// Invite is optional only when open registration is on. With a code we
+	// always consume it; without one we either join the bootstrap community
+	// (open) or refuse (invite-only).
+	var communityID string
+	if in.InviteCode != "" {
+		invite, err := s.Repo.ConsumeInvite(ctx, tx, in.InviteCode, userID)
+		if err != nil {
+			return RegisterResult{}, err
+		}
+		communityID = invite.CommunityID
+	} else if !s.OpenRegistration {
+		return RegisterResult{}, ErrInviteRequired
 	}
 
 	token, err := RandomToken(24)
@@ -93,7 +102,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 
 	return RegisterResult{
 		UserID:            userID,
-		CommunityID:       invite.CommunityID,
+		CommunityID:       communityID,
 		VerificationToken: token,
 		VerifyURL:         verifyURL,
 	}, nil
@@ -200,6 +209,12 @@ func (s *Service) Verify(ctx context.Context, token, communityID string) (Verify
 		DisplayName: displayName,
 		Role:        RoleMember,
 		TrustLevel:  0,
+	}
+	// Open registration with auto-approve skips the pending queue by stamping
+	// approved_at now. Gated on both flags so invite-only behaviour is intact.
+	if s.OpenRegistration && s.OpenRegistrationAutoApprove {
+		t := time.Now()
+		m.ApprovedAt = &t
 	}
 	if err := s.Repo.CreateMembership(ctx, nil, m); err != nil {
 		// If already member (re-verify edge case), tolerate.

@@ -153,3 +153,4 @@
 - 2026-06-14 `49bbc46` Merge task/readme-freelancer-fit: solo-freelancer sweet-spot callout
 - 2026-06-14 `097884d` Merge task/readme-quickstart-uploads-mount: split data/uploads volumes
 - 2026-06-18 `9635da6` docs(plan): open registration self-signup without invite
+- 2026-06-18 `2f95635` feat(auth): config flags for open registration (Phase 1)
