@@ -51,15 +51,15 @@ status: active
    - => **View profile dropped** — no public per-user profile route exists (`/profile` is self-only). Revisit if a profile page is added.
    - => CSS for `.roster*` + `.ucm*` appended to `app.css`; legacy `.presence li::before` green dot suppressed for roster rows
 
-### Phase 2 - Moderation: Ban / Unban / Kick (mod + admin) - status: open
+### Phase 2 - Moderation: Ban / Unban / Kick (admin only) - status: completed
 
-> Visible result: a moderator right-clicks a member → Ban (opens cleanup modal), Unban, Kick.
+> Visible result: an admin right-clicks a member → Ban (opens cleanup modal), Unban, Kick.
 
-1. [ ] Render mod section only when viewer `isMod` (server-side `if v.Role>=mod`); within it, self-exclude via `data-show`, toggle Ban vs Unban on `$_ctx_banned`
-2. [ ] Compact `BanDialog` in `chat.templ` (reuse admin cleanup-signal names `cleanup_chat/threads/posts`, `ban_hours`); Ban item sets `_ctx_membership_id` then opens dialog; submit `@post('/c/{slug}/admin/ban?id=' + $_ctx_membership_id)`
-3. [ ] Unban → `@post('/c/{slug}/admin/unban?id=' + $_ctx_membership_id)`; Kick → confirm + `@post('/c/{slug}/admin/remove?id=' + $_ctx_membership_id)` with `cleanup_*`
-4. [ ] Verify `/admin/*` routes are role-gated by middleware (these endpoints may currently sit under an admin-only mount; if mod should ban, confirm the gate allows mod or keep ban admin-only). Document the decision in Adjustments.
-5. [ ] After ban/kick: roster + chat fat-morph refresh already fire via existing `chat.Bus`/Tracker broadcast — confirm, don't re-implement
+1. [x] Admin section rendered server-side `if isAdmin` (`UserContextMenu` gained `isAdmin bool`, fed `d.Viewer.Role == "admin"`); self-exclude via `data-show`, Ban hidden when `$_ctx_banned`, Unban shown only when `$_ctx_banned`
+2. [x] `BanDialog(slug)` in `usermenu.templ` — reuses `.modal*` classes + `ban_hours`/`cleanup_*` signals; Ban item resets those signals + opens dialog on `$_ctx_ban_open`; submit `@post('/c/{slug}/admin/ban?id=' + $_ctx_membership_id)`
+3. [x] Unban → `@post('.../admin/unban?id=' + $_ctx_membership_id)`; Remove → `confirm()` + reset cleanup + `@post('.../admin/remove?id=' + $_ctx_membership_id)`
+4. [x] Verified `/admin/{ban,unban,remove}` sit under `RequireRole(auth.RoleAdmin)` and that `refreshAdminLists` only morphs `#admin-*` ids (no-op + no Redirect on the chat page) — safe to call from chat. **Decision: admin-only** (see Adjustments)
+5. [x] Ban-with-cleanup already calls `chat.Bus.Broadcast()` (chat refreshes). => Roster's banned badge only updates on the next presence push (no Tracker change on ban) — acceptable; the banned user's session is destroyed next request, dropping them from the Tracker which then refreshes the roster.
 
 ### Phase 3 - Role management: Make / Remove moderator (admin only) - status: open
 
@@ -115,4 +115,5 @@ status: active
 ## Progress Log
 
 - **2606181015** — Phase 1 complete. Roster sidebar (online+offline) + floating `UserContextMenu` (right-click + ⋮ touch) + baseline actions (DM/Mention/Copy). New: `web/templ/roster.templ`, `web/templ/usermenu.templ`, `MemberLister` in presence, `.roster*`/`.ucm*` CSS. `make gen` + `make build` clean; `go test ./internal/presence ./internal/auth` green.
+- **2606181016** — Phase 2 complete. Admin-only Ban/Unban/Kick wired into the menu via existing /admin endpoints; BanDialog reuses cleanup signals. Build clean.
 - **2606181005** — Plan created. Scope confirmed via AskUserQuestion: full roster (online+offline), all action groups (DM/Profile/Mention + Ban/Unban/Kick + Make/Remove moderator + Copy/Block/Report), ⋮ touch fallback alongside `data-on:contextmenu`. Code recon captured current presence/DM/ban building blocks and the missing pieces (no membership-id on presence, no role-change endpoint, no contextmenu usage). Mempalace search returned mostly unrelated (vvs) context — nothing reusable for this feature.

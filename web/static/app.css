@@ -3789,3 +3789,5 @@ hr {
 .ucm-item.danger:hover { background: oklch(95% 0.04 25); }
 .ucm-icon { flex: 0 0 1.1rem; text-align: center; opacity: .8; }
 .ucm-sep { height: 1px; background: var(--border-subtle); margin: .2rem .3rem; }
+.ucm-check { display: flex; align-items: center; gap: .45rem; font-size: .9rem; margin: .15rem 0; }
+.ucm-check input { width: auto; }

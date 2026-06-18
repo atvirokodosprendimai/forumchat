@@ -11,7 +11,7 @@ package templ
 // Visibility is class-toggled (data-class:open) so data-attr:style is
 // free to own left/top — combining data-show with data-attr:style would
 // have both fight over the inline `display`/`style`.
-templ UserContextMenu(slug, currentUserID string) {
+templ UserContextMenu(slug, currentUserID string, isAdmin bool) {
 	<div id="user-ctx-menu" class="ucm" role="menu"
 		data-class:open="$_ctx_open"
 		data-attr:style="'left:' + $_ctx_x + 'px;top:' + $_ctx_y + 'px'"
@@ -36,6 +36,56 @@ templ UserContextMenu(slug, currentUserID string) {
 				data-on:click="navigator.clipboard && navigator.clipboard.writeText($_ctx_name); $_ctx_open=false">
 				<span class="ucm-icon">⧉</span><span class="ucm-label">Copy name</span>
 			</button>
+			if isAdmin {
+				<div class="ucm-sep" data-show={ "$_ctx_user_id !== '" + currentUserID + "'" }></div>
+				<button class="ucm-item" role="menuitem"
+					data-show={ "$_ctx_user_id !== '" + currentUserID + "' && !$_ctx_banned" }
+					data-on:click="$ban_hours=0; $cleanup_chat=false; $cleanup_threads=false; $cleanup_posts=false; $_ctx_ban_open=true; $_ctx_open=false">
+					<span class="ucm-icon">⛔</span><span class="ucm-label">Ban…</span>
+				</button>
+				<button class="ucm-item" role="menuitem"
+					data-show="$_ctx_banned"
+					data-on:click={ "@post('/c/" + slug + "/admin/unban?id=' + $_ctx_membership_id); $_ctx_open=false" }>
+					<span class="ucm-icon">↺</span><span class="ucm-label">Unban</span>
+				</button>
+				<button class="ucm-item danger" role="menuitem"
+					data-show={ "$_ctx_user_id !== '" + currentUserID + "'" }
+					data-on:click={ "if(confirm('Remove ' + $_ctx_name + ' from the community?')){$cleanup_chat=false; $cleanup_threads=false; $cleanup_posts=false; @post('/c/" + slug + "/admin/remove?id=' + $_ctx_membership_id)}; $_ctx_open=false" }>
+					<span class="ucm-icon">⨯</span><span class="ucm-label">Remove from community</span>
+				</button>
+			}
+		</div>
+	</div>
+	if isAdmin {
+		@BanDialog(slug)
+	}
+}
+
+// BanDialog is the admin ban modal launched from the user context menu.
+// It reuses the standard cleanup signals (ban_hours, cleanup_*) the
+// /admin/ban endpoint already reads, and the live $_ctx_membership_id /
+// $_ctx_name target set by the menu. Visibility on $_ctx_ban_open.
+templ BanDialog(slug string) {
+	<div class="modal-overlay" data-cloak data-show="$_ctx_ban_open"
+		data-on:click="if(evt.target===el){$_ctx_ban_open=false}">
+		<div class="modal" data-on:click="evt.stopPropagation()">
+			<header class="modal-head">
+				<strong>Ban <span data-text="$_ctx_name"></span></strong>
+				<button class="link" data-on:click="$_ctx_ban_open=false">✕</button>
+			</header>
+			<div class="modal-body">
+				<label class="form-row">
+					<span>Duration (hours, 0 = permanent)</span>
+					<input type="number" min="0" data-bind="ban_hours"/>
+				</label>
+				<label class="ucm-check"><input type="checkbox" data-bind="cleanup_chat"/> also delete their chat messages</label>
+				<label class="ucm-check"><input type="checkbox" data-bind="cleanup_threads"/> also delete their forum threads</label>
+				<label class="ucm-check"><input type="checkbox" data-bind="cleanup_posts"/> also delete their forum replies</label>
+			</div>
+			<footer class="modal-foot">
+				<button class="btn ghost" data-on:click="$_ctx_ban_open=false">Cancel</button>
+				<button class="btn" data-on:click={ "@post('/c/" + slug + "/admin/ban?id=' + $_ctx_membership_id); $_ctx_ban_open=false" }>Ban</button>
+			</footer>
 		</div>
 	</div>
 }

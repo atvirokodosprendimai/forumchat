@@ -135,7 +135,7 @@ templ ChatPage(d ChatPageData) {
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
-		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID)
+		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, d.Viewer.Role == "admin")
 		if d.IsMod {
 			@ExtractDialog(d.Viewer.CommunitySlug, d.Projects)
 		}
