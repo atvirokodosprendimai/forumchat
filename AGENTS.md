@@ -525,6 +525,16 @@ Open registration (no migration; two global env flags, default off):
   `forumchat-cli approve <email>` (or `approve-all`).
 - The register form (`web/templ/auth.templ` `RegisterPage(openReg bool)`)
   collapses the invite field into an optional `<details>` when open.
+- `AUTO_VERIFY_EMAIL=true` makes `Service.Register` skip the verification email
+  entirely: it commits the user, then `activateAndJoin` activates them and
+  creates the membership immediately (approved per the auto-approve flag), and
+  returns `RegisterResult.AutoVerified = true`. `PostRegister` then signs them
+  straight in — `commitSession` is called **before** `render.NewSSE` (§4.4) so
+  the `Set-Cookie` survives datastar's flush. The three flags are independent
+  and compose: open (no invite) × auto-verify (no email) × auto-approve (no
+  queue). Meant for short demo windows. `Service.CommunityID` (wired in
+  main.go) supplies the community for invite-less signups; `activateAndJoin` is
+  shared by `Verify` and the auto-verify path.
 
 Invite codes (also migration 00002) gained `max_uses` and `uses_count`:
 - `max_uses = NULL` → unlimited reuses (Discord-style).

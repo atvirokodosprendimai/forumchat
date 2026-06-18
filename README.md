@@ -385,6 +385,7 @@ boot fails fast on placeholder secrets.
 | `COMMUNITY_NAME`     | `The Community`                        | Human-friendly name.                                               |
 | `OPEN_REGISTRATION`  | `false`                                | Allow self-registration without an invite code. When off, `/register` requires a valid invite. |
 | `OPEN_REGISTRATION_AUTO_APPROVE` | `false`                    | Auto-approve every new member at email-verification time (open **or** invite-based signups). Off → members land in the pending approval queue. Independent of `OPEN_REGISTRATION`. Flags load at boot — restart after changing. |
+| `AUTO_VERIFY_EMAIL`  | `false`                                | Skip email verification: registrants are activated and **signed in immediately**, no verify link. For short demo windows (turn on, record/invite, turn off). Combine with the two flags above for instant full access. Leave off normally — anyone can register with an unverifiable email. |
 
 ### Uploads
 

@@ -115,8 +115,10 @@ func run() error {
 		VerifyTTL:                   48 * time.Hour,
 		InviteTTL:                   30 * 24 * time.Hour,
 		Log:                         log,
+		CommunityID:                 bootCommunity.ID,
 		OpenRegistration:            cfg.OpenRegistration,
 		OpenRegistrationAutoApprove: cfg.OpenRegistrationAutoApprove,
+		AutoVerifyEmail:             cfg.AutoVerifyEmail,
 	}
 	sessions := auth.NewSessionManager(cfg.SessionMaxAge, cfg.IsProd())
 	auth.LoaderLog = log

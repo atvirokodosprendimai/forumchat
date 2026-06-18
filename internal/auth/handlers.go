@@ -148,19 +148,21 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := render.NewSSE(w, r)
 	email := strings.TrimSpace(in.Email)
 	invite := strings.TrimSpace(strings.ToUpper(in.InviteCode))
 	if email == "" || in.Password == "" {
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Email and password required"))
 		return
 	}
 	if invite == "" && !h.Svc.OpenRegistration {
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Invite code required"))
 		return
 	}
 	res, err := h.Svc.Register(r.Context(), RegisterInput{Email: email, Password: in.Password, InviteCode: invite})
 	if err != nil {
+		sse := render.NewSSE(w, r)
 		msg := registerErrMsg(err)
 		if msg == "" {
 			h.Log.Error("register failed", "err", err)
@@ -169,7 +171,19 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment(msg))
 		return
 	}
+	// AUTO_VERIFY_EMAIL skipped the verification step — the user is already
+	// active and a member, so sign them straight in. Commit the session BEFORE
+	// NewSSE (§4.4: datastar's flush bypasses scs's Set-Cookie hook otherwise).
+	if res.AutoVerified {
+		h.Log.Info("user registered (auto-verified)", "user_id", res.UserID)
+		PutLogin(r.Context(), h.Sessions, res.UserID, res.CommunityID)
+		commitSession(h.Sessions, w, r)
+		sse := render.NewSSE(w, r)
+		_ = sse.Redirect("/")
+		return
+	}
 	h.Log.Info("user registered", "user_id", res.UserID, "verify_url", res.VerifyURL)
+	sse := render.NewSSE(w, r)
 	_ = sse.PatchElementTempl(webtempl.RegisterDoneFragment(email))
 }
 

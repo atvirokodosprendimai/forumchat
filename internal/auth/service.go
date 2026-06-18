@@ -20,11 +20,17 @@ type Service struct {
 	InviteTTL time.Duration
 	Log       *slog.Logger
 
+	// CommunityID is the bootstrap community new members join when no invite
+	// supplies one (open registration / auto-verify paths).
+	CommunityID string
 	// OpenRegistration allows Register to proceed without an invite code.
 	OpenRegistration bool
 	// OpenRegistrationAutoApprove stamps approved_at at verify time so new
 	// members skip the pending queue. Applies to open AND invite-based signups.
 	OpenRegistrationAutoApprove bool
+	// AutoVerifyEmail skips the email round-trip: Register activates the user
+	// and creates their membership immediately (handy for short demo windows).
+	AutoVerifyEmail bool
 }
 
 type RegisterInput struct {
@@ -38,6 +44,9 @@ type RegisterResult struct {
 	CommunityID       string
 	VerificationToken string
 	VerifyURL         string
+	// AutoVerified is true when AutoVerifyEmail skipped the email step and the
+	// user is already active + a member — the handler should log them straight in.
+	AutoVerified bool
 }
 
 func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResult, error) {
@@ -69,7 +78,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 	// Invite is optional only when open registration is on. With a code we
 	// always consume it; without one we either join the bootstrap community
 	// (open) or refuse (invite-only).
-	var communityID string
+	communityID := s.CommunityID
 	if in.InviteCode != "" {
 		invite, err := s.Repo.ConsumeInvite(ctx, tx, in.InviteCode, userID)
 		if err != nil {
@@ -78,6 +87,19 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 		communityID = invite.CommunityID
 	} else if !s.OpenRegistration {
 		return RegisterResult{}, ErrInviteRequired
+	}
+
+	// AutoVerifyEmail short-circuits the verification email: commit the user
+	// (+ invite consume), then activate and join immediately so the handler can
+	// sign the new member straight in.
+	if s.AutoVerifyEmail {
+		if err := tx.Commit(); err != nil {
+			return RegisterResult{}, err
+		}
+		if err := s.activateAndJoin(ctx, userID, communityID, in.Email); err != nil {
+			return RegisterResult{}, err
+		}
+		return RegisterResult{UserID: userID, CommunityID: communityID, AutoVerified: true}, nil
 	}
 
 	token, err := RandomToken(24)
@@ -201,20 +223,29 @@ func (s *Service) Verify(ctx context.Context, token, communityID string) (Verify
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	if err := s.Repo.ActivateUser(ctx, vt.UserID); err != nil {
-		return VerifyResult{}, err
-	}
 	u, err := s.Repo.UserByID(ctx, vt.UserID)
 	if err != nil {
 		return VerifyResult{}, err
 	}
-	displayName := localPart(u.Email)
-	// Auto-join provided community (bootstrap community).
+	if err := s.activateAndJoin(ctx, vt.UserID, communityID, u.Email); err != nil {
+		return VerifyResult{}, err
+	}
+	return VerifyResult{UserID: vt.UserID, CommunityID: communityID}, nil
+}
+
+// activateAndJoin marks the user active and creates their membership in the
+// community, auto-approved when configured. Shared by Verify (email link) and
+// by Register when AutoVerifyEmail skips the email round-trip. Re-running it for
+// an existing member is tolerated (unique violation ignored).
+func (s *Service) activateAndJoin(ctx context.Context, userID, communityID, email string) error {
+	if err := s.Repo.ActivateUser(ctx, userID); err != nil {
+		return err
+	}
 	m := Membership{
 		ID:          uuid.NewString(),
-		UserID:      vt.UserID,
+		UserID:      userID,
 		CommunityID: communityID,
-		DisplayName: displayName,
+		DisplayName: localPart(email),
 		Role:        RoleMember,
 		TrustLevel:  0,
 	}
@@ -226,12 +257,11 @@ func (s *Service) Verify(ctx context.Context, token, communityID string) (Verify
 		m.ApprovedAt = &t
 	}
 	if err := s.Repo.CreateMembership(ctx, nil, m); err != nil {
-		// If already member (re-verify edge case), tolerate.
 		if !isUniqueViolation(err) {
-			return VerifyResult{}, err
+			return err
 		}
 	}
-	return VerifyResult{UserID: vt.UserID, CommunityID: communityID}, nil
+	return nil
 }
 
 type LoginResult struct {

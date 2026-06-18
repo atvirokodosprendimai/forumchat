@@ -33,11 +33,12 @@ func setupSvc(t *testing.T) (*auth.Service, *auth.Repo, string) {
 	}
 	repo := auth.NewRepo(db)
 	svc := &auth.Service{
-		Repo:      repo,
-		Mailer:    &auth.LogMailer{Log: slog.Default()},
-		BaseURL:   "http://test",
-		VerifyTTL: time.Hour,
-		InviteTTL: time.Hour,
+		Repo:        repo,
+		Mailer:      &auth.LogMailer{Log: slog.Default()},
+		BaseURL:     "http://test",
+		VerifyTTL:   time.Hour,
+		InviteTTL:   time.Hour,
+		CommunityID: c.ID,
 	}
 	return svc, repo, c.ID
 }
@@ -169,6 +170,64 @@ func TestRegister_AutoApprove_InviteFlow(t *testing.T) {
 	}
 	if m.ApprovedAt == nil {
 		t.Fatal("want auto-approved (approved_at set) for invite flow, got nil")
+	}
+}
+
+// AutoVerifyEmail skips the email round-trip: the user is active + a member
+// right after Register (no Verify call) and can log in immediately.
+func TestRegister_AutoVerifyEmail_LogsInWithoutEmail(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistration = true
+	svc.OpenRegistrationAutoApprove = true
+	svc.AutoVerifyEmail = true
+
+	reg, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "demo@example.com", Password: "supersecret123",
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if !reg.AutoVerified {
+		t.Fatal("want AutoVerified=true")
+	}
+	m, err := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if err != nil {
+		t.Fatalf("membership should exist immediately after auto-verify: %v", err)
+	}
+	if m.ApprovedAt == nil {
+		t.Fatal("want approved (auto-approve on)")
+	}
+	if _, err := svc.Login(ctx, "demo@example.com", "supersecret123", communityID); err != nil {
+		t.Fatalf("login straight after auto-verify (no email click): %v", err)
+	}
+}
+
+// AutoVerifyEmail is independent of auto-approve: email is skipped but, without
+// auto-approve, the verified member still lands in the pending queue.
+func TestRegister_AutoVerifyEmail_StillQueuesWithoutAutoApprove(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistration = true
+	svc.AutoVerifyEmail = true // OpenRegistrationAutoApprove stays false
+
+	reg, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "demo2@example.com", Password: "supersecret123",
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if !reg.AutoVerified {
+		t.Fatal("want AutoVerified=true")
+	}
+	m, err := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if err != nil {
+		t.Fatalf("membership should exist: %v", err)
+	}
+	if m.ApprovedAt != nil {
+		t.Fatal("want pending (auto-approve off), got approved")
 	}
 }
 

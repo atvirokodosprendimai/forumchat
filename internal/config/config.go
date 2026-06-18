@@ -44,6 +44,13 @@ type Config struct {
 	// → /pending → admin approves). Independent of OpenRegistration.
 	OpenRegistrationAutoApprove bool `env:"OPEN_REGISTRATION_AUTO_APPROVE" envDefault:"false"`
 
+	// AutoVerifyEmail skips email verification entirely: registrants are
+	// activated and signed in immediately, no verify link needed. Intended for
+	// short demo windows (turn on, record/invite, turn off). Independent of the
+	// other flags. Leave off in normal operation — it lets anyone register with
+	// an unverifiable email.
+	AutoVerifyEmail bool `env:"AUTO_VERIFY_EMAIL" envDefault:"false"`
+
 	PresenceTTL time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`
 	EditGrace   time.Duration `env:"EDIT_GRACE" envDefault:"15m"`
 
