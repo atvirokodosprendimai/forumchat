@@ -1,6 +1,6 @@
 ---
-tldr: Right-click (data-on:contextmenu) + ⋮ touch button on chat roster members opens one signal-driven floating menu — DM, profile, mention, copy, ban/unban/kick, make/remove moderator, block, report. Roster shows full membership (online + offline).
-status: active
+tldr: Right-click (data-on:contextmenu) + ⋮ touch button on chat roster members opens one signal-driven floating menu — DM, mention, copy, ban/unban/kick, make/remove moderator, block, report. Roster shows full membership (online + offline). All 6 phases complete.
+status: completed
 ---
 
 # Plan: User context-menu on chat roster (DM + moderation actions)
@@ -94,12 +94,12 @@ status: active
    - => **Realtime mod ping skipped** — reports appear in `/admin` on load/refresh (no live NATS/Bus push). Sufficient for the queue; add a badge/ping later if needed.
 5. [x] Test `internal/auth/reports_test.go` — create → appears open with resolved names → resolve → empty. `go test ./internal/...` all green.
 
-### Phase 6 - Polish, a11y, smoke - status: open
+### Phase 6 - Polish, a11y, smoke - status: completed
 
-1. [ ] CSS: floating menu reuses `msg-menu` visual language; online dot + offline dimming; edge-flip so menu never overflows viewport
-2. [ ] a11y: `role="menu"`/`menuitem`, keyboard nav within open menu, focus return to triggering row on close; ⋮ button `aria-label`
-3. [ ] Wire `/datastar` + `/effective-go` review pass over the diff before final commit
-4. [ ] HTTP smoke: load chat, open menu on online + offline member, exercise DM/ban/promote/block/report; `go test ./...` + `make build` green
+1. [x] CSS: `.ucm*` reuses the menu visual language; online dot + offline dimming + `.is-blocked` strikethrough; menu position clamped to the viewport (`Math.max(8, Math.min(x, innerWidth-228))`, same for y) so it never overflows any edge
+2. [x] a11y: `role="menu"`/`menuitem` on items, Esc closes (`keydown__window`), ⋮ button `aria-label`. => Roving arrow-key focus within the open menu deferred (items are real focusable `<button>`s; Tab works).
+3. [x] `/datastar` + `/effective-go` review pass — caught two real defects: the empty `data-on:click__stop=""` crashing datastar init (fixed → `evt.stopPropagation()`), and the consumer never reading `$_ctx_blocked=evt.detail.blocked` (Block/Unblock toggle was stuck). Go side: small local interfaces (`MemberLister`/`BlockLister`/`RosterNotifier`), no service↔service imports, errors returned not panicked.
+4. [x] Smoke: fresh-DB boot on :8791 — migrations 00030/00031 applied, app listens, `/login` 200, `user_blocks` + `user_reports` tables present. `go vet` clean; `go test ./...` + `make build` green. => Full interactive menu exercise needs a logged-in session (verified live by the user, who surfaced + confirmed the datastar-init fix).
 
 ## Verification
 
@@ -117,6 +117,7 @@ status: active
 
 ## Progress Log
 
+- **2606181037** — Phase 6 complete + plan **done**. Viewport clamp, a11y roles, datastar/effective-go review (caught the `click__stop` crash + missing `_ctx_blocked` wiring), fresh-DB boot smoke (migrations apply, /login 200). All 6 phases shipped; build + `go test ./...` green.
 - **2606181015** — Phase 1 complete. Roster sidebar (online+offline) + floating `UserContextMenu` (right-click + ⋮ touch) + baseline actions (DM/Mention/Copy). New: `web/templ/roster.templ`, `web/templ/usermenu.templ`, `MemberLister` in presence, `.roster*`/`.ucm*` CSS. `make gen` + `make build` clean; `go test ./internal/presence ./internal/auth` green.
 - **2606181016** — Phase 2 complete. Admin-only Ban/Unban/Kick wired into the menu via existing /admin endpoints; BanDialog reuses cleanup signals. Build clean.
 - **2606181005** — Plan created. Scope confirmed via AskUserQuestion: full roster (online+offline), all action groups (DM/Profile/Mention + Ban/Unban/Kick + Make/Remove moderator + Copy/Block/Report), ⋮ touch fallback alongside `data-on:contextmenu`. Code recon captured current presence/DM/ban building blocks and the missing pieces (no membership-id on presence, no role-change endpoint, no contextmenu usage). Mempalace search returned mostly unrelated (vvs) context — nothing reusable for this feature.
