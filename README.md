@@ -384,7 +384,7 @@ boot fails fast on placeholder secrets.
 | `COMMUNITY_SLUG`     | `main`                                 | Slug of the bootstrap community.                                   |
 | `COMMUNITY_NAME`     | `The Community`                        | Human-friendly name.                                               |
 | `OPEN_REGISTRATION`  | `false`                                | Allow self-registration without an invite code. When off, `/register` requires a valid invite. |
-| `OPEN_REGISTRATION_AUTO_APPROVE` | `false`                    | Only with `OPEN_REGISTRATION`. Off → open registrants land in the pending approval queue; on → instant access after email verification. |
+| `OPEN_REGISTRATION_AUTO_APPROVE` | `false`                    | Auto-approve every new member at email-verification time (open **or** invite-based signups). Off → members land in the pending approval queue. Independent of `OPEN_REGISTRATION`. Flags load at boot — restart after changing. |
 
 ### Uploads
 

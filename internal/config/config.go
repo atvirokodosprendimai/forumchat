@@ -38,10 +38,10 @@ type Config struct {
 	// field is optional and an empty code joins the bootstrap community.
 	OpenRegistration bool `env:"OPEN_REGISTRATION" envDefault:"false"`
 
-	// OpenRegistrationAutoApprove only matters when OpenRegistration is true.
-	// false (default) lands new members in the pending approval queue
-	// (approved_at = NULL → /pending → admin approves). true grants instant
-	// access by stamping approved_at at email-verification time.
+	// OpenRegistrationAutoApprove, when true, auto-approves every new member at
+	// email-verification time (open OR invite-based signups), so nobody lands
+	// in the pending queue. false (default) keeps the queue (approved_at = NULL
+	// → /pending → admin approves). Independent of OpenRegistration.
 	OpenRegistrationAutoApprove bool `env:"OPEN_REGISTRATION_AUTO_APPROVE" envDefault:"false"`
 
 	PresenceTTL time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`

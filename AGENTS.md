@@ -516,10 +516,13 @@ Open registration (no migration; two global env flags, default off):
   code, `Service.Register` skips `ConsumeInvite` and the user joins the
   bootstrap community; with `OPEN_REGISTRATION` off, an empty code is refused
   (`ErrInviteRequired`). The invite path is unchanged in every mode.
-- `OPEN_REGISTRATION_AUTO_APPROVE=true` (honoured **only** when open reg is on)
-  stamps `approved_at` in `Service.Verify`, so open registrants skip the queue
-  above. With it off, they land in `approved_at = NULL` → `/pending` like
-  everyone else. Gated on *both* flags so invite-only behaviour is intact.
+- `OPEN_REGISTRATION_AUTO_APPROVE=true` stamps `approved_at` in `Service.Verify`
+  for **every** new member (open *or* invite-based signup), so nobody lands in
+  the queue. It is **independent** of `OPEN_REGISTRATION` — an admin who only
+  wants "invited people get instant access" sets this alone. With it off, new
+  members land in `approved_at = NULL` → `/pending`. Flags load at boot;
+  restart after changing env. To approve a stuck account without a redeploy:
+  `forumchat-cli approve <email>` (or `approve-all`).
 - The register form (`web/templ/auth.templ` `RegisterPage(openReg bool)`)
   collapses the invite field into an optional `<details>` when open.
 

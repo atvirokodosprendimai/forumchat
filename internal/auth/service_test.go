@@ -145,6 +145,33 @@ func TestRegister_OpenNoInvite_AutoApprove(t *testing.T) {
 	}
 }
 
+// Auto-approve is independent of open registration: an invite-based signup
+// with auto-approve on (open reg off) is also approved at verify time.
+func TestRegister_AutoApprove_InviteFlow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistrationAutoApprove = true // OpenRegistration stays false
+
+	code, _ := svc.IssueInvite(ctx, communityID, nil, nil)
+	reg, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "invited-auto@example.com", Password: "supersecret123", InviteCode: code,
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := svc.Verify(ctx, reg.VerificationToken, communityID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, err := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if err != nil {
+		t.Fatalf("membership: %v", err)
+	}
+	if m.ApprovedAt == nil {
+		t.Fatal("want auto-approved (approved_at set) for invite flow, got nil")
+	}
+}
+
 func TestRegister_InvalidInvite(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

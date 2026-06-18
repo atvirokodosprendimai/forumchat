@@ -20,8 +20,8 @@ type Service struct {
 
 	// OpenRegistration allows Register to proceed without an invite code.
 	OpenRegistration bool
-	// OpenRegistrationAutoApprove stamps approved_at at verify time so open
-	// registrants skip the pending queue. Only honoured when OpenRegistration.
+	// OpenRegistrationAutoApprove stamps approved_at at verify time so new
+	// members skip the pending queue. Applies to open AND invite-based signups.
 	OpenRegistrationAutoApprove bool
 }
 
@@ -210,9 +210,10 @@ func (s *Service) Verify(ctx context.Context, token, communityID string) (Verify
 		Role:        RoleMember,
 		TrustLevel:  0,
 	}
-	// Open registration with auto-approve skips the pending queue by stamping
-	// approved_at now. Gated on both flags so invite-only behaviour is intact.
-	if s.OpenRegistration && s.OpenRegistrationAutoApprove {
+	// Auto-approve stamps approved_at now so the member skips the pending
+	// queue. Honoured whenever the flag is set — for open OR invite-based
+	// signups (an admin who turns this on wants no manual approval step).
+	if s.OpenRegistrationAutoApprove {
 		t := time.Now()
 		m.ApprovedAt = &t
 	}
