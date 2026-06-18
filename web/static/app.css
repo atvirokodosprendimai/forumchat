@@ -3742,6 +3742,7 @@ hr {
   font-size: .92rem;
 }
 .roster-badge { flex: 0 0 auto; font-size: .8rem; opacity: .7; }
+.roster-row.is-blocked .roster-name { opacity: .45; text-decoration: line-through; }
 .roster-menu-btn {
   flex: 0 0 auto; opacity: 0;
   background: transparent; border: none; cursor: pointer;

@@ -48,6 +48,10 @@ type Handler struct {
 	// nil → no projects → mod button rendered but the dropdown is
 	// empty (which is fine — modal Save is gated on a non-empty pick).
 	ListProjects  func(ctx context.Context, communityID string) []webtempl.ChatProjectView
+	// Roster, when set, is pinged after a block/unblock so the presence
+	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
+	// *presence.Tracker.Bump.
+	Roster        RosterNotifier
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
@@ -58,6 +62,13 @@ type Handler struct {
 	// time of the last broadcast.
 	readBroadcastMu sync.Mutex
 	readBroadcastAt map[string]time.Time
+}
+
+// RosterNotifier wakes open presence sidebars so per-viewer markers
+// (data-blocked) re-render after a block/unblock. Satisfied by
+// *presence.Tracker.Bump. Optional — nil-safe.
+type RosterNotifier interface {
+	Bump(communityID string)
 }
 
 const PasteImageMaxBytes = 1 << 20 // 1 MiB
@@ -114,12 +125,40 @@ func (h *Handler) loadRecentFor(ctx context.Context, currentUserID string) ([]we
 	if err != nil {
 		return nil, err
 	}
+	blocked := h.blockedSet(ctx, currentUserID)
 	views := make([]webtempl.MsgView, 0, len(msgs))
 	for _, m := range msgs {
+		// Per-viewer mute: drop blocked authors' messages from this
+		// viewer's read model. System / thread-announce rows have an
+		// empty AuthorID and are never blocked.
+		if m.AuthorID != nil && *m.AuthorID != "" && blocked[*m.AuthorID] {
+			continue
+		}
 		views = append(views, h.toMsgViewWith(m, currentUserID, h.cslug(ctx)))
 	}
 	h.attachReadReceipts(ctx, views, currentUserID)
 	return views, nil
+}
+
+// blockedSet returns the set of user_ids the viewer has muted in this
+// community. Empty/nil when no AuthRepo or no blocks.
+func (h *Handler) blockedSet(ctx context.Context, currentUserID string) map[string]bool {
+	if h.AuthRepo == nil || currentUserID == "" {
+		return nil
+	}
+	ids, err := h.AuthRepo.ListBlocked(ctx, currentUserID, h.cid(ctx))
+	if err != nil {
+		h.Log.Warn("list blocked", "err", err)
+		return nil
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
 }
 
 // attachReadReceipts walks views (desc, newest-first) and decorates the
@@ -742,6 +781,51 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
 	}
 	h.broadcast(r.Context())
+}
+
+// PostBlock mutes the target user (query param `user`) for the current
+// viewer in this community. PostUnblock reverses it. Both re-render the
+// actor's own chat immediately (blocked authors vanish from / return to
+// their read model) and nudge the roster so the menu's Block/Unblock
+// toggle flips.
+func (h *Handler) PostBlock(w http.ResponseWriter, r *http.Request)   { h.setBlock(w, r, true) }
+func (h *Handler) PostUnblock(w http.ResponseWriter, r *http.Request) { h.setBlock(w, r, false) }
+
+func (h *Handler) setBlock(w http.ResponseWriter, r *http.Request, block bool) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	target := r.URL.Query().Get("user")
+	if target == "" || target == id.User.ID {
+		http.Error(w, "bad target", http.StatusBadRequest)
+		return
+	}
+	if h.AuthRepo == nil {
+		http.Error(w, "blocking unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	cid := h.cid(r.Context())
+	var err error
+	if block {
+		err = h.AuthRepo.BlockUser(r.Context(), id.User.ID, target, cid)
+	} else {
+		err = h.AuthRepo.UnblockUser(r.Context(), id.User.ID, target, cid)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sse := render.NewSSE(w, r)
+	if views, lerr := h.loadRecentFor(r.Context(), id.User.ID); lerr == nil {
+		isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+	}
+	if h.Roster != nil {
+		h.Roster.Bump(cid)
+	}
 }
 
 // MentionLimit caps how many suggestions the @mention popup shows. 7 was

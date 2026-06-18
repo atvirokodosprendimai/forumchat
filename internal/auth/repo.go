@@ -605,6 +605,54 @@ func (r *Repo) AdminCommunityIDs(ctx context.Context, userID string) ([]string, 
 	return out, rows.Err()
 }
 
+// --- user blocks (per-viewer chat mute) ---
+
+// BlockUser records that blockerID no longer wants to see blockedID's
+// chat in this community. Idempotent (INSERT OR IGNORE).
+func (r *Repo) BlockUser(ctx context.Context, blockerID, blockedID, communityID string) error {
+	if blockerID == "" || blockedID == "" || blockerID == blockedID {
+		return nil
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT OR IGNORE INTO user_blocks (blocker_id, blocked_id, community_id, created_at)
+		VALUES (?, ?, ?, ?)`,
+		blockerID, blockedID, communityID, time.Now().Unix())
+	return err
+}
+
+// UnblockUser removes a block row. No-op when none exists.
+func (r *Repo) UnblockUser(ctx context.Context, blockerID, blockedID, communityID string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		DELETE FROM user_blocks
+		WHERE blocker_id = ? AND blocked_id = ? AND community_id = ?`,
+		blockerID, blockedID, communityID)
+	return err
+}
+
+// ListBlocked returns the user_ids blockerID has blocked in the
+// community. Empty blockerID returns nil without hitting the DB.
+func (r *Repo) ListBlocked(ctx context.Context, blockerID, communityID string) ([]string, error) {
+	if blockerID == "" {
+		return nil, nil
+	}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT blocked_id FROM user_blocks
+		WHERE blocker_id = ? AND community_id = ?`, blockerID, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // CountAdmins returns the number of admin-role memberships in the
 // community. Used as a last-admin-standing guard before remove/demote
 // so an op can't accidentally lock everyone out.

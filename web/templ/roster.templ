@@ -12,6 +12,7 @@ type RosterMember struct {
 	Role         string // member|moderator|admin
 	Online       bool
 	Banned       bool
+	Blocked      bool // muted by the current viewer
 }
 
 // RosterPanel renders the full community roster (online + offline) into
@@ -41,13 +42,14 @@ templ RosterPanel(online []RosterMember, offline []RosterMember) {
 }
 
 templ RosterRow(m RosterMember) {
-	<li class="roster-row"
+	<li class={ "roster-row", templ.KV("is-blocked", m.Blocked) }
 		data-user-id={ m.UserID }
 		data-membership-id={ m.MembershipID }
 		data-name={ m.DisplayName }
 		data-role={ m.Role }
 		data-online={ boolDigit(m.Online) }
 		data-banned={ boolDigit(m.Banned) }
+		data-blocked={ boolDigit(m.Blocked) }
 		data-on:contextmenu__prevent={ userMenuDispatch("evt.clientX", "evt.clientY") }>
 		<span class="roster-avatar" style={ "background:" + mentionColor(m.UserID) }>
 			{ mentionInitial(m.DisplayName) }
@@ -74,7 +76,7 @@ func userMenuDispatch(xExpr, yExpr string) string {
 	return "el.dispatchEvent(new CustomEvent('fc:user-menu',{bubbles:true,detail:{" +
 		"id:el.dataset.userId,mid:el.dataset.membershipId,name:el.dataset.name," +
 		"role:el.dataset.role,online:el.dataset.online==='1',banned:el.dataset.banned==='1'," +
-		"x:" + xExpr + ",y:" + yExpr + "}}))"
+		"blocked:el.dataset.blocked==='1',x:" + xExpr + ",y:" + yExpr + "}}))"
 }
 
 // rosterMenuBtnDispatch is the ⋮ touch-button handler: climb to the row
@@ -85,7 +87,7 @@ func rosterMenuBtnDispatch() string {
 		"li.dispatchEvent(new CustomEvent('fc:user-menu',{bubbles:true,detail:{" +
 		"id:li.dataset.userId,mid:li.dataset.membershipId,name:li.dataset.name," +
 		"role:li.dataset.role,online:li.dataset.online==='1',banned:li.dataset.banned==='1'," +
-		"x:r.left,y:r.bottom}}))"
+		"blocked:li.dataset.blocked==='1',x:r.left,y:r.bottom}}))"
 }
 
 // boolDigit renders a bool as "1"/"0" for a data-* attribute the menu

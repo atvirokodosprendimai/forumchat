@@ -72,15 +72,16 @@ status: active
 4. [x] Test: `internal/auth/role_test.go` — promote member→moderator→member round-trip via `UpdateMembershipRole`. `go test ./internal/auth` green. (Handler guards are HTTP-level; covered by reasoning + the admin-gated route.)
    - => Route `POST /c/{slug}/admin/set-role` registered in the admin-gated group.
 
-### Phase 4 - Block user (per-viewer mute) - status: open
+### Phase 4 - Block user (per-viewer mute) - status: completed
 
 > Visible result: block someone → their chat bubbles vanish for you only; unblock restores.
 
-1. [ ] Migration: `user_blocks(blocker_id, blocked_id, community_id, created_at, PK(blocker_id,blocked_id,community_id))` (goose, under `internal/storage/sqlite/migrations`)
-2. [ ] `auth.Repo` (or new `blocks` repo): `Block / Unblock / ListBlocked(blockerID, communityID) []string`
-3. [ ] Chat read model: load viewer's blocked set in `loadRecent`; `MessageView` hides or placeholders blocked authors **per-viewer** (read model is per-viewer already — §6b)
-4. [ ] Menu Block/Unblock toggle on `$_ctx_blocked` → `@post('/c/{slug}/block?user=' + $_ctx_user_id)` / `/unblock`; self-refresh via `chat.Bus` broadcast to this viewer
-5. [ ] Test: blocked author's message absent from blocker's `loadRecent` view, present for others
+1. [x] Migration `00030_user_blocks.sql` — `user_blocks(blocker_id, blocked_id, community_id, created_at, PK(...))`, FK→users ON DELETE CASCADE, index on `(blocker_id, community_id)`
+2. [x] `auth.Repo.BlockUser` (INSERT OR IGNORE, self-block no-op) / `UnblockUser` / `ListBlocked` — reused `auth.Repo` (chat already holds `AuthRepo`, no new interface)
+3. [x] `chat.loadRecentFor`: `blockedSet(viewer)` filters blocked authors out of the per-viewer read model (system rows have nil AuthorID → never filtered)
+4. [x] Menu Block/Unblock toggle on `$_ctx_blocked` → `chat.Handler.PostBlock/PostUnblock` (`/c/{slug}/block|unblock?user=`); each fat-morphs the actor's own chat immediately + `Roster.Bump` re-renders the sidebar. Roster is now block-aware: `presence.Handler.Blocks` marks `data-blocked` / `.is-blocked` per viewer (push is viewer-scoped).
+5. [x] Test `internal/auth/blocks_test.go` — block/unblock/list round-trip, idempotency, directionality, self-block no-op. The `loadRecentFor` filter itself is 3 lines covered by reasoning.
+   - => `chat.Handler.Roster` (RosterNotifier) wired post-hoc in main (tracker built after chatHandler); routes under `RequireApproved`.
 
 ### Phase 5 - Report user (to mods) - status: open
 

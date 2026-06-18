@@ -226,8 +226,11 @@ func run() error {
 		}
 	}()
 	presenceHandler := &presence.Handler{
-		Tracker: presenceTracker, Members: aRepo, CommunityID: bootCommunity.ID, Log: log,
+		Tracker: presenceTracker, Members: aRepo, Blocks: aRepo, CommunityID: bootCommunity.ID, Log: log,
 	}
+	// chatHandler is built before the tracker exists; wire the roster
+	// nudge now so block/unblock re-renders the presence sidebar.
+	chatHandler.Roster = presenceTracker
 
 	forumRepo := forum.NewRepo(db)
 	forumSvc := forum.NewService(forumRepo, cfg.EditGrace)
@@ -548,6 +551,8 @@ func run() error {
 		r.Get("/chat/events", chatHandler.GetEventsStream)
 		r.Post("/chat/read", chatHandler.PostMarkRead)
 		r.Post("/chat/extract", projectsHandler.PostExtractFromChat)
+		r.Post("/block", chatHandler.PostBlock)
+		r.Post("/unblock", chatHandler.PostUnblock)
 
 		r.Get("/presence/stream", presenceHandler.GetStream)
 

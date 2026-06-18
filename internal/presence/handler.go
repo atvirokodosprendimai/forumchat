@@ -21,9 +21,17 @@ type MemberLister interface {
 	ListMembers(ctx context.Context, communityID string) ([]auth.MemberRow, error)
 }
 
+// BlockLister returns the user_ids the viewer has muted, so the roster
+// can mark them (data-blocked) and the context menu's Block/Unblock
+// toggle shows the right state. Satisfied by *auth.Repo.ListBlocked.
+type BlockLister interface {
+	ListBlocked(ctx context.Context, blockerID, communityID string) ([]string, error)
+}
+
 type Handler struct {
 	Tracker     *Tracker
 	Members     MemberLister
+	Blocks      BlockLister
 	CommunityID string
 	Log         *slog.Logger
 }
@@ -53,19 +61,20 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		UserID: id.User.ID, DisplayName: id.Membership.DisplayName, AvatarURL: id.Membership.AvatarURL,
 	})
 	cid := h.cid(r)
-	h.push(r.Context(), sse, cid)
+	viewerID := id.User.ID
+	h.push(r.Context(), sse, cid, viewerID)
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ch:
-			h.push(r.Context(), sse, cid)
+			h.push(r.Context(), sse, cid, viewerID)
 		case <-heartbeat.C:
 			h.Tracker.Touch(cid, Member{
 				UserID: id.User.ID, DisplayName: id.Membership.DisplayName, AvatarURL: id.Membership.AvatarURL,
 			})
-			h.push(r.Context(), sse, cid)
+			h.push(r.Context(), sse, cid, viewerID)
 		}
 	}
 }
@@ -74,7 +83,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 // online (present in the Tracker) and offline groups — and morphs it
 // into #presence-list. The roster carries each member's membership id +
 // role so the right-click UserContextMenu can drive moderation actions.
-func (h *Handler) push(ctx context.Context, sse *datastar.ServerSentEventGenerator, communityID string) {
+func (h *Handler) push(ctx context.Context, sse *datastar.ServerSentEventGenerator, communityID, viewerID string) {
 	online := map[string]bool{}
 	for _, m := range h.Tracker.Members(communityID) {
 		online[m.UserID] = true
@@ -89,6 +98,15 @@ func (h *Handler) push(ctx context.Context, sse *datastar.ServerSentEventGenerat
 		}
 	}
 
+	blocked := map[string]bool{}
+	if h.Blocks != nil && viewerID != "" {
+		if ids, err := h.Blocks.ListBlocked(ctx, viewerID, communityID); err == nil {
+			for _, id := range ids {
+				blocked[id] = true
+			}
+		}
+	}
+
 	now := time.Now()
 	var on, off []webtempl.RosterMember
 	for _, mr := range rows {
@@ -100,6 +118,7 @@ func (h *Handler) push(ctx context.Context, sse *datastar.ServerSentEventGenerat
 			Role:         string(mr.Role),
 			Online:       online[mr.UserID],
 			Banned:       mr.IsBanned(now),
+			Blocked:      blocked[mr.UserID],
 		}
 		if rm.Online {
 			on = append(on, rm)

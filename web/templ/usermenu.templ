@@ -36,6 +36,16 @@ templ UserContextMenu(slug, currentUserID string, isAdmin bool) {
 				data-on:click="navigator.clipboard && navigator.clipboard.writeText($_ctx_name); $_ctx_open=false">
 				<span class="ucm-icon">⧉</span><span class="ucm-label">Copy name</span>
 			</button>
+			<button class="ucm-item" role="menuitem"
+				data-show={ "$_ctx_user_id !== '" + currentUserID + "' && !$_ctx_blocked" }
+				data-on:click={ "@post('/c/" + slug + "/block?user=' + $_ctx_user_id); $_ctx_open=false" }>
+				<span class="ucm-icon">🚫</span><span class="ucm-label">Block in chat</span>
+			</button>
+			<button class="ucm-item" role="menuitem"
+				data-show="$_ctx_blocked"
+				data-on:click={ "@post('/c/" + slug + "/unblock?user=' + $_ctx_user_id); $_ctx_open=false" }>
+				<span class="ucm-icon">✓</span><span class="ucm-label">Unblock in chat</span>
+			</button>
 			if isAdmin {
 				<div class="ucm-sep" data-show={ "$_ctx_user_id !== '" + currentUserID + "'" }></div>
 				<button class="ucm-item" role="menuitem"
