@@ -15,8 +15,10 @@
   let lastPingAt   = 0;
 
   // Skip on the chat page — that page owns its own observer + ping
-  // logic and would double-pong otherwise.
-  const onChatPage = () => location.pathname.endsWith('/chat');
+  // logic and would double-pong otherwise. The chat page URL now carries
+  // a channel slug (/c/<slug>/chat/<channel>), so match the segment, not
+  // just a trailing /chat.
+  const onChatPage = () => /\/chat(\/|$)/.test(location.pathname);
 
   window.fcChatPing = function fcChatPing() {
     if (onChatPage()) return;

@@ -35,9 +35,11 @@ self.addEventListener('push', (event) => {
           if (!c.focused) continue;
           try {
             const here = new URL(c.url);
-            // url is server-supplied like "/c/<slug>/chat"; match by suffix
-            // so query strings / hash fragments on the client don't break it.
-            if (here.pathname.endsWith('/chat') && url.endsWith('/chat')) {
+            // url is server-supplied like "/c/<slug>/chat"; the open client
+            // may be on a specific channel (/c/<slug>/chat/<channel>), so
+            // match the /chat segment rather than an exact suffix.
+            const onChat = (p) => /\/chat(\/|$)/.test(p);
+            if (onChat(here.pathname) && onChat(url)) {
               return;
             }
           } catch (_) {}

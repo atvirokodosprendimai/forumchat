@@ -1,6 +1,8 @@
 package templ
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -85,6 +87,15 @@ type ChatProjectView struct {
 	Name string
 }
 
+// ChannelView is one channel in the switcher bar.
+type ChannelView struct {
+	ID        string
+	Slug      string
+	Name      string
+	Topic     string
+	IsDefault bool
+}
+
 type ChatPageData struct {
 	Viewer        Viewer
 	IsMod         bool
@@ -94,15 +105,31 @@ type ChatPageData struct {
 	// from projects.Repo.ListActiveForCommunity on page render. Empty
 	// when projects feature is disabled.
 	Projects []ChatProjectView
+	// Channels + active selection + unread dots drive the switcher bar.
+	Channels    []ChannelView
+	ActiveID    string
+	ActiveSlug  string
+	ActiveTopic string
+	Unread      map[string]bool
+	// CanManage gates the +channel / per-channel ⚙ affordances (mod/admin).
+	CanManage bool
 }
 
 templ ChatPage(d ChatPageData) {
 	@Layout("Chat", d.Viewer) {
+		// Seed the per-viewer channel signals (active channel + unread
+		// dots) into the bag on load. Merges over InitialSignals.
+		<div data-signals={ chatChannelSignals(d) }></div>
 		<section class="chat-layout">
 			<div>
-				<h1>{ d.Viewer.CommunityName }</h1>
-				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID, d.Viewer.DisplayName, d.Viewer.CommunitySlug)
-				@ChatComposer(d.Viewer.CommunitySlug)
+				<div class="chat-head">
+					@ChannelSwitcher(d.Viewer.CommunitySlug, d.Channels, d.ActiveID, d.CanManage)
+					if d.ActiveTopic != "" {
+						<p class="chat-topic">{ d.ActiveTopic }</p>
+					}
+				</div>
+				@MessagesContainer(d.Messages, d.IsMod, d.CurrentUserID, d.Viewer.DisplayName, d.Viewer.CommunitySlug, d.ActiveSlug)
+				@ChatComposer(d.Viewer.CommunitySlug, d.ActiveSlug)
 			</div>
 			<aside id="presence" class="presence" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/presence/stream', {openWhenHidden: true})" }>
 				<h3>Members</h3>
@@ -131,7 +158,7 @@ templ ChatPage(d ChatPageData) {
 		<button class="presence-fab" aria-label="Show online users"
 			type="button" data-presence-toggle>👥</button>
 		<div class="presence-overlay" data-presence-overlay></div>
-		<div id="chat-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/chat/stream', {openWhenHidden: true})" }></div>
+		<div id="chat-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/stream', {openWhenHidden: true})" }></div>
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
@@ -139,12 +166,97 @@ templ ChatPage(d ChatPageData) {
 		if d.IsMod {
 			@ExtractDialog(d.Viewer.CommunitySlug, d.Projects)
 		}
+		if d.CanManage {
+			@ChannelManageDialog(d.Viewer.CommunitySlug)
+		}
 		<script src={ "/static/chat-notify.js?v=" + AssetVer("chat-notify.js") } defer></script>
 		<script src={ "/static/chat-attach.js?v=" + AssetVer("chat-attach.js") } defer></script>
 	}
 }
 
-templ ChatComposer(slug string) {
+// ChannelSwitcher is the tab bar above #messages. Pills link to each
+// channel (full nav); the active one is highlighted; an unread dot shows
+// when $chat_unread[id] is set and the channel isn't the active one.
+// Mods/admins get a per-channel ⚙ (non-default only) + a "+ channel"
+// affordance. Stable id so CRUD handlers can morph it.
+templ ChannelSwitcher(slug string, channels []ChannelView, activeID string, canManage bool) {
+	<nav id="chat-switcher" class="chat-switcher" aria-label="Channels">
+		<div class="chat-switcher-pills">
+			for _, c := range channels {
+				<span class={ "chan-pill", templ.KV("active", c.ID == activeID) }>
+					<a class="chan-link" href={ templ.SafeURL("/c/" + slug + "/chat/" + c.Slug) }
+						data-on:click={ "$chat_unread['" + c.ID + "']=false" }>
+						<span class="chan-hash">#</span><span class="chan-name">{ c.Name }</span>
+						if c.ID != activeID {
+							<span class="chan-dot" data-show={ "$chat_unread['" + c.ID + "']" } aria-label="unread messages"></span>
+						}
+					</a>
+					if canManage && !c.IsDefault {
+						<button type="button" class="chan-gear" aria-label="Channel settings"
+							data-on:click={ "el.dispatchEvent(new CustomEvent('fc:chan-edit',{bubbles:true,detail:{id:'" + c.ID + "',name:'" + jsString(c.Name) + "',topic:'" + jsString(c.Topic) + "'}}))" }>⚙</button>
+					}
+				</span>
+			}
+		</div>
+		if canManage {
+			<button type="button" class="chan-add" aria-label="New channel"
+				data-on:click="$ch_name=''; $ch_topic=''; $_ch_create_open=true">+ channel</button>
+		}
+	</nav>
+}
+
+// ChannelManageDialog holds the create + edit popovers (mod/admin only).
+// One window-level consumer listens for the fc:chan-edit custom event
+// dispatched by each ⚙ button and opens the edit form pre-filled.
+templ ChannelManageDialog(slug string) {
+	<div data-on:fc:chan-edit__window="$_ch_edit_id=evt.detail.id; $ch_name=evt.detail.name; $ch_topic=evt.detail.topic; $_ch_create_open=false; $_ch_edit_open=true"></div>
+	// Create
+	<div class="modal-backdrop" data-show="$_ch_create_open" data-on:click="$_ch_create_open=false">
+		<div class="modal-card" data-on:click="evt.stopPropagation()">
+			<h3>New channel</h3>
+			<label class="field">
+				<span>Name</span>
+				<input type="text" data-bind="ch_name" maxlength="60" placeholder="e.g. design" autofocus/>
+			</label>
+			<label class="field">
+				<span>Topic <span class="muted">(optional)</span></span>
+				<input type="text" data-bind="ch_topic" maxlength="200" placeholder="What's this channel about?"/>
+			</label>
+			<div id="chan-error" class="form-error" aria-live="polite"></div>
+			<div class="modal-actions">
+				<button class="ghost" data-on:click="$_ch_create_open=false">Cancel</button>
+				<button data-on:click={ "@post('/c/" + slug + "/chat/channels')" }>Create</button>
+			</div>
+		</div>
+	</div>
+	// Edit (rename / topic / archive / delete)
+	<div class="modal-backdrop" data-show="$_ch_edit_open" data-on:click="$_ch_edit_open=false">
+		<div class="modal-card" data-on:click="evt.stopPropagation()">
+			<h3>Channel settings</h3>
+			<label class="field">
+				<span>Name</span>
+				<input type="text" data-bind="ch_name" maxlength="60"/>
+			</label>
+			<label class="field">
+				<span>Topic</span>
+				<input type="text" data-bind="ch_topic" maxlength="200"/>
+			</label>
+			<div id="chan-error" class="form-error" aria-live="polite"></div>
+			<div class="modal-actions">
+				<button data-on:click={ "@post('/c/" + slug + "/chat/channels/rename')" }>Save name</button>
+				<button class="ghost" data-on:click={ "@post('/c/" + slug + "/chat/channels/topic')" }>Save topic</button>
+			</div>
+			<hr/>
+			<div class="modal-actions">
+				<button class="ghost" data-on:click={ "@post('/c/" + slug + "/chat/channels/archive')" }>Archive</button>
+				<button class="danger" data-on:click={ "if(confirm('Delete this channel and all its messages? This cannot be undone.')){@post('/c/" + slug + "/chat/channels/delete')}" }>Delete</button>
+				<button class="ghost" data-on:click="$_ch_edit_open=false">Close</button>
+			</div>
+		</div>
+	</div>
+}
+
+templ ChatComposer(slug, channelSlug string) {
 	<div id="composer" class="composer">
 		<div id="reply-indicator" class="reply-hint" data-show="$reply_to_id !== ''">
 			<span class="muted">Replying — <span data-text="'…' + ($reply_to_id || '').slice(0,8)"></span></span>
@@ -177,8 +289,8 @@ templ ChatComposer(slug string) {
 				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcMentionDetect(el)){$_mention_open=true; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false}" }
 				data-on:blur="setTimeout(()=>{$_mention_open=false},150)"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
-				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open){evt.preventDefault(); @post('/c/" + slug + "/chat/send'); el.style.height='auto'}" }></textarea>
-			<button data-on:click={ "@post('/c/" + slug + "/chat/send'); document.querySelector('.composer-text').style.height='auto'" }>Send</button>
+				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open){evt.preventDefault(); @post('/c/" + slug + "/chat/" + channelSlug + "/send'); el.style.height='auto'}" }></textarea>
+			<button data-on:click={ "@post('/c/" + slug + "/chat/" + channelSlug + "/send'); document.querySelector('.composer-text').style.height='auto'" }>Send</button>
 		</div>
 	</div>
 }
@@ -290,10 +402,11 @@ func groupClass(g MsgGroup) string {
 // sse.ExecuteScript from the handler. currentUserID lets us show the
 // "promote to thread" button only on the viewer's own messages (mods get it
 // regardless via isMod). viewerName drives @mention "ping me" highlighting.
-templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName, slug string) {
+templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName, slug, channelSlug string) {
 	<div id="messages" class="messages"
 		data-current-user-id={ currentUserID }
-		data-community-slug={ slug }>
+		data-community-slug={ slug }
+		data-channel-slug={ channelSlug }>
 		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
 			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
 		}
@@ -310,6 +423,32 @@ templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerNam
 // bottom because the anchor is the last child.
 templ ChatScrollAnchor() {
 	<div id="chat-scroll-anchor" data-init="el.scrollIntoView({block:'end'})"></div>
+}
+
+// chatChannelSignals builds the data-signals JSON that seeds the active
+// channel + unread dots into the bag on page load. Merges over
+// InitialSignals (which declares the keys empty).
+func chatChannelSignals(d ChatPageData) string {
+	var b strings.Builder
+	b.WriteString(`{"active_channel":`)
+	b.WriteString(strconv.Quote(d.ActiveID))
+	b.WriteString(`,"active_channel_slug":`)
+	b.WriteString(strconv.Quote(d.ActiveSlug))
+	b.WriteString(`,"chat_unread":{`)
+	first := true
+	for id, on := range d.Unread {
+		if !on {
+			continue
+		}
+		if !first {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.Quote(id))
+		b.WriteString(":true")
+		first = false
+	}
+	b.WriteString("}}")
+	return b.String()
 }
 
 // reverseMessages flips the desc-from-DB slice so groupMessages walks

@@ -18,6 +18,7 @@
 
   const currentUserID = messages.dataset.currentUserId || '';
   const slug          = messages.dataset.communitySlug || '';
+  const channelSlug   = messages.dataset.channelSlug || 'general';
   if (!currentUserID || !slug) return;
 
   // Hoisted state — declared BEFORE scheduleMarkRead() can fire so the
@@ -94,7 +95,7 @@
     // Datastar reads signals from the request body as JSON. We don't
     // have a Datastar action helper here, so post directly — server's
     // datastar.ReadSignals accepts plain JSON bodies.
-    fetch(`/c/${encodeURIComponent(slug)}/chat/read`, {
+    fetch(`/c/${encodeURIComponent(slug)}/chat/${encodeURIComponent(channelSlug)}/read`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ last_id: id }),

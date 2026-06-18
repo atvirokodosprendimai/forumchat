@@ -373,6 +373,52 @@ button.link:hover, .link-button:hover {
      FAB (handled by .presence-fab + .presence right-drawer rules below). */
   .chat-layout { grid-template-columns: 1fr; }
 }
+
+/* ---- Channel switcher (tabs above #messages) ---- */
+.chat-head { flex: 0 0 auto; margin-bottom: 0.6rem; }
+.chat-switcher {
+  display: flex; align-items: center; gap: 0.5rem;
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin;
+  padding-bottom: 2px;
+}
+.chat-switcher-pills { display: flex; align-items: center; gap: 0.35rem; flex: 1 1 auto; min-width: 0; }
+.chan-pill {
+  display: inline-flex; align-items: center; gap: 0.15rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-alt);
+  border: 1px solid var(--border-subtle);
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
+  white-space: nowrap;
+}
+.chan-pill:hover { background: var(--surface-2); }
+.chan-pill.active { background: var(--accent-soft); border-color: var(--accent-ring); }
+.chan-link {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  padding: 0.32rem 0.7rem; color: var(--ink-soft, inherit);
+  font-weight: 500; font-size: 0.92rem; border-radius: var(--radius-pill);
+}
+.chan-link:hover { text-decoration: none; }
+.chan-pill.active .chan-link { color: var(--accent-strong); font-weight: 600; }
+.chan-hash { opacity: 0.5; font-weight: 600; }
+.chan-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); margin-left: 0.15rem; flex: 0 0 auto;
+}
+.chan-gear {
+  background: none; border: none; cursor: pointer; padding: 0 0.45rem 0 0.1rem;
+  font-size: 0.8rem; opacity: 0.45; line-height: 1;
+}
+.chan-gear:hover { opacity: 0.9; }
+.chan-add {
+  background: none; border: 1px dashed var(--border-strong);
+  color: var(--muted); border-radius: var(--radius-pill);
+  padding: 0.3rem 0.7rem; font-size: 0.85rem; cursor: pointer; white-space: nowrap;
+  flex: 0 0 auto;
+}
+.chan-add:hover { color: var(--accent-strong); border-color: var(--accent-ring); }
+.chat-topic { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.85rem; }
+.form-error { color: var(--danger, oklch(58% 0.2 25)); font-size: 0.85rem; min-height: 1em; }
+
 .messages {
   background:
     linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));

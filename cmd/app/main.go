@@ -549,14 +549,27 @@ func run() error {
 		r.Use(community.RequireMember(aRepo))
 		r.Use(auth.RequireApproved)
 
-		r.Get("/chat", chatHandler.GetPage)
-		r.Post("/chat/send", chatHandler.PostSend)
+		// Bare /chat redirects to #general so the URL always carries a
+		// channel slug. Channel-agnostic actions (upload, mention search,
+		// cross-page events, extract) stay at /chat/*; static segments win
+		// over the {channel} wildcard in chi so they're never shadowed.
+		r.Get("/chat", chatHandler.GetChatRedirect)
 		r.Post("/chat/upload", chatHandler.PostUpload)
 		r.Get("/chat/mention", chatHandler.GetMentionSearch)
-		r.Get("/chat/stream", chatHandler.GetStream)
 		r.Get("/chat/events", chatHandler.GetEventsStream)
-		r.Post("/chat/read", chatHandler.PostMarkRead)
 		r.Post("/chat/extract", projectsHandler.PostExtractFromChat)
+		// Channel management (mod create/rename/topic/archive; admin delete
+		// — role enforced inside the handlers).
+		r.Post("/chat/channels", chatHandler.PostCreateChannel)
+		r.Post("/chat/channels/rename", chatHandler.PostRenameChannel)
+		r.Post("/chat/channels/topic", chatHandler.PostSetTopic)
+		r.Post("/chat/channels/archive", chatHandler.PostArchiveChannel)
+		r.Post("/chat/channels/delete", chatHandler.PostDeleteChannel)
+		// Per-channel surfaces.
+		r.Get("/chat/{channel}", chatHandler.GetPage)
+		r.Get("/chat/{channel}/stream", chatHandler.GetStream)
+		r.Post("/chat/{channel}/send", chatHandler.PostSend)
+		r.Post("/chat/{channel}/read", chatHandler.PostMarkRead)
 		r.Post("/block", chatHandler.PostBlock)
 		r.Post("/unblock", chatHandler.PostUnblock)
 		r.Post("/report", chatHandler.PostReport)

@@ -217,9 +217,9 @@ func (h *Handler) attachReadReceipts(ctx context.Context, channelID string, view
 //     scrolls itself into view. Replace (not Outer) is essential —
 //     idiomorph's same-id merge would keep the old anchor and
 //     data-init would no-op.
-func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool, currentUserID, viewerName, slug string) error {
+func fatMorph(sse *datastar.ServerSentEventGenerator, views []webtempl.MsgView, isMod bool, currentUserID, viewerName, slug, channelSlug string) error {
 	if err := sse.PatchElementTempl(
-		webtempl.MessagesContainer(views, isMod, currentUserID, viewerName, slug),
+		webtempl.MessagesContainer(views, isMod, currentUserID, viewerName, slug, channelSlug),
 		datastar.WithModeOuter(),
 	); err != nil {
 		return err
@@ -359,6 +359,9 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load chat: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	channels, unread, _ := h.channelViews(r.Context(), id.User.ID)
+	// The active channel is "read" the moment it's rendered — drop its dot.
+	delete(unread, ch.ID)
 	var projs []webtempl.ChatProjectView
 	if h.ListProjects != nil {
 		projs = h.ListProjects(r.Context(), h.cid(r.Context()))
@@ -369,7 +372,186 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		CurrentUserID: id.User.ID,
 		Messages:      views,
 		Projects:      projs,
+		Channels:      channels,
+		ActiveID:      ch.ID,
+		ActiveSlug:    ch.Slug,
+		ActiveTopic:   ch.Topic,
+		Unread:        unread,
+		CanManage:     id.Membership.Role.AtLeast(auth.RoleMod),
 	}).Render(r.Context(), w)
+}
+
+// channelViews assembles the switcher's channel list + the viewer's
+// unread-dot set for the current community.
+func (h *Handler) channelViews(ctx context.Context, userID string) ([]webtempl.ChannelView, map[string]bool, error) {
+	cid := h.cid(ctx)
+	chans, err := h.Repo.ListChannels(ctx, cid, false)
+	if err != nil {
+		return nil, map[string]bool{}, err
+	}
+	out := make([]webtempl.ChannelView, 0, len(chans))
+	for _, c := range chans {
+		out = append(out, webtempl.ChannelView{
+			ID: c.ID, Slug: c.Slug, Name: c.Name, Topic: c.Topic, IsDefault: c.IsDefault,
+		})
+	}
+	unread, err := h.Repo.UnreadChannels(ctx, cid, userID)
+	if err != nil {
+		unread = map[string]bool{}
+	}
+	return out, unread, nil
+}
+
+// GetChatRedirect sends bare /chat to the community's #general so the URL
+// always carries a channel slug.
+func (h *Handler) GetChatRedirect(w http.ResponseWriter, r *http.Request) {
+	ch, err := h.Repo.DefaultChannel(r.Context(), h.cid(r.Context()))
+	slug := "general"
+	if err == nil {
+		slug = ch.Slug
+	}
+	http.Redirect(w, r, "/c/"+h.cslug(r.Context())+"/chat/"+slug, http.StatusSeeOther)
+}
+
+// channelFormSignals carries the create / edit dialog fields plus the
+// actor's current active channel (for the switcher highlight on re-render).
+type channelFormSignals struct {
+	ChannelID string `json:"_ch_edit_id"`
+	Name      string `json:"ch_name"`
+	Topic     string `json:"ch_topic"`
+	ActiveID  string `json:"active_channel"`
+}
+
+// requireManage gates channel CRUD to mod/admin.
+func (h *Handler) requireManage(w http.ResponseWriter, r *http.Request) (auth.Identity, bool) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok || !id.Membership.Role.AtLeast(auth.RoleMod) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return auth.Identity{}, false
+	}
+	return id, true
+}
+
+// channelErrMsg maps the service's typed channel errors to friendly copy.
+func channelErrMsg(err error) string {
+	switch {
+	case errors.Is(err, ErrEmptyChannelName):
+		return "Channel name required."
+	case errors.Is(err, ErrReservedSlug):
+		return "“general” is reserved."
+	case errors.Is(err, ErrChannelCap):
+		return "Channel limit reached (max 10)."
+	case errors.Is(err, ErrSlugTaken):
+		return "A channel with that name already exists."
+	case errors.Is(err, ErrDefaultChannel):
+		return "The #general channel can't be changed."
+	default:
+		return "Couldn't save the channel."
+	}
+}
+
+// afterChannelChange re-renders the actor's switcher, closes the dialogs,
+// and broadcasts an empty (structural) signal so every other open chat
+// stream re-renders its switcher + active channel.
+func (h *Handler) afterChannelChange(ctx context.Context, sse *datastar.ServerSentEventGenerator, userID, activeID string) {
+	channels, unread, _ := h.channelViews(ctx, userID)
+	delete(unread, activeID)
+	_ = sse.PatchElementTempl(webtempl.ChannelSwitcher(h.cslug(ctx), channels, activeID, true))
+	_ = sse.PatchSignals([]byte(`{"_ch_create_open":false,"_ch_edit_open":false,"ch_name":"","ch_topic":""}`))
+	h.broadcast(ctx, "")
+}
+
+func (h *Handler) PostCreateChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.requireManage(w, r)
+	if !ok {
+		return
+	}
+	var in channelFormSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if _, err := h.Svc.CreateChannel(r.Context(), h.cid(r.Context()), id.User.ID, in.Name, in.Topic); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("chan-error", channelErrMsg(err)))
+		return
+	}
+	h.afterChannelChange(r.Context(), sse, id.User.ID, in.ActiveID)
+}
+
+func (h *Handler) PostRenameChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.requireManage(w, r)
+	if !ok {
+		return
+	}
+	var in channelFormSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if _, err := h.Svc.RenameChannel(r.Context(), h.cid(r.Context()), in.ChannelID, in.Name); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("chan-error", channelErrMsg(err)))
+		return
+	}
+	h.afterChannelChange(r.Context(), sse, id.User.ID, in.ActiveID)
+}
+
+func (h *Handler) PostSetTopic(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.requireManage(w, r)
+	if !ok {
+		return
+	}
+	var in channelFormSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if err := h.Svc.SetTopic(r.Context(), h.cid(r.Context()), in.ChannelID, in.Topic); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("chan-error", channelErrMsg(err)))
+		return
+	}
+	h.afterChannelChange(r.Context(), sse, id.User.ID, in.ActiveID)
+}
+
+func (h *Handler) PostArchiveChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.requireManage(w, r)
+	if !ok {
+		return
+	}
+	var in channelFormSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if err := h.Svc.Archive(r.Context(), h.cid(r.Context()), in.ChannelID); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("chan-error", channelErrMsg(err)))
+		return
+	}
+	h.afterChannelChange(r.Context(), sse, id.User.ID, in.ActiveID)
+}
+
+// PostDeleteChannel hard-deletes a channel. Admin-only (stricter than
+// the mod-gated create/rename/archive).
+func (h *Handler) PostDeleteChannel(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok || !id.Membership.Role.AtLeast(auth.RoleAdmin) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var in channelFormSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if err := h.Svc.Delete(r.Context(), h.cid(r.Context()), in.ChannelID); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("chan-error", channelErrMsg(err)))
+		return
+	}
+	h.afterChannelChange(r.Context(), sse, id.User.ID, in.ActiveID)
 }
 
 type sendSignals struct {
@@ -447,7 +629,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 
 	views, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID)
 	if err == nil {
-		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
 	}
 	// Clear composer signals — including attachment_ids so the next
 	// send starts with a fresh empty stage.
@@ -706,7 +888,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	// Without this, a reconnecting client would see stale messages until the
 	// next chat event fires.
 	if views, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); err == nil {
-		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+		_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
 	}
 
 	local, unsubscribe := h.Bus.Subscribe()
@@ -739,19 +921,27 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			changed = string(msg.Data)
 		}
 		// A different channel changed: light its switcher unread dot and
-		// leave this viewer's #messages untouched. Empty changed id means
-		// "unknown / bridge" — fall through and refresh the active channel.
+		// leave this viewer's #messages untouched.
 		if changed != "" && changed != ch.ID {
 			if err := pushUnreadDot(sse, changed); err != nil {
 				return
 			}
 			continue
 		}
+		// Empty changed id = structural change (channel created / renamed /
+		// archived / deleted, or a bridge message) — re-render the switcher
+		// so the new shape appears live, then fall through to refresh the
+		// active channel's messages.
+		if changed == "" {
+			if channels, _, cerr := h.channelViews(r.Context(), id.User.ID); cerr == nil {
+				_ = sse.PatchElementTempl(webtempl.ChannelSwitcher(h.cslug(r.Context()), channels, ch.ID, isMod))
+			}
+		}
 		views, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID)
 		if err != nil {
 			continue
 		}
-		if err := fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context())); err != nil {
+		if err := fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug); err != nil {
 			return
 		}
 	}
@@ -832,19 +1022,26 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
+	// Resolve the message's own channel (the one the mod is viewing) so
+	// the re-render + broadcast target it — delete is a community-level
+	// route with no {channel} in the URL.
+	msg, err := h.Repo.ByID(r.Context(), msgID)
+	if err != nil {
+		http.Error(w, "message not found", http.StatusNotFound)
+		return
+	}
 	if err := h.Repo.SoftDelete(r.Context(), msgID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	sse := render.NewSSE(w, r)
-	ch, cerr := h.activeChannel(r.Context(), channelSlug(r))
-	if cerr == nil {
+	if ch, cerr := h.Repo.ChannelByID(r.Context(), msg.ChannelID); cerr == nil {
 		if views, lerr := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); lerr == nil {
-			_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+			_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
 		}
 	}
-	h.broadcast(r.Context(), ch.ID)
+	h.broadcast(r.Context(), msg.ChannelID)
 }
 
 // PostBlock mutes the target user (query param `user`) for the current
@@ -886,7 +1083,7 @@ func (h *Handler) setBlock(w http.ResponseWriter, r *http.Request, block bool) {
 	if ch, cerr := h.activeChannel(r.Context(), channelSlug(r)); cerr == nil {
 		if views, lerr := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); lerr == nil {
 			isMod := id.Membership.Role.AtLeast(auth.RoleMod)
-			_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()))
+			_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
 		}
 	}
 	if h.Roster != nil {

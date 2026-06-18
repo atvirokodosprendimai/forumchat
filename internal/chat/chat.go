@@ -208,6 +208,47 @@ func (r *Repo) EnsureDefaultChannel(ctx context.Context, communityID string) (Ch
 	return c, nil
 }
 
+// CreateChannel inserts a channel row. A UNIQUE(community_id, slug)
+// collision is mapped to ErrSlugTaken so handlers can render a friendly
+// message.
+func (r *Repo) CreateChannel(ctx context.Context, c Channel) error {
+	var createdBy sql.NullString
+	if c.CreatedBy != nil {
+		createdBy = sql.NullString{String: *c.CreatedBy, Valid: true}
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO chat_channels (id, community_id, slug, name, topic, position, is_default, created_by, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+		c.ID, c.CommunityID, c.Slug, c.Name, c.Topic, c.Position, createdBy, c.CreatedAt.Unix())
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrSlugTaken
+	}
+	return err
+}
+
+func (r *Repo) RenameChannel(ctx context.Context, id, name, slug string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE chat_channels SET name = ?, slug = ? WHERE id = ?`, name, slug, id)
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return ErrSlugTaken
+	}
+	return err
+}
+
+func (r *Repo) SetChannelTopic(ctx context.Context, id, topic string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE chat_channels SET topic = ? WHERE id = ?`, topic, id)
+	return err
+}
+
+func (r *Repo) ArchiveChannel(ctx context.Context, id string, at time.Time) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE chat_channels SET archived_at = ? WHERE id = ?`, at.Unix(), id)
+	return err
+}
+
+func (r *Repo) DeleteChannel(ctx context.Context, id string) error {
+	_, err := r.DB.ExecContext(ctx, `DELETE FROM chat_channels WHERE id = ?`, id)
+	return err
+}
+
 // channelScanner is the shared row shape for *sql.Row and *sql.Rows.
 type channelScanner interface {
 	Scan(dest ...any) error
@@ -806,4 +847,167 @@ func (s *Service) PostSystem(ctx context.Context, communityID, bodyHTML string, 
 		return Message{}, err
 	}
 	return m, nil
+}
+
+// MaxChannelsPerCommunity is the soft cap on non-archived channels. It
+// keeps the switcher tidy and the per-channel fan-out cheap; it is a
+// product/clarity choice, not a scaling limit.
+const MaxChannelsPerCommunity = 10
+
+var (
+	ErrEmptyChannelName = errors.New("chat: channel name required")
+	ErrReservedSlug     = errors.New("chat: 'general' is reserved")
+	ErrChannelCap       = errors.New("chat: channel limit reached")
+	ErrSlugTaken        = errors.New("chat: a channel with that name already exists")
+	ErrDefaultChannel   = errors.New("chat: the #general channel can't be changed")
+)
+
+// slugify lowercases, maps any run of non-alphanumeric chars to a single
+// hyphen, and trims leading/trailing hyphens. ASCII-only — enough for
+// channel names; non-latin names collapse to empty and are rejected.
+func slugify(name string) string {
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			lastHyphen = false
+		default:
+			if !lastHyphen && b.Len() > 0 {
+				b.WriteByte('-')
+				lastHyphen = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// CreateChannel mints a new public channel. Slug is derived from name;
+// 'general' is reserved for the default. Enforces the soft cap on
+// non-archived channels. createdBy is the acting admin/mod user id.
+func (s *Service) CreateChannel(ctx context.Context, communityID, createdBy, name, topic string) (Channel, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Channel{}, ErrEmptyChannelName
+	}
+	if len(name) > 60 {
+		name = name[:60]
+	}
+	slug := slugify(name)
+	if slug == "" {
+		return Channel{}, ErrEmptyChannelName
+	}
+	if slug == "general" {
+		return Channel{}, ErrReservedSlug
+	}
+	existing, err := s.Repo.ListChannels(ctx, communityID, false)
+	if err != nil {
+		return Channel{}, err
+	}
+	if len(existing) >= MaxChannelsPerCommunity {
+		return Channel{}, ErrChannelCap
+	}
+	pos := 0
+	for _, c := range existing {
+		if c.Position >= pos {
+			pos = c.Position + 1
+		}
+	}
+	ch := Channel{
+		ID:          uuid.NewString(),
+		CommunityID: communityID,
+		Slug:        slug,
+		Name:        name,
+		Topic:       strings.TrimSpace(topic),
+		Position:    pos,
+		CreatedBy:   &createdBy,
+		CreatedAt:   time.Now(),
+	}
+	if err := s.Repo.CreateChannel(ctx, ch); err != nil {
+		return Channel{}, err
+	}
+	return ch, nil
+}
+
+// RenameChannel changes a non-default channel's name (and re-derives its
+// slug). The default #general can't be renamed.
+func (s *Service) RenameChannel(ctx context.Context, communityID, channelID, name string) (Channel, error) {
+	ch, err := s.Repo.ChannelByID(ctx, channelID)
+	if err != nil {
+		return Channel{}, err
+	}
+	if ch.CommunityID != communityID {
+		return Channel{}, sql.ErrNoRows
+	}
+	if ch.IsDefault {
+		return Channel{}, ErrDefaultChannel
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Channel{}, ErrEmptyChannelName
+	}
+	if len(name) > 60 {
+		name = name[:60]
+	}
+	slug := slugify(name)
+	if slug == "" {
+		return Channel{}, ErrEmptyChannelName
+	}
+	if slug == "general" {
+		return Channel{}, ErrReservedSlug
+	}
+	if err := s.Repo.RenameChannel(ctx, channelID, name, slug); err != nil {
+		return Channel{}, err
+	}
+	ch.Name, ch.Slug = name, slug
+	return ch, nil
+}
+
+// SetTopic updates a channel's topic line. Allowed on any channel
+// (including #general).
+func (s *Service) SetTopic(ctx context.Context, communityID, channelID, topic string) error {
+	ch, err := s.Repo.ChannelByID(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if ch.CommunityID != communityID {
+		return sql.ErrNoRows
+	}
+	if len(topic) > 200 {
+		topic = topic[:200]
+	}
+	return s.Repo.SetChannelTopic(ctx, channelID, strings.TrimSpace(topic))
+}
+
+// Archive hides a non-default channel from the switcher and makes it
+// read-only. #general can't be archived.
+func (s *Service) Archive(ctx context.Context, communityID, channelID string) error {
+	ch, err := s.Repo.ChannelByID(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if ch.CommunityID != communityID {
+		return sql.ErrNoRows
+	}
+	if ch.IsDefault {
+		return ErrDefaultChannel
+	}
+	return s.Repo.ArchiveChannel(ctx, channelID, time.Now())
+}
+
+// Delete hard-deletes a non-default channel and cascades its messages
+// (FK ON DELETE CASCADE). #general can't be deleted.
+func (s *Service) Delete(ctx context.Context, communityID, channelID string) error {
+	ch, err := s.Repo.ChannelByID(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	if ch.CommunityID != communityID {
+		return sql.ErrNoRows
+	}
+	if ch.IsDefault {
+		return ErrDefaultChannel
+	}
+	return s.Repo.DeleteChannel(ctx, channelID)
 }
