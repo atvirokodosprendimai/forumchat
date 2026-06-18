@@ -32,8 +32,20 @@ type Config struct {
 	SMTPTLSSkip    bool          `env:"SMTP_TLS_INSECURE" envDefault:"false"`
 	CommunitySlug  string        `env:"COMMUNITY_SLUG" envDefault:"main"`
 	CommunityName  string        `env:"COMMUNITY_NAME" envDefault:"The Community"`
-	PresenceTTL    time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`
-	EditGrace      time.Duration `env:"EDIT_GRACE" envDefault:"15m"`
+
+	// OpenRegistration lets strangers register without an invite code. When
+	// false (default) /register requires a valid invite. When true the invite
+	// field is optional and an empty code joins the bootstrap community.
+	OpenRegistration bool `env:"OPEN_REGISTRATION" envDefault:"false"`
+
+	// OpenRegistrationAutoApprove only matters when OpenRegistration is true.
+	// false (default) lands new members in the pending approval queue
+	// (approved_at = NULL → /pending → admin approves). true grants instant
+	// access by stamping approved_at at email-verification time.
+	OpenRegistrationAutoApprove bool `env:"OPEN_REGISTRATION_AUTO_APPROVE" envDefault:"false"`
+
+	PresenceTTL time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`
+	EditGrace   time.Duration `env:"EDIT_GRACE" envDefault:"15m"`
 
 	// WebRTC ICE config for /rooms. Without TURN, guests behind symmetric
 	// NAT (mobile carriers, corporate, CGNAT) cannot establish peer

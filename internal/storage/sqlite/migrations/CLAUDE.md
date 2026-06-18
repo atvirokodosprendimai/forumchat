@@ -7,6 +7,9 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3719 | 3:37 PM | ✅ | Created migration for project discussions feature with dual-identity threading | ~778 |
+| #3645 | 2:56 PM | 🔴 | Project issues schema with guest collaboration support | ~568 |
+| #3615 | 2:39 PM | ✅ | Committed Phase 8 documentation updates for projects feature | ~313 |
 | #3518 | 2:20 PM | 🟣 | Completed Phase 1 of projects feature with flag, schema, and empty index | ~451 |
 | #3498 | 2:15 PM | 🟣 | Created database schema migration for collaborative projects feature | ~474 |
 </claude-mem-context>

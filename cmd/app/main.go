@@ -31,20 +31,20 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/explore"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/history"
-	"github.com/atvirokodosprendimai/forumchat/internal/invites"
 	"github.com/atvirokodosprendimai/forumchat/internal/httpx"
+	"github.com/atvirokodosprendimai/forumchat/internal/invites"
+	"github.com/atvirokodosprendimai/forumchat/internal/lobbies"
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
+	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
-	"github.com/atvirokodosprendimai/forumchat/internal/lobbies"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
 	"github.com/atvirokodosprendimai/forumchat/internal/push"
-	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
-	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
-	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
+	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 	"github.com/atvirokodosprendimai/forumchat/internal/todos"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -101,7 +101,7 @@ func run() error {
 		mailer = &auth.SMTPMailer{
 			Host: cfg.SMTPHost, Port: cfg.SMTPPort,
 			User: cfg.SMTPUser, Pass: cfg.SMTPPass,
-			From: cfg.SMTPFrom,
+			From:    cfg.SMTPFrom,
 			TLSMode: cfg.SMTPTLS, TLSSkip: cfg.SMTPTLSSkip,
 			Log: log,
 		}
@@ -109,11 +109,13 @@ func run() error {
 		mailer = &auth.LogMailer{Log: log}
 	}
 	svc := &auth.Service{
-		Repo:      aRepo,
-		Mailer:    mailer,
-		BaseURL:   cfg.BaseURL,
-		VerifyTTL: 48 * time.Hour,
-		InviteTTL: 30 * 24 * time.Hour,
+		Repo:                        aRepo,
+		Mailer:                      mailer,
+		BaseURL:                     cfg.BaseURL,
+		VerifyTTL:                   48 * time.Hour,
+		InviteTTL:                   30 * 24 * time.Hour,
+		OpenRegistration:            cfg.OpenRegistration,
+		OpenRegistrationAutoApprove: cfg.OpenRegistrationAutoApprove,
 	}
 	sessions := auth.NewSessionManager(cfg.SessionMaxAge, cfg.IsProd())
 	auth.LoaderLog = log
@@ -185,7 +187,6 @@ func run() error {
 	r.Get("/login/magic", authHandler.GetLoginMagic)
 	r.Get("/verify", authHandler.GetVerify)
 	r.Post("/logout", authHandler.PostLogout)
-
 
 	uploadStore := uploads.NewStore(db, cfg.UploadsDir, cfg.UploadsMaxSize, cfg.UploadsSignKey)
 	uploadHandler := &uploads.Handler{

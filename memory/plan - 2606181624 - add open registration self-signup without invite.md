@@ -47,18 +47,16 @@ Related specs (extends, not replaced):
 
 ## Phases
 
-### Phase 1 - Config + wiring (flags exist, default off = no behaviour change) - status: open
+### Phase 1 - Config + wiring (flags exist, default off = no behaviour change) - status: completed
 
-1. [ ] Add the two flags to `internal/config/config.go`
+1. [x] Add the two flags to `internal/config/config.go`
    - `OpenRegistration bool` → `env:"OPEN_REGISTRATION" envDefault:"false"`
    - `OpenRegistrationAutoApprove bool` → `env:"OPEN_REGISTRATION_AUTO_APPROVE" envDefault:"false"`
-   - place near `CommunitySlug`/`CommunityName` (registration-adjacent config)
-2. [ ] Add fields to `auth.Service` and wire from config in `cmd/app/main.go`
-   - add `OpenRegistration bool` + `OpenRegistrationAutoApprove bool` to the
-     `Service` struct (`internal/auth/service.go:14`)
-   - set them in the `svc := &auth.Service{...}` literal (`cmd/app/main.go:111`)
-     from the new config fields
-   - verify: `make build` passes; with no env set, both flags are false
+   - => placed after `CommunityName` with doc comments
+2. [x] Add fields to `auth.Service` and wire from config in `cmd/app/main.go`
+   - => `OpenRegistration` + `OpenRegistrationAutoApprove` added to `Service`
+     struct; wired in `svc := &auth.Service{...}` from `cfg.*`
+   - => `CGO_ENABLED=0 go build ./cmd/app` green; both flags default false
 
 ### Phase 2 - Backend: optional invite + approval decision - status: open
 
@@ -131,3 +129,6 @@ Related specs (extends, not replaced):
   confirmed membership+approval happen in `Verify`, no migration needed.
   Decisions (with user): two global env flags, auto-approve gated on open-reg,
   invite path preserved, email verification kept.
+- 2606181624 — Phase 1 done. Added `OPEN_REGISTRATION` +
+  `OPEN_REGISTRATION_AUTO_APPROVE` to config, `Service` struct fields, wired in
+  main.go. Build green, defaults off = no behaviour change.

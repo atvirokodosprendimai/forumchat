@@ -12,11 +12,17 @@ import (
 )
 
 type Service struct {
-	Repo        *Repo
-	Mailer      Mailer
-	BaseURL     string
-	VerifyTTL   time.Duration
-	InviteTTL   time.Duration
+	Repo      *Repo
+	Mailer    Mailer
+	BaseURL   string
+	VerifyTTL time.Duration
+	InviteTTL time.Duration
+
+	// OpenRegistration allows Register to proceed without an invite code.
+	OpenRegistration bool
+	// OpenRegistrationAutoApprove stamps approved_at at verify time so open
+	// registrants skip the pending queue. Only honoured when OpenRegistration.
+	OpenRegistrationAutoApprove bool
 }
 
 type RegisterInput struct {
