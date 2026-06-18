@@ -343,11 +343,33 @@ func (s *Store) Verify(id, viewerID, sig string, expUnix int64) error {
 // SignedURL builds a relative URL that any authenticated viewer can
 // load. viewerID is intentionally unused — kept in the signature for
 // backward compatibility with existing call sites.
+//
+// The expiry is bucketed (see stableExpiry) so that re-signing the same
+// upload within a window yields a byte-identical URL. This matters for
+// the chat fat-morph: #messages is re-rendered on every event, and a
+// fresh exp/sig on each render would change every <img src>, making
+// idiomorph swap the node and the browser re-download every image. A
+// stable URL lets idiomorph see no change and keep the loaded image.
 func (s *Store) SignedURL(id, viewerID string, ttl time.Duration) string {
 	_ = viewerID
-	exp := time.Now().Add(ttl)
+	exp := stableExpiry(time.Now(), ttl)
 	sig := s.SignShared(id, exp)
 	return fmt.Sprintf("/uploads/%s?exp=%d&sig=%s", id, exp.Unix(), sig)
+}
+
+// stableExpiry rounds the expiry onto a fixed grid so repeated calls
+// within the same window return an identical timestamp — and therefore
+// an identical signed URL. The grid step is ttl/12 (floored at one
+// minute); the returned expiry is always at least ttl in the future, so
+// callers keep their intended minimum validity. The URL only changes
+// once per step (e.g. every 2h for a 24h ttl), so images reload at most
+// that often instead of on every render.
+func stableExpiry(now time.Time, ttl time.Duration) time.Time {
+	step := ttl / 12
+	if step < time.Minute {
+		step = time.Minute
+	}
+	return now.Truncate(step).Add(step + ttl)
 }
 
 // PathFor returns the absolute filesystem path for the upload.

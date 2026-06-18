@@ -3,7 +3,9 @@ package uploads_test
 import (
 	"bytes"
 	"context"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -131,5 +133,39 @@ func TestRejectTooLarge(t *testing.T) {
 	copy(body, pngHeader)
 	if _, err := store.Save(context.Background(), ownerID, communityID, "image/png", "", bytes.NewReader(body)); err == nil {
 		t.Fatal("expected ErrTooLarge")
+	}
+}
+
+// TestSignedURLStable guards the chat fat-morph image-reload fix: signing
+// the same upload repeatedly must yield a byte-identical URL within a
+// window, so idiomorph treats the <img src> as unchanged and the browser
+// doesn't re-download every image on every chat event.
+func TestSignedURLStable(t *testing.T) {
+	t.Parallel()
+	st := uploads.NewStore(nil, t.TempDir(), 1<<20, "stable-sign-key")
+
+	a := st.SignedURL("up-1", "viewer-a", time.Hour)
+	b := st.SignedURL("up-1", "viewer-a", time.Hour)
+	if a != b {
+		t.Fatalf("signed URL not stable across renders:\n a=%s\n b=%s", a, b)
+	}
+	// Shared signature: independent of viewer, so still stable across viewers.
+	if c := st.SignedURL("up-1", "viewer-b", time.Hour); c != a {
+		t.Fatalf("shared URL must not depend on viewer:\n a=%s\n c=%s", a, c)
+	}
+
+	u, err := url.Parse(a)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	exp, err := strconv.ParseInt(u.Query().Get("exp"), 10, 64)
+	if err != nil {
+		t.Fatalf("parse exp: %v", err)
+	}
+	if exp <= time.Now().Unix() {
+		t.Fatalf("expiry not in the future: %d", exp)
+	}
+	if err := st.Verify("up-1", "viewer-a", u.Query().Get("sig"), exp); err != nil {
+		t.Fatalf("stable URL must verify: %v", err)
 	}
 }
