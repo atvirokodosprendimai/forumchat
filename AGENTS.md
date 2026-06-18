@@ -690,6 +690,48 @@ Extract-to-project (mod + admin only):
   `chat_attachment_extracts` records the badge state so the bubble
   shows "↗ Docs of X" / "↗ Issue in X" on next render.
 
+### 6.8 Channels — chat is scoped by `channel_id` (migration 00032)
+
+A community's chat is split into multiple all-public named text channels
+(spec: `eidos/spec - chat-channels - …`). Every member reads+writes every
+non-archived channel — **no membership table**, just a `channel_id` column.
+
+- **`#general` is the undeletable default** (`chat_channels.is_default=1`),
+  seeded per community by migration 00032 (existing) and
+  `chat.Repo.EnsureDefaultChannel` on boot (new). Migration backfills all
+  `chat_messages` + rebuilds `chat_reads` keyed `(user_id, channel_id)`.
+- **Routes are per-channel:** `/c/{slug}/chat/{channel}` (page),
+  `/{channel}/stream`, `/{channel}/send`, `/{channel}/read`. Bare `/chat`
+  302s to `#general`. Channel-agnostic actions stay at `/chat/*`
+  (`upload`, `mention`, `events`, `extract`, `channels*` CRUD, `delete`).
+  chi static segments win over the `{channel}` wildcard, so they're never
+  shadowed.
+- **Admin/mod CRUD** via `chat.Service.CreateChannel/RenameChannel/SetTopic/
+  Archive/Delete` (admin-only delete). Soft cap `MaxChannelsPerCommunity=10`
+  on non-archived; `general` slug reserved; `#general` can't be
+  renamed/archived/deleted (typed errors `ErrChannelCap`, `ErrReservedSlug`,
+  `ErrDefaultChannel`, `ErrSlugTaken`). UI is the inline switcher (`+ channel`
+  + per-channel ⚙ dialog) in `chat.templ` — NOT in `/admin`.
+- **Realtime = one stream, channel id on the wire.** `Bus.Broadcast(channelID)`
+  + NATS payload carry the changed channel. `GetStream` fat-morphs `#messages`
+  only when the changed channel == the viewer's active channel; otherwise it
+  pushes a `chat_unread` dot signal (Datastar deep-merges the map). Empty
+  channel id = **structural change** (channel CRUD or a bridge/system message)
+  → the stream re-renders `#chat-switcher` + active messages so new/renamed/
+  archived channels appear live everywhere. Bridge callers
+  (forum/projects/rooms/admin) broadcast `""`; system messages land in
+  `#general` via the `Repo.Insert` default-channel fallback (so those callers
+  needed zero changes).
+- **Switching channels is a full nav** (`<a href>` per pill), not an SPA
+  morph — deliberate deviation from the spec's "single persistent stream":
+  simpler, fully correct, keeps free cross-channel dots; cost is one stream
+  reconnect per switch. Unread dots seed on page load via
+  `Repo.UnreadChannels`, flip live via the stream, clear on the active
+  channel.
+- Don't assume one-channel: any new chat read/write path must take a
+  `channelID`. `PostSystem` is the exception (stays community-level, lands in
+  `#general`).
+
 ---
 
 ## 6b. CQRS in this codebase — what writes and reads actually look like

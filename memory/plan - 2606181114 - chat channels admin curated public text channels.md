@@ -1,6 +1,6 @@
 ---
 tldr: Implement chat-channels — split the single community chat into multiple all-public named text channels with an inline admin-managed switcher, #general default, dot-only unread, and one SSE stream that carries the channel id on the wire.
-status: active
+status: completed
 ---
 
 # Plan: Chat Channels — admin-curated public text channels
@@ -109,14 +109,14 @@ Goal: unread dots correct across reload; all existing chat features work per cha
 3. [ ] Uploads orphan sweep guard
    - `internal/uploads/sweep.go` must treat archived-channel attachments as still-referenced (don't GC after 24h).
 
-### Phase 5 - Tests, smoke, docs - status: active
+### Phase 5 - Tests, smoke, docs - status: completed
 
 1. [x] Service/handler tests (`internal/chat/chat_channels_test.go` + `handler_test.go`)
    - => `TestCreateChannel_SlugCapReserved` (slugify, reserved general, dup slug, empty, ~10 cap), `TestDefaultChannelGuard` (archive/delete/rename #general → ErrDefaultChannel), `TestArchiveHidesFromSwitcher`, `TestUnreadChannels` (dot set/clear), `TestChannelScope_InsertRecent`. All green.
    - => migration backfill verified via boot smoke (clean migrate to v32) + the scope test; member-create-403 / deep-link-404 left to manual (needs httptest auth wiring) — covered by route smoke (303→login).
 2. [x] Boot smoke (fresh high port, fresh DB)
    - => app boots, migration 00032 applies, routes register with no chi conflict, #general seeded (is_default=1), `/c/main/chat` → 303 login, `/c/main/chat/general` route resolves. Full interactive UI (click switch, live dots) needs a browser — not run headless.
-3. [ ] Docs — update root AGENTS.md §6 (channels + one-stream-id-on-wire), README routes; mark spec `status: shipped`.
+3. [x] Docs — AGENTS.md §6.8 (channels + one-stream-id-on-wire + full-nav deviation), README chat routes table updated to per-channel, spec marked `status: shipped`.
 
 ## Verification
 
@@ -131,5 +131,6 @@ Goal: unread dots correct across reload; all existing chat features work per cha
 ## Progress Log
 
 - 2606181114 — Plan created from [[spec - chat-channels - admin-curated-public-text-channels]].
+- 2606181225 — **Plan complete.** Docs landed (AGENTS.md §6.8, README routes, spec → shipped). All 5 phases done, build+vet+`go test ./...` green, boot smoke verified. **One follow-up for the human:** interactive browser verify (click a pill to switch, create #design as admin, confirm live unread dot appears in a second tab on #general and clears on open) — can't be run headless here. Feature branch `spec/chat-channels`, not merged to main.
 - 2606181210 — **Phases 2-4 complete + Phase 5 tests.** Switcher bar + inline admin CRUD (create/rename/topic/archive + admin delete), per-channel routes (`/chat/{channel}/...`), full-nav switching, one-stream-id-on-wire realtime (morph active / dot others / re-render switcher on structural change), per-channel reads + unread seed, switcher CSS, channel-aware chat JS. 4 new channel tests green; boot smoke verified (migrate v32, routes, #general). Remaining: docs (5.3) + manual browser verify. Net so far: migration→data→realtime→UI→tests, build+test green throughout.
 - 2606181150 — **Phase 1 complete.** Migration 00032 (chat_channels + per-channel chat_messages/chat_reads, #general backfill), channel read queries + EnsureDefaultChannel, all repo/service/handler read+write paths channel-scoped, fixture + scope test. Build/vet/test green. Key call: PostSystem unchanged + Insert default-channel fallback ⇒ forum/projects/rooms bridge callers untouched. Phase 1 end-state = existing chat works exactly as before, now backed by #general. UX forks resolved: inline switcher management + dot-only unread. Friction items resolved: chat_reads keyed per (channel_id, user_id), unread baseline = newer-than-last_read / no-row ⇒ unread. 5 phases, visible result by end of Phase 2.

@@ -465,11 +465,15 @@ addressed community) · *mod* / *admin* (role ladder).
 
 | Method | Path                                | Auth     | Notes                                            |
 |-------:|-------------------------------------|----------|--------------------------------------------------|
-| GET    | `/chat`                             | member   | Last 50 messages.                                |
-| POST   | `/chat/send`                        | member   | Persist + fan-out + clear composer + mentions push. |
-| GET    | `/chat/stream`                      | member   | Datastar SSE.                                    |
-| GET    | `/chat/older?before=<RFC3339Nano>`  | member   | Lazy scrollback.                                 |
-| POST   | `/chat/delete?id=…`                 | mod+     | Soft-delete.                                     |
+| GET    | `/chat`                             | member   | Redirects to `#general`.                         |
+| GET    | `/chat/{channel}`                   | member   | Channel page (latest 100) + switcher.            |
+| POST   | `/chat/{channel}/send`              | member   | Persist + fan-out + clear composer + mentions push. |
+| GET    | `/chat/{channel}/stream`            | member   | Datastar SSE (fat-morph active, dot others).     |
+| POST   | `/chat/{channel}/read`              | member   | Per-channel read high-water mark.                |
+| POST   | `/chat/channels`                    | mod+     | Create channel (slug, ~10 cap, `general` reserved). |
+| POST   | `/chat/channels/{rename,topic,archive}` | mod+ | Rename / set topic / archive (not `#general`).   |
+| POST   | `/chat/channels/delete`             | admin    | Hard-delete + cascade messages (not `#general`). |
+| POST   | `/chat/delete?id=…`                 | mod+     | Soft-delete a message (channel resolved from msg).|
 | GET    | `/forum`                            | member   | Threads index.                                   |
 | POST   | `/forum/new`                        | member   | Creates thread + chat-announce + `thread_new` push. |
 | GET    | `/forum/{id}`                       | member   | Thread + replies.                                |

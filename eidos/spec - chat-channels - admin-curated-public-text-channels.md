@@ -1,6 +1,6 @@
 ---
 name: spec-chat-channels-admin-curated-public-text-channels
-status: draft
+status: shipped
 type: spec
 tldr: Split the single community chat into multiple admin-curated, all-public named text channels (Slack/Discord style). Today's chat becomes an undeletable #general; admins/mods add up to ~10 more. Members read+write every channel; one switcher bar sits above the message list. No coupling to projects, forum, or video rooms.
 ---
