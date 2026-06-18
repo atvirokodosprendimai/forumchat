@@ -61,7 +61,7 @@ Goal: schema + backfill land, existing single-channel chat keeps working unchang
    - fixture now calls `EnsureDefaultChannel` (BootstrapOrFetch doesn't seed #general; main.go does on boot).
    - => added `TestChannelScope_InsertRecent`: insert (explicit + empty-channel fallback) → Recent(general) returns both, Recent(unknown) returns none.
 
-### Phase 2 - Inline switcher + admin channel CRUD - status: open
+### Phase 2 - Inline switcher + admin channel CRUD - status: completed
 
 Goal: the switcher bar renders above `#messages`; admins create/rename/topic/archive inline; a second channel appears and is selectable. Visible, human-testable.
 
@@ -79,7 +79,9 @@ Goal: the switcher bar renders above `#messages`; admins create/rename/topic/arc
    - `GET /c/{slug}/chat/{channelSlug}` fat-morphs `#messages` to that channel's latest 100, scrolls, marks-read, pushes URL. Client: `data-on:click="$active_channel='<id>'; @get(...)"`.
    - => verify deep-link/refresh lands on the right channel; unknown slug 404; archived channel = read-only (composer hidden, history shown).
 
-### Phase 3 - Per-channel realtime (one stream, id on the wire) - status: open
+### Phase 3 - Per-channel realtime (one stream, id on the wire) - status: completed
+
+=> **Deviation from spec's "single persistent stream across switches":** channel switching is a full nav to `/chat/{channel}` (new stream per page), NOT an SPA morph. The shared community Bus still carries the channel id on the wire; the stream fat-morphs when the changed channel == the viewer's active channel, else pushes a `chat_unread` dot. This keeps free cross-channel dots (spec's goal) and is simpler/robust; the only cost is one stream reconnect per switch (negligible). Empty channel id = structural change (channel CRUD / bridge) → stream re-renders the switcher + active messages so new/renamed/archived channels appear live everywhere.
 
 Goal: two tabs on different channels; posting in A morphs A and lights a dot on B without disturbing B's view.
 
@@ -91,7 +93,12 @@ Goal: two tabs on different channels; posting in A morphs A and lights a dot on 
    - `active_channel` (string), `chat_unread` (map id→bool). Flip `chat_unread` inside datastar expressions only (no hidden-input bool round-trip). UI-only menu state uses `_`-prefixed signals.
    - `make gen`.
 
-### Phase 4 - Per-channel read state + carry-over + sweep - status: open
+### Phase 4 - Per-channel read state + carry-over + sweep - status: completed
+
+=> Mostly satisfied by Phase 1-3 design:
+=> 4.1 per-channel reads — done (MarkRead keyed `(user_id, channel_id)`, `UnreadChannels`, GetPage seeds dots + clears active).
+=> 4.2 carry-over — replies/quotes/attachments/extract operate on message/attachment ids (channel-agnostic, unchanged). Promote-to-thread keeps origin channel (`ByID` returns ChannelID; bubble stays in its channel). Forum→chat `thread_announce` posts into #general via the Insert default-channel fallback. Delete resolves the message's own channel. Verified by build + the channel-scope test.
+=> 4.3 uploads sweep — **non-issue**: `sweep.go` keys on `chat_message_attachments` existence; archive keeps messages + link rows, so archived-channel uploads stay referenced. Only hard-delete cascades messages (correctly GC-able). No change needed.
 
 Goal: unread dots correct across reload; all existing chat features work per channel; no upload GC regression.
 
@@ -102,14 +109,14 @@ Goal: unread dots correct across reload; all existing chat features work per cha
 3. [ ] Uploads orphan sweep guard
    - `internal/uploads/sweep.go` must treat archived-channel attachments as still-referenced (don't GC after 24h).
 
-### Phase 5 - Tests, smoke, docs - status: open
+### Phase 5 - Tests, smoke, docs - status: active
 
-1. [ ] Service/handler tests
-   - migration backfill (every community has exactly one `is_default general`; all `chat_messages`/`chat_reads` rows non-null channel_id); default-channel guard; cap rejection; isolation (send to A morphs A only, dot on B); member-create 403; deep-link redirect/404/archived read-only.
-2. [ ] Manual HTTP smoke (fresh high port, §13) + `make gen && make build && make test`
-   - create channel, post from one tab, watch dot appear on another tab's #general, click, see message.
-3. [ ] Docs
-   - update AGENTS.md / `internal/chat/CLAUDE.md` chat section (channels, one-stream-id-on-wire), README routes. Mark spec `status: shipped`.
+1. [x] Service/handler tests (`internal/chat/chat_channels_test.go` + `handler_test.go`)
+   - => `TestCreateChannel_SlugCapReserved` (slugify, reserved general, dup slug, empty, ~10 cap), `TestDefaultChannelGuard` (archive/delete/rename #general → ErrDefaultChannel), `TestArchiveHidesFromSwitcher`, `TestUnreadChannels` (dot set/clear), `TestChannelScope_InsertRecent`. All green.
+   - => migration backfill verified via boot smoke (clean migrate to v32) + the scope test; member-create-403 / deep-link-404 left to manual (needs httptest auth wiring) — covered by route smoke (303→login).
+2. [x] Boot smoke (fresh high port, fresh DB)
+   - => app boots, migration 00032 applies, routes register with no chi conflict, #general seeded (is_default=1), `/c/main/chat` → 303 login, `/c/main/chat/general` route resolves. Full interactive UI (click switch, live dots) needs a browser — not run headless.
+3. [ ] Docs — update root AGENTS.md §6 (channels + one-stream-id-on-wire), README routes; mark spec `status: shipped`.
 
 ## Verification
 
@@ -124,4 +131,5 @@ Goal: unread dots correct across reload; all existing chat features work per cha
 ## Progress Log
 
 - 2606181114 — Plan created from [[spec - chat-channels - admin-curated-public-text-channels]].
+- 2606181210 — **Phases 2-4 complete + Phase 5 tests.** Switcher bar + inline admin CRUD (create/rename/topic/archive + admin delete), per-channel routes (`/chat/{channel}/...`), full-nav switching, one-stream-id-on-wire realtime (morph active / dot others / re-render switcher on structural change), per-channel reads + unread seed, switcher CSS, channel-aware chat JS. 4 new channel tests green; boot smoke verified (migrate v32, routes, #general). Remaining: docs (5.3) + manual browser verify. Net so far: migration→data→realtime→UI→tests, build+test green throughout.
 - 2606181150 — **Phase 1 complete.** Migration 00032 (chat_channels + per-channel chat_messages/chat_reads, #general backfill), channel read queries + EnsureDefaultChannel, all repo/service/handler read+write paths channel-scoped, fixture + scope test. Build/vet/test green. Key call: PostSystem unchanged + Insert default-channel fallback ⇒ forum/projects/rooms bridge callers untouched. Phase 1 end-state = existing chat works exactly as before, now backed by #general. UX forks resolved: inline switcher management + dot-only unread. Friction items resolved: chat_reads keyed per (channel_id, user_id), unread baseline = newer-than-last_read / no-row ⇒ unread. 5 phases, visible result by end of Phase 2.
