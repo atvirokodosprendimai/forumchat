@@ -1,6 +1,6 @@
 ---
 tldr: Add an "open registration" mode so people can self-register and join the community without an invite code, gated by two global env flags (OPEN_REGISTRATION + OPEN_REGISTRATION_AUTO_APPROVE)
-status: active
+status: completed
 ---
 
 # Plan: Open registration — self-signup without an invite code
@@ -86,20 +86,26 @@ Related specs (extends, not replaced):
    - => `make gen` + `go build ./...` green
    - => end-to-end smoke deferred to after Phase 4 tests land (one pass)
 
-### Phase 4 - Tests + docs - status: open
+### Phase 4 - Tests + docs - status: completed
 
-1. [ ] Add service tests in `internal/auth/service_test.go`
-   - open reg on, no invite → `Register` ok; after `Verify`, membership
-     `ApprovedAt == nil` (queue) when auto-approve off
-   - open reg on + auto-approve on, no invite → after `Verify`,
-     `ApprovedAt != nil` (instant)
-   - open reg off, no invite → `Register` returns `ErrInviteRequired`
-   - existing invite-path tests stay green (regression guard)
-2. [ ] Document the flags
-   - README env-var table: `OPEN_REGISTRATION`, `OPEN_REGISTRATION_AUTO_APPROVE`
-   - AGENTS.md §5b (approval queue): note open registration as the no-invite
-     entry path and how it interacts with the queue
-   - verify: `go test ./...` green
+1. [x] Add service tests in `internal/auth/service_test.go`
+   - => `TestRegister_ClosedNoInvite_Refused` (ErrInviteRequired),
+     `TestRegister_OpenNoInvite_PendingQueue` (ApprovedAt nil),
+     `TestRegister_OpenNoInvite_AutoApprove` (ApprovedAt set) — all pass
+   - => `go test ./...` green; existing invite tests unaffected
+2. [x] Document the flags
+   - => README env-var table + AGENTS.md §5b open-registration note
+   - => AGENTS.md is the real file; `CLAUDE.md` is a symlink to it
+
+#### Verification (2606181624 HTTP smoke)
+
+End-to-end smoke (fresh binary, temp DB, high port):
+- `OPEN_REGISTRATION=false` (default): POST `/register` with empty invite →
+  `<div id="auth-error">Invite code required</div>` ✓
+- `OPEN_REGISTRATION=true`: same request → `Check your email` success
+  fragment ✓
+- Backend approval split (queue vs auto-approve) covered by the service tests
+  above.
 
 ## Verification
 
@@ -128,3 +134,7 @@ Related specs (extends, not replaced):
 - 2606181624 — Phase 2 done. `Register` invite optional + `ErrInviteRequired`;
   `Verify` auto-approves when both flags set; `PostRegister` validation relaxed.
   Build + auth tests green.
+- 2606181624 — Phase 3 done. `RegisterPage(openReg bool)` collapses invite into
+  an optional `<details>` when open; `GetRegister` threads the flag.
+- 2606181624 — Phase 4 done. 3 service tests (refused / queue / auto-approve),
+  README + AGENTS.md docs, HTTP smoke confirms closed vs open. Plan COMPLETED.

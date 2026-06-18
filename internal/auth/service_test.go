@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"path/filepath"
 	"testing"
@@ -74,6 +75,73 @@ func TestRegisterVerifyLogin_Happy(t *testing.T) {
 	}
 	if res.Membership.Role != auth.RoleMember {
 		t.Fatalf("expected member role, got %s", res.Membership.Role)
+	}
+}
+
+// Open registration off (default): registering without an invite is refused.
+func TestRegister_ClosedNoInvite_Refused(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _, _ := setupSvc(t)
+
+	_, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "stranger@example.com", Password: "supersecret123",
+	})
+	if !errors.Is(err, auth.ErrInviteRequired) {
+		t.Fatalf("want ErrInviteRequired, got %v", err)
+	}
+}
+
+// Open registration on, auto-approve off: a no-invite registrant verifies and
+// lands in the pending queue (approved_at = NULL).
+func TestRegister_OpenNoInvite_PendingQueue(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistration = true
+
+	reg, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "open1@example.com", Password: "supersecret123",
+	})
+	if err != nil {
+		t.Fatalf("open register: %v", err)
+	}
+	if _, err := svc.Verify(ctx, reg.VerificationToken, communityID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, err := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if err != nil {
+		t.Fatalf("membership: %v", err)
+	}
+	if m.ApprovedAt != nil {
+		t.Fatalf("want pending (approved_at nil), got approved at %v", m.ApprovedAt)
+	}
+}
+
+// Open registration on AND auto-approve on: a no-invite registrant is approved
+// at verify time and skips the queue.
+func TestRegister_OpenNoInvite_AutoApprove(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistration = true
+	svc.OpenRegistrationAutoApprove = true
+
+	reg, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "open2@example.com", Password: "supersecret123",
+	})
+	if err != nil {
+		t.Fatalf("open register: %v", err)
+	}
+	if _, err := svc.Verify(ctx, reg.VerificationToken, communityID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, err := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if err != nil {
+		t.Fatalf("membership: %v", err)
+	}
+	if m.ApprovedAt == nil {
+		t.Fatal("want auto-approved (approved_at set), got nil")
 	}
 }
 

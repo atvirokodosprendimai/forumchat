@@ -383,6 +383,8 @@ boot fails fast on placeholder secrets.
 | `EDIT_GRACE`         | `15m`                                  | Window for self-delete of thread / post / chat message.            |
 | `COMMUNITY_SLUG`     | `main`                                 | Slug of the bootstrap community.                                   |
 | `COMMUNITY_NAME`     | `The Community`                        | Human-friendly name.                                               |
+| `OPEN_REGISTRATION`  | `false`                                | Allow self-registration without an invite code. When off, `/register` requires a valid invite. |
+| `OPEN_REGISTRATION_AUTO_APPROVE` | `false`                    | Only with `OPEN_REGISTRATION`. Off → open registrants land in the pending approval queue; on → instant access after email verification. |
 
 ### Uploads
 
