@@ -391,6 +391,7 @@ boot fails fast on placeholder secrets.
 | `OPEN_REGISTRATION`  | `false`                                | Allow self-registration without an invite code. When off, `/register` requires a valid invite. |
 | `OPEN_REGISTRATION_AUTO_APPROVE` | `false`                    | Auto-approve every new member at email-verification time (open **or** invite-based signups). Off → members land in the pending approval queue. Independent of `OPEN_REGISTRATION`. Flags load at boot — restart after changing. |
 | `AUTO_VERIFY_EMAIL`  | `false`                                | Skip email verification: registrants are activated and **signed in immediately**, no verify link. For short demo windows (turn on, record/invite, turn off). Combine with the two flags above for instant full access. Leave off normally — anyone can register with an unverifiable email. |
+| `SUPERADMIN_EMAILS`  | _(empty)_                              | Comma-separated email allowlist of **platform super-admins**. A signed-in user whose email matches (case-insensitive) gets god-mode across every community: enter any `/c/<slug>/admin` without a membership, set roles anywhere, plus the global `/superadmin` dashboard (all communities + all users). Immutable at runtime — change the env and restart. Empty = no super-admins. |
 
 ### Uploads
 

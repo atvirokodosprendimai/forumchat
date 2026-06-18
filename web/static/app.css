@@ -3844,3 +3844,12 @@ hr {
   background: var(--surface-alt); border-radius: var(--radius-sm);
   font-size: .9rem; white-space: pre-wrap;
 }
+
+/* Platform super-admin dashboard (/superadmin) */
+.data-table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .9rem; }
+.data-table th, .data-table td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--border-subtle); }
+.data-table th { color: var(--muted); font-weight: 600; }
+.data-table tbody tr:hover td { background: var(--surface-alt); }
+.form-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.form-row input { flex: 1 1 12rem; }
+button.ghost.danger { color: var(--danger); }

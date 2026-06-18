@@ -605,6 +605,59 @@ func (r *Repo) AdminCommunityIDs(ctx context.Context, userID string) ([]string, 
 	return out, rows.Err()
 }
 
+// GlobalUser is one row of the /superadmin user roster: a user plus how
+// many communities they belong to.
+type GlobalUser struct {
+	ID             string
+	Email          string
+	Status         UserStatus
+	CreatedAt      time.Time
+	CommunityCount int
+}
+
+// ListAllUsers returns every user with their membership count, newest
+// first. Drives the platform super-admin user roster.
+func (r *Repo) ListAllUsers(ctx context.Context) ([]GlobalUser, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT u.id, u.email, u.status, u.created_at,
+		       (SELECT COUNT(*) FROM memberships mb WHERE mb.user_id = u.id) AS community_count
+		FROM users u
+		ORDER BY u.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GlobalUser
+	for rows.Next() {
+		var g GlobalUser
+		var status string
+		var created int64
+		if err := rows.Scan(&g.ID, &g.Email, &status, &created, &g.CommunityCount); err != nil {
+			return nil, err
+		}
+		g.Status = UserStatus(status)
+		g.CreatedAt = time.Unix(created, 0)
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// SetUserStatus flips a user's account status. The super-admin uses this to
+// disable (status=disabled) or re-enable (status=active) an account
+// platform-wide; auth.Loader logs out any non-active user on their next
+// request. Returns ErrNotFound when no such user.
+func (r *Repo) SetUserStatus(ctx context.Context, userID string, status UserStatus) error {
+	res, err := r.DB.ExecContext(ctx, `UPDATE users SET status = ?, updated_at = ? WHERE id = ?`,
+		string(status), time.Now().Unix(), userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // --- user blocks (per-viewer chat mute) ---
 
 // BlockUser records that blockerID no longer wants to see blockedID's

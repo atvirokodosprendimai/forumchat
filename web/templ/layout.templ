@@ -22,6 +22,24 @@ func IsAdminOfAnyCommunity(ctx context.Context) bool {
 // without an import cycle. Read by IsAdminOfAnyCommunity above.
 func AdminAnyCtxKey() any { return adminAnyCtxKey }
 
+// superAdminCtxKey mirrors adminAnyCtxKey for the platform super-admin
+// flag. auth.WithSuperAdmin stashes a bool here so layout.templ can show
+// the /superadmin link without importing auth (leaf package — §4.13).
+type superAdminCtxKeyType struct{}
+
+var superAdminCtxKey = superAdminCtxKeyType{}
+
+// IsSuperAdmin reads the per-request platform super-admin flag the
+// auth.Loader middleware stashes on ctx. Powers the /superadmin link.
+func IsSuperAdmin(ctx context.Context) bool {
+	v, _ := ctx.Value(superAdminCtxKey).(bool)
+	return v
+}
+
+// SuperAdminCtxKey is exported so the auth package can set the same key
+// without an import cycle. Read by IsSuperAdmin above.
+func SuperAdminCtxKey() any { return superAdminCtxKey }
+
 type Viewer struct {
 	IsAuthed      bool
 	DisplayName   string
@@ -180,7 +198,12 @@ const InitialSignals = `{
 	"_ctx_report_open":false,
 	"report_reason":"",
 	"_ctx_x":0,
-	"_ctx_y":0
+	"_ctx_y":0,
+	"sa_name":"",
+	"sa_slug":"",
+	"sa_email":"",
+	"sa_cid":"",
+	"sa_uid":""
 }`
 
 templ Layout(title string, v Viewer) {
@@ -227,6 +250,9 @@ templ Layout(title string, v Viewer) {
 						}
 						if IsAdminOfAnyCommunity(ctx) {
 							<a href="/issues"><span class="sb-icon" aria-hidden="true">🐞</span>Issues</a>
+						}
+						if IsSuperAdmin(ctx) {
+							<a href="/superadmin"><span class="sb-icon" aria-hidden="true">🛡</span>Platform</a>
 						}
 						<a href="/messages" class="pm-nav-link">
 							<span class="sb-icon" aria-hidden="true">✉</span>

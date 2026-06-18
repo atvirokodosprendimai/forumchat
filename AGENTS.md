@@ -562,6 +562,47 @@ Use `auth.Service.IssueInvite(ctx, communityID, createdBy, maxUses)` —
 The CLI mirrors this: `forumchat-cli ban <email> [duration] [cleanup]`
 where `cleanup` is `chat,threads,posts` or `all`.
 
+## 5d. Roles are per-community; platform super-admin is the one global role
+
+**Roles are membership-scoped, not global.** `auth.Role` (`member|moderator|
+admin`) lives on the `memberships` row keyed `(user_id, community_id)` —
+`internal/auth/user.go`. There is no global role column on `users`. Each
+community has its own admin(s); `RequireRole` checks the membership for the
+community resolved from the URL slug (`community.RequireMember` rebinds
+identity to the slug community's row before the role gate runs). So
+"admin per community" is the baseline, not a feature to add.
+
+**The single exception is the platform super-admin** (Jun 2026), an env
+allowlist that grants god-mode across every community:
+
+- `SUPERADMIN_EMAILS` (comma-separated, case-insensitive) → `auth.SuperAdminSet`
+  built in `main.go` and handed to `auth.Loader`. Immutable at runtime.
+- `Identity.IsSuperAdmin` is stamped by `Loader` and survives the context
+  round-trip (new `ctxKeySuperAdmin`). `web/templ` reads it via
+  `SuperAdminCtxKey()` for the "🛡 Platform" nav link (same leaf-package
+  trick as `AdminAnyCtxKey`, §4.13).
+- **Four bypasses** make god-mode reach communities the super-admin has no
+  membership in — get all four or it half-works:
+  1. `auth.Loader` — on membership-not-found for the session community it
+     normally **destroys the session**; for a super-admin it synthesizes an
+     approved admin membership (`auth.SuperAdminMembership`) instead.
+  2. `community.RequireMember` — same synthesize-on-`ErrNotFound` for the
+     slug community (this is the load-bearing one: it's what lets a
+     super-admin open `/c/<any>/admin`).
+  3. `auth.RequireRole` — `IsSuperAdmin` passes any minimum.
+  4. `auth.RequireApproved` — `IsSuperAdmin` skips the pending queue.
+- `SuperAdminMembership` is **synthetic and never persisted** (no ID) — never
+  write it back to the DB.
+- Global surface: `auth.RequireSuperAdmin` gates `/superadmin`
+  (`internal/superadmin`): list all communities (each links to its existing
+  `/admin`), create/delete a community, list all users, disable/enable an
+  account (`users.status` — `Loader` signs out non-active users). Per-community
+  admin still happens in each community's own `/admin`; the super-admin just
+  reaches it via bypass #2. A super-admin can't disable their own account.
+- Note: the **pre-existing** `PostRegisterAsAdmin` calls `commitSession`
+  *after* `render.NewSSE` (handlers.go), so its login cookie is dropped per
+  §4.4 — unrelated to super-admin, but don't copy that ordering.
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing

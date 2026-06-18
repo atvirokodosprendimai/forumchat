@@ -1,8 +1,8 @@
 package community
 
 import (
-	"errors"
 	"database/sql"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -36,8 +36,11 @@ func LoadCommunity(repo *Repo) func(http.Handler) http.Handler {
 }
 
 // RequireMember rejects requests whose viewer has no membership in the
-// resolved community. Global admins are not auto-admitted — they need a
-// membership row to access community content.
+// resolved community. Ordinary global/community admins are not
+// auto-admitted — they need a membership row. The one exception is a
+// platform super-admin (SUPERADMIN_EMAILS): when they have no row we
+// synthesize an approved admin membership so god-mode reaches every
+// community's admin surface without a join.
 func RequireMember(authRepo *auth.Repo) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,12 +56,17 @@ func RequireMember(authRepo *auth.Repo) func(http.Handler) http.Handler {
 			}
 			m, err := authRepo.MembershipFor(r.Context(), id.User.ID, c.ID)
 			if err != nil {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
+				if id.IsSuperAdmin && errors.Is(err, auth.ErrNotFound) {
+					m = auth.SuperAdminMembership(id.User, c.ID)
+				} else {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
 			}
 			// Repopulate identity with the per-community membership so
 			// downstream handlers see the right role / display name.
-			r = r.WithContext(auth.WithIdentity(r.Context(), auth.Identity{User: id.User, Membership: m}))
+			// Preserve the super-admin flag across the rebind.
+			r = r.WithContext(auth.WithIdentity(r.Context(), auth.Identity{User: id.User, Membership: m, IsSuperAdmin: id.IsSuperAdmin}))
 			next.ServeHTTP(w, r)
 		})
 	}

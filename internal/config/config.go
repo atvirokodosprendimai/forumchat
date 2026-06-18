@@ -33,6 +33,13 @@ type Config struct {
 	CommunitySlug  string        `env:"COMMUNITY_SLUG" envDefault:"main"`
 	CommunityName  string        `env:"COMMUNITY_NAME" envDefault:"The Community"`
 
+	// SuperAdminEmails is the platform super-admin allowlist. Any signed-in
+	// user whose email matches (case-insensitive) gets god-mode across every
+	// community: enter any /c/<slug>/admin without a membership, set roles
+	// anywhere, plus the global /superadmin surface (all communities + all
+	// users). Set via env, immutable at runtime. Empty (default) = none.
+	SuperAdminEmails []string `env:"SUPERADMIN_EMAILS" envSeparator:","`
+
 	// OpenRegistration lets strangers register without an invite code. When
 	// false (default) /register requires a valid invite. When true the invite
 	// field is optional and an empty code joins the bootstrap community.

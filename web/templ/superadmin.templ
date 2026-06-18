@@ -1,0 +1,106 @@
+package templ
+
+// View models for the platform super-admin dashboard. web/templ is a leaf
+// package, so these are mapped from domain rows in internal/superadmin.
+
+type SACommunity struct {
+	ID          string
+	Slug        string
+	Name        string
+	IsPublic    bool
+	MemberCount int
+	CreatedAt   string
+}
+
+type SAUser struct {
+	ID          string
+	Email       string
+	Status      string
+	Communities int
+	CreatedAt   string
+}
+
+type SuperAdminPageData struct {
+	Viewer      Viewer
+	Communities []SACommunity
+	Users       []SAUser
+}
+
+templ SuperAdminPage(data SuperAdminPageData) {
+	@Layout("Platform", data.Viewer) {
+		<section class="card">
+			<h1>🛡 Platform admin</h1>
+			<p class="muted">Super-admin god-mode. You can open any community’s admin, create or delete communities, and disable accounts platform-wide.</p>
+			<div id="sa-result"></div>
+		</section>
+
+		<section class="card">
+			<h2>Create community</h2>
+			<div class="form-row">
+				<input type="text" placeholder="Name" data-bind="sa_name"/>
+				<input type="text" placeholder="slug (a-z, 0-9, -)" data-bind="sa_slug"/>
+				<input type="email" placeholder="first admin email" data-bind="sa_email"/>
+				<button data-on:click="@post('/superadmin/community/create')">Create</button>
+			</div>
+			<div id="sa-cc-error"></div>
+		</section>
+
+		<section class="card">
+			<h2>Communities ({ itoa(len(data.Communities)) })</h2>
+			<table class="data-table">
+				<thead>
+					<tr><th>Name</th><th>Slug</th><th>Members</th><th>Public</th><th>Created</th><th></th></tr>
+				</thead>
+				<tbody>
+					for _, c := range data.Communities {
+						<tr>
+							<td>{ c.Name }</td>
+							<td><a href={ templ.URL("/c/" + c.Slug + "/admin") }>{ c.Slug } ↗</a></td>
+							<td>{ itoa(c.MemberCount) }</td>
+							<td>
+								if c.IsPublic {
+									public
+								} else {
+									private
+								}
+							</td>
+							<td class="muted">{ c.CreatedAt }</td>
+							<td>
+								<button class="ghost danger"
+									data-on:click={ "if(confirm('Delete " + c.Slug + "? Only works if it has no content.')){$sa_cid='" + c.ID + "'; @post('/superadmin/community/delete')}" }>Delete</button>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</section>
+
+		<section class="card">
+			<h2>Users ({ itoa(len(data.Users)) })</h2>
+			<table class="data-table">
+				<thead>
+					<tr><th>Email</th><th>Status</th><th>Communities</th><th>Created</th><th></th></tr>
+				</thead>
+				<tbody>
+					for _, u := range data.Users {
+						<tr>
+							<td>{ u.Email }</td>
+							<td>{ u.Status }</td>
+							<td>{ itoa(u.Communities) }</td>
+							<td class="muted">{ u.CreatedAt }</td>
+							<td>
+								if u.Status == "disabled" {
+									<button class="ghost"
+										data-on:click={ "$sa_uid='" + u.ID + "'; @post('/superadmin/user/enable')" }>Enable</button>
+								} else {
+									<button class="ghost danger"
+										data-on:click={ "if(confirm('Disable " + u.Email + "? They are signed out on next request.')){$sa_uid='" + u.ID + "'; @post('/superadmin/user/disable')}" }>Disable</button>
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</section>
+	}
+}

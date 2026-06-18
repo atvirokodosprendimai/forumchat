@@ -43,6 +43,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
+	"github.com/atvirokodosprendimai/forumchat/internal/superadmin"
 	"github.com/atvirokodosprendimai/forumchat/internal/todos"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
@@ -121,6 +122,10 @@ func run() error {
 		AutoVerifyEmail:             cfg.AutoVerifyEmail,
 	}
 	sessions := auth.NewSessionManager(cfg.SessionMaxAge, cfg.IsProd())
+	superAdmins := auth.NewSuperAdminSet(cfg.SuperAdminEmails)
+	if len(superAdmins) > 0 {
+		log.Info("platform super-admins configured", "count", len(superAdmins))
+	}
 	auth.LoaderLog = log
 	// Persistent sessions in SQLite so users stay signed in across restarts.
 	sessions.Store = auth.NewSQLStore(ctx, db)
@@ -138,7 +143,7 @@ func run() error {
 	r.Use(httpx.RequestLogger(log))
 	r.Use(newCompressor().Handler)
 	r.Use(sessions.LoadAndSave)
-	r.Use(auth.Loader(sessions, aRepo))
+	r.Use(auth.Loader(sessions, aRepo, superAdmins))
 
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -817,6 +822,20 @@ func run() error {
 		r.Get("/issues", projectsHandler.GetGlobalIssues)
 		r.Get("/issues/stream", projectsHandler.GetGlobalIssuesStream)
 	})
+
+	// Platform super-admin surface — global god-mode over every community
+	// and user, gated by the SUPERADMIN_EMAILS allowlist.
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log}
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireSuperAdmin)
+		r.Get("/superadmin", superHandler.GetIndex)
+		r.Post("/superadmin/community/create", superHandler.PostCreateCommunity)
+		r.Post("/superadmin/community/delete", superHandler.PostDeleteCommunity)
+		r.Post("/superadmin/user/disable", superHandler.PostDisableUser)
+		r.Post("/superadmin/user/enable", superHandler.PostEnableUser)
+	})
+
 	r.Get("/explore", exploreHandler.GetIndex)
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)

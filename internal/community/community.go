@@ -139,6 +139,52 @@ func (r *Repo) Create(ctx context.Context, slug, name string) (Community, error)
 
 var ErrSlugTaken = errors.New("community: slug already taken")
 
+// CommunityStat is one row of the /superadmin community roster: a community
+// plus its approved-member count.
+type CommunityStat struct {
+	Community
+	MemberCount int
+}
+
+// ListAll returns every community with its approved-member count, newest
+// first. Drives the platform super-admin dashboard.
+func (r *Repo) ListAll(ctx context.Context) ([]CommunityStat, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT c.id, c.slug, c.name, COALESCE(c.is_public,0), c.created_at,
+		       (SELECT COUNT(*) FROM memberships mb
+		          WHERE mb.community_id = c.id AND mb.approved_at IS NOT NULL) AS member_count
+		FROM communities c
+		ORDER BY c.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CommunityStat
+	for rows.Next() {
+		var row CommunityStat
+		var created int64
+		var isPublic int
+		if err := rows.Scan(&row.Community.ID, &row.Community.Slug, &row.Community.Name,
+			&isPublic, &created, &row.MemberCount); err != nil {
+			return nil, err
+		}
+		row.Community.IsPublic = isPublic != 0
+		row.Community.CreatedAt = time.Unix(created, 0)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// Delete removes a community row. Foreign-key constraints (memberships,
+// channels, …) make this fail while dependent rows still exist, so in
+// practice only a truly empty community can be deleted — a safe default
+// that prevents a super-admin from nuking an active community by accident.
+// The raw DB error is surfaced so the handler can show it.
+func (r *Repo) Delete(ctx context.Context, id string) error {
+	_, err := r.DB.ExecContext(ctx, `DELETE FROM communities WHERE id = ?`, id)
+	return err
+}
+
 // MembershipRow holds a single community + the viewer's role in it. Drives
 // the dashboard listing.
 type MembershipRow struct {

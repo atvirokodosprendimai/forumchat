@@ -22,11 +22,16 @@ const (
 	ctxKeyUser ctxKey = iota + 1
 	ctxKeyMembership
 	ctxKeyAdminAny
+	ctxKeySuperAdmin
 )
 
 type Identity struct {
 	User       User
 	Membership Membership
+	// IsSuperAdmin is true when the user's email is in the platform
+	// SUPERADMIN_EMAILS allowlist. It grants god-mode across every
+	// community — see the Loader / RequireMember bypasses.
+	IsSuperAdmin bool
 }
 
 func FromContext(ctx context.Context) (Identity, bool) {
@@ -35,12 +40,14 @@ func FromContext(ctx context.Context) (Identity, bool) {
 	if !uok || !mok {
 		return Identity{}, false
 	}
-	return Identity{User: u, Membership: m}, true
+	sa, _ := ctx.Value(ctxKeySuperAdmin).(bool)
+	return Identity{User: u, Membership: m, IsSuperAdmin: sa}, true
 }
 
 func WithIdentity(ctx context.Context, id Identity) context.Context {
 	ctx = context.WithValue(ctx, ctxKeyUser, id.User)
 	ctx = context.WithValue(ctx, ctxKeyMembership, id.Membership)
+	ctx = context.WithValue(ctx, ctxKeySuperAdmin, id.IsSuperAdmin)
 	return ctx
 }
 
@@ -51,7 +58,14 @@ func WithAdminOfAnyCommunity(ctx context.Context, v bool) context.Context {
 	return context.WithValue(ctx, webtempl.AdminAnyCtxKey(), v)
 }
 
-func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler {
+// WithSuperAdmin stashes the per-request platform super-admin flag under
+// the key web/templ reads from, so layout.templ can show the /superadmin
+// link without importing auth (web/templ is a leaf package — §4.13).
+func WithSuperAdmin(ctx context.Context, v bool) context.Context {
+	return context.WithValue(ctx, webtempl.SuperAdminCtxKey(), v)
+}
+
+func Loader(sm *scs.SessionManager, repo *Repo, supers SuperAdminSet) func(http.Handler) http.Handler {
 	logDestroy := func(reason, uid, cid, path string, err error) {
 		if LoaderLog == nil {
 			return
@@ -88,17 +102,30 @@ func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler 
 				next.ServeHTTP(w, r)
 				return
 			}
+			isSuper := supers.Has(u.Email)
 			m, err := repo.MembershipFor(r.Context(), uid, cid)
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
-					logDestroy("membership-not-found", uid, cid, r.URL.Path, err)
-					_ = Logout(r.Context(), sm)
-				} else if LoaderLog != nil {
-					LoaderLog.Warn("auth.Loader membership lookup error",
-						"uid", uid, "cid", cid, "path", r.URL.Path, "err", err)
+					// A super-admin need not be a member of the session
+					// community. Synthesize an approved admin membership so
+					// identity stays valid and god-mode works everywhere,
+					// instead of destroying the session.
+					if isSuper {
+						m = SuperAdminMembership(u, cid)
+					} else {
+						logDestroy("membership-not-found", uid, cid, r.URL.Path, err)
+						_ = Logout(r.Context(), sm)
+						next.ServeHTTP(w, r)
+						return
+					}
+				} else {
+					if LoaderLog != nil {
+						LoaderLog.Warn("auth.Loader membership lookup error",
+							"uid", uid, "cid", cid, "path", r.URL.Path, "err", err)
+					}
+					next.ServeHTTP(w, r)
+					return
 				}
-				next.ServeHTTP(w, r)
-				return
 			}
 			if m.IsBanned(time.Now()) {
 				logDestroy("user-banned", uid, cid, r.URL.Path, nil)
@@ -106,7 +133,10 @@ func Loader(sm *scs.SessionManager, repo *Repo) func(http.Handler) http.Handler 
 				http.Redirect(w, r, "/login?banned=1", http.StatusSeeOther)
 				return
 			}
-			ctx := WithIdentity(r.Context(), Identity{User: u, Membership: m})
+			ctx := WithIdentity(r.Context(), Identity{User: u, Membership: m, IsSuperAdmin: isSuper})
+			if isSuper {
+				ctx = WithSuperAdmin(ctx, true)
+			}
 
 			// Cheap one-row probe: do we have ANY admin/mod approved
 			// membership across communities? Powers the global /inbox
@@ -139,13 +169,30 @@ func RequireRole(min Role) func(http.Handler) http.Handler {
 				http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
 				return
 			}
-			if !id.Membership.Role.AtLeast(min) {
+			if !id.IsSuperAdmin && !id.Membership.Role.AtLeast(min) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// RequireSuperAdmin gates the global /superadmin surface. Only users in the
+// SUPERADMIN_EMAILS allowlist pass; everyone else gets 403.
+func RequireSuperAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := FromContext(r.Context())
+		if !ok {
+			http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
+			return
+		}
+		if !id.IsSuperAdmin {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RequireApproved bounces signed-in but unapproved members to /pending.
@@ -159,7 +206,7 @@ func RequireApproved(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
 			return
 		}
-		if id.Membership.IsApproved() || id.Membership.Role.AtLeast(RoleAdmin) {
+		if id.IsSuperAdmin || id.Membership.IsApproved() || id.Membership.Role.AtLeast(RoleAdmin) {
 			next.ServeHTTP(w, r)
 			return
 		}
