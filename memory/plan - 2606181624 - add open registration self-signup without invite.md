@@ -75,20 +75,16 @@ Related specs (extends, not replaced):
      `!h.Svc.OpenRegistration`; added `ErrInviteRequired` case to `registerErrMsg`
    - => `go build ./...` + `go test ./internal/auth/` green
 
-### Phase 3 - Frontend: register form adapts to mode (visible result) - status: open
+### Phase 3 - Frontend: register form adapts to mode (visible result) - status: completed
 
-1. [ ] Thread the flag into the register page
-   - `GetRegister` passes `h.Svc.OpenRegistration` to `RegisterPage(openReg bool)`
-2. [ ] Update `web/templ/auth.templ` `RegisterPage`
-   - when `openReg`: render the invite field as **optional** — collapse it behind
-     a `<details>`/"Have an invite code?" affordance so the default form is just
-     email + password (clean self-signup UX); label "Invite code (optional)"
-   - when `!openReg`: keep the current required "Invite code" field unchanged
-   - run `make gen` (templ → `_templ.go`)
-   - verify (manual smoke): run with `OPEN_REGISTRATION=true`, register with no
-     invite → "check your email" done fragment → after verify land on `/pending`;
-     re-run with `OPEN_REGISTRATION_AUTO_APPROVE=true` → after verify get full
-     access (no `/pending`)
+1. [x] Thread the flag into the register page
+   - => `GetRegister` now calls `webtempl.RegisterPage(h.Svc.OpenRegistration)`
+2. [x] Update `web/templ/auth.templ` `RegisterPage`
+   - => `RegisterPage(openReg bool)`: when open, invite collapses into a
+     `<details><summary>Have an invite code?</summary>` with a placeholder
+     "Optional" input; when closed, the required "Invite code" field is unchanged
+   - => `make gen` + `go build ./...` green
+   - => end-to-end smoke deferred to after Phase 4 tests land (one pass)
 
 ### Phase 4 - Tests + docs - status: open
 

@@ -1,6 +1,9 @@
 package templ
 
-templ RegisterPage() {
+// RegisterPage shows the self-signup form. When openReg is true the invite
+// code is optional and tucked behind a disclosure so the default form is just
+// email + password; otherwise the invite field is shown and required.
+templ RegisterPage(openReg bool) {
 	@Layout("Register", Viewer{}) {
 		<section class="card narrow">
 			<h1>Create your account</h1>
@@ -13,10 +16,17 @@ templ RegisterPage() {
 				<label>Password</label>
 				<input type="password" data-bind="password" autocomplete="new-password"/>
 			</div>
-			<div class="field">
-				<label>Invite code</label>
-				<input type="text" data-bind="invite_code" autocomplete="off"/>
-			</div>
+			if openReg {
+				<details class="field">
+					<summary class="muted">Have an invite code?</summary>
+					<input type="text" data-bind="invite_code" autocomplete="off" placeholder="Optional"/>
+				</details>
+			} else {
+				<div class="field">
+					<label>Invite code</label>
+					<input type="text" data-bind="invite_code" autocomplete="off"/>
+				</div>
+			}
 			<button data-on:click="@post('/register')">Register</button>
 			<p class="muted">Have an account? <a href="/login">Sign in</a>.</p>
 		</section>

@@ -81,7 +81,7 @@ func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/register-as-admin", http.StatusSeeOther)
 		return
 	}
-	_ = webtempl.RegisterPage().Render(r.Context(), w)
+	_ = webtempl.RegisterPage(h.Svc.OpenRegistration).Render(r.Context(), w)
 }
 
 // --- register-as-admin (zero-users bootstrap) ---
