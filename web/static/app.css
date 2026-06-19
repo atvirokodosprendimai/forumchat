@@ -383,6 +383,15 @@ button.link:hover, .link-button:hover {
   padding-bottom: 2px;
 }
 .chat-switcher-pills { display: flex; align-items: center; gap: 0.35rem; flex: 1 1 auto; min-width: 0; }
+/* Mobile-only collapsed trigger — hidden on desktop (pills show inline). */
+.chan-current { display: none; }
+.chan-caret {
+  width: 0; height: 0; flex: 0 0 auto;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid currentColor; opacity: 0.5;
+  transition: transform var(--t-fast) var(--ease-out);
+}
+.chan-current.open .chan-caret { transform: rotate(180deg); }
 .chan-pill {
   display: inline-flex; align-items: center; gap: 0.15rem;
   border-radius: var(--radius-pill);
@@ -417,6 +426,35 @@ button.link:hover, .link-button:hover {
   flex: 0 0 auto;
 }
 .chan-add:hover { color: var(--accent-strong); border-color: var(--accent-ring); }
+
+/* ---- Channel switcher on mobile: collapse the pill row into a dropdown.
+   The trigger shows the active channel; tapping floats the full channel
+   list (+ "new channel") over the messages. Matches the nav breakpoint. ---- */
+@media (max-width: 899px) {
+  .chat-switcher { overflow: visible; position: relative; }
+  .chan-current {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    width: 100%; padding: 0.45rem 0.8rem;
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-pill);
+    background: var(--surface-alt); color: var(--ink-soft, inherit);
+    font-weight: 600; font-size: 0.95rem; cursor: pointer;
+  }
+  .chan-current .chan-name { flex: 1 1 auto; text-align: left; }
+  .chan-current .chan-dot-agg { margin: 0; }
+  .chat-switcher-pills {
+    position: absolute; left: 0; right: 0; top: calc(100% + 0.4rem); z-index: 30;
+    flex-direction: column; align-items: stretch; gap: 0.2rem;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow);
+    padding: 0.35rem; max-height: 60vh; overflow-y: auto;
+    display: none;
+  }
+  .chat-switcher-pills.open { display: flex; }
+  .chan-pill { width: 100%; }
+  .chan-link { flex: 1 1 auto; padding: 0.5rem 0.7rem; }
+  .chan-add { width: 100%; justify-content: center; margin-top: 0.15rem; }
+}
+
 .chat-topic { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.85rem; }
 .form-error { color: var(--danger, oklch(58% 0.2 25)); font-size: 0.85rem; min-height: 1em; }
 

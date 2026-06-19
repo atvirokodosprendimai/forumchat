@@ -190,12 +190,27 @@ templ ChatPage(d ChatPageData) {
 // Mods/admins get a per-channel ⚙ (non-default only) + a "+ channel"
 // affordance. Stable id so CRUD handlers can morph it.
 templ ChannelSwitcher(slug string, channels []ChannelView, activeID string, canManage bool) {
-	<nav id="chat-switcher" class="chat-switcher" aria-label="Channels">
-		<div class="chat-switcher-pills">
+	{{ activeName := activeChannelName(channels, activeID) }}
+	<nav id="chat-switcher" class="chat-switcher" aria-label="Channels" data-on:click__outside="$_chan_menu=false">
+		// Mobile-only trigger: collapses the bar into one "# active ▾" button
+		// (hidden ≥900px via CSS). Tapping toggles the pill list into a
+		// dropdown. The aggregate dot lights when ANY other channel is unread,
+		// since the per-pill dots are hidden while the menu is collapsed.
+		<button type="button" class="chan-current"
+			aria-haspopup="true"
+			data-class:open="$_chan_menu"
+			data-attr:aria-expanded="$_chan_menu ? 'true' : 'false'"
+			data-on:click="$_chan_menu = !$_chan_menu">
+			<span class="chan-hash">#</span>
+			<span class="chan-name">{ activeName }</span>
+			<span class="chan-dot chan-dot-agg" data-show="Object.values($chat_unread||{}).some(Boolean)" aria-label="unread in other channels"></span>
+			<span class="chan-caret" aria-hidden="true"></span>
+		</button>
+		<div class="chat-switcher-pills" data-class:open="$_chan_menu">
 			for _, c := range channels {
 				<span class={ "chan-pill", templ.KV("active", c.ID == activeID) }>
 					<a class="chan-link" href={ templ.SafeURL("/c/" + slug + "/chat/" + c.Slug) }
-						data-on:click={ "$chat_unread['" + c.ID + "']=false" }>
+						data-on:click={ "$chat_unread['" + c.ID + "']=false; $_chan_menu=false" }>
 						<span class="chan-hash">#</span><span class="chan-name">{ c.Name }</span>
 						if c.ID != activeID {
 							<span class="chan-dot" data-show={ "$chat_unread['" + c.ID + "']" } aria-label="unread messages"></span>
@@ -207,12 +222,26 @@ templ ChannelSwitcher(slug string, channels []ChannelView, activeID string, canM
 					}
 				</span>
 			}
+			if canManage {
+				<button type="button" class="chan-add" aria-label="New channel"
+					data-on:click="$ch_name=''; $ch_topic=''; $_chan_menu=false; $_ch_create_open=true">+ channel</button>
+			}
 		</div>
-		if canManage {
-			<button type="button" class="chan-add" aria-label="New channel"
-				data-on:click="$ch_name=''; $ch_topic=''; $_ch_create_open=true">+ channel</button>
-		}
 	</nav>
+}
+
+// activeChannelName resolves the display name for the switcher's collapsed
+// mobile trigger. Falls back to the first channel, then empty.
+func activeChannelName(channels []ChannelView, activeID string) string {
+	for _, c := range channels {
+		if c.ID == activeID {
+			return c.Name
+		}
+	}
+	if len(channels) > 0 {
+		return channels[0].Name
+	}
+	return ""
 }
 
 // ChannelManageDialog holds the create + edit popovers (mod/admin only).
