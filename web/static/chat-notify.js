@@ -52,11 +52,16 @@
   obs.observe(messages, { childList: true, subtree: true });
 
   // ------- 2. focus / visibility / first-mount → mark-read -------
-  // Now declarative datastar on the chat page (chat.templ): a hidden div with
-  // data-init + data-on:focus__window + data-on:visibilitychange__window posts
-  // to .../read (server advances the high-water mark to the channel latest).
-  // The MutationObserver above still calls scheduleMarkRead for the
-  // own-new-message case, which needs the DOM-derived last_id.
+  // `focus` and first-mount are declarative datastar on the chat page
+  // (chat.templ: data-on:focus__window + data-init post to .../read).
+  //
+  // `visibilitychange` MUST stay here: it's dispatched on `document` and does
+  // not bubble to `window`, so a data-on:visibilitychange__window handler is
+  // effectively dead — it would miss tab-switch-back-to-visible without a
+  // separate window focus event (e.g. PWA app-shell). Keep it document-scoped.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) scheduleMarkRead();
+  });
 
   // ------- 3. lazy permission ask -------
   // Hook the composer Send to ask once, after the first user-initiated send.

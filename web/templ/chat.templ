@@ -160,13 +160,14 @@ templ ChatPage(d ChatPageData) {
 			type="button" data-on:click="$_presence_open = !$_presence_open">👥</button>
 		<div class="presence-overlay" data-on:click="$_presence_open = false"></div>
 		<div id="chat-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/stream', {openWhenHidden: true})" }></div>
-		// Mark-read: fire on first mount and whenever the tab regains focus or
-		// becomes visible. Server's MarkRead with an empty last_id advances the
-		// high-water mark to the channel's latest (see chat-notify.js note).
+		// Mark-read: fire on first mount and whenever the window regains focus.
+		// Server's MarkRead with an empty last_id advances the high-water mark
+		// to the channel's latest. NOTE: visibilitychange is NOT handled here —
+		// it's dispatched on `document` and doesn't bubble to `window`, so a
+		// __window listener would be dead; it lives in chat-notify.js instead.
 		<div
 			data-init={ "@post('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/read')" }
 			data-on:focus__window={ "@post('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/read')" }
-			data-on:visibilitychange__window={ "!document.hidden && @post('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/read')" }
 		></div>
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
