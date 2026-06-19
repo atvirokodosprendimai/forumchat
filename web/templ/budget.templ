@@ -1,0 +1,196 @@
+package templ
+
+import "strconv"
+
+// ---- view models (mapped from internal/timebudget in the handler) ----
+
+type TimeProjectView struct {
+	ID    string
+	Title string
+}
+
+type TimeEntryView struct {
+	ID          string
+	Note        string
+	Minutes     int
+	OccurredOn  string // YYYY-MM-DD
+	CreatorName string
+	CanDelete   bool
+}
+
+type TimeBudgetGroup struct {
+	ProjectTitle string
+	Untagged     bool
+	Minutes      int
+	Entries      []TimeEntryView
+}
+
+type TimeBudgetPanel struct {
+	Slug             string
+	Month            string // YYYY-MM
+	MonthLabel       string // "June 2026"
+	PrevMonth        string
+	NextMonth        string
+	BudgetMinutes    int
+	UsedMinutes      int
+	RemainingMinutes int
+	OverBudget       bool
+	HasBudget        bool
+	PctUsed          int
+	Groups           []TimeBudgetGroup
+	Projects         []TimeProjectView
+	CanWrite         bool // mod/admin: log + delete entries
+	CanSetBudget     bool // admin: set the monthly budget
+	Today            string
+}
+
+type TimeBudgetPageData struct {
+	Viewer Viewer
+	Panel  TimeBudgetPanel
+}
+
+templ BudgetPage(d TimeBudgetPageData) {
+	@Layout("Time budget", d.Viewer) {
+		<section>
+			<h1>Time budget</h1>
+			<p class="muted">
+				Hours logged against { d.Viewer.CommunityName }'s monthly budget.
+				if d.Panel.CanWrite {
+					Log time below; everyone here sees how much is left.
+				} else {
+					This is how much of the month's time budget is left.
+				}
+			</p>
+			@BudgetPanel(d.Panel)
+		</section>
+	}
+}
+
+templ BudgetPanel(p TimeBudgetPanel) {
+	<section id="budget-panel" data-init={ "$tb_date = $tb_date || " + strconv.Quote(p.Today) }>
+		<div class="budget-monthnav">
+			<a class="btn ghost" href={ templ.URL("/c/" + p.Slug + "/budget?month=" + p.PrevMonth) }>← prev</a>
+			<strong class="budget-month">{ p.MonthLabel }</strong>
+			<a class="btn ghost" href={ templ.URL("/c/" + p.Slug + "/budget?month=" + p.NextMonth) }>next →</a>
+		</div>
+
+		<div class="budget-summary card">
+			if p.HasBudget {
+				<div class="budget-bar" aria-hidden="true">
+					<div class={ "budget-bar-fill", templ.KV("over", p.OverBudget) } style={ "width:" + strconv.Itoa(p.PctUsed) + "%" }></div>
+				</div>
+				<div class="budget-figures">
+					<span class="budget-used"><strong>{ fmtHM(p.UsedMinutes) }</strong> used</span>
+					<span class="muted">of { fmtHM(p.BudgetMinutes) }</span>
+					if p.OverBudget {
+						<span class="budget-remaining over"><strong>{ fmtHM(p.UsedMinutes - p.BudgetMinutes) }</strong> over budget</span>
+					} else {
+						<span class="budget-remaining"><strong>{ fmtHM(p.RemainingMinutes) }</strong> left</span>
+					}
+				</div>
+			} else {
+				<p class="muted budget-nobudget">
+					No monthly budget set.
+					if p.CanSetBudget {
+						Set one below so the team can plan.
+					}
+					&nbsp;<strong>{ fmtHM(p.UsedMinutes) }</strong> logged this month.
+				</p>
+			}
+			if p.CanSetBudget {
+				<details class="budget-setbudget">
+					<summary class="link-button" style="cursor:pointer">Set monthly budget…</summary>
+					<div style="margin-top:.5rem">
+						<label>
+							Hours per month:
+							<input type="number" min="0" step="0.5" data-bind="tb_budget_hours"
+								placeholder={ strconv.Itoa(p.BudgetMinutes / 60) } style="width:7em"/>
+						</label>
+						<button data-on:click={ "@post('/c/" + p.Slug + "/budget')" }>Save budget</button>
+					</div>
+				</details>
+			}
+		</div>
+
+		if p.CanWrite {
+			<div class="budget-addentry card">
+				<h3>Log time</h3>
+				<div class="budget-entry-form">
+					<label class="budget-field">Hours<input type="number" min="0" step="1" data-bind="tb_hours" style="width:5em"/></label>
+					<label class="budget-field">Min<input type="number" min="0" max="59" step="5" data-bind="tb_minutes" style="width:5em"/></label>
+					<label class="budget-field">Date<input type="date" data-bind="tb_date" max={ p.Today }/></label>
+					if len(p.Projects) > 0 {
+						<label class="budget-field">Task
+							<select data-bind="tb_project">
+								<option value="">— no project —</option>
+								for _, pr := range p.Projects {
+									<option value={ pr.ID }>{ pr.Title }</option>
+								}
+							</select>
+						</label>
+					}
+					<label class="budget-field budget-field-grow">What<input type="text" data-bind="tb_note" placeholder="e.g. login bug, API docs (pomodoro total)"/></label>
+					<button data-on:click={ "@post('/c/" + p.Slug + "/budget/entry')" }>Log</button>
+				</div>
+			</div>
+		}
+
+		<div class="budget-breakdown">
+			if len(p.Groups) == 0 {
+				<div class="empty-state">
+					<div class="empty-icon" aria-hidden="true">⏱</div>
+					<p><strong>No time logged for { p.MonthLabel }.</strong></p>
+				</div>
+			}
+			for _, g := range p.Groups {
+				<div class="budget-group">
+					<div class="budget-group-head">
+						if g.Untagged {
+							<span class="budget-group-title muted">Untagged</span>
+						} else {
+							<span class="budget-group-title">{ g.ProjectTitle }</span>
+						}
+						<span class="budget-group-total">{ fmtHM(g.Minutes) }</span>
+					</div>
+					<ul class="budget-entries">
+						for _, e := range g.Entries {
+							<li class="budget-entry" id={ "tentry-" + e.ID }>
+								<span class="budget-entry-date muted">{ e.OccurredOn }</span>
+								<span class="budget-entry-note">
+									if e.Note != "" {
+										{ e.Note }
+									} else {
+										<span class="muted">—</span>
+									}
+								</span>
+								<span class="budget-entry-by muted">{ e.CreatorName }</span>
+								<span class="budget-entry-min"><strong>{ fmtHM(e.Minutes) }</strong></span>
+								if e.CanDelete {
+									<button class="link danger" title="delete"
+										data-on:click={ "@post('/c/" + p.Slug + "/budget/entry/" + e.ID + "/delete?month=" + p.Month + "')" }>×</button>
+								}
+							</li>
+						}
+					</ul>
+				</div>
+			}
+		</div>
+	</section>
+}
+
+// fmtHM renders minutes as "1h 30m" / "45m" / "2h".
+func fmtHM(min int) string {
+	if min <= 0 {
+		return "0m"
+	}
+	h := min / 60
+	m := min % 60
+	switch {
+	case h == 0:
+		return strconv.Itoa(m) + "m"
+	case m == 0:
+		return strconv.Itoa(h) + "h"
+	default:
+		return strconv.Itoa(h) + "h " + strconv.Itoa(m) + "m"
+	}
+}

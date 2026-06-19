@@ -76,6 +76,13 @@ type Config struct {
 	// schema migration.
 	ProjectsEnabled bool `env:"PROJECTS_ENABLED" envDefault:"false"`
 
+	// TimeEnabled gates the time-accounting feature: the per-community
+	// "Budget" page (/c/{slug}/budget, members-only) and the global personal
+	// "Journal" timer (/journal). When false the routes are not mounted and
+	// the nav links are hidden; the tables always exist so toggling the flag
+	// never needs a schema migration.
+	TimeEnabled bool `env:"TIME_ENABLED" envDefault:"false"`
+
 	// GuestAccessEnabled toggles the Lobbies feature: token-authed
 	// guest URLs into persistent text conversations, without the guest
 	// needing an account. Default off so a fresh deployment is closed.

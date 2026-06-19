@@ -155,6 +155,12 @@ var GuestAccessEnabled bool
 // community status) and the poll worker.
 var MailboxEnabled bool
 
+// TimeEnabled — instance-level time-accounting flag. Toggles both the
+// per-community "Budget" link and the global personal "Journal" link, and
+// gates the route mounts in main.go. Tables always exist so flipping the
+// flag never needs a schema migration.
+var TimeEnabled bool
+
 // InitialSignals — global signal bag rendered on every page.
 // Every data-bind / data-on-click POST sees these as their starting state.
 const InitialSignals = `{
@@ -255,7 +261,14 @@ const InitialSignals = `{
 	"sa_email":"",
 	"sa_cid":"",
 	"sa_confirm_slug":"",
-	"sa_uid":""
+	"sa_uid":"",
+	"tb_budget_hours":"",
+	"tb_hours":"",
+	"tb_minutes":"",
+	"tb_date":"",
+	"tb_project":"",
+	"tb_note":"",
+	"worklog_note":""
 }`
 
 templ Layout(title string, v Viewer) {
@@ -318,6 +331,9 @@ templ Layout(title string, v Viewer) {
 							@MessagesBadge(0)
 						</a>
 						<a href="/explore" aria-current={ navActive(ctx, "/explore") }><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
+						if TimeEnabled {
+							<a href="/journal" aria-current={ navActive(ctx, "/journal") }><span class="sb-icon" aria-hidden="true">⏱</span>Journal</a>
+						}
 						<a href="/" aria-current={ navActive(ctx, "/") }><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
 						if v.CommunitySlug != "" {
 							<h3 class="sidebar-group">{ v.CommunityName }</h3>
@@ -328,6 +344,9 @@ templ Layout(title string, v Viewer) {
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/todos") }><span class="sb-icon" aria-hidden="true">☑</span>Todos</a>
 							if ProjectsEnabled {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/projects") }><span class="sb-icon" aria-hidden="true">📂</span>Projects</a>
+							}
+							if TimeEnabled {
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/budget") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/budget") }><span class="sb-icon" aria-hidden="true">📊</span>Budget</a>
 							}
 							if GuestAccessEnabled && (v.Role == "admin" || v.Role == "moderator") {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/lobbies") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/lobbies") }><span class="sb-icon" aria-hidden="true">🚪</span>Lobbies</a>

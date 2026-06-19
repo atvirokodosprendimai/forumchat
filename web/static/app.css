@@ -3853,3 +3853,119 @@ hr {
 .form-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
 .form-row input { flex: 1 1 12rem; }
 button.ghost.danger { color: var(--danger); }
+
+/* ============================================================
+   Time accounting — budget page (timebudget) + journal (worklog)
+   ============================================================ */
+
+/* ---- budget: month nav ---- */
+.budget-monthnav {
+  display: flex; align-items: center; gap: .75rem;
+  margin: .25rem 0 1rem;
+}
+.budget-month { font-size: 1.05rem; }
+.budget-monthnav .btn { padding: .3rem .7rem; }
+
+/* ---- budget: summary card + progress bar ---- */
+.budget-summary { padding: 1.1rem 1.25rem; margin-bottom: 1rem; }
+.budget-bar {
+  height: 14px; border-radius: var(--radius-pill);
+  background: var(--surface-2); overflow: hidden;
+  box-shadow: inset 0 1px 2px oklch(20% 0.05 260 / 0.06);
+}
+.budget-bar-fill {
+  height: 100%; border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  transition: width .4s var(--ease-out);
+}
+.budget-bar-fill.over {
+  background: linear-gradient(90deg, var(--warning), var(--danger));
+}
+.budget-figures {
+  display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
+  margin-top: .65rem;
+}
+.budget-used strong { font-size: 1.25rem; }
+.budget-remaining { margin-left: auto; color: var(--success); }
+.budget-remaining.over { color: var(--danger); }
+.budget-nobudget { margin: .2rem 0; }
+.budget-setbudget { margin-top: .75rem; }
+.budget-setbudget summary { color: var(--accent); font-size: .9rem; }
+.budget-setbudget label { margin-right: .5rem; }
+
+/* ---- budget: log-time form ---- */
+.budget-addentry { padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
+.budget-addentry h3 { margin: 0 0 .6rem; font-size: 1rem; }
+.budget-entry-form {
+  display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end;
+}
+.budget-field {
+  display: flex; flex-direction: column; gap: .2rem;
+  font-size: .78rem; color: var(--fg-muted);
+}
+.budget-field input, .budget-field select { font-size: .95rem; }
+.budget-field-grow { flex: 1 1 14rem; }
+.budget-field-grow input { width: 100%; }
+
+/* ---- budget: breakdown by task ---- */
+.budget-group {
+  border: 1px solid var(--border-subtle); border-radius: var(--radius);
+  margin-bottom: .75rem; overflow: hidden; background: var(--surface);
+}
+.budget-group-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .55rem .9rem; background: var(--surface-alt);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.budget-group-title { font-weight: 600; }
+.budget-group-total { font-variant-numeric: tabular-nums; color: var(--accent-strong); }
+.budget-entries { list-style: none; margin: 0; padding: 0; }
+.budget-entry {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .45rem .9rem; border-top: 1px solid var(--border-subtle);
+}
+.budget-entry:first-child { border-top: none; }
+.budget-entry-date { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.budget-entry-note { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.budget-entry-by { white-space: nowrap; }
+.budget-entry-min { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- worklog: timer widget ---- */
+.worklog-widget { padding: 1.25rem; margin-bottom: 1.5rem; }
+.worklog-timer { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; }
+.worklog-elapsed {
+  font-family: var(--font-mono); font-size: 2.1rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: .02em;
+}
+.worklog-dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--danger); box-shadow: 0 0 0 0 var(--danger);
+  animation: worklog-pulse 1.6s var(--ease-out) infinite;
+}
+@keyframes worklog-pulse {
+  0%   { box-shadow: 0 0 0 0 oklch(58% 0.22 25 / 0.5); }
+  70%  { box-shadow: 0 0 0 9px oklch(58% 0.22 25 / 0); }
+  100% { box-shadow: 0 0 0 0 oklch(58% 0.22 25 / 0); }
+}
+.worklog-start { font-size: 1.05rem; padding: .6rem 1.4rem; }
+.worklog-noteq { margin: 0 0 .5rem; width: 100%; }
+.worklog-noteinput { width: 100%; resize: vertical; }
+.worklog-noteactions { display: flex; gap: .5rem; margin-top: .5rem; }
+.worklog-today { width: 100%; margin: .9rem 0 0; }
+
+/* ---- worklog: journal list ---- */
+.worklog-day { margin-bottom: 1.1rem; }
+.worklog-day-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 0 0 .4rem; font-size: .95rem;
+  padding-bottom: .3rem; border-bottom: 1px solid var(--border-subtle);
+}
+.worklog-day-total { font-variant-numeric: tabular-nums; }
+.worklog-sessions { list-style: none; margin: 0; padding: 0; }
+.worklog-session {
+  display: flex; align-items: baseline; gap: .8rem;
+  padding: .4rem 0;
+}
+.worklog-session-time { font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 6.5rem; }
+.worklog-session-dur { font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 4rem; color: var(--accent-strong); }
+.worklog-session-note { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }

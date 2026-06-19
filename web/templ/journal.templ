@@ -1,0 +1,106 @@
+package templ
+
+import "strconv"
+
+// ---- view models (mapped from internal/worklog in the handler) ----
+
+type WorklogSession struct {
+	TimeRange   string // "09:15–10:02"
+	DurationMin int
+	Note        string
+}
+
+type WorklogDay struct {
+	Label    string // "Today" / "Yesterday" / "Mon, 2 Jan 2006"
+	TotalMin int
+	Sessions []WorklogSession
+}
+
+type WorklogView struct {
+	State           string // idle | running | note
+	ActiveStartUnix int64  // running: epoch seconds the JS clock counts from
+	NoteSessionID   string // note: which session the note saves to
+	NoteDurationMin int    // note: how long that session ran
+	TodayMin        int
+	Days            []WorklogDay
+}
+
+type JournalPageData struct {
+	Viewer Viewer
+	Panel  WorklogView
+}
+
+templ JournalPage(d JournalPageData) {
+	@Layout("Journal", d.Viewer) {
+		<section>
+			<h1>Journal</h1>
+			<p class="muted">A personal stopwatch and work diary — just for you, across every community.</p>
+			<script src={ "/static/timer.js?v=" + AssetVer("timer.js") } defer></script>
+			@WorklogPanel(d.Panel)
+		</section>
+	}
+}
+
+templ WorklogPanel(p WorklogView) {
+	<section id="worklog">
+		<div class="worklog-widget card">
+			switch p.State {
+				case "running":
+					<div class="worklog-timer running" data-init="window.fcTimerTick && window.fcTimerTick()">
+						<span class="worklog-dot" aria-hidden="true"></span>
+						<span id="timer-elapsed" class="worklog-elapsed" data-timer-start={ strconv.FormatInt(p.ActiveStartUnix, 10) }>00:00:00</span>
+						<button class="btn danger" data-on:click="@post('/timer/stop')">Stop</button>
+					</div>
+				case "note":
+					<div class="worklog-timer note">
+						<p class="worklog-noteq">Logged <strong>{ fmtHM(p.NoteDurationMin) }</strong> — what did you do?</p>
+						<textarea class="worklog-noteinput" data-bind="worklog_note" rows="2"
+							placeholder="e.g. fixed login bug, wrote API docs"></textarea>
+						<div class="worklog-noteactions">
+							<button class="btn" data-on:click={ "@post('/timer/note?id=" + p.NoteSessionID + "')" }>Save</button>
+							<button class="btn ghost" data-on:click={ "$worklog_note=''; @post('/timer/note?id=" + p.NoteSessionID + "')" }>Skip</button>
+						</div>
+					</div>
+				default:
+					<div class="worklog-timer idle">
+						<button class="btn worklog-start" data-on:click="@post('/timer/start')">▸ Start timer</button>
+						<span class="muted">Click start, work, then stop to log what you did.</span>
+					</div>
+			}
+			<p class="muted worklog-today">Today: <strong>{ fmtHM(p.TodayMin) }</strong></p>
+		</div>
+
+		<div class="worklog-journal">
+			if len(p.Days) == 0 {
+				<div class="empty-state">
+					<div class="empty-icon" aria-hidden="true">🕘</div>
+					<p><strong>No sessions yet.</strong></p>
+					<p>Start the timer above to begin your journal.</p>
+				</div>
+			}
+			for _, day := range p.Days {
+				<div class="worklog-day">
+					<h3 class="worklog-day-head">
+						<span>{ day.Label }</span>
+						<span class="worklog-day-total muted">{ fmtHM(day.TotalMin) }</span>
+					</h3>
+					<ul class="worklog-sessions">
+						for _, s := range day.Sessions {
+							<li class="worklog-session">
+								<span class="worklog-session-time muted">{ s.TimeRange }</span>
+								<span class="worklog-session-dur"><strong>{ fmtHM(s.DurationMin) }</strong></span>
+								<span class="worklog-session-note">
+									if s.Note != "" {
+										{ s.Note }
+									} else {
+										<span class="muted">no note</span>
+									}
+								</span>
+							</li>
+						}
+					</ul>
+				</div>
+			}
+		</div>
+	</section>
+}

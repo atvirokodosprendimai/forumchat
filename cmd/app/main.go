@@ -44,8 +44,10 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 	"github.com/atvirokodosprendimai/forumchat/internal/superadmin"
+	"github.com/atvirokodosprendimai/forumchat/internal/timebudget"
 	"github.com/atvirokodosprendimai/forumchat/internal/todos"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
+	"github.com/atvirokodosprendimai/forumchat/internal/worklog"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -308,6 +310,29 @@ func run() error {
 	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
+	// Time accounting: per-community budget + global personal timer/journal.
+	timebudgetHandler := &timebudget.Handler{Repo: timebudget.NewRepo(db), Log: log}
+	// Optional "tag a task" project <select> in the budget entry form.
+	// Closure (not a direct import) to avoid a projects → timebudget cycle,
+	// same trick as chat.ListProjects above. Nil when Projects is disabled.
+	timebudgetHandler.ListProjects = func(ctx context.Context, communityID string) []webtempl.TimeProjectView {
+		if !cfg.ProjectsEnabled {
+			return nil
+		}
+		rows, err := projectsRepo.ListActiveForCommunity(ctx, communityID)
+		if err != nil {
+			log.Warn("budget: list projects", "err", err)
+			return nil
+		}
+		out := make([]webtempl.TimeProjectView, 0, len(rows))
+		for _, p := range rows {
+			out = append(out, webtempl.TimeProjectView{ID: p.ID, Title: p.Title})
+		}
+		return out
+	}
+	worklogHandler := &worklog.Handler{Repo: worklog.NewRepo(db), Log: log}
+	webtempl.TimeEnabled = cfg.TimeEnabled
+
 	invitesHandler := &invites.Handler{AuthRepo: aRepo, Chat: chatHandler, Sessions: sessions, Log: log}
 
 	// ----- Web Push (VAPID) -------------------------------------------------
@@ -484,6 +509,14 @@ func run() error {
 		r.Get("/pending", authHandler.GetPending)
 		r.Get("/profile", authHandler.GetProfile)
 		r.Post("/profile", authHandler.PostProfile)
+		// Personal worklog timer + journal — global (no community scope),
+		// available to any signed-in user. Gated by TIME_ENABLED.
+		if cfg.TimeEnabled {
+			r.Get("/journal", worklogHandler.GetPage)
+			r.Post("/timer/start", worklogHandler.PostStart)
+			r.Post("/timer/stop", worklogHandler.PostStop)
+			r.Post("/timer/note", worklogHandler.PostNote)
+		}
 	})
 
 	bookmarksRepo := bookmarks.NewRepo(db)
@@ -619,6 +652,13 @@ func run() error {
 		r.Post("/todos/{id}/status", todosHandler.PostStatus)
 		r.Post("/todos/{id}/delete", todosHandler.PostDelete)
 
+		// Time budget — any approved member can VIEW the page (the client
+		// sees how much of the month's budget is left). Write endpoints
+		// (set budget / log / delete) live in the mod-gated group below.
+		if cfg.TimeEnabled {
+			r.Get("/budget", timebudgetHandler.GetPage)
+		}
+
 		// Per-community notification settings (Web Push opt-in + toggles).
 		pushHandler.MountPerCommunity(r)
 
@@ -632,6 +672,13 @@ func run() error {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleMod))
 			r.Post("/chat/delete", chatHandler.PostDelete)
+			// Time budget writes — mod/admin. Setting the monthly budget is
+			// further restricted to admin inside PostSetBudget.
+			if cfg.TimeEnabled {
+				r.Post("/budget", timebudgetHandler.PostSetBudget)
+				r.Post("/budget/entry", timebudgetHandler.PostAddEntry)
+				r.Post("/budget/entry/{id}/delete", timebudgetHandler.PostDeleteEntry)
+			}
 			// Lobbies host area — admin/mod only, gated by env flag.
 			if cfg.GuestAccessEnabled && lobbiesHandler != nil {
 				r.Get("/lobbies", lobbiesHandler.GetIndex)
