@@ -1,6 +1,9 @@
 package templ
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // adminAnyCtxKey is read by IsAdminOfAnyCommunity below. The auth
 // middleware stores its value under the same key (matching name + type)
@@ -39,6 +42,53 @@ func IsSuperAdmin(ctx context.Context) bool {
 // SuperAdminCtxKey is exported so the auth package can set the same key
 // without an import cycle. Read by IsSuperAdmin above.
 func SuperAdminCtxKey() any { return superAdminCtxKey }
+
+// currentPathCtxKey carries the request path so the sidebar can mark the
+// active link server-side (was a client DOM-walk in nav.js). Set by a
+// middleware in main.go on every request.
+type currentPathCtxKeyType struct{}
+
+var currentPathCtxKey = currentPathCtxKeyType{}
+
+// WithCurrentPath stashes the request path on ctx for navActive.
+func WithCurrentPath(ctx context.Context, p string) context.Context {
+	return context.WithValue(ctx, currentPathCtxKey, p)
+}
+
+// CurrentPath returns the request path stashed by the path middleware.
+func CurrentPath(ctx context.Context) string {
+	p, _ := ctx.Value(currentPathCtxKey).(string)
+	return p
+}
+
+// navActive returns "page" when href is the current nav location (exact or a
+// path prefix), else "false" — the value of a sidebar link's aria-current.
+// The CSS active state keys off [aria-current="page"]; "false" is the valid
+// ARIA "not current" so non-active links stay un-highlighted.
+func navActive(ctx context.Context, href string) string {
+	here := strings.TrimRight(CurrentPath(ctx), "/")
+	if here == "" {
+		here = "/"
+	}
+	h := strings.TrimRight(href, "/")
+	if h == "" {
+		h = "/"
+	}
+	if here == h || (h != "/" && strings.HasPrefix(here, h+"/")) {
+		return "page"
+	}
+	return "false"
+}
+
+// navActiveExcept is navActive for href, but yields to a more specific
+// sibling: it returns "false" when deeper also matches, so a parent link
+// (e.g. .../admin) doesn't light up on a child page (.../admin/mail-filters).
+func navActiveExcept(ctx context.Context, href, deeper string) string {
+	if navActive(ctx, deeper) == "page" {
+		return "false"
+	}
+	return navActive(ctx, href)
+}
 
 type Viewer struct {
 	IsAuthed      bool
@@ -166,6 +216,7 @@ const InitialSignals = `{
 	"_rooms_am_admin":false,
 	"rooms_invite_emails":"",
 	"_nav_open":false,
+	"_presence_open":false,
 	"mention_query":"",
 	"_mention_open":false,
 	"active_channel":"",
@@ -229,58 +280,64 @@ templ Layout(title string, v Viewer) {
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 			<script src={ "/static/mention.js?v=" + AssetVer("mention.js") } defer></script>
 		</head>
-		<body data-signals={ InitialSignals }>
+		<body
+			data-signals={ InitialSignals }
+			data-class:nav-open="$_nav_open"
+			data-class:presence-open="$_presence_open"
+			data-on:click__window="document.querySelectorAll('details.msg-menu[open]').forEach(d => d.contains(evt.target) || (d.open=false))"
+			data-on:keydown__window="if(evt.key==='Escape'){$_nav_open=false; $_presence_open=false; document.querySelectorAll('details.msg-menu[open]').forEach(d => d.open=false)}"
+		>
 			<script src={ "/static/nav.js?v=" + AssetVer("nav.js") } defer></script>
 			<header class="topbar">
 				<button class="topbar-hamburger" aria-label="Toggle navigation"
-					type="button" data-nav-toggle>
+					type="button" data-on:click="$_nav_open = !$_nav_open">
 					<span class="hamburger-bar"></span>
 					<span class="hamburger-bar"></span>
 					<span class="hamburger-bar"></span>
 				</button>
 				<a href="/" class="brand">forumchat</a>
 			</header>
-			<div class="nav-overlay" data-nav-overlay></div>
+			<div class="nav-overlay" data-on:click="$_nav_open = false"></div>
 			<aside class="sidebar">
 				<a href="/" class="sidebar-brand">forumchat</a>
-				<nav>
+				<nav data-on:click="evt.target.closest('a,button') && ($_nav_open = false)">
 					if v.IsAuthed {
 						<h3 class="sidebar-group">You</h3>
 						if MailboxEnabled && IsAdminOfAnyCommunity(ctx) {
-							<a href="/inbox"><span class="sb-icon" aria-hidden="true">📥</span>Inbox</a>
+							<a href="/inbox" aria-current={ navActive(ctx, "/inbox") }><span class="sb-icon" aria-hidden="true">📥</span>Inbox</a>
 						}
 						if IsAdminOfAnyCommunity(ctx) {
-							<a href="/issues"><span class="sb-icon" aria-hidden="true">🐞</span>Issues</a>
+							<a href="/issues" aria-current={ navActive(ctx, "/issues") }><span class="sb-icon" aria-hidden="true">🐞</span>Issues</a>
 						}
 						if IsSuperAdmin(ctx) {
-							<a href="/superadmin"><span class="sb-icon" aria-hidden="true">🛡</span>Platform</a>
+							<a href="/superadmin" aria-current={ navActive(ctx, "/superadmin") }><span class="sb-icon" aria-hidden="true">🛡</span>Platform</a>
 						}
-						<a href="/messages" class="pm-nav-link">
+						<a href="/messages" class="pm-nav-link" aria-current={ navActive(ctx, "/messages") }>
 							<span class="sb-icon" aria-hidden="true">✉</span>
 							<span>Messages</span>
 							@MessagesBadge(0)
 						</a>
-						<a href="/explore"><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
-						<a href="/"><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
+						<a href="/explore" aria-current={ navActive(ctx, "/explore") }><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
+						<a href="/" aria-current={ navActive(ctx, "/") }><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
 						if v.CommunitySlug != "" {
 							<h3 class="sidebar-group">{ v.CommunityName }</h3>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Threads</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") }><span class="sb-icon" aria-hidden="true">🎥</span>Rooms</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") }><span class="sb-icon" aria-hidden="true">★</span>Bookmarks</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") }><span class="sb-icon" aria-hidden="true">☑</span>Todos</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Threads</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/rooms") }><span class="sb-icon" aria-hidden="true">🎥</span>Rooms</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/bookmarks") }><span class="sb-icon" aria-hidden="true">★</span>Bookmarks</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/todos") }><span class="sb-icon" aria-hidden="true">☑</span>Todos</a>
 							if ProjectsEnabled {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") }><span class="sb-icon" aria-hidden="true">📂</span>Projects</a>
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/projects") }><span class="sb-icon" aria-hidden="true">📂</span>Projects</a>
 							}
 							if GuestAccessEnabled && (v.Role == "admin" || v.Role == "moderator") {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/lobbies") }><span class="sb-icon" aria-hidden="true">🚪</span>Lobbies</a>
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/lobbies") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/lobbies") }><span class="sb-icon" aria-hidden="true">🚪</span>Lobbies</a>
 							}
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/notifications") }><span class="sb-icon" aria-hidden="true">🔔</span>Notifications</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/notifications") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/notifications") }><span class="sb-icon" aria-hidden="true">🔔</span>Notifications</a>
 							if v.Role == "admin" {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") } aria-current={ navActiveExcept(ctx, "/c/"+v.CommunitySlug+"/admin", "/c/"+v.CommunitySlug+"/admin/mail-filters") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
 								if MailboxEnabled {
-									<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin/mail-filters") }><span class="sb-icon" aria-hidden="true">✉</span>Mail filters</a>
+									<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin/mail-filters") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin/mail-filters") }><span class="sb-icon" aria-hidden="true">✉</span>Mail filters</a>
 								}
 							}
 						}

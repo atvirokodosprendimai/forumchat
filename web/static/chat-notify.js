@@ -51,14 +51,12 @@
   });
   obs.observe(messages, { childList: true, subtree: true });
 
-  // ------- 2. focus / visibility → mark-read -------
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) scheduleMarkRead();
-  });
-  window.addEventListener('focus', scheduleMarkRead);
-  // First-mount sync — Datastar's data-init scrolls us to the bottom on
-  // load, treat that as "seen up to here" immediately.
-  scheduleMarkRead();
+  // ------- 2. focus / visibility / first-mount → mark-read -------
+  // Now declarative datastar on the chat page (chat.templ): a hidden div with
+  // data-init + data-on:focus__window + data-on:visibilitychange__window posts
+  // to .../read (server advances the high-water mark to the channel latest).
+  // The MutationObserver above still calls scheduleMarkRead for the
+  // own-new-message case, which needs the DOM-derived last_id.
 
   // ------- 3. lazy permission ask -------
   // Hook the composer Send to ask once, after the first user-initiated send.

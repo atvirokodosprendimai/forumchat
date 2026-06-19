@@ -54,18 +54,10 @@ window.fcPickImage = function (evt, signalName) {
   evt.target.value = ''; // allow re-selecting the same file later
 };
 
-// Close any open <details class="msg-menu"> when the user taps outside it or
-// presses Escape. Single global listener — works for menus added later via SSE.
-document.addEventListener('click', function (evt) {
-  const open = document.querySelectorAll('details.msg-menu[open]');
-  for (const d of open) {
-    if (!d.contains(evt.target)) d.open = false;
-  }
-});
-document.addEventListener('keydown', function (evt) {
-  if (evt.key !== 'Escape') return;
-  for (const d of document.querySelectorAll('details.msg-menu[open]')) d.open = false;
-});
+// NOTE: closing open <details class="msg-menu"> on outside-click / Escape used
+// to live here as two global listeners. It's now declarative datastar on
+// <body> in layout.templ (data-on:click__window / data-on:keydown__window),
+// so this file is purely clipboard / file-picker / drag-drop image helpers.
 
 window.fcDropImage = function (evt, signalName) {
   const dt = evt.dataTransfer;

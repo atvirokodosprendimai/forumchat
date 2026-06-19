@@ -157,9 +157,17 @@ templ ChatPage(d ChatPageData) {
 		// Mobile-only floating button (>=900px hides via CSS). Toggles
 		// the presence panel into a right-side drawer on small screens.
 		<button class="presence-fab" aria-label="Show online users"
-			type="button" data-presence-toggle>👥</button>
-		<div class="presence-overlay" data-presence-overlay></div>
+			type="button" data-on:click="$_presence_open = !$_presence_open">👥</button>
+		<div class="presence-overlay" data-on:click="$_presence_open = false"></div>
 		<div id="chat-stream-open" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/stream', {openWhenHidden: true})" }></div>
+		// Mark-read: fire on first mount and whenever the tab regains focus or
+		// becomes visible. Server's MarkRead with an empty last_id advances the
+		// high-water mark to the channel's latest (see chat-notify.js note).
+		<div
+			data-init={ "@post('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/read')" }
+			data-on:focus__window={ "@post('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/read')" }
+			data-on:visibilitychange__window={ "!document.hidden && @post('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/read')" }
+		></div>
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)

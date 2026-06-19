@@ -144,6 +144,13 @@ func run() error {
 	r.Use(newCompressor().Handler)
 	r.Use(sessions.LoadAndSave)
 	r.Use(auth.Loader(sessions, aRepo, superAdmins))
+	// Stash the request path so the sidebar can mark the active link
+	// server-side (replaces the client DOM-walk that used to live in nav.js).
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			next.ServeHTTP(w, req.WithContext(webtempl.WithCurrentPath(req.Context(), req.URL.Path)))
+		})
+	})
 
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
