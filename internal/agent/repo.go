@@ -18,19 +18,20 @@ func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 // --- agents ---------------------------------------------------------------
 
 const agentCols = `id, community_id, name, provider, base_url, model, api_key_enc,
-	system_prompt, vision, enabled, position, COALESCE(updated_by,''), created_at, updated_at`
+	system_prompt, vision, tools_enabled, enabled, position, COALESCE(updated_by,''), created_at, updated_at`
 
 func scanAgent(s interface {
 	Scan(dest ...any) error
 }) (Agent, error) {
 	var a Agent
-	var vision, enabled int
+	var vision, tools, enabled int
 	err := s.Scan(&a.ID, &a.CommunityID, &a.Name, &a.Provider, &a.BaseURL, &a.Model, &a.APIKeyEnc,
-		&a.SystemPrompt, &vision, &enabled, &a.Position, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt)
+		&a.SystemPrompt, &vision, &tools, &enabled, &a.Position, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return Agent{}, err
 	}
 	a.Vision = vision != 0
+	a.ToolsEnabled = tools != 0
 	a.Enabled = enabled != 0
 	return a, nil
 }
@@ -103,10 +104,10 @@ func (r *Repo) CreateAgent(ctx context.Context, a Agent) error {
 	}
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO ai_agents (id, community_id, name, provider, base_url, model, api_key_enc,
-			system_prompt, vision, enabled, position, created_at, updated_at, updated_by)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			system_prompt, vision, tools_enabled, enabled, position, created_at, updated_at, updated_by)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.CommunityID, a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc,
-		a.SystemPrompt, boolToInt(a.Vision), boolToInt(a.Enabled), a.Position, a.CreatedAt, a.UpdatedAt, updatedBy)
+		a.SystemPrompt, boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), a.Position, a.CreatedAt, a.UpdatedAt, updatedBy)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
@@ -121,10 +122,10 @@ func (r *Repo) UpdateAgent(ctx context.Context, a Agent) error {
 	}
 	_, err := r.DB.ExecContext(ctx, `
 		UPDATE ai_agents SET name=?, provider=?, base_url=?, model=?, api_key_enc=?,
-			system_prompt=?, vision=?, enabled=?, updated_at=?, updated_by=?
+			system_prompt=?, vision=?, tools_enabled=?, enabled=?, updated_at=?, updated_by=?
 		WHERE id = ?`,
 		a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc, a.SystemPrompt,
-		boolToInt(a.Vision), boolToInt(a.Enabled), a.UpdatedAt, updatedBy, a.ID)
+		boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), a.UpdatedAt, updatedBy, a.ID)
 	if err != nil {
 		return fmt.Errorf("update agent: %w", err)
 	}
@@ -292,18 +293,19 @@ func (r *Repo) InsertMessage(ctx context.Context, m Message) error {
 	return nil
 }
 
-const msgCols = `id, thread_id, role, COALESCE(author_id,''), body_md, body_html, status, error, images, created_at, updated_at`
+const msgCols = `id, thread_id, role, COALESCE(author_id,''), body_md, body_html, status, error, images, tool_calls, created_at, updated_at`
 
 func scanMessage(s interface {
 	Scan(dest ...any) error
 }) (Message, error) {
 	var m Message
-	var images string
-	err := s.Scan(&m.ID, &m.ThreadID, &m.Role, &m.AuthorID, &m.BodyMD, &m.BodyHTML, &m.Status, &m.Error, &images, &m.CreatedAt, &m.UpdatedAt)
+	var images, toolCalls string
+	err := s.Scan(&m.ID, &m.ThreadID, &m.Role, &m.AuthorID, &m.BodyMD, &m.BodyHTML, &m.Status, &m.Error, &images, &toolCalls, &m.CreatedAt, &m.UpdatedAt)
 	if err != nil {
 		return Message{}, err
 	}
 	m.Images = decodeImages(images)
+	m.ToolCalls = decodeToolCalls(toolCalls)
 	return m, nil
 }
 
@@ -340,14 +342,63 @@ func (r *Repo) MessageByID(ctx context.Context, id string) (Message, error) {
 
 // UpdateAssistantBody rewrites a streaming assistant row. Called on every
 // 100ms flush (status=generating) and once at the end (done/interrupted/error).
-func (r *Repo) UpdateAssistantBody(ctx context.Context, id, md, html, status, errStr string) error {
+// toolCalls is the JSON trace of any MCP tool calls this turn made ("" if none).
+func (r *Repo) UpdateAssistantBody(ctx context.Context, id, md, html, status, errStr, toolCalls string) error {
 	_, err := r.DB.ExecContext(ctx, `
-		UPDATE ai_messages SET body_md = ?, body_html = ?, status = ?, error = ?, updated_at = ?
-		WHERE id = ?`, md, html, status, errStr, nowUnix(), id)
+		UPDATE ai_messages SET body_md = ?, body_html = ?, status = ?, error = ?, tool_calls = ?, updated_at = ?
+		WHERE id = ?`, md, html, status, errStr, toolCalls, nowUnix(), id)
 	if err != nil {
 		return fmt.Errorf("update assistant body: %w", err)
 	}
 	return nil
+}
+
+// SearchContent runs the internal full-text search ("internal MCP") over a
+// community's chat + forum content (the search_fts index). Returns ranked hits
+// (best match first). Tokens are quoted so arbitrary model/user input never
+// trips FTS5 query syntax.
+func (r *Repo) SearchContent(ctx context.Context, communityID, query string, limit int) ([]SearchHit, error) {
+	match := ftsQuery(query)
+	if match == "" {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT kind, ref_id, title, snippet(search_fts, 1, '«', '»', '…', 12), created_at
+		FROM search_fts
+		WHERE community_id = ? AND search_fts MATCH ?
+		ORDER BY bm25(search_fts) LIMIT ?`,
+		communityID, match, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search content: %w", err)
+	}
+	defer rows.Close()
+	var out []SearchHit
+	for rows.Next() {
+		var h SearchHit
+		if err := rows.Scan(&h.Kind, &h.RefID, &h.Title, &h.Snippet, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan hit: %w", err)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
+// ftsQuery turns free text into a safe FTS5 MATCH expression: each whitespace
+// token becomes a double-quoted term (implicit AND), so punctuation and FTS5
+// operators in the input are treated literally instead of erroring.
+func ftsQuery(q string) string {
+	fields := strings.Fields(q)
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(fields))
+	for _, f := range fields {
+		parts = append(parts, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
+	}
+	return strings.Join(parts, " ")
 }
 
 // MarkGeneratingInterrupted flips every still-"generating" assistant row to

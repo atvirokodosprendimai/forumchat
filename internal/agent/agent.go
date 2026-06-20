@@ -62,6 +62,7 @@ type Agent struct {
 	APIKeyEnc    string
 	SystemPrompt string
 	Vision       bool // model accepts image input → composer offers attach
+	ToolsEnabled bool // agent may call MCP tools (internal search + connected servers)
 	Enabled      bool
 	Position     int
 	UpdatedBy    string
@@ -96,6 +97,7 @@ type Message struct {
 	Status    string
 	Error     string
 	Images    []string
+	ToolCalls []ToolResult // tool invocations this assistant turn made (display + replay)
 	CreatedAt int64
 	UpdatedAt int64
 }

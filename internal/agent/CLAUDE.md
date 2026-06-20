@@ -25,14 +25,39 @@ base64 is stored in `ai_messages.images` (JSON) and forwarded to the model
 images so regenerate/follow-ups keep them. Ollama accepts images only — PDF /
 document understanding waits for the Claude/OpenAI providers.
 
+## Tools / MCP (migration 00038)
+
+A `tools_enabled` agent may call MCP tools while it answers ("Agent supports
+tools" checkbox). The chat renders each call as a chip (persisted on
+`ai_messages.tool_calls`).
+
+- `tools.go` — `ToolDef` / `ToolCall` / `ToolResult` / `ToolSet` (the agent
+  package depends ONLY on the `ToolSet` interface), `SearchHit`, tool-call
+  JSON codec, `MaxToolIterations`.
+- `mcp.go` — `ai_mcp_servers` repo + `MCPServer` domain + `Service.SaveMCPServer`
+  (per-community external servers: stdio | http). Plus `Repo.SearchContent`
+  (the FTS5 query behind the internal search tool).
+- `internal/agent/mcpx/` — the ONLY package that imports the MCP SDK. `Manager.
+  Build(ctx, agent)` assembles a per-generation `ToolSet`: a built-in in-process
+  MCP server exposing `search` (community-scoped FTS) over an in-memory
+  transport, plus the community's enabled external servers. Wired in `main.go`
+  as `agentRunner.Tools` (closure pattern, like `ShareToChannel`).
+- The **agentic loop** lives in `runner.go` (`run`): model → tool calls →
+  results → model, capped at `MaxToolIterations`. The provider only does one
+  turn and reports tool calls; it never executes them. Ollama tool turns run
+  `stream:false` (needs a tool-capable model); a tools-disabled agent and
+  `SummarizeToThread` stream as before (pass `nil` tools).
+- stdio external servers run arbitrary host commands → gated by
+  `AGENT_MCP_ALLOW_STDIO` (default off). Internal search + http are unaffected.
+
 ## Shape
 
 - `agent.go` — domain types, status/role/visibility consts, sentinel errors.
-- `provider.go` — `Provider` interface + `Ollama` (direct NDJSON client to
-  `/api/chat`, `stream:true`). `newProvider(cfg)` selects by `cfg.Provider`;
-  add Claude/OpenAI branches here.
-- `repo.go` — all SQL (agent CRUD, threads + `agent_id`, messages + `images`,
-  the boot `MarkGeneratingInterrupted` sweep).
+- `provider.go` — `Provider.Stream(ctx, model, msgs, tools, onDelta) →
+  (*StreamResult, error)` + `Ollama` (direct NDJSON client to `/api/chat`).
+  `newProvider(cfg)` selects by `cfg.Provider`; add Claude/OpenAI branches here.
+- `repo.go` — all SQL (agent CRUD, threads + `agent_id`, messages + `images` +
+  `tool_calls`, `SearchContent`, the boot `MarkGeneratingInterrupted` sweep).
 - `bus.go` — per-thread in-process fan-out (copy of `lobbies.Bus`).
 - `runner.go` — **the heart.** A detached goroutine streams the model; a
   `time.Ticker(FlushInterval=100ms)` writes the buffer to the DB and broadcasts

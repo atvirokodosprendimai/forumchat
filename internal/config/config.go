@@ -96,6 +96,12 @@ type Config struct {
 	// instance flag. Default off.
 	AIEnabled bool `env:"AI_ENABLED" envDefault:"false"`
 
+	// AgentMCPAllowStdio gates external stdio MCP servers, which run arbitrary
+	// host commands on this server. HTTP MCP servers are always allowed. Default
+	// off — only enable on instances where community admins are trusted to run
+	// local processes. The built-in internal search server is unaffected.
+	AgentMCPAllowStdio bool `env:"AGENT_MCP_ALLOW_STDIO" envDefault:"false"`
+
 	// Project-change → chat digest cadence (minutes). 0 disables the
 	// worker. When > 0, every N minutes the worker checks each community
 	// for projects with new attachments/issues/discussions/comments/replies

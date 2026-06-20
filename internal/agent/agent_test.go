@@ -248,8 +248,8 @@ func TestOllamaStream(t *testing.T) {
 	t.Parallel()
 	srv := stubOllama(t, nil, "Hel", "lo ", "Go")
 	var got string
-	err := agent.NewOllama(srv.URL).Stream(context.Background(), "m",
-		[]agent.ChatMessage{{Role: "user", Content: "hi"}}, func(d string) error { got += d; return nil })
+	_, err := agent.NewOllama(srv.URL).Stream(context.Background(), "m",
+		[]agent.ChatMessage{{Role: "user", Content: "hi"}}, nil, func(d string) error { got += d; return nil })
 	if err != nil {
 		t.Fatalf("stream: %v", err)
 	}

@@ -30,6 +30,13 @@ type Runner struct {
 	NATS *nats.Conn
 	Log  *slog.Logger
 
+	// Tools builds the live tool set for a tools-enabled agent (internal search
+	// + the community's connected MCP servers). Wired in main.go; nil means tool
+	// support is unavailable, in which case the runner streams without tools even
+	// for a tools-enabled agent. The returned ToolSet is closed when the
+	// generation ends.
+	Tools func(ctx context.Context, a Agent) (ToolSet, error)
+
 	mu     sync.Mutex
 	active map[string]context.CancelFunc // threadID -> cancel
 }
@@ -87,18 +94,40 @@ func (r *Runner) Start(communityID, threadID, assistantMsgID string, a Agent, hi
 		msgs = append([]ChatMessage{{Role: RoleSystem, Content: sp}}, msgs...)
 	}
 
-	go r.run(ctx, cancel, prov, communityID, threadID, assistantMsgID, a.Model, msgs)
+	go r.run(ctx, cancel, prov, communityID, threadID, assistantMsgID, a, msgs)
 	return nil
 }
 
-func (r *Runner) run(ctx context.Context, cancel context.CancelFunc, prov Provider, communityID, threadID, msgID, model string, msgs []ChatMessage) {
+// run drives one generation to completion. With a tools-enabled agent it is an
+// agentic loop: stream a turn; if the model asked for tools, execute them, append
+// the results, and loop (up to MaxToolIterations) until the model answers with
+// content. The streaming buffer + tool trace are flushed to the DB every
+// FlushInterval and once at the end, so any open SSE stream fat-morphs live.
+func (r *Runner) run(ctx context.Context, cancel context.CancelFunc, prov Provider, communityID, threadID, msgID string, a Agent, msgs []ChatMessage) {
 	defer func() {
 		cancel()
 		r.mu.Lock()
 		delete(r.active, threadID)
 		r.mu.Unlock()
 	}()
-	r.Log.Info("agent: generation start", "thread", threadID, "model", model)
+	r.Log.Info("agent: generation start", "thread", threadID, "model", a.Model)
+
+	// Build the tool set for a tools-enabled agent. Failure to connect is
+	// non-fatal: log and run without tools rather than failing the whole turn.
+	var (
+		tools     ToolSet
+		toolDefs  []ToolDef
+		toolTrace []ToolResult
+	)
+	if a.ToolsEnabled && r.Tools != nil {
+		if ts, err := r.Tools(ctx, a); err != nil {
+			r.Log.Warn("agent: build tools", "thread", threadID, "err", err)
+		} else if ts != nil {
+			tools = ts
+			defer tools.Close()
+			toolDefs = ts.Defs()
+		}
+	}
 
 	var (
 		mu    sync.Mutex
@@ -113,15 +142,16 @@ func (r *Runner) run(ctx context.Context, cancel context.CancelFunc, prov Provid
 		return ctx.Err()
 	}
 
-	// persist writes the current buffer to the DB and wakes the streams. DB
-	// writes use a detached context with a short timeout so a Stop (which
-	// cancels ctx) still flushes the final partial. force=true writes even
-	// when no new tokens arrived (terminal flush).
+	// persist writes the current buffer + tool trace to the DB and wakes the
+	// streams. DB writes use a detached context with a short timeout so a Stop
+	// (which cancels ctx) still flushes the final partial. force=true writes even
+	// when no new tokens arrived (terminal flush, or to show fresh tool chips).
 	persist := func(status, errStr string, force bool) {
 		mu.Lock()
 		text := buf.String()
 		had := dirty
 		dirty = false
+		trace := encodeToolCalls(toolTrace)
 		mu.Unlock()
 		if !had && !force {
 			return
@@ -131,37 +161,84 @@ func (r *Runner) run(ctx context.Context, cancel context.CancelFunc, prov Provid
 			html = ""
 		}
 		dbCtx, dbCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := r.Repo.UpdateAssistantBody(dbCtx, msgID, text, html, status, errStr); err != nil {
+		if err := r.Repo.UpdateAssistantBody(dbCtx, msgID, text, html, status, errStr, trace); err != nil {
 			r.Log.Warn("agent: persist", "thread", threadID, "err", err)
 		}
 		dbCancel()
 		r.broadcast(communityID, threadID)
 	}
 
-	done := make(chan error, 1)
-	go func() { done <- prov.Stream(ctx, model, msgs, appendDelta) }()
-
 	ticker := time.NewTicker(FlushInterval)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			persist(StatusGenerating, "", false)
-		case err := <-done:
-			status, errStr := StatusDone, ""
-			switch {
-			case ctx.Err() != nil:
-				// User pressed Stop (or the process is shutting down): keep the
-				// partial, mark it interrupted so the UI offers Regenerate.
-				status = StatusInterrupted
-			case err != nil:
-				status, errStr = StatusError, err.Error()
-				r.Log.Warn("agent: generation failed", "thread", threadID, "err", err)
+	// streamTurn runs one provider call, flushing the buffer on the ticker while
+	// it streams. Returns the StreamResult (tool calls, if any) or an error.
+	streamTurn := func() (*StreamResult, error) {
+		type outcome struct {
+			res *StreamResult
+			err error
+		}
+		done := make(chan outcome, 1)
+		go func() {
+			res, err := prov.Stream(ctx, a.Model, msgs, toolDefs, appendDelta)
+			done <- outcome{res, err}
+		}()
+		for {
+			select {
+			case <-ticker.C:
+				persist(StatusGenerating, "", false)
+			case o := <-done:
+				return o.res, o.err
 			}
-			persist(status, errStr, true)
+		}
+	}
+
+	for iter := 0; ; iter++ {
+		res, err := streamTurn()
+		switch {
+		case ctx.Err() != nil:
+			// User pressed Stop (or shutdown): keep the partial as interrupted.
+			persist(StatusInterrupted, "", true)
+			return
+		case err != nil:
+			r.Log.Warn("agent: generation failed", "thread", threadID, "err", err)
+			persist(StatusError, err.Error(), true)
 			return
 		}
+
+		// No tool calls → the assistant content is the final answer.
+		if res == nil || len(res.ToolCalls) == 0 {
+			persist(StatusDone, "", true)
+			return
+		}
+
+		// Hit the iteration cap with the model still wanting tools: stop and keep
+		// whatever was produced so far rather than loop forever.
+		if iter >= MaxToolIterations {
+			r.Log.Warn("agent: tool-call iteration cap reached", "thread", threadID)
+			persist(StatusDone, "", true)
+			return
+		}
+
+		// Execute the requested tools, append the assistant tool-call turn and
+		// one tool-result turn per call so the next model turn sees the results.
+		msgs = append(msgs, ChatMessage{Role: RoleAssistant, ToolCalls: res.ToolCalls})
+		for _, call := range res.ToolCalls {
+			server, text, ok := "internal", "tools unavailable", false
+			if tools != nil {
+				server, text, ok = tools.Call(ctx, call.Name, call.Args)
+			}
+			mu.Lock()
+			toolTrace = append(toolTrace, ToolResult{
+				Server: server, Name: call.Name, Args: string(call.Args),
+				Result: truncate(text, ToolResultDisplayMax), OK: ok,
+			})
+			dirty = true
+			mu.Unlock()
+			msgs = append(msgs, ChatMessage{Role: RoleTool, ToolName: call.Name, Content: text})
+		}
+		// Surface the tool chips immediately, before the next (possibly slow) turn.
+		persist(StatusGenerating, "", true)
 	}
 }
 

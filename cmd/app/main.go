@@ -24,6 +24,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/admin"
 	"github.com/atvirokodosprendimai/forumchat/internal/agent"
+	"github.com/atvirokodosprendimai/forumchat/internal/agent/mcpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/bookmarks"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
@@ -328,6 +329,28 @@ func run() error {
 		CommunityName: bootCommunity.Name,
 	}
 	if cfg.AIEnabled {
+		// Tools: a tools-enabled agent gets the built-in internal full-text search
+		// (search_fts) plus this community's enabled MCP servers. The manager is
+		// wired here (the agent package depends only on its ToolSet interface).
+		agentRunner.Tools = mcpx.New(
+			agentRepo.SearchContent,
+			func(ctx context.Context, communityID string) []mcpx.ServerConfig {
+				servers, err := agentRepo.ListEnabledMCPServers(ctx, communityID)
+				if err != nil {
+					return nil
+				}
+				out := make([]mcpx.ServerConfig, 0, len(servers))
+				for _, s := range servers {
+					out = append(out, mcpx.ServerConfig{
+						Name: s.Name, Transport: s.Transport, Command: s.Command,
+						Args: s.Args, URL: s.URL, Headers: s.Headers, Env: s.Env,
+					})
+				}
+				return out
+			},
+			cfg.AgentMCPAllowStdio,
+			log,
+		).Build
 		// Share-to-channel: copy an assistant answer into a chat channel as the
 		// requesting member. Closures (not a chat import in the agent package)
 		// keep the dependency one-way and reuse chat's send + fan-out.
@@ -986,6 +1009,9 @@ func run() error {
 			if cfg.AIEnabled {
 				r.Get("/admin/ai", agentHandler.GetAgents)
 				r.Get("/admin/ai/new", agentHandler.GetNewAgentForm)
+				r.Post("/admin/ai/mcp", agentHandler.PostSaveMCPServer)
+				r.Post("/admin/ai/mcp/{id}/toggle", agentHandler.PostToggleMCPServer)
+				r.Post("/admin/ai/mcp/{id}/delete", agentHandler.PostDeleteMCPServer)
 				r.Get("/admin/ai/{id}/edit", agentHandler.GetEditAgentForm)
 				r.Post("/admin/ai", agentHandler.PostSaveAgent)
 				r.Post("/admin/ai/{id}/delete", agentHandler.PostDeleteAgent)

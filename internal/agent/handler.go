@@ -737,7 +737,130 @@ func (h *Handler) GetAgents(w http.ResponseWriter, r *http.Request) {
 	for _, a := range agents {
 		views = append(views, toAdminView(a))
 	}
-	_ = webtempl.AgentAdminPage(h.viewer(r), h.cslug(r.Context()), views).Render(r.Context(), w)
+	servers, _ := h.Repo.ListMCPServers(r.Context(), h.cid(r.Context()))
+	_ = webtempl.AgentAdminPage(h.viewer(r), h.cslug(r.Context()), views, toMCPViews(servers)).Render(r.Context(), w)
+}
+
+type mcpSignals struct {
+	Name      string `json:"mcp_name"`
+	Transport string `json:"mcp_transport"`
+	Command   string `json:"mcp_command"`
+	Args      string `json:"mcp_args"`
+	URL       string `json:"mcp_url"`
+	Headers   string `json:"mcp_headers"`
+	Env       string `json:"mcp_env"`
+}
+
+// PostSaveMCPServer (/admin/ai/mcp) connects a new external MCP server.
+func (h *Handler) PostSaveMCPServer(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in mcpSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	m := MCPServer{
+		CommunityID: h.cid(r.Context()),
+		Name:        in.Name,
+		Transport:   in.Transport,
+		Command:     in.Command,
+		Args:        strings.Fields(in.Args),
+		URL:         in.URL,
+		Headers:     parseKVLines(in.Headers, ":"),
+		Env:         parseKVLines(in.Env, "="),
+		Enabled:     true,
+		UpdatedBy:   id.User.ID,
+	}
+	sse := render.NewSSE(w, r)
+	if _, err := h.Svc.SaveMCPServer(r.Context(), m); err != nil {
+		_ = sse.PatchElementTempl(webtempl.AgentMCPStatus(mcpSaveErr(err)))
+		return
+	}
+	h.renderMCPList(r.Context(), sse)
+	_ = sse.PatchSignals([]byte(`{"mcp_name":"","mcp_command":"","mcp_args":"","mcp_url":"","mcp_headers":"","mcp_env":""}`))
+	_ = sse.PatchElementTempl(webtempl.AgentMCPStatus("Connected."))
+}
+
+// PostToggleMCPServer (/admin/ai/mcp/{id}/toggle) flips a server enabled/disabled.
+func (h *Handler) PostToggleMCPServer(w http.ResponseWriter, r *http.Request) {
+	m, err := h.Repo.MCPServerByID(r.Context(), chi.URLParam(r, "id"))
+	sse := render.NewSSE(w, r)
+	if err != nil || m.CommunityID != h.cid(r.Context()) {
+		return
+	}
+	_ = h.Repo.SetMCPServerEnabled(r.Context(), m.ID, !m.Enabled)
+	h.renderMCPList(r.Context(), sse)
+}
+
+// PostDeleteMCPServer (/admin/ai/mcp/{id}/delete) disconnects a server.
+func (h *Handler) PostDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
+	m, err := h.Repo.MCPServerByID(r.Context(), chi.URLParam(r, "id"))
+	sse := render.NewSSE(w, r)
+	if err != nil || m.CommunityID != h.cid(r.Context()) {
+		return
+	}
+	_ = h.Repo.DeleteMCPServer(r.Context(), m.ID)
+	h.renderMCPList(r.Context(), sse)
+}
+
+func (h *Handler) renderMCPList(ctx context.Context, sse *datastar.ServerSentEventGenerator) {
+	servers, _ := h.Repo.ListMCPServers(ctx, h.cid(ctx))
+	_ = sse.PatchElementTempl(webtempl.AgentMCPList(h.cslug(ctx), toMCPViews(servers)))
+}
+
+func toMCPViews(servers []MCPServer) []webtempl.MCPServerView {
+	out := make([]webtempl.MCPServerView, 0, len(servers))
+	for _, m := range servers {
+		target := m.URL
+		if m.Transport == MCPTransportStdio {
+			target = strings.TrimSpace(m.Command + " " + strings.Join(m.Args, " "))
+		}
+		out = append(out, webtempl.MCPServerView{
+			ID: m.ID, Name: m.Name, Transport: m.Transport, Target: target, Enabled: m.Enabled,
+		})
+	}
+	return out
+}
+
+func mcpSaveErr(err error) string {
+	switch err {
+	case ErrMCPName:
+		return "Name is required."
+	case ErrMCPTransport:
+		return "Transport must be stdio or http."
+	case ErrMCPTarget:
+		return "stdio needs a command; http needs a URL."
+	case ErrMCPCap:
+		return "Too many MCP servers."
+	default:
+		return "Couldn't connect — check the details and try again."
+	}
+}
+
+// parseKVLines parses "key<sep>value" lines into a map, trimming whitespace and
+// skipping blanks. Used for HTTP headers (":") and stdio env ("=").
+func parseKVLines(s, sep string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		k, v, found := strings.Cut(line, sep)
+		k = strings.TrimSpace(k)
+		if !found || k == "" {
+			continue
+		}
+		out[k] = strings.TrimSpace(v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // GetNewAgentForm (/admin/ai/new) patches a blank editor form.
@@ -766,6 +889,7 @@ type agentSignals struct {
 	APIKey       string `json:"ai_api_key"`
 	SystemPrompt string `json:"ai_system_prompt"`
 	Vision       bool   `json:"ai_vision"`
+	ToolsEnabled bool   `json:"ai_tools"`
 	Enabled      bool   `json:"ai_enabled"`
 }
 
@@ -786,7 +910,7 @@ func (h *Handler) PostSaveAgent(w http.ResponseWriter, r *http.Request) {
 	a := Agent{
 		ID: strings.TrimSpace(in.AgentID), CommunityID: cid, Name: in.Name,
 		Provider: in.Provider, BaseURL: in.BaseURL, Model: in.Model,
-		SystemPrompt: in.SystemPrompt, Vision: in.Vision, Enabled: in.Enabled,
+		SystemPrompt: in.SystemPrompt, Vision: in.Vision, ToolsEnabled: in.ToolsEnabled, Enabled: in.Enabled,
 		UpdatedBy: id.User.ID,
 	}
 	// Preserve the stored key unless a new one was typed (the form never echoes
@@ -888,6 +1012,11 @@ func toMsgView(m Message, canShare bool) webtempl.AgentMsgView {
 		Errored:     m.Status == StatusError,
 	}
 	v.CanShare = canShare && v.IsAssistant && m.Status == StatusDone && strings.TrimSpace(m.BodyMD) != ""
+	for _, tc := range m.ToolCalls {
+		v.ToolCalls = append(v.ToolCalls, webtempl.AgentToolView{
+			Server: tc.Server, Name: tc.Name, Args: tc.Args, Result: tc.Result, OK: tc.OK,
+		})
+	}
 	return v
 }
 
@@ -900,6 +1029,7 @@ func toAdminView(a Agent) webtempl.AgentAdminView {
 		Model:        a.Model,
 		SystemPrompt: a.SystemPrompt,
 		Vision:       a.Vision,
+		ToolsEnabled: a.ToolsEnabled,
 		Enabled:      a.Enabled,
 		APIKeySet:    strings.TrimSpace(a.APIKeyEnc) != "",
 	}

@@ -27,6 +27,17 @@ type AgentMsgView struct {
 	Interrupted bool
 	Errored     bool
 	CanShare    bool
+	ToolCalls   []AgentToolView
+}
+
+// AgentToolView is one MCP tool the assistant called this turn, shown as a chip
+// above the answer so members see the agent's tool use.
+type AgentToolView struct {
+	Server string // "internal" or an MCP server name
+	Name   string
+	Args   string // compact JSON arguments, shown on hover
+	Result string // tool output text, revealed on expand
+	OK     bool
 }
 
 // AgentOptionView is one selectable agent in the "new chat" picker.
@@ -54,6 +65,7 @@ type AgentAdminView struct {
 	Model        string
 	SystemPrompt string
 	Vision       bool
+	ToolsEnabled bool
 	Enabled      bool
 	APIKeySet    bool
 }
@@ -197,6 +209,27 @@ templ AgentScrollAnchor() {
 }
 
 // AgentBubble renders one turn.
+// AgentToolChips shows the MCP tools the assistant used this turn. Each chip is
+// a <details> so members can expand the raw tool result; ✓ / ⚠ flags success.
+templ AgentToolChips(calls []AgentToolView) {
+	<div class="agent-tools">
+		for _, c := range calls {
+			<details class="agent-tool-chip">
+				<summary title={ c.Args }>
+					if c.OK {
+						<span class="agent-tool-ok">🔧</span>
+					} else {
+						<span class="agent-tool-bad">⚠</span>
+					}
+					<span class="agent-tool-name">{ c.Name }</span>
+					<span class="agent-tool-server">{ c.Server }</span>
+				</summary>
+				<pre class="agent-tool-result">{ c.Result }</pre>
+			</details>
+		}
+	</div>
+}
+
 templ AgentBubble(slug, threadID string, m AgentMsgView) {
 	if m.IsUser {
 		<div class="agent-row user" id={ "agent-msg-" + m.ID }>
@@ -206,6 +239,9 @@ templ AgentBubble(slug, threadID string, m AgentMsgView) {
 		<div class="agent-row assistant" id={ "agent-msg-" + m.ID }>
 			<div class="agent-avatar" aria-hidden="true">🤖</div>
 			<div class="agent-bubble assistant">
+				if len(m.ToolCalls) > 0 {
+					@AgentToolChips(m.ToolCalls)
+				}
 				if m.Generating && m.BodyHTML == "" {
 					<span class="agent-typing" aria-label="thinking"><span></span><span></span><span></span></span>
 				} else {
@@ -441,17 +477,125 @@ func agentPageSignals(d AgentPageData) string {
 
 // --- admin: manage agents -------------------------------------------------
 
-// AgentAdminPage lists a community's agents with an inline editor.
-templ AgentAdminPage(v Viewer, slug string, agents []AgentAdminView) {
+// AgentAdminPage lists a community's agents with an inline editor, plus the
+// connected MCP servers the tools-enabled agents can use.
+templ AgentAdminPage(v Viewer, slug string, agents []AgentAdminView, servers []MCPServerView) {
 	@Layout("AI agents", v) {
 		<section class="card agent-admin">
 			<h1>AI agents</h1>
-			<p class="muted">Each agent is its own model + system prompt. Enable an agent to let members chat with it. Turn on “vision” for models that accept images.</p>
+			<p class="muted">Each agent is its own model + system prompt. Enable an agent to let members chat with it. Turn on “vision” for models that accept images, and “tools” to let it search this community and use connected MCP servers.</p>
 			@AgentAdminList(slug, agents)
 			<button class="agent-new agent-add-btn" data-on:click={ "@get('/c/" + slug + "/admin/ai/new')" }>＋ Add agent</button>
 			<div id="ai-agent-form"></div>
 		</section>
+		<section class="card agent-admin">
+			<h1>MCP servers</h1>
+			<p class="muted">Tools an agent can call. The built-in <strong>internal search</strong> (full-text search over this community’s chat &amp; forum) is always available to tools-enabled agents. Connect more MCP servers below — every tools-enabled agent in this community can use the enabled ones.</p>
+			<div class="agent-mcp-internal">
+				<span class="agent-badge">🔧 internal · search</span>
+				<span class="muted">built-in · always on</span>
+			</div>
+			@AgentMCPList(slug, servers)
+			@AgentMCPForm(slug)
+		</section>
 	}
+}
+
+// MCPServerView is one connected MCP server in the admin list.
+type MCPServerView struct {
+	ID        string
+	Name      string
+	Transport string // stdio | http
+	Target    string // command+args, or url
+	Enabled   bool
+}
+
+// AgentMCPList is the morph target after connect/toggle/delete.
+templ AgentMCPList(slug string, servers []MCPServerView) {
+	<div id="ai-mcp-list" class="agent-admin-list">
+		for _, m := range servers {
+			<div class="agent-admin-card">
+				<div class="agent-admin-card-main">
+					<strong>{ m.Name }</strong>
+					<span class="agent-admin-meta">{ m.Transport } · { m.Target }</span>
+					<div class="agent-admin-badges">
+						if m.Enabled {
+							<span class="agent-badge shared">enabled</span>
+						} else {
+							<span class="agent-badge private">disabled</span>
+						}
+					</div>
+				</div>
+				<div class="agent-admin-card-actions">
+					<button class="agent-link-btn" data-on:click={ "@post('/c/" + slug + "/admin/ai/mcp/" + m.ID + "/toggle')" }>
+						if m.Enabled {
+							Disable
+						} else {
+							Enable
+						}
+					</button>
+					<button class="agent-link-btn agent-danger" data-on:click={ "confirm('Disconnect MCP server “" + m.Name + "”?') && @post('/c/" + slug + "/admin/ai/mcp/" + m.ID + "/delete')" }>Disconnect</button>
+				</div>
+			</div>
+		}
+	</div>
+}
+
+// AgentMCPForm is the connect-a-server form. mcp_transport drives which fields
+// matter; both stdio and http fields are shown and validated server-side.
+templ AgentMCPForm(slug string) {
+	<div id="ai-mcp-form" class="agent-config-form" data-signals={ mcpFormSignals() }>
+		<h2 class="agent-form-title">Connect an MCP server</h2>
+		<label>
+			<span>Name</span>
+			<input type="text" data-bind="mcp_name" placeholder="e.g. Filesystem, GitHub, Brave Search"/>
+		</label>
+		<label>
+			<span>Transport</span>
+			<select data-bind="mcp_transport">
+				<option value="stdio">stdio (local command)</option>
+				<option value="http">http (streamable URL)</option>
+			</select>
+		</label>
+		<div data-show="$mcp_transport === 'stdio'">
+			<label>
+				<span>Command</span>
+				<input type="text" data-bind="mcp_command" placeholder="npx"/>
+			</label>
+			<label>
+				<span>Arguments <span class="muted">(space-separated)</span></span>
+				<input type="text" data-bind="mcp_args" placeholder="-y @modelcontextprotocol/server-filesystem /data"/>
+			</label>
+			<label>
+				<span>Environment <span class="muted">(one KEY=value per line)</span></span>
+				<textarea data-bind="mcp_env" rows="2" placeholder="API_KEY=…"></textarea>
+			</label>
+		</div>
+		<div data-show="$mcp_transport === 'http'">
+			<label>
+				<span>URL</span>
+				<input type="text" data-bind="mcp_url" placeholder="https://mcp.example.com/mcp"/>
+			</label>
+			<label>
+				<span>Headers <span class="muted">(one Key: Value per line)</span></span>
+				<textarea data-bind="mcp_headers" rows="2" placeholder="Authorization: Bearer …"></textarea>
+			</label>
+		</div>
+		<div class="agent-config-actions">
+			<button type="button" class="agent-send" data-on:click={ "@post('/c/" + slug + "/admin/ai/mcp')" }>Connect</button>
+			@AgentMCPStatus("")
+		</div>
+	</div>
+}
+
+// AgentMCPStatus is the inline save/connect status line (its own id so it can be
+// patched independently of the form, preserving the typed fields on error).
+templ AgentMCPStatus(status string) {
+	<span id="ai-mcp-status" class="agent-config-status">{ status }</span>
+}
+
+func mcpFormSignals() string {
+	return `{"mcp_name":"","mcp_transport":"stdio","mcp_command":"","mcp_args":"","mcp_url":"","mcp_headers":"","mcp_env":""}`
 }
 
 // AgentAdminList is the morph target after create/delete.
@@ -479,6 +623,9 @@ templ AgentCard(slug string, a AgentAdminView) {
 				}
 				if a.Vision {
 					<span class="agent-badge">👁 vision</span>
+				}
+				if a.ToolsEnabled {
+					<span class="agent-badge">🔧 tools</span>
 				}
 			</div>
 		</div>
@@ -527,6 +674,10 @@ templ AgentAdminForm(slug string, a AgentAdminView, status string) {
 			<input type="checkbox" data-bind="ai_vision"/>
 			<span>Model supports vision (allow image attachments)</span>
 		</label>
+		<label class="agent-config-toggle">
+			<input type="checkbox" data-bind="ai_tools"/>
+			<span>Agent supports tools (let this agent use the internal search + connected MCP servers)</span>
+		</label>
 		<label>
 			<span>API key <span class="muted">(hosted providers; blank for Ollama)</span></span>
 			<input type="password" data-bind="ai_api_key" placeholder={ agentKeyPlaceholder(a.APIKeySet) } autocomplete="off"/>
@@ -570,6 +721,7 @@ func agentFormSignals(a AgentAdminView) string {
 		`,"ai_model":` + strconv.Quote(a.Model) +
 		`,"ai_system_prompt":` + strconv.Quote(a.SystemPrompt) +
 		`,"ai_vision":` + agentBoolStr(a.Vision) +
+		`,"ai_tools":` + agentBoolStr(a.ToolsEnabled) +
 		`,"ai_enabled":` + agentBoolStr(a.Enabled) +
 		`,"ai_api_key":""}`
 }

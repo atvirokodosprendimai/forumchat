@@ -138,7 +138,7 @@ func (s *Service) Regenerate(ctx context.Context, threadID string) (assistantID 
 		return "", nil, ErrNotFound
 	}
 	target := msgs[lastIdx]
-	if err := s.Repo.UpdateAssistantBody(ctx, target.ID, "", "", StatusGenerating, ""); err != nil {
+	if err := s.Repo.UpdateAssistantBody(ctx, target.ID, "", "", StatusGenerating, "", ""); err != nil {
 		return "", nil, err
 	}
 	_ = s.Repo.TouchThread(ctx, threadID)
@@ -178,7 +178,7 @@ func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID str
 	msgs = append(msgs, ChatMessage{Role: RoleUser, Content: prompt})
 
 	var sb strings.Builder
-	if err := prov.Stream(ctx, a.Model, msgs, func(d string) error {
+	if _, err := prov.Stream(ctx, a.Model, msgs, nil, func(d string) error {
 		sb.WriteString(d)
 		return ctx.Err()
 	}); err != nil {

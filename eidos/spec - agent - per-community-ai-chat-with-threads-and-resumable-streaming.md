@@ -79,6 +79,34 @@ Ollama streaming against a stub server, and a full runner end-to-end
 (stub Ollama → 100ms flush → DB → `done`). Boot smoke confirms migration 00036
 applies and routes mount with `AI_ENABLED=true`.
 
+## Tools & MCP
+
+An agent can be marked **tools-enabled** (`ai_agents.tools_enabled`, the "Agent
+supports tools" checkbox in admin → AI). A tools-enabled agent may call tools
+exposed over the **Model Context Protocol (MCP)** while it answers; the chat
+shows each tool call as a chip above the answer (🔧 name · server, expandable to
+the raw result), persisted on `ai_messages.tool_calls` so it survives refresh.
+
+- **Internal MCP (always on).** A built-in, in-process MCP server exposes one
+  `search` tool: full-text search (SQLite FTS5, `search_fts`) over *this*
+  community's chat messages and forum threads/posts. The community id is scoped
+  in, so an agent can only ever search its own community. This grounds answers
+  in what members actually wrote.
+- **External MCP (admin-connected).** A community admin connects as many MCP
+  servers as they want in admin → AI: **stdio** (a local command) or **http**
+  (a streamable URL, with auth headers). Every tools-enabled agent in the
+  community can use the enabled servers. stdio runs arbitrary host commands and
+  is gated behind the instance flag `AGENT_MCP_ALLOW_STDIO` (default off); http
+  is always allowed.
+- **Agentic loop.** The runner drives model → tool calls → results → model,
+  capped at `MaxToolIterations`, until the model answers with content. Tool
+  defs + calls + results flow through the provider (Ollama function-calling);
+  the loop, tool execution, and the trace live in the runner, not the provider.
+
+Provider note: Ollama tool turns run non-streamed (`stream:false` when tools are
+present); a tool-capable model is required (llama3.1+, qwen2.5, …). A
+non-tools-enabled agent, and `SummarizeToThread` / `/resume`, stream as before.
+
 ## Future
 
 - Claude / OpenAI providers (add a `newProvider` branch + encrypt `api_key_enc`

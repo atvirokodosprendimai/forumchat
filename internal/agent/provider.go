@@ -11,23 +11,35 @@ import (
 	"time"
 )
 
-// ChatMessage is one turn handed to a Provider. Role is system|user|assistant.
+// ChatMessage is one turn handed to a Provider. Role is system|user|assistant|tool.
 // Images are base64-encoded image payloads (no data: prefix) attached to a
 // user turn — Ollama's /api/chat accepts them on the message; omitted when empty.
+// ToolCalls is set on an assistant turn that requested tools (so the next model
+// turn sees its own request); ToolName labels a role="tool" result turn.
 type ChatMessage struct {
-	Role    string   `json:"role"`
-	Content string   `json:"content"`
-	Images  []string `json:"images,omitempty"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	Images    []string   `json:"images,omitempty"`
+	ToolCalls []ToolCall `json:"-"`
+	ToolName  string     `json:"-"`
 }
 
-// Provider streams an assistant completion. Stream calls onDelta for each
-// content chunk as it arrives and returns when the model finishes or ctx is
-// cancelled. Implementations MUST respect ctx and MUST NOT call onDelta after
-// returning. Keeping the wire format here means a Claude/OpenAI provider drops
-// in by implementing this one method.
+// StreamResult reports the outcome of one provider turn. When ToolCalls is
+// non-empty the model paused to call tools (no content was streamed this turn);
+// the runner executes them, appends the results, and calls Stream again. When
+// empty, the assistant content was streamed via onDelta and the turn is final.
+type StreamResult struct {
+	ToolCalls []ToolCall
+}
+
+// Provider runs one assistant turn. With no tools it streams the answer via
+// onDelta (StreamResult.ToolCalls empty). With tools it MAY instead return tool
+// calls for the runner to execute (the agentic loop lives in the runner, not
+// here). Implementations MUST respect ctx and MUST NOT call onDelta after
+// returning. A Claude/OpenAI provider drops in by implementing this one method.
 type Provider interface {
 	Name() string
-	Stream(ctx context.Context, model string, msgs []ChatMessage, onDelta func(string) error) error
+	Stream(ctx context.Context, model string, msgs []ChatMessage, tools []ToolDef, onDelta func(string) error) (*StreamResult, error)
 }
 
 // newProvider selects the Provider for an agent. Ollama needs no key; the
@@ -63,44 +75,108 @@ func NewOllama(baseURL string) *Ollama {
 
 func (o *Ollama) Name() string { return ProviderOllama }
 
+// Ollama wire shapes. We translate the provider-agnostic ChatMessage into these
+// so tool calls / tool results / tool defs marshal exactly as /api/chat expects.
+
+type ollamaToolCallFn struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+type ollamaToolCall struct {
+	Function ollamaToolCallFn `json:"function"`
+}
+type ollamaMsg struct {
+	Role      string           `json:"role"`
+	Content   string           `json:"content"`
+	Images    []string         `json:"images,omitempty"`
+	ToolCalls []ollamaToolCall `json:"tool_calls,omitempty"`
+	ToolName  string           `json:"tool_name,omitempty"`
+}
+type ollamaToolFn struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+type ollamaTool struct {
+	Type     string       `json:"type"`
+	Function ollamaToolFn `json:"function"`
+}
 type ollamaChatReq struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
-	Stream   bool          `json:"stream"`
+	Model    string       `json:"model"`
+	Messages []ollamaMsg  `json:"messages"`
+	Tools    []ollamaTool `json:"tools,omitempty"`
+	Stream   bool         `json:"stream"`
 }
 
 type ollamaChatChunk struct {
 	Message struct {
-		Content string `json:"content"`
+		Content   string           `json:"content"`
+		ToolCalls []ollamaToolCall `json:"tool_calls"`
 	} `json:"message"`
 	Done  bool   `json:"done"`
 	Error string `json:"error"`
 }
 
-// Stream POSTs to /api/chat and forwards each content chunk to onDelta until
-// the daemon reports done, ctx is cancelled, or an error surfaces.
-func (o *Ollama) Stream(ctx context.Context, model string, msgs []ChatMessage, onDelta func(string) error) error {
-	payload, err := json.Marshal(ollamaChatReq{Model: model, Messages: msgs, Stream: true})
+func toOllamaMsgs(msgs []ChatMessage) []ollamaMsg {
+	out := make([]ollamaMsg, 0, len(msgs))
+	for _, m := range msgs {
+		om := ollamaMsg{Role: m.Role, Content: m.Content, Images: m.Images, ToolName: m.ToolName}
+		for _, c := range m.ToolCalls {
+			args := c.Args
+			if len(args) == 0 {
+				args = json.RawMessage("{}")
+			}
+			om.ToolCalls = append(om.ToolCalls, ollamaToolCall{Function: ollamaToolCallFn{Name: c.Name, Arguments: args}})
+		}
+		out = append(out, om)
+	}
+	return out
+}
+
+func toOllamaTools(tools []ToolDef) []ollamaTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]ollamaTool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, ollamaTool{Type: "function", Function: ollamaToolFn{
+			Name: t.Name, Description: t.Description, Parameters: t.Schema,
+		}})
+	}
+	return out
+}
+
+// Stream POSTs to /api/chat. With no tools it streams content chunks to onDelta
+// until done. With tools it runs non-streamed (Ollama returns tool calls or the
+// final message as one object): if the model requested tools they're returned in
+// the StreamResult for the runner to execute; otherwise the content is emitted
+// once via onDelta and the turn is final.
+func (o *Ollama) Stream(ctx context.Context, model string, msgs []ChatMessage, tools []ToolDef, onDelta func(string) error) (*StreamResult, error) {
+	streaming := len(tools) == 0
+	payload, err := json.Marshal(ollamaChatReq{
+		Model: model, Messages: toOllamaMsgs(msgs), Tools: toOllamaTools(tools), Stream: streaming,
+	})
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.BaseURL+"/api/chat", bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := o.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("call ollama: %w", err)
+		return nil, fmt.Errorf("call ollama: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		buf := make([]byte, 512)
 		n, _ := resp.Body.Read(buf)
-		return fmt.Errorf("ollama %s: %s", resp.Status, strings.TrimSpace(string(buf[:n])))
+		return nil, fmt.Errorf("ollama %s: %s", resp.Status, strings.TrimSpace(string(buf[:n])))
 	}
 
+	res := &StreamResult{}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -113,21 +189,24 @@ func (o *Ollama) Stream(ctx context.Context, model string, msgs []ChatMessage, o
 			continue // skip malformed keep-alive lines
 		}
 		if chunk.Error != "" {
-			return fmt.Errorf("ollama: %s", chunk.Error)
+			return nil, fmt.Errorf("ollama: %s", chunk.Error)
+		}
+		for _, tc := range chunk.Message.ToolCalls {
+			res.ToolCalls = append(res.ToolCalls, ToolCall{Name: tc.Function.Name, Args: tc.Function.Arguments})
 		}
 		if chunk.Message.Content != "" {
 			if err := onDelta(chunk.Message.Content); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		if chunk.Done {
-			return nil
+			return res, nil
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return fmt.Errorf("read stream: %w", err)
+		return nil, fmt.Errorf("read stream: %w", err)
 	}
-	return nil
+	return res, nil
 }
 
 // nowUnix is the package time source, isolated for testability.
