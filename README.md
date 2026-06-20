@@ -5,16 +5,18 @@
 
 
 
-> **Self-hosted community platform in a single Go binary.** Realtime chat,
-> a durable forum, WebRTC video rooms, projects with issues, private
-> messages, web push, and per-community moderation — one process backed
-> by SQLite. AGPL-3.0.
+> **Self-hosted community platform in a single Go binary.** Realtime
+> multi-channel chat, a durable forum, WebRTC video rooms, projects with
+> issues, private messages, a per-community AI assistant, fused full-text +
+> semantic search, IMAP email ingest, web push, and per-community moderation
+> — one process backed by SQLite. AGPL-3.0.
 
-If you've ever wanted **Discord + Discourse + Jitsi + Linear-lite rolled
-into one `docker run`**, that's the project. No SaaS lock-in, no SPA
-build pipeline, no Kubernetes. Server-rendered HTML over
+If you've ever wanted **Discord + Discourse + Jitsi + Linear-lite + a
+self-hosted ChatGPT rolled into one `docker run`**, that's the project. No
+SaaS lock-in, no SPA build pipeline, no Kubernetes. Server-rendered HTML over
 [Datastar](https://data-star.dev) SSE, ~70 MB image, runs on a $5 VPS or
-a Raspberry Pi.
+a Raspberry Pi. Every AI feature points at your own Ollama daemon — no
+third-party API key required, nothing leaves your box.
 
 **Built for:** indie hacker communities, study cohorts, family/club
 servers, classroom backchannels, open-source project lounges, internal
@@ -42,13 +44,18 @@ a Discord + forum mix would fit but you want to own the data.
 **Pick forumchat if you want:**
 
 - **One binary, one DB file.** SQLite (CGO-free), no Postgres/Redis/queue to babysit. NATS optional.
-- **Realtime *and* searchable.** Chat is durable; threads promote into the forum; messages link into todos and bookmarks.
+- **Multi-channel realtime chat.** Discord-style named text channels, durable in SQLite, with mentions, image paste/drop, multi-file attachments, reply quote, forward, and per-channel unread dots.
+- **Self-hosted AI assistant.** Per-community ChatGPT-style agent with persistent threads, streaming answers, vision, multiple named agents, and a tool layer (internal full-text/semantic search + connectable MCP servers). Backed by *your* Ollama.
+- **Fused search.** SQLite FTS5 (instant) + semantic vector search (RAG) merged by Reciprocal Rank Fusion across chat, forum, projects, issues, and AI threads.
+- **Slash commands in chat.** `/search`, `/resume` (AI recap of the channel), `/prompt` (run a prompt → thread), `/translate` (live typeahead, auto-detected source language).
+- **Email in.** Optional read-only IMAP ingest: per-community filters route matched mail into an inbox, optionally auto-file as project issues.
 - **Built-in video rooms.** Mesh WebRTC, screen + camera as independent tiles, no Jitsi sidecar.
 - **Push notifications that don't spam.** Per-event toggles + 5 / 15 / 60 / 240-min digest mode.
 - **Two-step sign-in with magic link.** Email-then-password OR email-me-a-link, anti-enumeration by default.
 - **Lobbies for outsiders.** Share a tokenised URL with someone who doesn't have an account — they pick a name, you talk, history persists, image uploads work. Set `GUEST_ACCESS_ENABLED=true`.
-- **Multi-community by default.** Every row is `community_id`-scoped; public communities discoverable under `/explore`.
-- **Boring stack.** Go 1.26 · chi · templ · Datastar · scs sessions · SQLite + goose migrations. No JS framework.
+- **Time accounting.** Per-community monthly budget + a global personal work timer/journal that follows you across communities.
+- **Multi-community by default.** Every row is `community_id`-scoped; public communities discoverable under `/explore`. Platform super-admins get god-mode + a global dashboard.
+- **Boring stack.** Go 1.25 · chi · templ · Datastar · scs sessions · SQLite + goose migrations. No JS framework.
 
 **Try it in 30 seconds:**
 
@@ -73,7 +80,12 @@ docker run -p 8080:8080 \
 - [What you get](#what-you-get)
 - [System architecture](#system-architecture)
 - [Tech stack](#tech-stack)
-- [Realtime chat](#realtime-chat)
+- [Realtime chat + channels](#realtime-chat--channels)
+- [Slash commands](#slash-commands)
+- [AI assistant (Agent)](#ai-assistant-agent)
+- [Search — FTS5 + semantic (RAG)](#search--fts5--semantic-rag)
+- [Email ingest (mailbox)](#email-ingest-mailbox)
+- [Time accounting](#time-accounting)
 - [Video rooms](#video-rooms-webrtc-mesh)
 - [Push notifications + digest mode](#push-notifications--digest-mode)
 - [Projects, issues, discussions](#projects-issues-discussions)
@@ -92,8 +104,13 @@ docker run -p 8080:8080 \
 
 | Area              | What's there                                                                                                                                                     |
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Multi-community** | Communities are first-class. Every row is `community_id`-scoped. Public communities appear under `/explore`; private ones are invite-only.                       |
-| **Chat**            | One realtime channel per community. Persistent (SQLite), live (NATS pub/sub + datastar SSE), auto-grow textarea composer, mentions, image paste/drop, multi-file attachments, reply quote. Extract any chat attachment into a project (as Docs or a new issue) so documents shared in chat aren't lost to scrollback. |
+| **Multi-community** | Communities are first-class. Every row is `community_id`-scoped. Public communities appear under `/explore`; private ones are invite-only. Platform super-admins (`SUPERADMIN_EMAILS`) get a global `/superadmin` dashboard + god-mode across every community. |
+| **Chat**            | Multiple realtime named text channels per community (Discord-style, `#general` is the undeletable default). Persistent (SQLite), live (NATS pub/sub + datastar SSE), auto-grow composer, mentions, image paste/drop, multi-file attachments, reply quote, forward-to-channel, per-channel unread dots. Extract any chat attachment into a project (as Docs or a new issue) so documents shared in chat aren't lost to scrollback. |
+| **Slash commands**  | In the chat composer: `/search` (personal fused search panel), `/resume` (AI recap of the channel → thread), `/prompt` (run a prompt → thread), `/translate` (live English-translation typeahead, source auto-detected). |
+| **AI assistant**    | Optional (`AI_ENABLED`). Per-community ChatGPT-style Agent: persistent threads + history, streaming answers (100 ms morph cadence), vision/image input, multiple named agents (provider/model/system-prompt each), in-thread model switch, resumable streams, `$`-reference autocomplete, share-thread-to-channel. Tool layer: internal full-text + `rag_search` + DB tools (list/get issues) + connectable MCP servers. Backed by your own Ollama. |
+| **Search**          | Fused search over chat, forum, projects, issues, discussions, and shared AI threads. SQLite **FTS5** (synchronous, trigger-maintained) + optional **semantic vector** index (RAG, `RAG_ENABLED`) merged by Reciprocal Rank Fusion; every hit resolves to a deep link. Page at `/search`, the `/search` chat slash command, and share-result-to-channel. |
+| **Email ingest**    | Optional (`MAILBOX_ENABLED`). Read-only IMAP poll worker; per-community filters route matched mail into a global `/inbox`, attachments indexed metadata-only (bytes fetched on demand), optional auto-create of project issues from matched mail. |
+| **Time accounting** | Optional (`TIME_ENABLED`). Per-community recurring **monthly budget** (admins set, mods/members log entries, used-vs-remaining resets each calendar month) + a **global** per-user work timer/journal ("what did you do?" on stop) that follows you across communities. |
 | **Forum**           | Threads + flat replies, optional single-parent quote, 15-min self-delete grace, resolved/unresolved filter, search, thread → chat bridge announcement.            |
 | **Rooms (video)**   | Eight always-on WebRTC meeting rooms per community. Mesh topology, lazy media policy, screen+camera as independent tiles, background blur, stage fullscreen.     |
 | **Projects**        | Optional feature flag. Each project carries discussions, issues (status + comments + attachments), todos, attachments, activity log. Share-link guest viewers. Files shared in chat can be filed straight here via extract-to-project, so nothing important stays buried in chat history. |
@@ -129,7 +146,7 @@ optional (one-time auto-generation persisted to `./data/vapid.json`).
 
 | Layer            | Choice                                                                |
 |------------------|-----------------------------------------------------------------------|
-| Language         | Go 1.26 (toolchain)                                                   |
+| Language         | Go 1.25                                                              |
 | HTTP router      | `github.com/go-chi/chi/v5`                                            |
 | Templating       | `github.com/a-h/templ` (compile-time HTML, all components in `web/templ`) |
 | Realtime UI      | [Datastar v1](https://data-star.dev) over Server-Sent Events          |
@@ -137,9 +154,15 @@ optional (one-time auto-generation persisted to `./data/vapid.json`).
 | DB               | SQLite via `modernc.org/sqlite` (CGO-free), WAL mode                  |
 | Migrations       | `github.com/pressly/goose/v3` (embedded SQL files)                    |
 | Markdown         | `yuin/goldmark` + `microcosm-cc/bluemonday`                           |
-| Sessions         | `github.com/alexedwards/scs/v2` (in-process memstore)                 |
+| Sessions         | `github.com/alexedwards/scs/v2` (SQLite-backed store, survives restart) |
 | Password hash    | bcrypt cost 12                                                        |
 | Rate limit       | `github.com/go-chi/httprate`                                          |
+| AI / LLM         | Your own [Ollama](https://ollama.com) — chat agents, `bge-m3` embeddings, translation (all point at configurable endpoints) |
+| Vector store     | `github.com/philippgille/chromem-go` (embedded; qdrant backend reserved) |
+| Search           | SQLite FTS5 + semantic vectors fused by Reciprocal Rank Fusion        |
+| MCP              | Connectable Model Context Protocol servers (HTTP always; stdio gated) + a built-in internal server |
+| IMAP ingest      | `github.com/emersion/go-imap/v2` (read-only EXAMINE + BODY.PEEK)      |
+| HTML→text        | `github.com/jaytaylor/html2text` (email body normalisation)          |
 | Web push         | `github.com/SherClockHolmes/webpush-go` (VAPID, RFC 8030)             |
 | WebRTC           | Browser-native (mesh) — no SFU. Signaling rides the same SSE stream.  |
 | Background blur  | MediaPipe Selfie Segmentation v0.1 (lazy-loaded from jsdelivr)        |
@@ -149,7 +172,7 @@ optional (one-time auto-generation persisted to `./data/vapid.json`).
 
 ---
 
-## Realtime chat
+## Realtime chat + channels
 
 Chat is the closest thing to a global state animation in the system. Persistence
 is in SQLite, fan-out across the cluster (or just multiple tabs) is via NATS
@@ -159,22 +182,153 @@ core pub/sub, and the UI updates via Datastar over Server-Sent Events.
 
 Key design points:
 
+- **Multiple channels per community**: chat is split into admin/mod-curated,
+  all-public named text channels (`#general` is the undeletable default).
+  Routes are per-channel (`/c/{slug}/chat/{channel}`); a bare `/chat` redirects
+  to `#general`. Every member reads + writes every non-archived channel — no
+  per-channel membership table, just a `channel_id` column. Soft cap of 10
+  non-archived channels.
 - **Datastar-first rendering**: every UI mutation is a server-rendered HTML
   fragment. The browser does not keep a model of the chat — it morphs a
-  `#messages` div from a snapshot the server pushes. Datastar v1 syntax with
-  `data-on:` (colon, not hyphen) is used everywhere.
+  `#messages` div from a snapshot the server pushes ("fat-morph"). Datastar v1
+  syntax with `data-on:` (colon, not hyphen) is used everywhere.
+- **One stream, channel id on the wire**: the SSE stream fat-morphs `#messages`
+  only when the changed channel is the one you're viewing; for other channels it
+  flips a per-channel unread dot. Unread dots seed on page load and clear on the
+  active channel.
 - **NATS optional**: when not connected, the in-process bus still fans out to
   every SSE stream attached to the same process. Useful for tests and tiny
   deployments.
-- **Reconnect-safe**: every reconnection of `/chat/stream` triggers a full
+- **Reconnect-safe**: every reconnection of a channel's `/stream` triggers a full
   morph of the most-recent 100 messages, so a sleeping tab never gets stuck
   with stale state.
-- **Lazy scrollback**: `/chat/older?before=<RFC3339Nano>` returns one batch as
-  an SSE prepend.
+- **Forward + reply + extract**: forward a message to another channel
+  (Discord-style), reply with an inline quote, promote a message to a forum
+  thread, or extract a chat attachment straight into a project (as Docs or a
+  new issue).
 - **Mentions → push**: `parseMentions` walks the body for `@token` runs,
   resolves them to user IDs through `auth.Repo.UserIDsByDisplayName`
   (case-insensitive), and fires the `PushNotify` closure with
   `kind: "mention"` for any opted-in subscriber.
+- **Block / report**: per-user block (hides their messages for you) and report
+  to moderators, both live-updating the presence sidebar.
+
+---
+
+## Slash commands
+
+The chat composer recognises a handful of `/slash` commands. They are typed
+like a normal message; the send handler intercepts the prefix. All are
+optional and degrade to silent no-ops when their backing feature is disabled.
+
+| Command       | Backed by        | What it does                                                                                                  |
+|---------------|------------------|--------------------------------------------------------------------------------------------------------------|
+| `/search <q>` | FTS5 + RAG       | Runs a fused full-text + semantic search and shows results in an **ephemeral panel visible only to you** (not posted). A result can then be shared to the channel. |
+| `/resume`     | AI agent         | Summarises the channel's recent history (~last 300 messages) with an agent in a public agent thread, then posts the recap back into the channel. |
+| `/prompt <p>` | AI agent         | Runs a free-form prompt through an agent in a new public thread and posts the result (+ a link to the thread) back to the channel. |
+| `/translate <text>` | Ollama     | Interactive composer typeahead: a popup offers up to 3 English translations (source language auto-detected) that you send as yourself. 150 ms debounced. |
+
+`/resume`, `/prompt`, and `/translate` are wired as closures in `main.go` so the
+chat package bridges to the agent/translate packages without an import cycle.
+`/search` and `/resume` / `/prompt` differ in visibility: search results are
+personal; resume/prompt outputs are posted for everyone.
+
+---
+
+## AI assistant (Agent)
+
+Optional, behind `AI_ENABLED=true` (and a per-community `ai_configs.enabled`
+toggle on top of it). When on, each community gets `/c/{slug}/agent` — a
+ChatGPT-style assistant with persistent threads and history backed by SQLite.
+
+- **Multiple named agents per community.** Each agent is a full independent
+  config (provider, connection/base URL, model, key, system prompt) with an
+  optional **vision** flag. A thread pins to one agent for its lifetime; you can
+  switch the model in-thread.
+- **Streaming, resumable.** A pluggable provider (Ollama first; Claude/OpenAI
+  reserved) streams the answer into the DB on a ~100 ms cadence, so any open SSE
+  stream fat-morphs the whole conversation. A stream interrupted by a restart is
+  marked `interrupted` with the partial kept — never a half-written ghost.
+- **Threads are private or shared.** Private threads are creator-only; shared
+  threads any approved member can read and continue. Only **shared** AI content
+  is ever indexed for search.
+- **`$`-reference autocomplete.** Type `$` to expand referenced thread content
+  into the prompt without copy-paste.
+- **Tool layer (MCP).** Agents can call tools: a built-in **internal MCP server**
+  (full-text search, `rag_search` semantic search, and DB tools `list_issues` /
+  `get_issue` for context loading) plus **connectable external MCP servers**.
+  HTTP MCP servers are always allowed; **stdio** servers run host commands and
+  are gated behind `AGENT_MCP_ALLOW_STDIO=true`.
+- **Admin config UI** lives at `/c/{slug}/admin/ai` (create/edit/delete agents,
+  manage MCP servers) — not in the global admin.
+
+All of it points at *your* Ollama daemon; no third-party key is required and no
+content leaves the box.
+
+---
+
+## Search — FTS5 + semantic (RAG)
+
+Two indexes, one ranked result list:
+
+- **Full-text (always on).** A SQLite **FTS5** index (`search_fts`) is kept live
+  by SQL triggers, independent of any feature flag. Covers chat, threads, posts.
+- **Semantic (optional, `RAG_ENABLED`).** SQL triggers (migration 00039) enqueue
+  changed rows into `embed_outbox`; a background worker drains the queue, embeds
+  each row's text via an **Embedder** (Ollama `bge-m3`, 1024-dim by default), and
+  upserts chunks into a pluggable vector **Store** (`chromem-go` now, qdrant
+  reserved). It covers more kinds: chat, thread, post, issue, issue comment,
+  discussion, discussion reply, project, and **shared** AI threads.
+- **Fusion.** `internal/search` merges the two via **Reciprocal Rank Fusion**
+  (RRF, `k=60`) and resolves every hit to a deep link into the UI.
+
+Authorization is structural: only community-public content is ever embedded
+(AI messages only from shared threads), and every query is filtered by
+`community_id` — the vector store has no concept of users. The semantic side is
+wired into `internal/search` as a closure, so `search` imports neither `rag` nor
+`agent` (leaf-package discipline, per `AGENTS.md` §4.13). Surfaces: the `/search`
+page, the `/search` chat slash command, and the agent's `rag_search` tool.
+
+Admins/super-admins can rebuild the indexes via `/admin/reindex` (per community)
+or `/superadmin/reindex` (all).
+
+---
+
+## Email ingest (mailbox)
+
+Optional, behind `MAILBOX_ENABLED=true`. A poll worker dials a single shared
+IMAP account **read-only** (EXAMINE + `BODY.PEEK[]` only — never `\Seen`
+mutation or MOVE) every `MAILBOX_POLL_INTERVAL`.
+
+- **Per-community filters** route matched messages into a global `/inbox`.
+- **Attachments are indexed metadata-only**; the bytes are fetched on demand at
+  "Move to project" click (capped by `MAILBOX_ATTACHMENT_MAX`, 25 MiB default).
+- **Auto-issue**: a filter with `to_issue=true` auto-creates a `project_issues`
+  row from the mail, credited to a synthetic `MAILBOX_SYSTEM_USER_ID`. Bodies
+  are normalised HTML→text and markdown-escaped.
+- `MAILBOX_RESCAN_ON_BOOT=true` resets every folder's `last_uid` to 0 so the
+  next poll re-scans historical mail (set once, restart, then set back to false).
+
+Filter management lives under `/c/{slug}/admin/mail-filters`; the inbox itself
+(`/inbox`, with live SSE) is session-level (any signed-in user).
+
+---
+
+## Time accounting
+
+Optional, behind `TIME_ENABLED=true`. Two independent pieces:
+
+- **Community monthly budget** (`/c/{slug}/budget`). The whole community is
+  treated as one client: admins set a recurring monthly budget (in minutes),
+  admins/moderators log manual time entries (optionally tagged to a project),
+  and every approved member sees used-vs-remaining. "Used" is the sum of entries
+  dated in the current calendar month; the budget resets each month.
+- **Personal timer + journal** (`/journal`). A **global** (not community-scoped)
+  per-user work timer: start it, watch the elapsed time tick, and on stop you're
+  asked "what did you do?" — the answer becomes a journal entry. A partial unique
+  index guarantees at most one running timer per user.
+
+The tables always exist, so toggling `TIME_ENABLED` never needs a migration.
 
 ---
 
@@ -309,13 +463,20 @@ DB tables (numbered by migration): `projects` (00013), `project_issues`,
 
 ## Auth, sessions, communities
 
-- Registration is **invite-only** unless the database is empty (the
-  zero-state bootstrap flow promotes the first user to admin).
-- Email verification is mandatory; the `LogMailer` fallback writes the URL to
-  stdout for dev convenience.
-- Sessions are `alexedwards/scs` v2 with in-process memstore. Cookie name
-  `forumchat_session`, max-age driven by `SESSION_MAX_AGE`, `Secure` toggled
-  by `ENV`.
+- Registration is **invite-only** by default (or zero-state bootstrap promotes
+  the first user to admin). `OPEN_REGISTRATION` makes the invite code optional;
+  `OPEN_REGISTRATION_AUTO_APPROVE` skips the pending-approval queue;
+  `AUTO_VERIFY_EMAIL` skips the email step and signs the user in immediately. The
+  three flags are independent and compose (meant for short demo windows).
+- Two-step sign-in: email → password, **or** email-me-a-magic-link.
+  Anti-enumeration by default (hit/miss responses are identical).
+- Email verification is mandatory (unless `AUTO_VERIFY_EMAIL`); the `LogMailer`
+  fallback writes the URL to stdout for dev convenience.
+- Membership has an **approval queue** (`memberships.approved_at`): verified
+  users land in `/pending` until an admin approves, Discord-style.
+- Sessions are `alexedwards/scs` v2 with a **SQLite-backed store** so they
+  survive restart. Cookie name `forumchat_session`, max-age driven by
+  `SESSION_MAX_AGE`, `Secure` toggled by `ENV`.
 - Bcrypt cost **12**; minimum password length 8 (boundary tests in
   `internal/auth`).
 - Roles: `member` < `moderator` < `admin`. `RequireRole` middleware ladders.
@@ -330,7 +491,7 @@ DB tables (numbered by migration): `projects` (00013), `project_issues`,
 
 ## Data model
 
-17 SQL migrations, embedded via goose and applied on boot (toggle with
+39 SQL migrations, embedded via goose and applied on boot (toggle with
 `MIGRATE_ON_BOOT`). All tables are `community_id`-scoped where relevant.
 
 | # | Migration                              | What it adds                                                |
@@ -352,6 +513,23 @@ DB tables (numbered by migration): `projects` (00013), `project_issues`,
 |15 | `00015_project_discussions.sql`        | project_discussions + replies                               |
 |16 | `00016_push_subscriptions.sql`         | push_subscriptions                                          |
 |17 | `00017_push_digest.sql`                | digest_minutes + digest_last_at + push_pending              |
+|18 | `00018_project_categories_and_chat_digest.sql` | project categories + project→chat digest state     |
+|19 | `00019_lobbies.sql`                    | lobbies (tokenised guest access)                            |
+|20–25 | `00020`–`00025_mailbox_*.sql`       | mailbox: messages, FTS search, global ingest, msg-id index, body HTML, attachment encoding |
+|26 | `00026_chat_reads.sql`                 | per-user read high-water marks                              |
+|27 | `00027_uploads_filename.sql`           | original filename on uploads                                |
+|28 | `00028_chat_message_attachments.sql`   | N-attachments-per-message link table                        |
+|29 | `00029_chat_attachment_extracts.sql`   | extract-to-project badge state                              |
+|30 | `00030_user_blocks.sql`                | per-user blocks                                             |
+|31 | `00031_user_reports.sql`               | report-to-moderator                                         |
+|32 | `00032_chat_channels.sql`              | chat_channels + per-channel scope (+ rebuilt chat_reads)    |
+|33 | `00033_time_budget.sql`                | community monthly budget + time entries                     |
+|34 | `00034_worklog.sql`                    | global per-user timer sessions + journal                    |
+|35 | `00035_chat_forward.sql`               | forward-to-channel provenance                               |
+|36 | `00036_agent.sql`                      | agent threads + messages (per-community AI chat)            |
+|37 | `00037_ai_agents.sql`                  | named per-community agents (provider/model/prompt/vision)   |
+|38 | `00038_agent_tools_mcp.sql`            | MCP servers + FTS5 `search_fts` index                       |
+|39 | `00039_rag_embed_outbox.sql`           | embed_outbox + triggers for semantic indexing               |
 
 Key invariants:
 
@@ -398,7 +576,7 @@ boot fails fast on placeholder secrets.
 | Variable             | Default                                | Purpose                                                            |
 |----------------------|----------------------------------------|--------------------------------------------------------------------|
 | `UPLOADS_DIR`        | `./uploads`                            | Local-disk uploads root (content-addressed sha256).                |
-| `UPLOADS_MAX_BYTES`  | `5242880` (5 MiB)                      | Per-upload size cap.                                               |
+| `UPLOADS_MAX_BYTES`  | `104857600` (100 MiB)                  | Per-upload size cap. (In-chat pasted images are separately capped at 1 MiB.) |
 | `UPLOADS_SIGN_KEY`   | dev placeholder                        | HMAC key for signed URLs. **Must not contain `dev-only` in prod.** |
 
 ### Email
@@ -435,7 +613,59 @@ boot fails fast on placeholder secrets.
 | Variable             | Default                                | Purpose                                                            |
 |----------------------|----------------------------------------|--------------------------------------------------------------------|
 | `PROJECTS_ENABLED`   | `false`                                | Mount `/c/{slug}/projects` and show the sidebar link.              |
+| `GUEST_ACCESS_ENABLED` | `false`                              | Enable lobbies — tokenised guest-access URLs for outsiders.        |
+| `TIME_ENABLED`       | `false`                                | Mount the community budget page + personal timer/journal.          |
 | `AI_ENABLED`         | `false`                                | Mount `/c/{slug}/agent` (per-community AI chat) + the Admin → AI config page, and show the sidebar link. Each community still has its own `ai_configs.enabled` toggle on top of this. |
+| `AGENT_MCP_ALLOW_STDIO` | `false`                             | Allow **stdio** MCP servers (run arbitrary host commands). HTTP MCP + the internal server are unaffected. Only enable where community admins are trusted. |
+| `PROJECT_CHAT_DIGEST_MINUTES` | `5`                           | Cadence (minutes) of the project-change → chat digest worker. `0` disables it. Posts one quiet system message per community when projects changed. |
+
+### AI assistant (Agent)
+
+Agents are configured **per community** in the admin UI (`/c/{slug}/admin/ai`):
+provider, base URL, model, API key, system prompt, vision flag. The only
+instance-level knobs are `AI_ENABLED` and `AGENT_MCP_ALLOW_STDIO` above. With
+Ollama, point an agent at `http://localhost:11434` and pick a local model.
+
+### Search (RAG / semantic)
+
+Full-text search (FTS5) is always on. The semantic half is opt-in:
+
+| Variable                  | Default                      | Purpose                                                       |
+|---------------------------|------------------------------|---------------------------------------------------------------|
+| `RAG_ENABLED`             | `false`                      | Turn on the embedding worker + semantic search. Off → FTS5 only. |
+| `RAG_BACKEND`             | `chromem`                    | Vector store: `chromem` (embedded) or `qdrant` (reserved).    |
+| `RAG_DB_PATH`             | `./data/rag`                 | chromem-go store path.                                        |
+| `RAG_EMBED_BASEURL`       | `http://localhost:11434`     | Ollama endpoint for embeddings (independent of agent config). |
+| `RAG_EMBED_MODEL`         | `bge-m3`                     | Embedding model.                                             |
+| `RAG_EMBED_DIM`           | `1024`                       | Embedding dimensionality.                                    |
+| `RAG_CHUNK_TOKENS`        | `2800`                       | Primary body window per chunk.                               |
+| `RAG_CHUNK_OVERLAP`       | `400`                        | Context bled in on each side.                                |
+| `RAG_WORKER_INTERVAL`     | `10`                         | Outbox drain cadence (seconds).                              |
+| `RAG_WORKER_BATCH`        | `64`                         | Rows embedded per drain.                                     |
+| `RAG_SEARCH_DEFAULT_LIMIT`| `8`                          | Default result count.                                        |
+| `QDRANT_URL`              | _(empty)_                    | Read only when `RAG_BACKEND=qdrant`.                          |
+
+### Translate (chat `/translate`)
+
+| Variable             | Default                      | Purpose                                                            |
+|----------------------|------------------------------|--------------------------------------------------------------------|
+| `TRANSLATE_ENABLED`  | `false`                      | Enable the `/translate` composer typeahead.                        |
+| `TRANSLATE_BASEURL`  | `http://localhost:11434`     | Ollama endpoint (independent of agent + RAG endpoints).            |
+| `TRANSLATE_MODEL`    | _(empty)_                    | Model name. Empty → the command is silently inert.                 |
+
+### Email ingest (mailbox)
+
+| Variable                | Default                   | Purpose                                                            |
+|-------------------------|---------------------------|--------------------------------------------------------------------|
+| `MAILBOX_ENABLED`       | `false`                   | Enable the read-only IMAP poll worker + `/inbox`.                  |
+| `MAILBOX_HOST`          | _(empty)_                 | IMAP host.                                                         |
+| `MAILBOX_PORT`          | `993`                     | IMAP port.                                                         |
+| `MAILBOX_USER` / `PASS` | _(empty)_                 | IMAP credentials.                                                  |
+| `MAILBOX_TLS`           | `tls`                     | `tls` / `starttls` / `none`.                                       |
+| `MAILBOX_POLL_INTERVAL` | `2m`                      | Poll cadence.                                                      |
+| `MAILBOX_ATTACHMENT_MAX`| `26214400` (25 MiB)       | Per-attachment fetch cap.                                          |
+| `MAILBOX_SYSTEM_USER_ID`| _(empty)_                 | Synthetic users row credited as author of auto-created issues.    |
+| `MAILBOX_RESCAN_ON_BOOT`| `false`                   | Reset every folder's `last_uid` to 0 to re-scan history. Set once, restart, revert. |
 
 In production (`ENV=prod`), boot fails fast if `SESSION_KEY` or
 `UPLOADS_SIGN_KEY` still contain `dev-only`. Pin `VAPID_*` for prod so a
@@ -465,6 +695,12 @@ addressed community) · *mod* / *admin* (role ladder).
 | GET    | `/messages`                         | session  | PM inbox.                                        |
 | GET    | `/messages/{id}`                    | session  | PM thread.                                       |
 | GET    | `/messages/stream`                  | session  | Datastar SSE — toasts + badge updates.           |
+| GET    | `/inbox`, `/inbox/stream`           | session  | IMAP-ingest inbox (when `MAILBOX_ENABLED`).      |
+| GET    | `/issues`                           | session  | Cross-project issues across your communities.    |
+| GET    | `/journal`                          | session  | Personal work timer + journal (when `TIME_ENABLED`). |
+| POST   | `/timer/{start,stop,note}`          | session  | Timer lifecycle.                                 |
+| GET    | `/superadmin`                       | super-admin | Global dashboard: all communities + all users. |
+| POST   | `/superadmin/{community,user}/...`  | super-admin | Create/delete community, disable/enable + system-ban users, reindex all. |
 | GET    | `/sw.js`                            | none     | Service worker (scoped `/`, `Service-Worker-Allowed: /`). |
 | GET    | `/push/config`                      | none     | VAPID public key.                                |
 | POST   | `/push/subscribe`, `/push/unsubscribe` | session | Subscription lifecycle.                          |
@@ -484,6 +720,17 @@ addressed community) · *mod* / *admin* (role ladder).
 | POST   | `/chat/channels/{rename,topic,archive}` | mod+ | Rename / set topic / archive (not `#general`).   |
 | POST   | `/chat/channels/delete`             | admin    | Hard-delete + cascade messages (not `#general`). |
 | POST   | `/chat/delete?id=…`                 | mod+     | Soft-delete a message (channel resolved from msg).|
+| POST   | `/chat/forward`                     | member   | Forward a message to another channel.            |
+| GET    | `/chat/translate`                   | member   | `/translate` typeahead (when `TRANSLATE_ENABLED`).|
+| GET    | `/search`, `/search/results`        | member   | Fused FTS5 + semantic search page.               |
+| GET    | `/agent`, `/agent/{thread}`         | member   | AI assistant index + thread (when `AI_ENABLED`). |
+| POST   | `/agent/new`, `/agent/{thread}/{send,stop,regenerate,share,delete,agent}` | member | Thread lifecycle + share-to-channel + model switch. |
+| GET    | `/agent/{thread}/stream`            | member   | Streaming answer SSE.                             |
+| GET    | `/admin/ai`, `/admin/ai/{new,edit,…}` | admin  | Per-community agent + MCP-server config.          |
+| GET/POST | `/budget`, `/budget/entry`        | member / mod+ | Community monthly time budget (when `TIME_ENABLED`). |
+| GET/POST | `/lobbies[/...]`                  | mod+     | Tokenised guest-access lobbies (when `GUEST_ACCESS_ENABLED`). |
+| POST   | `/admin/reindex`                    | admin    | Rebuild this community's FTS5 + semantic indexes. |
+| POST   | `/{block,unblock,report}`           | member   | Block / unblock a user, report a message.        |
 | GET    | `/forum`                            | member   | Threads index.                                   |
 | POST   | `/forum/new`                        | member   | Creates thread + chat-announce + `thread_new` push. |
 | GET    | `/forum/{id}`                       | member   | Thread + replies.                                |
@@ -515,10 +762,11 @@ cmd/
   app/main.go                  # HTTP server entrypoint + wiring
   cli/main.go                  # forumchat-cli (invite / role / ban / unban)
 internal/
-  admin/                       # community admin (members, invites, bans)
-  auth/                        # users, sessions, mailer, middleware, profile
+  admin/                       # community admin (members, invites, bans, reindex)
+  agent/                       # per-community AI assistant (threads, streaming, providers, MCP)
+  auth/                        # users, SQLite-backed sessions, mailer, middleware, profile
   bookmarks/                   # bookmarks
-  chat/                        # realtime chat (NATS + SSE)
+  chat/                        # realtime multi-channel chat (NATS + SSE), slash commands
   community/                   # bootstrap + per-request community context
   config/                      # env-driven config + slog setup
   dashboard/                   # signed-in landing (your communities)
@@ -527,22 +775,30 @@ internal/
   history/                     # calendar of community activity
   httpx/                       # request logger + recover middleware
   invites/                     # join URLs (admin-minted)
+  lobbies/                     # tokenised guest-access lobbies (per-lobby bus)
+  mailbox/                     # IMAP ingest, filters, per-community inbox
   moderation/                  # report / ban support helpers
   natsx/                       # NATS connect + subject helpers
   presence/                    # in-process tracker + SSE handler
   privatemsg/                  # DM threads + accept/decline + dock toast
   projects/                    # projects, issues, discussions, attachments
   push/                        # Web Push (VAPID), settings page, digest worker
+  rag/                         # semantic indexing: embed outbox worker + vector store
   render/                      # markdown pipeline + image-link wrapper
   rooms/                       # WebRTC mesh (state, signaling, handler)
+  search/                      # FTS5 + semantic fusion (RRF) + link resolution
   storage/sqlite/              # DB open + embedded goose migrations
-    migrations/0001-0017       # schema
+    migrations/0001-0039       # schema
+  superadmin/                  # platform super-admin (global communities + users)
+  timebudget/                  # per-community monthly time budget + entries
   todos/                       # per-community todos
-  uploads/                     # sha256 store + HMAC signed URLs
+  uploads/                     # sha256 store + HMAC signed URLs + orphan sweep
+  worklog/                     # global per-user work timer + journal
 web/
-  templ/                       # *.templ → generated *_templ.go (gitignored)
-  static/                      # app.css, nav.js, push.js, sw.js, rooms.js, rooms-blur.js, paste.js, icons
-data/                          # SQLite db + vapid.json (auto-created)
+  templ/                       # *.templ → generated *_templ.go (committed)
+  static/                      # app.css, nav.js, push.js, sw.js, rooms*.js, paste.js,
+                               #   chat-*.js, mention.js, agent-refs.js, translate.js, timer.js, icons
+data/                          # SQLite db + vapid.json + rag/ store (auto-created)
 migrations/                    # (legacy mount point; real migrations live under internal/storage/sqlite/migrations)
 Dockerfile
 compose.yml.example
@@ -628,8 +884,14 @@ make test   # go test ./...
   invalidate every browser subscription. The auto-generated `./data/vapid.json`
   is great for dev but a deployment hazard for prod.
 - `MIGRATE_ON_BOOT=false` if you prefer running migrations from CI/CD.
-- Sessions are in-process (scs memstore) — a restart logs everyone out. For
-  multi-instance deployments, swap in a persistent `scs.Store`.
+- Sessions are **SQLite-backed** (`internal/auth/sqlstore.go`) so they survive a
+  restart. For multi-instance deployments behind a shared DB this works as-is;
+  the store self-heals its table on boot.
+- AI / RAG / translate features all dial **Ollama** at configurable endpoints —
+  run one nearby (or skip them; every flag defaults off). Embeddings and chat can
+  point at different daemons.
+- Mailbox ingest is **read-only IMAP** (EXAMINE + `BODY.PEEK[]`) — it never
+  mutates the source mailbox, so it's safe to point at a live account.
 - Uploads live on local disk under `UPLOADS_DIR`. For multi-instance, mount a
   shared volume or replace with an S3-compatible store. The `uploads.Store`
   interface keeps this a focused refactor.
@@ -648,17 +910,20 @@ make test   # go test ./...
 
 The next batch of work, roughly ordered by impact:
 
-- `report` event producer + moderation panel.
-- `issue_new` / `comment_new` event producers (the toggles already exist).
+- `issue_new` / `comment_new` push event producers (the toggles already exist).
 - Quiet hours for digest (no notification 22:00–08:00).
 - Per-device digest interval (set via subscribe payload, "save this device only").
-- Full-text search across chat + forum (SQLite FTS5).
+- Qdrant vector backend (`RAG_BACKEND=qdrant` is reserved; chromem-go is live).
+- Additional agent providers (Claude / OpenAI) alongside Ollama.
 - S3-compatible upload backend.
 - Multi-instance push worker with leadership lock.
 - JetStream-backed chat with replay on reconnect.
 - OAuth (Google → others), linked to existing global identities.
-- Drag-drop upload UI.
 - Edit history surfaced to users.
+
+Recently shipped (was on this list): SQLite FTS5 + semantic search, the AI
+assistant, multi-channel chat, IMAP email ingest, lobbies, time accounting,
+SQLite-backed sessions, platform super-admin.
 
 ---
 
