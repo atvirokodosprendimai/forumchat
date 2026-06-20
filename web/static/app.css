@@ -205,6 +205,10 @@ button.link:hover, .link-button:hover {
   margin: .45rem 0;
   box-shadow: var(--shadow-xs);
   position: relative;
+  /* Keep bubbles inside the scroll container: a long URL / unbreakable
+     word in .body would otherwise widen the bubble past the viewport and
+     trigger a horizontal scrollbar on .messages (mobile especially). */
+  min-width: 0; max-width: 100%;
   transition: border-color var(--t-fast) var(--ease-out),
               box-shadow var(--t-fast) var(--ease-out);
 }
@@ -327,6 +331,9 @@ button.link:hover, .link-button:hover {
   to { opacity: 1; }
 }
 .bubble .meta strong { color: var(--fg); }
+/* Break long words / URLs so they wrap instead of forcing horizontal scroll. */
+.bubble .body { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.bubble .body a { overflow-wrap: anywhere; }
 .bubble .body p:first-child { margin-top: 0; }
 .bubble .body p:last-child { margin-bottom: 0; }
 .bubble.system {
@@ -362,7 +369,7 @@ button.link:hover, .link-button:hover {
   height: 100%; margin-bottom: 0;
 }
 .chat-layout > div:first-child {
-  display: flex; flex-direction: column; min-height: 0;
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
 }
 .chat-layout > div:first-child > h1 { flex: 0 0 auto; margin-top: 0; }
 .chat-layout > div:first-child > .composer { flex: 0 0 auto; }
@@ -468,7 +475,7 @@ button.link:hover, .link-button:hover {
      it the autoscroll lands the final message flush against the
      composer's top edge and looks like it's tucked under. */
   padding: .85rem .85rem 1.75rem;
-  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden;
   box-shadow: var(--shadow);
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
@@ -2248,6 +2255,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
   border-radius: var(--radius-sm);
   padding: .7rem .85rem;
   overflow-x: auto;
+  max-width: 100%;
   font-size: .85em;
 }
 .body :not(pre) > code, .ev-body :not(pre) > code,
