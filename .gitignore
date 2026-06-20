@@ -13,8 +13,10 @@
 *.test
 *.out
 
-# generated code
-*_templ.go
+# generated code — *_templ.go ARE committed so `git pull` + `go build` deploys
+# pick up template changes without running `templ generate` on the host.
+# Regenerate with `make gen`; never hand-edit. Only the auxiliary text tables
+# (not needed to build) stay ignored.
 *_templ.txt
 
 # data

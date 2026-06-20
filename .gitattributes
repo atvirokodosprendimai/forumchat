@@ -1,0 +1,4 @@
+# templ-generated Go files are committed (so plain `git pull` + `go build`
+# deploys work) but are machine-generated — collapse them in diffs/reviews and
+# never hand-edit. Regenerate with `make gen`.
+*_templ.go linguist-generated=true
