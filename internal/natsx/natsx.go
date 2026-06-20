@@ -34,6 +34,11 @@ func ChatSubject(communityID string) string {
 	return fmt.Sprintf("community.%s.chat", communityID)
 }
 
+// AllChatSubject is the wildcard that matches every community's ChatSubject
+// (`community.*.chat`). The platform super-admin's cross-community chat inbox
+// subscribes here to fan in chat writes from every community across processes.
+func AllChatSubject() string { return "community.*.chat" }
+
 // ChatNewSubject is the "a brand-new message just landed" fan-out — a
 // strict subset of ChatSubject. Subscribers that want to ping/toast on
 // real new messages (not edits, deletes, read-receipt updates) listen

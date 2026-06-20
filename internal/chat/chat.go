@@ -350,6 +350,76 @@ func (r *Repo) Before(ctx context.Context, channelID string, before time.Time, l
 	return r.hydrateAttachments(ctx, msgs)
 }
 
+// GlobalMessage is one chat row enriched with its community + channel
+// identity, for the platform super-admin's cross-community readonly inbox
+// (RecentGlobal). It carries only what the inbox renders — no attachments,
+// reply context, or forward embed — so the global query stays a single SELECT.
+type GlobalMessage struct {
+	ID               string
+	CommunityID      string
+	CommunitySlug    string
+	CommunityName    string
+	ChannelID        string
+	ChannelSlug      string
+	ChannelName      string
+	AuthorName       string
+	Kind             Kind
+	BodyHTML         string
+	BodyMarkdown     string // plaintext fallback when body_html is blank
+	RefThreadID      *string
+	PromotedThreadID *string
+	Deleted          bool
+	CreatedAt        time.Time
+}
+
+// RecentGlobal returns the latest `limit` chat messages across EVERY
+// community and channel, newest first, for the super-admin's readonly inbox.
+// It joins community + channel identity so each row can deep-link back to its
+// source. Soft-deleted rows are included (the caller marks them) — this is a
+// god-mode view. Single SELECT, no N+1.
+func (r *Repo) RecentGlobal(ctx context.Context, limit int) ([]GlobalMessage, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT m.id, m.community_id, c.slug, c.name,
+		       COALESCE(m.channel_id, ''), COALESCE(ch.slug, ''), COALESCE(ch.name, ''),
+		       COALESCE(mb.display_name, ''), m.kind, m.body_html, m.body_md,
+		       m.ref_thread_id, m.promoted_thread_id, m.deleted_at, m.created_at
+		FROM chat_messages m
+		JOIN communities c ON c.id = m.community_id
+		LEFT JOIN chat_channels ch ON ch.id = m.channel_id
+		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
+		ORDER BY m.created_at DESC, m.rowid DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GlobalMessage
+	for rows.Next() {
+		var m GlobalMessage
+		var ref, promoted sql.NullString
+		var del sql.NullInt64
+		var created int64
+		var kind string
+		if err := rows.Scan(&m.ID, &m.CommunityID, &m.CommunitySlug, &m.CommunityName,
+			&m.ChannelID, &m.ChannelSlug, &m.ChannelName,
+			&m.AuthorName, &kind, &m.BodyHTML, &m.BodyMarkdown,
+			&ref, &promoted, &del, &created); err != nil {
+			return nil, err
+		}
+		m.Kind = Kind(kind)
+		if ref.Valid {
+			m.RefThreadID = &ref.String
+		}
+		if promoted.Valid {
+			m.PromotedThreadID = &promoted.String
+		}
+		m.Deleted = del.Valid
+		m.CreatedAt = time.Unix(created, 0)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // hydrateAttachments eager-loads attachments AND extracts for the
 // given message list — two batch queries total, joined into the
 // in-memory tree before the render path needs them.

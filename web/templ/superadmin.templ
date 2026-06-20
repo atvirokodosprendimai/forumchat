@@ -43,6 +43,29 @@ type SuperAdminPageData struct {
 	Users       []SAUser
 }
 
+// SAChatRow is one message in the platform super-admin's cross-community
+// readonly chat inbox. HRef is the server-built deep link back to the source
+// (channel chat, or forum thread for thread-bound rows). Kind drives the
+// colour/label; Deleted renders the [removed] marker (god-mode sees all).
+type SAChatRow struct {
+	ID            string
+	Community     string
+	CommunitySlug string
+	Channel       string
+	Kind          string // user|system|thread_announce
+	Author        string
+	BodyHTML      string // trimmed; "" when the row has no rendered HTML
+	BodyText      string // plaintext fallback (raw markdown) when BodyHTML is ""
+	Deleted       bool
+	CreatedAt     string // formatted timestamp
+	HRef          string
+}
+
+type SAChatPageData struct {
+	Viewer Viewer
+	Rows   []SAChatRow
+}
+
 // sysBanJS builds the per-user "Ban + wipe" click expression: a confirm that
 // spells out the blast radius (disable account platform-wide AND soft-delete
 // all their chat/threads/posts in every community), then posts. The server
@@ -69,6 +92,7 @@ templ SuperAdminPage(data SuperAdminPageData) {
 		<section class="card">
 			<h1>🛡 Platform admin</h1>
 			<p class="muted">Super-admin god-mode. You can open any community’s admin, create communities, and disable accounts platform-wide. <strong>Delete is permanent</strong> — it erases the community and cascades its members, messages and threads; you must type the slug to confirm.</p>
+			<p><a href="/superadmin/chat">💬 All chats — live cross-community feed →</a></p>
 			<div id="sa-result"></div>
 		</section>
 
@@ -163,6 +187,96 @@ templ SuperAdminPage(data SuperAdminPageData) {
 				</tbody>
 			</table>
 		</section>
+	}
+}
+
+// SAChatPage is the platform super-admin's cross-community readonly chat
+// inbox: the latest messages from EVERY community + channel in one feed,
+// newest first, each row a deep link to its source. data-init opens the
+// global SSE stream which fat-morphs #sa-messages on any chat write anywhere
+// on the platform. There is no composer — this view is strictly readonly.
+templ SAChatPage(data SAChatPageData) {
+	@Layout("All chats", data.Viewer) {
+		<div class="sa-chat-page">
+			<section class="card sa-chat-intro">
+				<h1>💬 All chats</h1>
+				<p class="muted">Live, readonly feed of the latest 100 messages across every community and channel, oldest→newest like a chat. Click any row to open it in its community. <a href="/superadmin">← back to platform admin</a></p>
+			</section>
+			// data-init lives on this STABLE wrapper, not on #sa-messages — the
+			// feed is outer-morphed on every event and would re-open the stream
+			// if it carried the init. openWhenHidden keeps the SSE alive when the
+			// tab is backgrounded (same as chat.templ), so live updates don't
+			// stop when the admin switches tabs.
+			<div class="sa-chat-stream-wrap" data-init="@get('/superadmin/chat/stream', {openWhenHidden: true})">
+				@SAChatMessages(data.Rows)
+			</div>
+		</div>
+	}
+}
+
+// SAChatMessages is the morph target (#sa-messages) for the global inbox.
+// Re-rendered whole on every chat event platform-wide (fat-morph, §6) — the
+// list is small (≤100) so a full morph is cheap. Newest at the bottom.
+//
+// data-init scrolls to the bottom ONCE on initial page mount. It does NOT
+// re-fire on the stream's outer-morphs (idiomorph keeps the same node, §6.3),
+// so scrolling up to read isn't yanked back. Subsequent new-message scrolling
+// is handled by the stick-to-bottom scripts in saChatMorph.
+templ SAChatMessages(rows []SAChatRow) {
+	<div id="sa-messages" class="sa-chat-feed" data-init="el.scrollTop = el.scrollHeight">
+		if len(rows) == 0 {
+			<p class="muted">No messages yet.</p>
+		} else {
+			for _, m := range rows {
+				<a class="sa-chat-row" href={ templ.URL(m.HRef) }>
+					<div class="sa-chat-meta">
+						<span class="sa-chat-comm">{ m.Community }</span>
+						<span class="sa-chat-chan">#{ orGeneral(m.Channel) }</span>
+						if m.Kind == "thread_announce" {
+							<span class="sa-chat-kind">↳ thread</span>
+						} else if m.Kind == "system" {
+							<span class="sa-chat-kind">system</span>
+						} else {
+							<span class="sa-chat-author">{ m.Author }</span>
+						}
+						<span class="sa-chat-time muted">{ m.CreatedAt }</span>
+					</div>
+					<div class="sa-chat-body">
+						if m.Deleted {
+							<em class="muted">[removed]</em>
+						} else if m.BodyHTML != "" {
+							@templ.Raw(m.BodyHTML)
+						} else if m.BodyText != "" {
+							{ m.BodyText }
+						} else {
+							<em class="muted">{ kindLabel(m.Kind) }</em>
+						}
+					</div>
+				</a>
+			}
+		}
+	</div>
+}
+
+// orGeneral falls back to "general" for the (rare) row with no channel slug,
+// matching the bare-/chat → #general redirect the deep link relies on.
+func orGeneral(slug string) string {
+	if slug == "" {
+		return "general"
+	}
+	return slug
+}
+
+// kindLabel names a message whose body rendered to nothing, so blank system /
+// announce rows still show what they are instead of an empty line.
+func kindLabel(kind string) string {
+	switch kind {
+	case "thread_announce":
+		return "thread announcement"
+	case "system":
+		return "system message"
+	default:
+		return "(empty message)"
 	}
 }
 

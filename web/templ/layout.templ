@@ -364,6 +364,7 @@ templ Layout(title string, v Viewer) {
 						}
 						if IsSuperAdmin(ctx) {
 							<a href="/superadmin" aria-current={ navActive(ctx, "/superadmin") }><span class="sb-icon" aria-hidden="true">🛡</span>Platform</a>
+							<a href="/superadmin/chat" aria-current={ navActive(ctx, "/superadmin/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chats</a>
 						}
 						<a href="/messages" class="pm-nav-link" aria-current={ navActive(ctx, "/messages") }>
 							<span class="sb-icon" aria-hidden="true">✉</span>
