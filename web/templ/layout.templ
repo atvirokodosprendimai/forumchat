@@ -151,6 +151,11 @@ var ProjectsEnabled bool
 // sublink and gates the /c/{slug}/agent routes registered in main.
 var AIEnabled bool
 
+// RAGEnabled is the instance-level semantic-search feature flag. Set at boot in
+// main.go from config.RAGEnabled. Toggles the "Reindex" buttons on the
+// super-admin dashboard and the per-community admin page.
+var RAGEnabled bool
+
 // GuestAccessEnabled — instance-level Lobbies flag. Toggles the
 // sidebar menu item and gates the host-side routes registered in main.
 var GuestAccessEnabled bool

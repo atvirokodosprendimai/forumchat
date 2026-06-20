@@ -6,7 +6,9 @@
 package superadmin
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -23,6 +25,13 @@ import (
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
+// Reindexer triggers a global RAG re-embed. Implemented by *rag.Service; nil
+// when RAG is disabled (the dashboard hides the button), so the handler is
+// nil-safe.
+type Reindexer interface {
+	ReindexAll(ctx context.Context) (int, error)
+}
+
 type Handler struct {
 	AuthRepo    *auth.Repo
 	Communities *community.Repo
@@ -30,6 +39,8 @@ type Handler struct {
 	// Bus fans out a chat refresh after a system-ban wipes content so open
 	// chat tabs drop the soft-deleted messages live. Nil-safe (tests omit it).
 	Bus *chat.Bus
+	// RAG triggers a global vector reindex. Nil when RAG is disabled.
+	RAG Reindexer
 }
 
 var slugRE = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -427,6 +438,26 @@ func (h *Handler) PostSystemBan(w http.ResponseWriter, r *http.Request) {
 }
 
 // audit logs a destructive super-admin action with the acting account's email.
+// PostReindexAll drops the whole vector index and re-queues every community's
+// public content. The embed worker processes the queue in the background; the
+// returned count is the resulting queue depth.
+func (h *Handler) PostReindexAll(w http.ResponseWriter, r *http.Request) {
+	sse := datastar.NewSSE(w, r)
+	if h.RAG == nil {
+		_ = sse.PatchElementTempl(webtempl.SAReindexResult("RAG is disabled on this instance."))
+		return
+	}
+	n, err := h.RAG.ReindexAll(r.Context())
+	if err != nil {
+		h.audit(r, "reindex all failed", "err", err)
+		_ = sse.PatchElementTempl(webtempl.SAReindexResult("Reindex failed: " + err.Error()))
+		return
+	}
+	h.audit(r, "reindex all queued", "jobs", n)
+	_ = sse.PatchElementTempl(webtempl.SAReindexResult(
+		fmt.Sprintf("Reindex queued — %d jobs. The embed worker is processing them in the background.", n)))
+}
+
 func (h *Handler) audit(r *http.Request, msg string, kv ...any) {
 	if h.Log == nil {
 		return

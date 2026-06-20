@@ -132,6 +132,29 @@ type Config struct {
 	// historical mail. Set true once, restart, then set false.
 	MailboxRescanOnBoot bool `env:"MAILBOX_RESCAN_ON_BOOT" envDefault:"false"`
 
+	// RAG — semantic (vector) search over community-public content, the async
+	// sibling of the FTS5 search_fts index. When enabled, a background worker
+	// drains embed_outbox (written by SQL triggers), embeds each changed row via
+	// Ollama, and upserts into a pluggable vector store (chromem-go now, qdrant
+	// later). The agent's internal MCP gains a `rag_search` tool. Default off:
+	// without a reachable embedder the worker would just log errors. The
+	// embedder is independent of the per-agent Ollama config — RAG has its own
+	// endpoint/model so embedding and chat can point at different daemons.
+	RAGEnabled       bool   `env:"RAG_ENABLED" envDefault:"false"`
+	RAGBackend       string `env:"RAG_BACKEND" envDefault:"chromem"` // chromem | qdrant
+	RAGStorePath     string `env:"RAG_DB_PATH" envDefault:"./data/rag"`
+	RAGEmbedBaseURL  string `env:"RAG_EMBED_BASEURL" envDefault:"http://localhost:11434"`
+	RAGEmbedModel    string `env:"RAG_EMBED_MODEL" envDefault:"bge-m3"`
+	RAGEmbedDim      int    `env:"RAG_EMBED_DIM" envDefault:"1024"`
+	RAGChunkTokens   int    `env:"RAG_CHUNK_TOKENS" envDefault:"2800"` // primary body window
+	RAGChunkOverlap  int    `env:"RAG_CHUNK_OVERLAP" envDefault:"400"`  // context bled in on each side
+	RAGWorkerSeconds int    `env:"RAG_WORKER_INTERVAL" envDefault:"10"` // drain cadence, seconds
+	RAGWorkerBatch   int    `env:"RAG_WORKER_BATCH" envDefault:"64"`
+	RAGSearchDefault int    `env:"RAG_SEARCH_DEFAULT_LIMIT" envDefault:"8"`
+	// QdrantURL is read only when RAG_BACKEND=qdrant (reserved; the chromem
+	// backend ignores it).
+	QdrantURL string `env:"QDRANT_URL" envDefault:""`
+
 	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate
 	// on first boot and persist to VAPID_KEYS_FILE so subsequent boots
 	// keep the same key pair (otherwise every browser subscription would

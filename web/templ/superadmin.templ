@@ -83,6 +83,16 @@ templ SuperAdminPage(data SuperAdminPageData) {
 			<div id="sa-cc-error"></div>
 		</section>
 
+		if RAGEnabled {
+			<section class="card">
+				<h2>RAG semantic index</h2>
+				<p class="muted">Re-embed every community’s public content into the vector store. Drops the whole index first, then re-queues everything — the embed worker processes the queue in the background. Use after switching the vector backend (e.g. chromem → qdrant) or to rebuild from scratch.</p>
+				<button class="ghost danger"
+					data-on:click="if(confirm('Reindex ALL communities?\n\nDrops the entire vector index and re-embeds every public row across every community. Heavy — runs in the background.')){@post('/superadmin/reindex')}">Reindex everything</button>
+				<div id="sa-reindex-result"></div>
+			</section>
+		}
+
 		<section class="card">
 			<h2>Communities ({ itoa(len(data.Communities)) })</h2>
 			<table class="data-table">
@@ -154,6 +164,12 @@ templ SuperAdminPage(data SuperAdminPageData) {
 			</table>
 		</section>
 	}
+}
+
+// SAReindexResult is the morph target for the "Reindex everything" button —
+// a stable id so the POST handler can patch the outcome in place.
+templ SAReindexResult(msg string) {
+	<div id="sa-reindex-result"><p class="muted">{ msg }</p></div>
 }
 
 // SAUserMemberships is the lazy-loaded drill-down for one platform user: the

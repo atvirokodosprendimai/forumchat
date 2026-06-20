@@ -39,6 +39,12 @@ type ServerConfig struct {
 // main.go to ai_mcp_servers.
 type ServersFunc func(ctx context.Context, communityID string) []ServerConfig
 
+// RAGSearchFunc runs semantic (vector) search for a community. Wired in main.go
+// to rag.Service.Search (mapped to []agent.SearchHit so this package stays
+// independent of internal/rag). Like SearchFunc the community id is a PARAM, not
+// a model argument — that scoping IS the authorization.
+type RAGSearchFunc func(ctx context.Context, communityID, query string, limit int) ([]agent.SearchHit, error)
+
 // IssueRef is one issue in a list_issues result.
 type IssueRef struct {
 	ID      string
@@ -69,6 +75,7 @@ type (
 // exposes `list_issues` / `get_issue` when those optional funcs are wired.
 type Manager struct {
 	Search     SearchFunc
+	RAGSearch  RAGSearchFunc
 	Servers    ServersFunc
 	ListIssues ListIssuesFunc
 	GetIssue   GetIssueFunc
@@ -141,6 +148,22 @@ func (m *Manager) internalSession(ctx context.Context, communityID string) (*mcp
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: formatHits(hits)}}}, nil, nil
 	})
+
+	// Semantic search — registered only when RAG is enabled. Complements the
+	// keyword `search` above: vector recall finds conceptually-related content
+	// even when no keyword overlaps.
+	if ragSearch := m.RAGSearch; ragSearch != nil {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "rag_search",
+			Description: "Semantic (meaning-based) search over this community's own content — chat, forum threads/posts, project issues & discussions, and shared AI answers. Finds conceptually related passages even when the wording differs, and returns ranked snippets with their source. Prefer this for open-ended or fuzzy questions; use `search` for exact keywords or names.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, any, error) {
+			hits, err := ragSearch(ctx, communityID, in.Query, in.Limit)
+			if err != nil {
+				return nil, nil, err
+			}
+			return textResult(formatHits(hits)), nil, nil
+		})
+	}
 
 	// Optional structured tools — registered only when wired. Same community
 	// scoping: the id below is closed over, the model never supplies it.

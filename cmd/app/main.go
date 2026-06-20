@@ -43,6 +43,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
 	"github.com/atvirokodosprendimai/forumchat/internal/push"
+	"github.com/atvirokodosprendimai/forumchat/internal/rag"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
@@ -313,6 +314,40 @@ func run() error {
 	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
+	// ----- RAG (semantic vector search) ------------------------------------
+	// Built here so the agent's internal MCP can expose it as `rag_search`. The
+	// drain worker is started later with the other workers (digestCtx). When
+	// disabled, ragSvc stays nil and the rag_search tool is never registered;
+	// the embed_outbox triggers still fire but nothing drains them (bounded —
+	// see migration 00039).
+	var ragSvc *rag.Service
+	if cfg.RAGEnabled {
+		var ragStore rag.Store
+		switch cfg.RAGBackend {
+		case "chromem", "":
+			cs, err := rag.NewChromemStore(cfg.RAGStorePath)
+			if err != nil {
+				log.Error("rag: open chromem store", "path", cfg.RAGStorePath, "err", err)
+				os.Exit(1)
+			}
+			ragStore = cs
+		default:
+			log.Error("rag: unsupported RAG_BACKEND (only 'chromem' is implemented)", "backend", cfg.RAGBackend)
+			os.Exit(1)
+		}
+		ragSvc = rag.NewService(
+			rag.NewRepo(db),
+			rag.NewOllamaEmbedder(cfg.RAGEmbedBaseURL, cfg.RAGEmbedModel, cfg.RAGEmbedDim),
+			ragStore,
+			rag.ChunkConfig{BodyTokens: cfg.RAGChunkTokens, Overlap: cfg.RAGChunkOverlap},
+			log,
+		)
+		log.Info("rag enabled", "backend", cfg.RAGBackend, "model", cfg.RAGEmbedModel, "store", cfg.RAGStorePath)
+		// Per-community admin "Reindex" button. Guard the assignment so the
+		// interface field stays nil (not a typed-nil) when RAG is off.
+		adminHandler.RAG = ragSvc
+	}
+
 	// ----- Agent (per-community AI chat) -----------------------------------
 	agentRepo := agent.NewRepo(db)
 	agentBus := agent.NewBus()
@@ -389,6 +424,28 @@ func run() error {
 					return mcpx.IssueDetail{}, false
 				}
 				return d, true
+			}
+		}
+		// Semantic search tool — only when RAG is enabled. Maps rag.Hit →
+		// agent.SearchHit so mcpx stays independent of internal/rag. Community
+		// id is bound here (the agent's own community), never a model argument.
+		if ragSvc != nil {
+			mcpMgr.RAGSearch = func(ctx context.Context, communityID, query string, limit int) ([]agent.SearchHit, error) {
+				if limit <= 0 {
+					limit = cfg.RAGSearchDefault
+				}
+				hits, err := ragSvc.Search(ctx, communityID, query, limit)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]agent.SearchHit, 0, len(hits))
+				for _, h := range hits {
+					out = append(out, agent.SearchHit{
+						Kind: h.Kind, RefID: h.RefID, Title: h.Title,
+						Snippet: h.Snippet, CreatedAt: h.CreatedAt,
+					})
+				}
+				return out, nil
 			}
 		}
 		agentRunner.Tools = mcpMgr.Build
@@ -491,6 +548,7 @@ func run() error {
 		}
 	}
 	webtempl.AIEnabled = cfg.AIEnabled
+	webtempl.RAGEnabled = cfg.RAGEnabled
 
 	// Time accounting: per-community budget + global personal timer/journal.
 	timebudgetHandler := &timebudget.Handler{Repo: timebudget.NewRepo(db), Log: log}
@@ -551,6 +609,19 @@ func run() error {
 	// attachments, or markdown body). Trims the storage footprint
 	// of "user picked a file then closed the tab" cases.
 	(&uploads.SweepWorker{Store: uploadStore, Log: log}).Start(digestCtx)
+	// ----- RAG embed-outbox drain -----------------------------------------
+	// Drains embed_outbox (written by migration 00039 triggers), embeds each
+	// changed row via Ollama, and upserts the vector store. This is RAG's
+	// realtime catchup — eventually-consistent, bounded by RAG_WORKER_INTERVAL.
+	if ragSvc != nil {
+		(&rag.Worker{
+			Repo:     rag.NewRepo(db),
+			Svc:      ragSvc,
+			Interval: time.Duration(cfg.RAGWorkerSeconds) * time.Second,
+			Batch:    cfg.RAGWorkerBatch,
+			Log:      log,
+		}).Start(digestCtx)
+	}
 
 	// ----- Mailbox (IMAP ingest) -------------------------------------------
 	// Single shared read-only IMAP account → per-community filter routing
@@ -1040,6 +1111,7 @@ func run() error {
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
 			r.Post("/admin/add-member", adminHandler.PostAddMember)
 			r.Post("/admin/toggle-public", adminHandler.PostTogglePublic)
+			r.Post("/admin/reindex", adminHandler.PostReindex)
 			r.Post("/forum/{id}/hard-delete", forumHandler.PostHardDeleteThread)
 			if cfg.MailboxEnabled && mailboxHandler != nil {
 				r.Get("/admin/mail-filters", mailboxHandler.GetCommunityFilters)
@@ -1220,10 +1292,14 @@ func run() error {
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
 	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log, Bus: chatHandler.Bus}
+	if ragSvc != nil {
+		superHandler.RAG = ragSvc
+	}
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireSuperAdmin)
 		r.Get("/superadmin", superHandler.GetIndex)
+		r.Post("/superadmin/reindex", superHandler.PostReindexAll)
 		r.Post("/superadmin/community/create", superHandler.PostCreateCommunity)
 		r.Post("/superadmin/community/delete", superHandler.PostDeleteCommunity)
 		r.Post("/superadmin/user/disable", superHandler.PostDisableUser)

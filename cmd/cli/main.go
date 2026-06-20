@@ -13,6 +13,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
+	"github.com/atvirokodosprendimai/forumchat/internal/rag"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 )
@@ -47,6 +48,9 @@ usage:
   forumchat-cli project mv-attachment <attachment-id> <to-project-id>
                                             move one project_attachments row to a different project. File bytes
                                             stay in uploads (deduped by SHA-256); only the project pointer moves.
+  forumchat-cli reindex [slug|all]          re-queue community content for RAG embedding (default all). The
+                                            running server's worker drains it. For a clean rebuild / backend
+                                            switch: stop server, delete RAG_STORE_PATH, reindex, start server.
 `)
 }
 
@@ -449,6 +453,30 @@ func run() error {
 		default:
 			return fmt.Errorf("unknown project subcommand: %s", os.Args[2])
 		}
+	case "reindex":
+		// Re-queue community-public content for RAG embedding. The running
+		// server's worker drains the queue and (re)embeds. This does NOT drop
+		// existing vectors — for a clean rebuild or a backend switch, stop the
+		// server, delete RAG_STORE_PATH, run this, then start the server. (The
+		// in-process /superadmin and /admin buttons DO drop first.)
+		ragRepo := rag.NewRepo(db)
+		if len(os.Args) >= 3 && os.Args[2] != "" && os.Args[2] != "all" {
+			target, err := cRepo.BySlug(ctx, os.Args[2])
+			if err != nil {
+				return fmt.Errorf("community %q: %w", os.Args[2], err)
+			}
+			n, err := ragRepo.EnqueueCommunity(ctx, target.ID)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("queued reindex for community %q — %d jobs pending\n", target.Slug, n)
+			return nil
+		}
+		n, err := ragRepo.EnqueueAll(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("queued reindex for all communities — %d jobs pending\n", n)
 	default:
 		usage()
 		return fmt.Errorf("unknown command: %s", os.Args[1])

@@ -64,6 +64,15 @@ templ AdminPage(d AdminPageData) {
 				</section>
 			}
 
+			if RAGEnabled {
+				<section class="card narrow">
+					<h2>Semantic index</h2>
+					<p class="muted">Rebuild this community’s vector index — drops its current embeddings, then re-queues all of its public content (chat, threads, issues, discussions, shared AI answers). The embed worker processes the queue in the background.</p>
+					<div id="admin-reindex-result"></div>
+					<button class="ghost" data-on:click={ "if(confirm('Reindex this community? Drops its vectors and re-embeds all its public content in the background.')){@post('/c/" + d.Viewer.CommunitySlug + "/admin/reindex')}" }>Reindex this community</button>
+				</section>
+			}
+
 			<section class="card narrow">
 				<h2>Add member by email</h2>
 				<p class="muted">Existing accounts get pre-approved instantly. New emails get a join URL — tick the box below to send it by email.</p>
@@ -116,6 +125,11 @@ templ AdminPage(d AdminPageData) {
 			</div>
 		</section>
 	}
+}
+
+// AdminReindexResult is the morph target for the per-community "Reindex" button.
+templ AdminReindexResult(msg string) {
+	<div id="admin-reindex-result"><p class="muted">{ msg }</p></div>
 }
 
 templ AdminReports(slug string, rows []AdminReport) {

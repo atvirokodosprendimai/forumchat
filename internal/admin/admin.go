@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -27,6 +28,12 @@ type RosterNotifier interface {
 	Bump(communityID string)
 }
 
+// Reindexer triggers a RAG re-embed for one community. Implemented by
+// *rag.Service; nil when RAG is disabled (the admin page hides the button).
+type Reindexer interface {
+	ReindexCommunity(ctx context.Context, communityID string) (int, error)
+}
+
 type Handler struct {
 	Repo        *auth.Repo
 	Svc         *auth.Service
@@ -46,6 +53,8 @@ type Handler struct {
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
+	// RAG triggers a per-community vector reindex. Nil when RAG is disabled.
+	RAG Reindexer
 }
 
 func (h *Handler) cid(r *http.Request) string {
@@ -77,6 +86,23 @@ func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 		v.Role = string(id.Membership.Role)
 	}
 	return v
+}
+
+// PostReindex drops this community's vector index and re-queues its public
+// content for embedding. The embed worker drains the queue in the background.
+func (h *Handler) PostReindex(w http.ResponseWriter, r *http.Request) {
+	sse := datastar.NewSSE(w, r)
+	if h.RAG == nil {
+		_ = sse.PatchElementTempl(webtempl.AdminReindexResult("RAG is disabled on this instance."))
+		return
+	}
+	n, err := h.RAG.ReindexCommunity(r.Context(), h.cid(r))
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.AdminReindexResult("Reindex failed: " + err.Error()))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.AdminReindexResult(
+		fmt.Sprintf("Reindex queued — %d jobs. The embed worker is processing them in the background.", n)))
 }
 
 // GetIndex renders the admin dashboard with pending requests, members, invites.
