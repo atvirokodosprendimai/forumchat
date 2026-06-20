@@ -36,6 +36,14 @@ type AgentOptionView struct {
 	Vision bool
 }
 
+// AgentRefView is one result in the $-reference autocomplete (an agent thread
+// title or a forum subject).
+type AgentRefView struct {
+	Kind  string // agent | forum
+	ID    string
+	Title string
+}
+
 // AgentAdminView is one agent in the admin manager. The stored API key is
 // never echoed back — APIKeySet just tells the form whether one exists.
 type AgentAdminView struct {
@@ -123,6 +131,7 @@ templ AgentPage(d AgentPageData) {
 		</section>
 		<div id="agent-notice" aria-live="polite"></div>
 		<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
+		<script src={ "/static/agent-refs.js?v=" + AssetVer("agent-refs.js") } defer></script>
 	}
 }
 
@@ -235,22 +244,38 @@ templ AgentComposer(slug, threadID string, vision bool) {
 				<button type="button" class="agent-attach-clear" data-on:click="$agent_image_data=''" aria-label="Remove image">✕</button>
 			</div>
 		}
+		<div class="agent-ref-anchor">
+			<div id="agent-ref-results" class="agent-ref-dropdown">
+				@AgentRefResults(slug, nil)
+			</div>
+		</div>
 		<div class="agent-composer">
 			if vision {
 				<label class="agent-attach" title="Attach image">📎
 					<input type="file" accept="image/*" hidden data-on:change="window.fcPickImage(evt,'agent_image_data')"/>
 				</label>
 			}
-			<textarea
-				class="agent-input"
-				data-bind="agent_body"
-				rows="1"
-				placeholder="Message the agent…"
-				data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
+			<div
+				id="agent-editor"
+				class="agent-input agent-editor"
+				contenteditable="true"
+				role="textbox"
+				aria-multiline="true"
+				data-placeholder="Message the agent…  ($ to reference a thread)"
+				data-effect="$agent_body === '' && window.fcAgentClearEditorIfNeeded && window.fcAgentClearEditorIfNeeded()"
+				data-on:input={ "window.fcAgentEditorInput && window.fcAgentEditorInput(el, '" + slug + "')" }
+				data-on:keydown={ "window.fcAgentEditorKeydown && window.fcAgentEditorKeydown(evt, el, '" + slug + "', '" + threadID + "')" }
 				data-on:paste="window.fcPasteImage(evt,'agent_image_data')"
-				data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); if(($agent_body.trim()||$agent_image_data) && !$agent_generating){@post('/c/" + slug + "/agent/" + threadID + "/send')}}" }
-			></textarea>
+			></div>
+			<input type="hidden" data-bind="agent_body"/>
+			<input type="hidden" id="agent-refs" data-bind="agent_refs"/>
 			<input type="hidden" data-bind="agent_image_data"/>
+			<input
+				type="hidden"
+				id="agent-ref-query"
+				data-bind="agent_ref_query"
+				data-on:input__debounce.180ms={ "@get('/c/" + slug + "/agent/refs')" }
+			/>
 			<div class="agent-composer-actions">
 				<button
 					type="button"
@@ -267,6 +292,40 @@ templ AgentComposer(slug, threadID string, vision bool) {
 			</div>
 		</div>
 	</div>
+}
+
+// AgentRefResults is the $-reference autocomplete RESULTS (morph target for
+// /agent/refs). It is the INNER list only — the outer #agent-ref-results
+// wrapper (whose `.open` class the JS toggles for visibility) is rendered once
+// in the composer and never morphed, so a search response can't close the
+// dropdown by resetting its class. Each item carries the title in data-title.
+templ AgentRefResults(slug string, refs []AgentRefView) {
+	<div id="agent-ref-list">
+		for _, ref := range refs {
+			<button type="button" class="agent-ref-item" data-title={ ref.Title } data-id={ ref.ID } data-kind={ ref.Kind } data-on:click="window.fcAgentInsertRef && window.fcAgentInsertRef(el)">
+				<span class="agent-ref-kind" aria-hidden="true">{ agentRefIcon(ref.Kind) }</span>
+				<span class="agent-ref-item-title">{ ref.Title }</span>
+			</button>
+		}
+		if len(refs) == 0 {
+			<div class="agent-ref-empty muted">No matches</div>
+		}
+	</div>
+}
+
+func agentRefIcon(kind string) string {
+	switch kind {
+	case "forum":
+		return "📋"
+	case "project":
+		return "📂"
+	case "issue":
+		return "🐞"
+	case "discussion":
+		return "💬"
+	default:
+		return "🤖"
+	}
 }
 
 // AgentEmptyState is shown when the member has no active thread. The hero

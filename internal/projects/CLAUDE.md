@@ -7,6 +7,36 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3772 | 4:06 PM | 🟣 | Image paste and file picker added to issue create and edit forms | ~464 |
+| #3735 | 3:43 PM | 🟣 | Added inline image support to discussion replies | ~466 |
+| #3734 | " | 🟣 | Image paste support added to discussion thread creation | ~421 |
+| #3730 | 3:41 PM | 🟣 | Project Discussions HTTP handlers implementing threaded forum-style conversations | ~595 |
+| #3729 | " | 🟣 | Added discussion reply handlers with quote-reply support and edit grace window | ~506 |
+| #3728 | 3:40 PM | ✅ | Discussion signals extended with reply fields for PD2 phase | ~129 |
+| #3726 | " | 🟣 | Added discussion reply repository methods for project discussions | ~551 |
+| #3725 | " | 🟣 | Project Discussions forum feature (Phase 1) - threads CRUD + tab | ~755 |
+| #3711 | 3:30 PM | ✅ | Added code organization comment explaining issue attachment handler reload behavior | ~534 |
+| #3710 | " | 🔄 | PostIssueCommentEdit now redirects to issue page instead of returning 204 No Content | ~404 |
+| #3709 | " | ✅ | Changed PostIssueComment to redirect instead of signal patch after comment submission | ~445 |
+| #3684 | 3:10 PM | 🔴 | Added isGuest parameter to fragment push calls and regenerated templates | ~458 |
+| #3673 | 3:05 PM | 🟣 | Guest viewer restrictions integrated into project permission model | ~479 |
+| #3672 | " | ✅ | Refactored loadProjectData to use unified Identity type and hide share UI from guests | ~395 |
+| #3671 | " | ✅ | loadProjectData refactored to support both auth members and share-link guests | ~398 |
+| #3666 | 3:04 PM | 🔴 | Removed dead code comments from PostGuestJoin handler | ~432 |
+| #3664 | 3:03 PM | 🔴 | Missing scs import in projects handler for SessionManager field | ~381 |
+| #3663 | " | 🟣 | Guest invite system for time-limited project access with cryptographic tokens | ~637 |
+| #3662 | 3:02 PM | 🟣 | Added guest invite repository methods for projects share-link functionality | ~447 |
+| #3656 | 2:59 PM | ✅ | Added time import to issues handler for grace period calculations | ~128 |
+| #3655 | " | 🟣 | Issues feature handlers: comments and image attachments with permission enforcement | ~612 |
+| #3654 | 2:58 PM | ✅ | Extended issueSignals datastar bag with comment edit fields | ~331 |
+| #3653 | " | 🟣 | Issue attachments added with optional comment-level scoping | ~488 |
+| #3651 | " | 🔴 | Issue comments and attachments repository layer implementation | ~587 |
+| #3649 | 2:57 PM | 🟣 | Projects issues tracking service layer created | ~426 |
+| #3643 | 2:56 PM | 🟣 | Created issues handler for project issue tracking with status workflow and permission controls | ~542 |
+| #3642 | 2:55 PM | 🟣 | Added Identity type to projects package for unified auth/guest caller tracking | ~204 |
+| #3641 | " | 🔄 | Refactored project page handler to support tab-based selective data loading | ~661 |
+| #3640 | 2:54 PM | 🟣 | Added issue tracking domain models with guest authorship and status workflow | ~543 |
+| #3615 | 2:39 PM | ✅ | Committed Phase 8 documentation updates for projects feature | ~313 |
 | #3606 | 2:37 PM | 🟣 | Added activity log loading to project page handler | ~376 |
 | #3598 | 2:35 PM | 🟣 | Added activity view transformation for project activity log display | ~369 |
 | #3597 | " | 🟣 | Added activity log push to every project event for real-time audit trail | ~403 |
@@ -27,32 +57,4 @@
 | #3568 | 2:30 PM | 🟣 | Extended GetProject handler to load and render attachments with permission checks | ~421 |
 | #3562 | 2:29 PM | 🟣 | Added attachment upload, download, and delete handlers for Phase 5 | ~625 |
 | #3561 | " | 🟣 | Added uploads.Store dependency to projects Handler for attachment support | ~361 |
-| #3560 | " | 🟣 | Added AddAttachment and DeleteAttachment service methods for Phase 5 file handling | ~617 |
-| #3559 | " | ✅ | Added imports to projects handler for attachment and file upload support | ~306 |
-| #3558 | 2:28 PM | 🟣 | Added uploads.Store dependency to projects Service for Phase 5 attachment support | ~391 |
-| #3557 | " | 🟣 | Project attachments repository layer for linking uploads to projects | ~417 |
-| #3555 | 2:27 PM | 🟣 | Phase 4 realtime todos panel shipped - collaborative checklist with add, edit, toggle, delete, reorder | ~483 |
-| #3551 | 2:26 PM | 🟣 | Added todos loading to GetProject handler for initial page render | ~360 |
-| #3546 | " | 🟣 | Added SSE todos fragment pushing for Phase 4 realtime checklist updates | ~526 |
-| #3545 | " | 🟣 | Implemented complete CRUD operations for project todos checklist | ~485 |
-| #3544 | 2:25 PM | 🟣 | Extended projectSignals with todo management field bindings | ~354 |
-| #3543 | " | 🟣 | Added five todo management methods to projects Service for Phase 4 checklist functionality | ~506 |
-| #3542 | " | 🟣 | Added complete CRUD repository layer for project todo checklist items | ~465 |
-| #3541 | 2:24 PM | 🟣 | Implemented projects Phase 3 with event bus, SSE streaming, and inline editing | ~434 |
-| #3535 | 2:23 PM | 🟣 | Added real-time SSE streaming and inline editing to projects handler | ~504 |
-| #3534 | " | 🟣 | Added Bus field and projectSignals struct to projects handler for realtime header editing | ~320 |
-| #3533 | 2:22 PM | 🔄 | Projects handler imports extended for Phase 2 create and view implementation | ~381 |
-| #3532 | " | 🟣 | Added UpdateTitle and UpdateDescription service methods with realtime event publishing | ~426 |
-| #3530 | " | 🟣 | Added projects event bus for SSE-based realtime updates | ~466 |
-| #3528 | " | 🟣 | Projects Phase 2 implemented with create and view functionality | ~351 |
-| #3521 | 2:20 PM | 🟣 | Added PostCreate and GetProject handlers for Phase 2 project creation and viewing | ~554 |
-| #3520 | " | 🟣 | Added Service dependency and imports to projects Handler for Phase 2 create/view operations | ~363 |
-| #3519 | " | 🟣 | Created projects service layer with markdown rendering for project creation | ~431 |
-| #3518 | " | 🟣 | Completed Phase 1 of projects feature with flag, schema, and empty index | ~451 |
-| #3509 | 2:17 PM | 🔄 | Removed ProjectsEnabled field from Viewer initialization in projects handler | ~281 |
-| #3508 | " | 🔄 | Removed redundant ProjectsEnabled assignment in projects handler | ~227 |
-| #3505 | 2:16 PM | 🔄 | Removed unused CurrentUserID placeholder from projects handler layoutViewer | ~318 |
-| #3504 | " | 🟣 | Created projects handler with GetIndex endpoint for active and archived project listing | ~528 |
-| #3503 | " | 🟣 | Created projects repository layer with SQLite persistence for community collaborative projects | ~457 |
-| #3502 | 2:15 PM | 🟣 | Projects feature types defined for per-community collaborative workspace | ~437 |
 </claude-mem-context>

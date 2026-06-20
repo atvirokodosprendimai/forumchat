@@ -363,6 +363,68 @@ func run() error {
 			}
 			return ch.Name, nil
 		}
+		// $-reference autocomplete: non-agent results — forum subjects plus
+		// projects / issues / discussions (when Projects is on). Agent-thread
+		// results come straight from agent.Repo. Closure avoids importing
+		// forum/projects into the agent package.
+		agentHandler.SearchExternalRefs = func(ctx context.Context, communityID, q string, limit int) []webtempl.AgentRefView {
+			var out []webtempl.AgentRefView
+			if threads, err := forumRepo.ListThreadsFiltered(ctx, communityID, "", q, limit); err == nil {
+				for _, t := range threads {
+					out = append(out, webtempl.AgentRefView{Kind: "forum", ID: t.ID, Title: t.Subject})
+				}
+			}
+			if cfg.ProjectsEnabled {
+				for _, ref := range projectsRepo.SearchRefs(ctx, communityID, q, limit) {
+					out = append(out, webtempl.AgentRefView{Kind: ref.Kind, ID: ref.ID, Title: ref.Title})
+				}
+			}
+			return out
+		}
+		// Resolve a $-referenced thread to its text so the agent gets the
+		// content instead of the literal "$Title" token. Agent threads → full
+		// conversation; forum threads → opening post + replies. (Project kinds
+		// fall back to a title marker in the handler.)
+		agentHandler.ResolveRef = func(ctx context.Context, communityID, kind, id string) (string, string, bool) {
+			switch kind {
+			case "agent":
+				th, err := agentRepo.ThreadByID(ctx, id)
+				if err != nil || th.CommunityID != communityID {
+					return "", "", false
+				}
+				msgs, _ := agentRepo.Messages(ctx, id)
+				var b strings.Builder
+				for _, m := range msgs {
+					if m.Role == agent.RoleSystem || strings.TrimSpace(m.BodyMD) == "" {
+						continue
+					}
+					role := "User"
+					if m.Role == agent.RoleAssistant {
+						role = "Assistant"
+					}
+					b.WriteString(role + ": " + m.BodyMD + "\n")
+				}
+				return th.Title, capRefContent(b.String()), true
+			case "forum":
+				th, err := forumRepo.GetThread(ctx, id)
+				if err != nil || th.CommunityID != communityID {
+					return "", "", false
+				}
+				var b strings.Builder
+				b.WriteString(th.AuthorName + ": " + th.BodyMarkdown + "\n")
+				if posts, err := forumRepo.ListPosts(ctx, id); err == nil {
+					for _, p := range posts {
+						if p.DeletedAt != nil || strings.TrimSpace(p.BodyMarkdown) == "" {
+							continue
+						}
+						b.WriteString(p.AuthorName + ": " + p.BodyMarkdown + "\n")
+					}
+				}
+				return th.Subject, capRefContent(b.String()), true
+			default:
+				return "", "", false
+			}
+		}
 	}
 	webtempl.AIEnabled = cfg.AIEnabled
 
@@ -754,6 +816,7 @@ func run() error {
 		if cfg.AIEnabled {
 			r.Get("/agent", agentHandler.GetIndex)
 			r.Post("/agent/new", agentHandler.PostNew)
+			r.Get("/agent/refs", agentHandler.GetRefSearch)
 			r.Get("/agent/{thread}", agentHandler.GetPage)
 			r.Get("/agent/{thread}/stream", agentHandler.GetStream)
 			r.Post("/agent/{thread}/send", agentHandler.PostSend)
@@ -1199,6 +1262,17 @@ func newCompressor() *middleware.Compressor {
 		})
 	})
 	return c
+}
+
+// capRefContent trims expanded $-reference content so a single referenced
+// thread can't blow the model's context window.
+func capRefContent(s string) string {
+	const max = 6000
+	s = strings.TrimSpace(s)
+	if len(s) > max {
+		s = s[:max] + "\n…(truncated)…"
+	}
+	return s
 }
 
 // formatChatForResume renders a channel's most recent messages oldest-first as

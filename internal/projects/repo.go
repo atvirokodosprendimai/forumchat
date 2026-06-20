@@ -13,6 +13,56 @@ type Repo struct{ DB *sql.DB }
 // NewRepo wraps a connection.
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 
+// RefRow is one match from SearchRefs (a project, issue, or discussion thread).
+type RefRow struct {
+	Kind  string // project | issue | discussion
+	ID    string
+	Title string
+}
+
+// SearchRefs finds projects, issues, and discussion threads in a community whose
+// title/subject matches q (case-insensitive substring). Powers the agent
+// composer's $-reference autocomplete.
+func (r *Repo) SearchRefs(ctx context.Context, communityID, q string, limit int) []RefRow {
+	like := "%" + likeEscape(q) + "%"
+	var out []RefRow
+	add := func(kind, query string) {
+		rows, err := r.DB.QueryContext(ctx, query, communityID, like, limit)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var ref RefRow
+			ref.Kind = kind
+			if err := rows.Scan(&ref.ID, &ref.Title); err == nil && ref.Title != "" {
+				out = append(out, ref)
+			}
+		}
+	}
+	add("project", `SELECT id, title FROM projects
+		WHERE community_id = ? AND title LIKE ? ESCAPE '\' ORDER BY title LIMIT ?`)
+	add("issue", `SELECT i.id, i.title FROM project_issues i JOIN projects p ON i.project_id = p.id
+		WHERE p.community_id = ? AND i.title LIKE ? ESCAPE '\' ORDER BY i.updated_at DESC LIMIT ?`)
+	add("discussion", `SELECT t.id, t.subject FROM project_discussion_threads t JOIN projects p ON t.project_id = p.id
+		WHERE p.community_id = ? AND t.subject LIKE ? ESCAPE '\' AND t.deleted_at IS NULL LIMIT ?`)
+	return out
+}
+
+// likeEscape escapes LIKE wildcards so user input matches literally.
+func likeEscape(s string) string {
+	r := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\', '%', '_':
+			r = append(r, '\\', s[i])
+		default:
+			r = append(r, s[i])
+		}
+	}
+	return string(r)
+}
+
 // ListActiveForCommunity returns active (non-archived) projects ordered
 // most-recently-updated first. Aggregates todo / attachment / comment
 // counts in one query to avoid N+1 on the index page.

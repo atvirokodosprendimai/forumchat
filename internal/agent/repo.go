@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Repo is all SQL for the agent feature. Stateless; reads + writes both live
@@ -192,6 +193,36 @@ func (r *Repo) ListThreads(ctx context.Context, communityID, userID string) ([]T
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// SearchThreads finds the threads visible to userID whose title matches q
+// (case-insensitive substring), newest first. Powers the $-reference
+// autocomplete in the agent composer.
+func (r *Repo) SearchThreads(ctx context.Context, communityID, userID, q string, limit int) ([]Thread, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT `+threadCols+`
+		FROM ai_threads
+		WHERE community_id = ? AND (visibility = 'shared' OR user_id = ?) AND title LIKE ? ESCAPE '\'
+		ORDER BY updated_at DESC LIMIT ?`,
+		communityID, userID, "%"+escapeLike(q)+"%", limit)
+	if err != nil {
+		return nil, fmt.Errorf("search threads: %w", err)
+	}
+	defer rows.Close()
+	var out []Thread
+	for rows.Next() {
+		t, err := scanThread(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan thread: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// escapeLike escapes LIKE wildcards so user input is matched literally.
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
 }
 
 // TouchThread bumps updated_at so the thread floats to the top of the list.

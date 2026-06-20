@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -40,6 +41,15 @@ type Handler struct {
 	ShareToChannel func(ctx context.Context, communityID, channelSlug, authorID, bodyMD string) (channelName string, err error)
 	// ListChannels lists the community's chat channels for the share dropdown.
 	ListChannels func(ctx context.Context, communityID string) []webtempl.ChannelView
+	// SearchExternalRefs backs the $-reference autocomplete's non-agent results
+	// (forum subjects, projects, issues, discussions). Closure (wired in
+	// main.go) so this package needn't import forum/projects. Nil → only agent
+	// threads are searched.
+	SearchExternalRefs func(ctx context.Context, communityID, q string, limit int) []webtempl.AgentRefView
+	// ResolveRef loads the textual content of a $-referenced item (a thread's
+	// conversation, a forum thread, etc.) so it can be expanded into the model
+	// prompt. Wired in main.go. Returns ok=false when not resolvable.
+	ResolveRef func(ctx context.Context, communityID, kind, id string) (title, content string, ok bool)
 }
 
 func (h *Handler) cid(ctx context.Context) string {
@@ -290,6 +300,41 @@ func (h *Handler) threadGenerating(tid string, msgs []Message) bool {
 	return false
 }
 
+type refSignals struct {
+	Q string `json:"agent_ref_query"`
+}
+
+// GetRefSearch (/agent/refs) powers the $-reference autocomplete: it matches
+// the typed query against agent thread titles + forum subjects and patches the
+// dropdown. Read-only.
+func (h *Handler) GetRefSearch(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in refSignals
+	_ = datastar.ReadSignals(r, &in)
+	q := strings.TrimSpace(in.Q)
+	sse := render.NewSSE(w, r)
+	slug := h.cslug(r.Context())
+	if len(q) < 2 {
+		_ = sse.PatchElementTempl(webtempl.AgentRefResults(slug, nil))
+		return
+	}
+	cid := h.cid(r.Context())
+	var refs []webtempl.AgentRefView
+	if threads, err := h.Repo.SearchThreads(r.Context(), cid, id.User.ID, q, 6); err == nil {
+		for _, t := range threads {
+			refs = append(refs, webtempl.AgentRefView{Kind: "agent", ID: t.ID, Title: t.Title})
+		}
+	}
+	if h.SearchExternalRefs != nil {
+		refs = append(refs, h.SearchExternalRefs(r.Context(), cid, q, 6)...)
+	}
+	_ = sse.PatchElementTempl(webtempl.AgentRefResults(slug, refs))
+}
+
 // --- writes ---------------------------------------------------------------
 
 type newSignals struct {
@@ -297,6 +342,7 @@ type newSignals struct {
 	Visibility string `json:"agent_visibility"`
 	AgentID    string `json:"agent_pick"`
 	ImageData  string `json:"agent_image_data"`
+	Refs       string `json:"agent_refs"`
 }
 
 // pickAgent resolves the agent to use for a new thread: the explicitly chosen
@@ -344,15 +390,51 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 	body := strings.TrimSpace(in.Body)
 	images := h.stageImage(r.Context(), id.User.ID, a, in.ImageData, &body)
 	if body != "" || len(images) > 0 {
-		h.startSend(r.Context(), t, a, id.User.ID, body, images)
+		h.startSend(r.Context(), t, a, id.User.ID, body, images, h.expandRefs(r.Context(), t.CommunityID, in.Refs))
 	}
-	_ = sse.PatchSignals([]byte(`{"agent_body":"","agent_image_data":""}`))
+	_ = sse.PatchSignals([]byte(`{"agent_body":"","agent_image_data":"","agent_refs":""}`))
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/agent/" + t.ID)
 }
 
 type sendSignals struct {
 	Body      string `json:"agent_body"`
 	ImageData string `json:"agent_image_data"`
+	Refs      string `json:"agent_refs"`
+}
+
+// expandRefs turns the composer's agent_refs JSON into a context block that is
+// prepended to the model prompt (only — the displayed message keeps the clean
+// $Title). Each ref is resolved to its thread/forum content via ResolveRef;
+// unresolvable ones fall back to a title marker.
+func (h *Handler) expandRefs(ctx context.Context, communityID, refsJSON string) string {
+	if h.ResolveRef == nil || strings.TrimSpace(refsJSON) == "" {
+		return ""
+	}
+	var refs []struct {
+		Kind  string `json:"kind"`
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(refsJSON), &refs); err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, ref := range refs {
+		title, content, ok := h.ResolveRef(ctx, communityID, ref.Kind, ref.ID)
+		if title == "" {
+			title = ref.Title
+		}
+		if !ok || strings.TrimSpace(content) == "" {
+			if title != "" {
+				b.WriteString("Referenced " + ref.Kind + ": " + title + "\n\n")
+			}
+			continue
+		}
+		b.WriteString("===== Referenced " + ref.Kind + ": " + title + " =====\n")
+		b.WriteString(strings.TrimSpace(content))
+		b.WriteString("\n===== end =====\n\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // PostSend (/agent/{thread}/send) appends the member's turn, kicks the runner,
@@ -393,11 +475,12 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	local, unsubscribe := h.Bus.Subscribe(t.ID)
 	defer unsubscribe()
 
-	h.startSend(r.Context(), t, a, id.User.ID, body, images)
+	refContext := h.expandRefs(r.Context(), t.CommunityID, in.Refs)
+	h.startSend(r.Context(), t, a, id.User.ID, body, images, refContext)
 
 	// Clear the composer immediately — including the (large) image data URL so
 	// it never lingers in the signal bag.
-	_ = sse.PatchSignals([]byte(`{"agent_body":"","agent_image_data":""}`))
+	_ = sse.PatchSignals([]byte(`{"agent_body":"","agent_image_data":"","agent_refs":""}`))
 	if msgs, err := h.Repo.Messages(r.Context(), t.ID); err == nil {
 		if err := h.fatMorph(sse, h.cslug(r.Context()), t.ID, msgs); err != nil {
 			return
@@ -487,12 +570,23 @@ func (h *Handler) stageImage(ctx context.Context, userID string, a Agent, dataUR
 	return []string{b64}
 }
 
-// startSend persists the turn + placeholder and launches the runner.
-func (h *Handler) startSend(ctx context.Context, t Thread, a Agent, authorID, body string, images []string) {
+// startSend persists the turn + placeholder and launches the runner. refContext
+// (expanded $-references) is prepended to the user turn sent to the MODEL only —
+// the stored/displayed message keeps the clean text + $Title chunks.
+func (h *Handler) startSend(ctx context.Context, t Thread, a Agent, authorID, body string, images []string, refContext string) {
 	asstID, history, err := h.Svc.Send(ctx, t, authorID, body, images)
 	if err != nil {
 		h.Log.Error("agent: send", "err", err)
 		return
+	}
+	if refContext != "" {
+		for i := len(history) - 1; i >= 0; i-- {
+			if history[i].Role == RoleUser {
+				history[i].Content = "Use the referenced material below as context for the user's message.\n\n" +
+					refContext + "\n\n----- User's message -----\n" + history[i].Content
+				break
+			}
+		}
 	}
 	h.broadcast(ctx, t.ID)
 	if err := h.Runner.Start(t.CommunityID, t.ID, asstID, a, history); err != nil {
