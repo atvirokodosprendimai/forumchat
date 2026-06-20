@@ -56,6 +56,10 @@ type Handler struct {
 	// an import cycle. Fire-and-forget (handles its own errors/posting). nil
 	// when the Agent feature is disabled — the command is then ignored.
 	Resume func(ctx context.Context, communityID, channelID, requesterID, requesterName string)
+	// Prompt runs the /prompt slash command: run a free-form prompt through an
+	// agent in a new public thread and post the result (+ thread link) back to
+	// the channel. Wired in main.go; nil when AI is disabled.
+	Prompt func(ctx context.Context, communityID, channelID, requesterID, requesterName, prompt string)
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -652,6 +656,38 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		}
 		if views, err := h.loadRecentFor(r.Context(), chID, rid); err == nil {
 			_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), rid, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
+		}
+		return
+	}
+	// /prompt <text> — run a free-form prompt through an agent in a new public
+	// thread. Posts a "working" placeholder immediately, then the result.
+	if h.Prompt != nil && isSlashCommand(body, "prompt") {
+		cid := h.cid(r.Context())
+		chID := ch.ID
+		rid := id.User.ID
+		rname := id.Membership.DisplayName
+		isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+		prompt := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body), "/prompt"))
+		_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
+		if prompt == "" {
+			return
+		}
+		// Immediate "working" placeholder — visible to the sender (this fatMorph)
+		// and everyone else (the broadcast).
+		_, _ = h.Svc.PostSystemMarkdown(r.Context(), cid, chID, "🤖 Working on your prompt… _(requested by "+rname+")_")
+		h.broadcastNewMsg(r.Context(), chID)
+		if views, err := h.loadRecentFor(r.Context(), chID, rid); err == nil {
+			_ = fatMorph(sse, views, isMod, rid, rname, h.cslug(r.Context()), ch.Slug)
+		}
+		done := make(chan struct{})
+		go func() { h.Prompt(context.Background(), cid, chID, rid, rname, prompt); close(done) }()
+		select {
+		case <-done:
+		case <-r.Context().Done():
+			return
+		}
+		if views, err := h.loadRecentFor(r.Context(), chID, rid); err == nil {
+			_ = fatMorph(sse, views, isMod, rid, rname, h.cslug(r.Context()), ch.Slug)
 		}
 		return
 	}

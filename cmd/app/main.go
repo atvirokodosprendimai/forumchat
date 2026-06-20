@@ -637,6 +637,68 @@ func run() error {
 			}
 			post(header + "\n\n" + answer)
 		}
+		// /prompt <text> — run a free-form prompt through an agent in a new
+		// public thread and post the answer + link back to the channel.
+		chatHandler.Prompt = func(ctx context.Context, communityID, channelID, requesterID, requesterName, promptText string) {
+			ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+			defer cancel()
+			post := func(body string) {
+				if _, err := chatSvc.PostSystemMarkdown(ctx, communityID, channelID, body); err != nil {
+					log.Warn("prompt: post back", "err", err)
+					return
+				}
+				chatBus.Broadcast(channelID)
+				chatNewMsgBus.Broadcast(channelID)
+				if nc != nil && nc.IsConnected() {
+					_ = nc.Publish(natsx.ChatSubject(communityID), []byte(channelID))
+					_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+				}
+			}
+			agents, _ := agentRepo.ListEnabledAgents(ctx, communityID)
+			if len(agents) == 0 {
+				post("🤖 No AI agent is enabled — an admin can add one in Admin → AI.")
+				return
+			}
+			a := agents[0]
+			// Run through the streaming Runner (not the synchronous summariser)
+			// so an open agent-thread tab streams the answer live, then post the
+			// result to chat once it finishes.
+			t, err := agentHandler.Svc.CreateThread(ctx, communityID, requesterID, a, agent.VisibilityShared)
+			if err != nil {
+				post("🤖 Couldn't start that prompt right now.")
+				return
+			}
+			asstID, history, err := agentHandler.Svc.Send(ctx, t, requesterID, promptText, nil)
+			if err != nil {
+				post("🤖 Couldn't start that prompt right now.")
+				return
+			}
+			agentBus.Broadcast(t.ID) // show the user turn + placeholder to thread viewers
+			if nc != nil && nc.IsConnected() {
+				_ = nc.Publish(natsx.AgentThreadSubject(communityID, t.ID), []byte(t.ID))
+			}
+			if err := agentHandler.Runner.Start(communityID, t.ID, asstID, a, history); err != nil {
+				log.Warn("prompt: start", "err", err)
+			}
+			// Wait for the streaming generation to finish (the thread streams it
+			// live meanwhile), then read the final answer.
+			for agentHandler.Runner.IsRunning(t.ID) && ctx.Err() == nil {
+				time.Sleep(250 * time.Millisecond)
+			}
+			answer := ""
+			if m, err := agentRepo.MessageByID(ctx, asstID); err == nil {
+				answer = strings.TrimSpace(m.BodyMD)
+			}
+			if answer == "" {
+				post("🤖 Couldn't complete that prompt right now.")
+				return
+			}
+			header := "🤖 **Prompt complete** _(requested by " + requesterName + ")_"
+			if c, err := cRepo.ByID(ctx, communityID); err == nil {
+				header += " · [↗ View in Agent thread](" + strings.TrimRight(cfg.BaseURL, "/") + "/c/" + c.Slug + "/agent/" + t.ID + ")"
+			}
+			post(header + "\n\n" + answer)
+		}
 	}
 
 	// ----- Lobbies (guest access) ------------------------------------------
