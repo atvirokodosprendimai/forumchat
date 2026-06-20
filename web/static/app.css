@@ -4047,7 +4047,7 @@ button.ghost.danger { color: var(--danger); }
   display: grid;
   grid-template-columns: 16rem 1fr;
   gap: 1rem;
-  height: calc(100dvh - 5.5rem);
+  height: 100%;
   min-height: 0;
 }
 .agent-sidebar {
@@ -4174,9 +4174,12 @@ button.ghost.danger { color: var(--danger); }
 .agent-config-status { color: var(--success); font-size: .85rem; }
 
 @media (max-width: 760px) {
-  .agent-layout { grid-template-columns: 1fr; height: auto; }
-  .agent-sidebar { max-height: 13rem; }
-  .agent-main { min-height: 70dvh; }
+  /* Single column, but keep the fixed viewport height so the page itself
+     doesn't scroll — the thread head + composer stay pinned and ONLY
+     #agent-messages scrolls. */
+  .agent-layout { display: flex; flex-direction: column; gap: .6rem; }
+  .agent-sidebar { flex: 0 0 auto; max-height: 8rem; }
+  .agent-main { flex: 1 1 auto; min-height: 0; }
 }
 
 /* Agent — multi-agent picker, vision attach, admin manager */
