@@ -88,6 +88,14 @@ type Config struct {
 	// needing an account. Default off so a fresh deployment is closed.
 	GuestAccessEnabled bool `env:"GUEST_ACCESS_ENABLED" envDefault:"false"`
 
+	// AIEnabled gates the Agent feature: per-community AI chat with
+	// threads + history (/c/{slug}/agent) and the admin AI-config page.
+	// When false the routes are not mounted and the nav links are hidden;
+	// the tables always exist so toggling never needs a migration. Each
+	// community still has its own ai_configs.enabled switch on top of this
+	// instance flag. Default off.
+	AIEnabled bool `env:"AI_ENABLED" envDefault:"false"`
+
 	// Project-change → chat digest cadence (minutes). 0 disables the
 	// worker. When > 0, every N minutes the worker checks each community
 	// for projects with new attachments/issues/discussions/comments/replies

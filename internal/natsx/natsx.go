@@ -69,3 +69,11 @@ func LobbySubject(communityID, lobbyID string) string {
 func MailboxSubject(communityID string) string {
 	return fmt.Sprintf("community.%s.mailbox", communityID)
 }
+
+// AgentThreadSubject is the per-thread fan-out for the Agent feature.
+// The generation runner publishes the thread id here on every 100ms
+// buffer flush; only the SSE streams open on that thread wake and
+// re-render. Per-thread scoping keeps unrelated threads quiet.
+func AgentThreadSubject(communityID, threadID string) string {
+	return fmt.Sprintf("community.%s.agent.thread.%s", communityID, threadID)
+}

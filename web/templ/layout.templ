@@ -146,6 +146,11 @@ func initial(s string) string {
 // so no per-handler Viewer plumbing is required.
 var ProjectsEnabled bool
 
+// AIEnabled is the instance-level Agent feature flag. Set at boot in main.go
+// from config.AIEnabled. Toggles the "Agent" nav link + the admin "AI"
+// sublink and gates the /c/{slug}/agent routes registered in main.
+var AIEnabled bool
+
 // GuestAccessEnabled — instance-level Lobbies flag. Toggles the
 // sidebar menu item and gates the host-side routes registered in main.
 var GuestAccessEnabled bool
@@ -225,6 +230,18 @@ const InitialSignals = `{
 	"_presence_open":false,
 	"mention_query":"",
 	"_mention_open":false,
+	"agent_body":"",
+	"agent_visibility":"private",
+	"agent_generating":false,
+	"_agent_share_open":false,
+	"agent_share_msg_id":"",
+	"agent_share_channel":"",
+	"ai_provider":"ollama",
+	"ai_base_url":"",
+	"ai_model":"",
+	"ai_api_key":"",
+	"ai_system_prompt":"",
+	"ai_enabled":false,
 	"active_channel":"",
 	"active_channel_slug":"",
 	"chat_unread":{},
@@ -342,6 +359,9 @@ templ Layout(title string, v Viewer) {
 						if v.CommunitySlug != "" {
 							<h3 class="sidebar-group">{ v.CommunityName }</h3>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
+							if AIEnabled {
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/agent") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/agent") }><span class="sb-icon" aria-hidden="true">🤖</span>Agent</a>
+							}
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Threads</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/rooms") }><span class="sb-icon" aria-hidden="true">🎥</span>Rooms</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/bookmarks") }><span class="sb-icon" aria-hidden="true">★</span>Bookmarks</a>
@@ -361,6 +381,9 @@ templ Layout(title string, v Viewer) {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") } aria-current={ navActiveExcept(ctx, "/c/"+v.CommunitySlug+"/admin", "/c/"+v.CommunitySlug+"/admin/mail-filters") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
 								if MailboxEnabled {
 									<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin/mail-filters") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin/mail-filters") }><span class="sb-icon" aria-hidden="true">✉</span>Mail filters</a>
+								}
+								if AIEnabled {
+									<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin/ai") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin/ai") }><span class="sb-icon" aria-hidden="true">🤖</span>AI</a>
 								}
 							}
 						}

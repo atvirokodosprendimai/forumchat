@@ -435,6 +435,7 @@ boot fails fast on placeholder secrets.
 | Variable             | Default                                | Purpose                                                            |
 |----------------------|----------------------------------------|--------------------------------------------------------------------|
 | `PROJECTS_ENABLED`   | `false`                                | Mount `/c/{slug}/projects` and show the sidebar link.              |
+| `AI_ENABLED`         | `false`                                | Mount `/c/{slug}/agent` (per-community AI chat) + the Admin → AI config page, and show the sidebar link. Each community still has its own `ai_configs.enabled` toggle on top of this. |
 
 In production (`ENV=prod`), boot fails fast if `SESSION_KEY` or
 `UPLOADS_SIGN_KEY` still contain `dev-only`. Pin `VAPID_*` for prod so a

@@ -22,6 +22,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/admin"
+	"github.com/atvirokodosprendimai/forumchat/internal/agent"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/bookmarks"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
@@ -310,6 +311,59 @@ func run() error {
 	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 
+	// ----- Agent (per-community AI chat) -----------------------------------
+	agentRepo := agent.NewRepo(db)
+	agentBus := agent.NewBus()
+	agentRunner := agent.NewRunner(agentRepo, agentBus, nc, log)
+	agentHandler := &agent.Handler{
+		Repo:          agentRepo,
+		Svc:           agent.NewService(agentRepo),
+		Runner:        agentRunner,
+		Bus:           agentBus,
+		NATS:          nc,
+		Log:           log,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+	}
+	if cfg.AIEnabled {
+		// Share-to-channel: copy an assistant answer into a chat channel as the
+		// requesting member. Closures (not a chat import in the agent package)
+		// keep the dependency one-way and reuse chat's send + fan-out.
+		agentHandler.ListChannels = func(ctx context.Context, communityID string) []webtempl.ChannelView {
+			chans, err := chatRepo.ListChannels(ctx, communityID, false)
+			if err != nil {
+				return nil
+			}
+			out := make([]webtempl.ChannelView, 0, len(chans))
+			for _, c := range chans {
+				out = append(out, webtempl.ChannelView{ID: c.ID, Slug: c.Slug, Name: c.Name, Topic: c.Topic, IsDefault: c.IsDefault})
+			}
+			return out
+		}
+		agentHandler.ShareToChannel = func(ctx context.Context, communityID, channelSlug, authorID, bodyMD string) (string, error) {
+			ch, err := chatRepo.ChannelBySlug(ctx, communityID, channelSlug)
+			if err != nil {
+				return "", err
+			}
+			if _, err := chatSvc.Send(ctx, chat.SendInput{
+				CommunityID:  communityID,
+				ChannelID:    ch.ID,
+				AuthorID:     authorID,
+				BodyMarkdown: bodyMD,
+			}); err != nil {
+				return "", err
+			}
+			chatBus.Broadcast(ch.ID)
+			chatNewMsgBus.Broadcast(ch.ID)
+			if nc != nil && nc.IsConnected() {
+				_ = nc.Publish(natsx.ChatSubject(communityID), []byte(ch.ID))
+				_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+			}
+			return ch.Name, nil
+		}
+	}
+	webtempl.AIEnabled = cfg.AIEnabled
+
 	// Time accounting: per-community budget + global personal timer/journal.
 	timebudgetHandler := &timebudget.Handler{Repo: timebudget.NewRepo(db), Log: log}
 	// Optional "tag a task" project <select> in the budget entry form.
@@ -578,6 +632,17 @@ func run() error {
 		log.Warn("ensure default chat channel failed", "err", err)
 	}
 
+	// Heal any Agent generations orphaned by a previous process exit: an LLM
+	// completion can't resume mid-stream, so flip lingering "generating" rows
+	// to "interrupted" (partial kept, UI offers Regenerate). See §6/agent.
+	if cfg.AIEnabled {
+		if n, err := agentRepo.MarkGeneratingInterrupted(ctx); err != nil {
+			log.Warn("agent: heal generating rows failed", "err", err)
+		} else if n > 0 {
+			log.Info("agent: healed interrupted generations", "count", n)
+		}
+	}
+
 	// Per-community JOIN landing — LoadCommunity runs so the templ can render
 	// the community name, but RequireMember does NOT (this is the path that
 	// admits new members). Mounted before the main /c/{slug} group so it
@@ -623,6 +688,20 @@ func run() error {
 		r.Post("/block", chatHandler.PostBlock)
 		r.Post("/unblock", chatHandler.PostUnblock)
 		r.Post("/report", chatHandler.PostReport)
+
+		// Agent — per-community AI chat with threads + history. Static
+		// segments (new) win over the {thread} wildcard in chi.
+		if cfg.AIEnabled {
+			r.Get("/agent", agentHandler.GetIndex)
+			r.Post("/agent/new", agentHandler.PostNew)
+			r.Get("/agent/{thread}", agentHandler.GetPage)
+			r.Get("/agent/{thread}/stream", agentHandler.GetStream)
+			r.Post("/agent/{thread}/send", agentHandler.PostSend)
+			r.Post("/agent/{thread}/stop", agentHandler.PostStop)
+			r.Post("/agent/{thread}/regenerate", agentHandler.PostRegenerate)
+			r.Post("/agent/{thread}/share", agentHandler.PostShareToChannel)
+			r.Post("/agent/{thread}/delete", agentHandler.PostDelete)
+		}
 
 		r.Get("/presence/stream", presenceHandler.GetStream)
 
@@ -717,6 +796,10 @@ func run() error {
 				r.Post("/admin/mail-filters", mailboxHandler.PostCommunityFilterCreate)
 				r.Post("/admin/mail-filters/{id}/delete", mailboxHandler.PostCommunityFilterDelete)
 				r.Post("/admin/mail-filters/{id}/apply", mailboxHandler.PostCommunityFilterApply)
+			}
+			if cfg.AIEnabled {
+				r.Get("/admin/ai", agentHandler.GetConfig)
+				r.Post("/admin/ai", agentHandler.PostSaveConfig)
 			}
 		})
 	})

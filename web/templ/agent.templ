@@ -1,0 +1,384 @@
+package templ
+
+import (
+	"strconv"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
+)
+
+// AgentThreadView is one row in the conversation sidebar.
+type AgentThreadView struct {
+	ID         string
+	Title      string
+	Visibility string // private | shared
+	Active     bool
+}
+
+// AgentMsgView is one rendered turn in the active conversation.
+type AgentMsgView struct {
+	ID          string
+	Role        string // user | assistant | system
+	BodyHTML    string
+	Status      string
+	Error       string
+	IsUser      bool
+	IsAssistant bool
+	Generating  bool
+	Interrupted bool
+	Errored     bool
+	CanShare    bool
+}
+
+// AgentConfigView is the admin AI-settings form model. The stored API key is
+// never echoed back — APIKeySet just tells the form whether one exists.
+type AgentConfigView struct {
+	Provider     string
+	BaseURL      string
+	Model        string
+	SystemPrompt string
+	Enabled      bool
+	APIKeySet    bool
+}
+
+// AgentPageData drives the whole /agent page.
+type AgentPageData struct {
+	Viewer     Viewer
+	Slug       string
+	Threads    []AgentThreadView
+	Active     AgentThreadView
+	HasActive  bool
+	Generating bool
+	Messages   []AgentMsgView
+	Channels   []ChannelView // share-to-channel dropdown
+	Configured bool          // community ai_configs.enabled
+	CanShare   bool          // chat wired in
+}
+
+// AgentPage is the two-pane Agent surface: conversation list on the left,
+// active thread + composer on the right.
+templ AgentPage(d AgentPageData) {
+	@Layout("Agent", d.Viewer) {
+		<div data-signals={ agentSeedSignals(d.Generating) }></div>
+		<section class="agent-layout">
+			@AgentSidebar(d)
+			<div class="agent-main">
+				if !d.Configured {
+					@AgentSetupBanner(d.Slug, d.Viewer.Role == "admin")
+				}
+				if d.HasActive {
+					<header class="agent-thread-head">
+						<h1 class="agent-thread-title">{ d.Active.Title }</h1>
+						<div class="agent-thread-tools">
+							@agentVisibilityBadge(d.Active.Visibility)
+							<button
+								class="ghost agent-danger"
+								data-on:click={ "confirm('Delete this conversation?') && @post('/c/" + d.Slug + "/agent/" + d.Active.ID + "/delete')" }
+							>🗑</button>
+						</div>
+					</header>
+					@AgentMessages(d.Slug, d.Active.ID, d.Messages)
+					@AgentComposer(d.Slug, d.Active.ID, d.Configured)
+					<div id="agent-stream-open" hidden data-init={ "@get('/c/" + d.Slug + "/agent/" + d.Active.ID + "/stream', {openWhenHidden: true})" }></div>
+					if d.CanShare {
+						@AgentShareDialog(d.Slug, d.Active.ID, d.Channels)
+					}
+				} else {
+					@AgentEmptyState(d.Slug, d.Configured)
+				}
+			</div>
+		</section>
+		<div id="agent-notice" aria-live="polite"></div>
+	}
+}
+
+// AgentSidebar is the conversation list. The visibility select + "New chat"
+// button create a thread (private or shared) via POST /agent/new.
+templ AgentSidebar(d AgentPageData) {
+	<aside class="agent-sidebar">
+		<div class="agent-sidebar-head">
+			<select class="agent-vis-select" data-bind="agent_visibility" aria-label="New conversation visibility">
+				<option value="private">🔒 Private</option>
+				<option value="shared">👥 Shared</option>
+			</select>
+			<button class="agent-new" data-on:click={ "@post('/c/" + d.Slug + "/agent/new')" }>＋ New chat</button>
+		</div>
+		<nav class="agent-thread-list">
+			if len(d.Threads) == 0 {
+				<p class="muted agent-empty-hint">No conversations yet.</p>
+			}
+			for _, t := range d.Threads {
+				<a
+					href={ templ.URL("/c/" + d.Slug + "/agent/" + t.ID) }
+					class={ "agent-thread-link", templ.KV("active", t.Active) }
+				>
+					@agentVisibilityIcon(t.Visibility)
+					<span class="agent-thread-link-title">{ t.Title }</span>
+				</a>
+			}
+		</nav>
+	</aside>
+}
+
+// AgentMessages is the fat-morph target. Mirrors chat's MessagesContainer:
+// the container owns the scroll, the anchor (last child) re-fires its
+// data-init on every WithModeReplace patch to keep the view pinned to bottom.
+templ AgentMessages(slug, threadID string, msgs []AgentMsgView) {
+	<div id="agent-messages" class="agent-messages" data-init="el.scrollTo({top: el.scrollHeight, behavior: 'instant'})">
+		if len(msgs) == 0 {
+			<div class="agent-hello">
+				<div class="agent-hello-icon">🤖</div>
+				<p>Ask me anything. I'll stream the answer as I think.</p>
+			</div>
+		}
+		for _, m := range msgs {
+			@AgentBubble(slug, threadID, m)
+		}
+		@AgentScrollAnchor()
+	</div>
+}
+
+// AgentScrollAnchor keeps the view pinned to the bottom DURING streaming, but
+// only when the reader is already near the bottom. data-init re-fires on every
+// WithModeReplace patch (idiomorph remounts the replaced anchor); it measures
+// the scroll container (#agent-messages, the anchor's parent) and scrolls only
+// if within 150px of the bottom — so a reader who scrolled up to read an
+// earlier part of the answer is never yanked down. Initial page scroll is
+// handled separately by #agent-messages' own one-time data-init.
+templ AgentScrollAnchor() {
+	<div id="agent-scroll-anchor" data-init="const m = el.parentElement; if (m && (m.scrollHeight - m.scrollTop - m.clientHeight) < 150) { m.scrollTo({top: m.scrollHeight, behavior: 'instant'}) }"></div>
+}
+
+// AgentBubble renders one turn. Assistant turns carry the live cursor while
+// generating, a Regenerate affordance when interrupted/errored, and a
+// share-to-channel button when complete.
+templ AgentBubble(slug, threadID string, m AgentMsgView) {
+	if m.IsUser {
+		<div class="agent-row user">
+			<div class="agent-bubble user">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
+		</div>
+	} else if m.IsAssistant {
+		<div class="agent-row assistant">
+			<div class="agent-avatar" aria-hidden="true">🤖</div>
+			<div class="agent-bubble assistant">
+				if m.Generating && m.BodyHTML == "" {
+					<span class="agent-typing" aria-label="thinking"><span></span><span></span><span></span></span>
+				} else {
+					<div class="agent-body">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
+				}
+				if m.Generating {
+					<span class="agent-cursor" aria-hidden="true"></span>
+				}
+				if m.Errored {
+					<p class="agent-error">⚠ { m.Error }</p>
+				}
+				if m.Interrupted {
+					<p class="agent-stopped">■ stopped</p>
+				}
+				<div class="agent-bubble-actions">
+					if m.Interrupted || m.Errored {
+						<button class="agent-link-btn" data-on:click={ "@post('/c/" + slug + "/agent/" + threadID + "/regenerate')" }>⟳ Regenerate</button>
+					}
+					if m.CanShare {
+						<button class="agent-link-btn" data-on:click={ "$agent_share_msg_id='" + m.ID + "'; $_agent_share_open=true" }>↗ Share to channel</button>
+					}
+				</div>
+			</div>
+		</div>
+	}
+}
+
+// AgentComposer is the message box for an existing thread. Enter sends,
+// Shift+Enter newlines; the button flips to Stop while $agent_generating.
+templ AgentComposer(slug, threadID string, configured bool) {
+	<div class="agent-composer">
+		<textarea
+			class="agent-input"
+			data-bind="agent_body"
+			rows="1"
+			placeholder="Message the agent…"
+			disabled?={ !configured }
+			data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
+			data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); if($agent_body.trim() && !$agent_generating){@post('/c/" + slug + "/agent/" + threadID + "/send')}}" }
+		></textarea>
+		<div class="agent-composer-actions">
+			<button
+				type="button"
+				class="agent-send"
+				data-show="!$agent_generating"
+				data-on:click={ "$agent_body.trim() && @post('/c/" + slug + "/agent/" + threadID + "/send')" }
+			>Send</button>
+			<button
+				type="button"
+				class="agent-stop"
+				data-show="$agent_generating"
+				data-on:click={ "@post('/c/" + slug + "/agent/" + threadID + "/stop')" }
+			>■ Stop</button>
+		</div>
+	</div>
+}
+
+// AgentEmptyState is shown when the member has no active thread. The hero
+// composer creates a thread AND sends the first prompt in one POST.
+templ AgentEmptyState(slug string, configured bool) {
+	<div class="agent-empty">
+		<div class="agent-empty-icon" aria-hidden="true">🤖</div>
+		<h1>Agent</h1>
+		<p class="muted">Your private AI assistant. Start a conversation — pick Private or Shared in the sidebar.</p>
+		<div class="agent-composer hero">
+			<textarea
+				class="agent-input"
+				data-bind="agent_body"
+				rows="1"
+				placeholder="Ask the agent anything…"
+				disabled?={ !configured }
+				data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
+				data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); if($agent_body.trim()){@post('/c/" + slug + "/agent/new')}}" }
+			></textarea>
+			<div class="agent-composer-actions">
+				<button type="button" class="agent-send" data-on:click={ "$agent_body.trim() && @post('/c/" + slug + "/agent/new')" }>Send</button>
+			</div>
+		</div>
+	</div>
+}
+
+// AgentShareDialog copies an assistant answer into a chat channel. Opened by a
+// bubble's "Share to channel" button setting $_agent_share_open.
+templ AgentShareDialog(slug, threadID string, channels []ChannelView) {
+	<div class="agent-modal-overlay" data-show="$_agent_share_open" data-on:click="$_agent_share_open=false"></div>
+	<div class="agent-modal" data-show="$_agent_share_open" role="dialog" aria-label="Share to channel">
+		<h3>Share to a channel</h3>
+		<p class="muted">Post this answer into a public chat channel.</p>
+		<select class="agent-channel-select" data-bind="agent_share_channel">
+			<option value="">Choose a channel…</option>
+			for _, c := range channels {
+				<option value={ c.Slug }>#{ c.Name }</option>
+			}
+		</select>
+		<div class="agent-modal-actions">
+			<button class="ghost" data-on:click="$_agent_share_open=false">Cancel</button>
+			<button class="agent-send" data-on:click={ "$agent_share_channel && @post('/c/" + slug + "/agent/" + threadID + "/share')" }>Share</button>
+		</div>
+	</div>
+}
+
+// AgentSetupBanner nudges admins (and informs members) when AI isn't enabled.
+templ AgentSetupBanner(slug string, isAdmin bool) {
+	<div class="agent-banner">
+		if isAdmin {
+			<span>AI isn't enabled yet. </span>
+			<a href={ templ.URL("/c/" + slug + "/admin/ai") }>Configure it in Admin → AI →</a>
+		} else {
+			<span>The AI assistant isn't enabled for this community yet.</span>
+		}
+	</div>
+}
+
+// AgentNotice is a transient toast patched into #agent-notice after an action
+// (share result, errors). Auto-clears after a few seconds.
+templ AgentNotice(msg string) {
+	<div id="agent-notice" aria-live="polite">
+		<div class="agent-toast" data-init="setTimeout(() => el.remove(), 3500)">{ msg }</div>
+	</div>
+}
+
+templ agentVisibilityBadge(vis string) {
+	if vis == "shared" {
+		<span class="agent-badge shared">👥 Shared</span>
+	} else {
+		<span class="agent-badge private">🔒 Private</span>
+	}
+}
+
+templ agentVisibilityIcon(vis string) {
+	if vis == "shared" {
+		<span class="agent-thread-icon" title="Shared">👥</span>
+	} else {
+		<span class="agent-thread-icon" title="Private">🔒</span>
+	}
+}
+
+// agentSeedSignals seeds the generating flag into the bag on page load so the
+// composer renders Send vs Stop correctly before the stream connects.
+func agentSeedSignals(generating bool) string {
+	if generating {
+		return `{"agent_generating":true}`
+	}
+	return `{"agent_generating":false}`
+}
+
+// --- admin config page ----------------------------------------------------
+
+// AgentConfigPage is the per-community AI settings surface (Admin → AI).
+templ AgentConfigPage(v Viewer, slug string, c AgentConfigView) {
+	@Layout("AI settings", v) {
+		<section class="card narrow agent-config">
+			<h1>AI settings</h1>
+			<p class="muted">Configure the model that powers this community's Agent. Ollama needs only a base URL + model name; API providers come later.</p>
+			@AgentConfigForm(slug, c, "")
+		</section>
+	}
+}
+
+// AgentConfigForm is the morph target for save. status is "" / "Saved." /
+// an error string.
+templ AgentConfigForm(slug string, c AgentConfigView, status string) {
+	<div id="agent-config-form" class="agent-config-form" data-signals={ agentConfigSignals(c) }>
+		<label>
+			<span>Provider</span>
+			<select data-bind="ai_provider">
+				<option value="ollama" selected?={ c.Provider == "ollama" || c.Provider == "" }>Ollama (local / self-hosted)</option>
+			</select>
+		</label>
+		<label>
+			<span>Base URL</span>
+			<input type="text" data-bind="ai_base_url" placeholder="http://localhost:11434"/>
+		</label>
+		<label>
+			<span>Model</span>
+			<input type="text" data-bind="ai_model" placeholder="llama3.2"/>
+		</label>
+		<label>
+			<span>System prompt <span class="muted">(optional)</span></span>
+			<textarea data-bind="ai_system_prompt" rows="3" placeholder="You are a helpful assistant for this community."></textarea>
+		</label>
+		<label>
+			<span>API key <span class="muted">(for hosted providers; leave blank for Ollama)</span></span>
+			<input type="password" data-bind="ai_api_key" placeholder={ agentKeyPlaceholder(c.APIKeySet) } autocomplete="off"/>
+		</label>
+		<label class="agent-config-toggle">
+			<input type="checkbox" data-bind="ai_enabled"/>
+			<span>Enable the Agent for this community</span>
+		</label>
+		<div class="agent-config-actions">
+			<button type="button" class="agent-send" data-on:click={ "@post('/c/" + slug + "/admin/ai')" }>Save</button>
+			if status != "" {
+				<span class="agent-config-status">{ status }</span>
+			}
+		</div>
+	</div>
+}
+
+func agentKeyPlaceholder(set bool) string {
+	if set {
+		return "•••••••• (stored — leave blank to keep)"
+	}
+	return "not set"
+}
+
+// agentConfigSignals seeds the form fields. The API key is intentionally NOT
+// seeded — the stored secret is never sent to the browser.
+func agentConfigSignals(c AgentConfigView) string {
+	enabled := "false"
+	if c.Enabled {
+		enabled = "true"
+	}
+	prov := c.Provider
+	if prov == "" {
+		prov = "ollama"
+	}
+	return `{"ai_provider":` + strconv.Quote(prov) +
+		`,"ai_base_url":` + strconv.Quote(c.BaseURL) +
+		`,"ai_model":` + strconv.Quote(c.Model) +
+		`,"ai_system_prompt":` + strconv.Quote(c.SystemPrompt) +
+		`,"ai_api_key":"","ai_enabled":` + enabled + `}`
+}
