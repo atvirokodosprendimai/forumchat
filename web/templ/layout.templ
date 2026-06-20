@@ -181,6 +181,9 @@ const InitialSignals = `{
 	"avatar_url":"",
 	"subject":"",
 	"body":"",
+	"q":"",
+	"search_q":"",
+	"search_idx":0,
 	"quoted_post_id":"",
 	"_reply_quote_label":"",
 	"reply_to_id":"",
@@ -372,6 +375,7 @@ templ Layout(title string, v Viewer) {
 						if v.CommunitySlug != "" {
 							<h3 class="sidebar-group">{ v.CommunityName }</h3>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
+							<a href={ templ.URL("/c/" + v.CommunitySlug + "/search") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/search") }><span class="sb-icon" aria-hidden="true">🔍</span>Search</a>
 							if AIEnabled {
 								<a href={ templ.URL("/c/" + v.CommunitySlug + "/agent") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/agent") }><span class="sb-icon" aria-hidden="true">🤖</span>Agent</a>
 							}

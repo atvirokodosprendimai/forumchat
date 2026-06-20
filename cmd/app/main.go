@@ -46,6 +46,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/rag"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
+	"github.com/atvirokodosprendimai/forumchat/internal/search"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 	"github.com/atvirokodosprendimai/forumchat/internal/superadmin"
 	"github.com/atvirokodosprendimai/forumchat/internal/timebudget"
@@ -908,6 +909,42 @@ func run() error {
 		Log:           log,
 	}
 
+	// Search — fuses the full-text (search_fts) and semantic (rag) indexes with
+	// Reciprocal Rank Fusion. Full-text always works; the semantic side is wired
+	// only when RAG is enabled (otherwise the closure stays nil and Search
+	// degrades to plain full-text ranking). Maps rag.Hit → search.Hit so the
+	// search package never imports rag.
+	searchSvc := &search.Service{DB: db}
+	if ragSvc != nil {
+		searchSvc.Semantic = func(ctx context.Context, communityID, query string, limit int) ([]search.Hit, error) {
+			hits, err := ragSvc.Search(ctx, communityID, query, limit)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]search.Hit, 0, len(hits))
+			for _, h := range hits {
+				out = append(out, search.Hit{Kind: h.Kind, RefID: h.RefID, Title: h.Title, Snippet: h.Snippet, CreatedAt: h.CreatedAt})
+			}
+			return out, nil
+		}
+	}
+	searchHandler := &search.Handler{
+		Svc:           searchSvc,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		Log:           log,
+	}
+	// /search chat slash command — reuses the fused search, rendered as an
+	// ephemeral panel for the sender. Closure keeps chat decoupled from search.
+	chatHandler.Search = func(ctx context.Context, communityID, slug, query string, limit int) []webtempl.SearchResultView {
+		results, err := searchSvc.Search(ctx, communityID, slug, query, limit)
+		if err != nil {
+			log.Error("chat /search", "err", err)
+			return nil
+		}
+		return search.Views(results)
+	}
+
 	pmRepo := privatemsg.NewRepo(db)
 	pmBus := privatemsg.NewBus()
 	pmSvc := &privatemsg.Service{Repo: pmRepo, Bus: pmBus}
@@ -1003,6 +1040,7 @@ func run() error {
 		r.Get("/chat/{channel}", chatHandler.GetPage)
 		r.Get("/chat/{channel}/stream", chatHandler.GetStream)
 		r.Post("/chat/{channel}/send", chatHandler.PostSend)
+		r.Post("/chat/{channel}/search/publish", chatHandler.PostSearchPublish)
 		r.Post("/chat/{channel}/read", chatHandler.PostMarkRead)
 		r.Post("/block", chatHandler.PostBlock)
 		r.Post("/unblock", chatHandler.PostUnblock)
@@ -1047,6 +1085,9 @@ func run() error {
 		r.Post("/bookmarks/delete", bookmarksHandler.PostDelete)
 
 		r.Get("/history", historyHandler.GetIndex)
+
+		r.Get("/search", searchHandler.GetIndex)
+		r.Get("/search/results", searchHandler.GetResults)
 
 		r.Get("/todos", todosHandler.GetIndex)
 		r.Post("/todos", todosHandler.PostCreate)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"html"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -60,6 +61,11 @@ type Handler struct {
 	// agent in a new public thread and post the result (+ thread link) back to
 	// the channel. Wired in main.go; nil when AI is disabled.
 	Prompt func(ctx context.Context, communityID, channelID, requesterID, requesterName, prompt string)
+	// Search runs the /search slash command: fused full-text + semantic search,
+	// returning up to limit result views for the sender's ephemeral panel. Unlike
+	// /resume and /prompt it is NOT posted to the channel — results are personal,
+	// shown only to the sender. Wired in main.go; nil when search is unavailable.
+	Search func(ctx context.Context, communityID, slug, query string, limit int) []webtempl.SearchResultView
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -358,6 +364,112 @@ func (h *Handler) broadcastNewMsg(ctx context.Context, channelID string) {
 	if h.NATS != nil && h.NATS.IsConnected() {
 		_ = h.NATS.Publish(natsx.ChatNewSubject(h.cid(ctx)), []byte("new"))
 	}
+}
+
+// PostSearchPublish publishes result(s) from the sender's ephemeral /search
+// panel into the channel as a clickable system message everyone can see. The
+// `search_idx` signal selects one result (>=0) or all of them (<0); the search
+// is re-run server-side from the `search_q` signal so the message links are
+// authoritative, not client-supplied.
+func (h *Handler) PostSearchPublish(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok || h.Search == nil {
+		return
+	}
+	var in struct {
+		Query string `json:"search_q"`
+		Idx   int    `json:"search_idx"`
+	}
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	query := strings.TrimSpace(in.Query)
+	if query == "" {
+		return
+	}
+	ch, err := h.activeChannel(r.Context(), channelSlug(r))
+	if err != nil || ch.IsArchived() {
+		return
+	}
+	views := h.Search(r.Context(), h.cid(r.Context()), h.cslug(r.Context()), query, 6)
+	if len(views) == 0 {
+		return
+	}
+
+	name := id.Membership.DisplayName
+	var body string
+	if in.Idx >= 0 {
+		if in.Idx >= len(views) {
+			return
+		}
+		body = publishSearchHTML(name, query, views[in.Idx:in.Idx+1])
+	} else {
+		body = publishSearchHTML(name, query, views)
+	}
+	if _, err := h.Svc.PostSystemHTMLToChannel(r.Context(), h.cid(r.Context()), ch.ID, body); err != nil {
+		h.Log.Error("search publish", "err", err)
+		return
+	}
+	h.broadcastNewMsg(r.Context(), ch.ID)
+
+	sse := render.NewSSE(w, r)
+	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+	if msgs, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); err == nil {
+		_ = fatMorph(sse, msgs, isMod, id.User.ID, name, h.cslug(r.Context()), ch.Slug)
+	}
+}
+
+// publishSearchHTML renders a system-message body as TRUSTED HTML: a header
+// crediting the sharer plus one real anchor per result. We build HTML directly
+// (not markdown) because the user-markdown pipeline's "no hidden URLs" rewrite
+// would strip our friendly link labels down to bare, non-clickable paths. All
+// user-derived text (name, query, label) is HTML-escaped; the URLs are
+// internally built by the search link resolver. Single- and all-result share
+// use the same shape (the caller slices to one).
+func publishSearchHTML(name, query string, views []webtempl.SearchResultView) string {
+	var b strings.Builder
+	b.WriteString("🔎 <strong>")
+	b.WriteString(html.EscapeString(name))
+	b.WriteString("</strong> shared ")
+	if len(views) == 1 {
+		b.WriteString("a result")
+	} else {
+		b.WriteString("search results")
+	}
+	b.WriteString(" for “")
+	b.WriteString(html.EscapeString(query))
+	b.WriteString("”:<ul class=\"chat-search-shared\">")
+	for _, v := range views {
+		b.WriteString("<li><a href=\"")
+		b.WriteString(html.EscapeString(v.URL))
+		b.WriteString("\">")
+		b.WriteString(html.EscapeString(publishLinkText(v)))
+		b.WriteString("</a></li>")
+	}
+	b.WriteString("</ul>")
+	return b.String()
+}
+
+// publishLinkText is the link label — the result title, or a kind-aware fallback
+// when the hit is a bodied row without a subject (mirrors webtempl.searchResultTitle).
+func publishLinkText(v webtempl.SearchResultView) string {
+	if t := strings.TrimSpace(v.Title); t != "" {
+		return t
+	}
+	switch v.Kind {
+	case "chat":
+		return "Chat message"
+	case "post":
+		return "Forum reply"
+	case "issue_comment":
+		return "Issue comment"
+	case "discussion_reply":
+		return "Discussion reply"
+	case "ai":
+		return "Agent message"
+	}
+	return "Result"
 }
 
 func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
@@ -689,6 +801,24 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		if views, err := h.loadRecentFor(r.Context(), chID, rid); err == nil {
 			_ = fatMorph(sse, views, isMod, rid, rname, h.cslug(r.Context()), ch.Slug)
 		}
+		return
+	}
+	// /search <query> — fused full-text + semantic search. Renders an ephemeral
+	// results panel for the SENDER only: not stored as a message, not broadcast
+	// (search results are personal — posting them would spam the channel).
+	if h.Search != nil && isSlashCommand(body, "search") {
+		query := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body), "/search"))
+		_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
+		if query == "" {
+			return
+		}
+		views := h.Search(r.Context(), h.cid(r.Context()), h.cslug(r.Context()), query, 6)
+		// Stash the query in a signal so the panel's share buttons can re-run it
+		// server-side on publish (JSON avoids any URL-escaping pitfalls).
+		if payload, err := json.Marshal(map[string]string{"search_q": query}); err == nil {
+			_ = sse.PatchSignals(payload)
+		}
+		_ = sse.PatchElementTempl(webtempl.ChatSearchResults(h.cslug(r.Context()), ch.Slug, query, views))
 		return
 	}
 	if _, err := h.Svc.Send(r.Context(), SendInput{

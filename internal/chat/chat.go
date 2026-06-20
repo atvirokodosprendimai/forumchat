@@ -994,6 +994,28 @@ func (s *Service) PostSystemMarkdown(ctx context.Context, communityID, channelID
 	return m, nil
 }
 
+// PostSystemHTMLToChannel inserts a system message with pre-rendered, TRUSTED
+// bodyHTML into a SPECIFIC channel (PostSystem always lands in #general). The
+// caller is responsible for escaping any user-derived text — nothing here runs
+// the markdown sanitizer. Used by the /search publish action, whose friendly
+// link labels would be stripped by the user-markdown "no hidden URLs" rewrite
+// if routed through PostSystemMarkdown.
+func (s *Service) PostSystemHTMLToChannel(ctx context.Context, communityID, channelID, bodyHTML string) (Message, error) {
+	m := Message{
+		ID:           uuid.NewString(),
+		CommunityID:  communityID,
+		ChannelID:    channelID,
+		Kind:         KindSystem,
+		BodyMarkdown: bodyHTML, // body_md = body_html for system messages (pre-rendered)
+		BodyHTML:     bodyHTML,
+		CreatedAt:    time.Now(),
+	}
+	if err := s.Repo.Insert(ctx, m); err != nil {
+		return Message{}, fmt.Errorf("insert system message: %w", err)
+	}
+	return m, nil
+}
+
 func (s *Service) PostSystem(ctx context.Context, communityID, bodyHTML string, kind Kind, refThreadID *string) (Message, error) {
 	m := Message{
 		ID:           uuid.NewString(),
