@@ -64,6 +64,14 @@ templ AdminPage(d AdminPageData) {
 				</section>
 			}
 
+			if MailboxEnabled {
+				<section class="card narrow">
+					<h2>Mail filters</h2>
+					<p class="muted">Route inbound email into this community — rules match the sender address and post matching mail to the inbox.</p>
+					<a class="button" href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin/mail-filters") }>Manage mail filters →</a>
+				</section>
+			}
+
 			if RAGEnabled {
 				<section class="card narrow">
 					<h2>Semantic index</h2>

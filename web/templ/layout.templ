@@ -80,16 +80,6 @@ func navActive(ctx context.Context, href string) string {
 	return "false"
 }
 
-// navActiveExcept is navActive for href, but yields to a more specific
-// sibling: it returns "false" when deeper also matches, so a parent link
-// (e.g. .../admin) doesn't light up on a child page (.../admin/mail-filters).
-func navActiveExcept(ctx context.Context, href, deeper string) string {
-	if navActive(ctx, deeper) == "page" {
-		return "false"
-	}
-	return navActive(ctx, href)
-}
-
 type Viewer struct {
 	IsAuthed      bool
 	DisplayName   string
@@ -399,13 +389,7 @@ templ Layout(title string, v Viewer) {
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
 							<a href={ templ.URL("/c/" + v.CommunitySlug + "/notifications") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/notifications") }><span class="sb-icon" aria-hidden="true">🔔</span>Notifications</a>
 							if v.Role == "admin" {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") } aria-current={ navActiveExcept(ctx, "/c/"+v.CommunitySlug+"/admin", "/c/"+v.CommunitySlug+"/admin/mail-filters") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
-								if MailboxEnabled {
-									<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin/mail-filters") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin/mail-filters") }><span class="sb-icon" aria-hidden="true">✉</span>Mail filters</a>
-								}
-								if AIEnabled {
-									<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin/ai") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin/ai") }><span class="sb-icon" aria-hidden="true">🤖</span>AI</a>
-								}
+								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
 							}
 						}
 						<a href="/profile" class="sidebar-profile">
