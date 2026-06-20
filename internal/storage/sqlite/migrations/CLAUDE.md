@@ -7,9 +7,19 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
-| #3719 | 3:37 PM | ✅ | Created migration for project discussions feature with dual-identity threading | ~778 |
-| #3645 | 2:56 PM | 🔴 | Project issues schema with guest collaboration support | ~568 |
-| #3615 | 2:39 PM | ✅ | Committed Phase 8 documentation updates for projects feature | ~313 |
-| #3518 | 2:20 PM | 🟣 | Completed Phase 1 of projects feature with flag, schema, and empty index | ~451 |
-| #3498 | 2:15 PM | 🟣 | Created database schema migration for collaborative projects feature | ~474 |
+| #3220 | 10:01 AM | 🟣 | Database migration for public/private community visibility | ~373 |
+
+### Jun 17, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #4885 | 4:09 PM | 🟣 | Chat read receipts database table created | ~334 |
+
+### Jun 18, 2026
+
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #5125 | 4:14 PM | 🔵 | Registration & invite system architecture mapped for open registration feature | ~792 |
+| #5076 | 11:21 AM | 🟣 | Database migration 00032 created for chat channels schema | ~497 |
+| #5074 | " | 🟣 | Database migration 00032 created for chat channels schema | ~576 |
 </claude-mem-context>

@@ -50,6 +50,12 @@ type Handler struct {
 	// nil → no projects → mod button rendered but the dropdown is
 	// empty (which is fine — modal Save is gated on a non-empty pick).
 	ListProjects func(ctx context.Context, communityID string) []webtempl.ChatProjectView
+	// Resume runs the /resume slash command: summarise the channel's recent
+	// history with an agent (in a public agent thread) and post the result back
+	// into the channel. Wired in main.go to bridge chat → agent → chat without
+	// an import cycle. Fire-and-forget (handles its own errors/posting). nil
+	// when the Agent feature is disabled — the command is then ignored.
+	Resume func(ctx context.Context, communityID, channelID, requesterID, requesterName string)
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -127,6 +133,13 @@ func (h *Handler) activeChannel(ctx context.Context, slug string) (Channel, erro
 // channelSlug pulls the {channel} route param (empty when the route has
 // none — e.g. the legacy /chat path that lands on #general).
 func channelSlug(r *http.Request) string { return chi.URLParam(r, "channel") }
+
+// isSlashCommand reports whether body is the slash command /<cmd>, alone or
+// followed by arguments.
+func isSlashCommand(body, cmd string) bool {
+	b := strings.ToLower(strings.TrimSpace(body))
+	return b == "/"+cmd || strings.HasPrefix(b, "/"+cmd+" ")
+}
 
 // loadRecentFor returns the latest N views for channelID, attaches the
 // read-receipt list to the viewer's most recent own user message, and
@@ -614,6 +627,33 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if ch.IsArchived() {
 		return // archived channels are read-only
+	}
+	// Slash commands. /resume summarises the channel's recent history with an
+	// agent and posts the result back — handled out-of-band, NOT stored as a
+	// chat message. Only when the Agent feature wired the bridge.
+	if h.Resume != nil && isSlashCommand(body, "resume") {
+		cid := h.cid(r.Context())
+		chID := ch.ID
+		rid := id.User.ID
+		rname := id.Membership.DisplayName
+		_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
+		// Run detached (context.Background) so it still posts + broadcasts to
+		// other viewers even if the client disconnects, but wait here to
+		// re-render the channel for the SENDER through THIS response. datastar
+		// tears the persistent chat stream down on a post, so — exactly like a
+		// normal send — the sender's own view must come back via the @post, not
+		// the stream (which won't be alive when the async recap lands).
+		done := make(chan struct{})
+		go func() { h.Resume(context.Background(), cid, chID, rid, rname); close(done) }()
+		select {
+		case <-done:
+		case <-r.Context().Done():
+			return
+		}
+		if views, err := h.loadRecentFor(r.Context(), chID, rid); err == nil {
+			_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), rid, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
+		}
+		return
 	}
 	if _, err := h.Svc.Send(r.Context(), SendInput{
 		CommunityID:   h.cid(r.Context()),

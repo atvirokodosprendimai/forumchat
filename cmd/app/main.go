@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -516,6 +517,64 @@ func run() error {
 			out = append(out, webtempl.ChatProjectView{ID: p.ID, Name: p.Title})
 		}
 		return out
+	}
+
+	// Wire the /resume chat slash command: summarise the channel's last 300
+	// messages with an agent (in a public agent thread) and post the recap
+	// back. Closure bridges chat → agent → chat without an import cycle. Only
+	// when the Agent feature is on.
+	if cfg.AIEnabled {
+		chatHandler.Resume = func(ctx context.Context, communityID, channelID, requesterID, requesterName string) {
+			ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+			defer cancel()
+
+			// Posts the recap as a system ("yellow") message into the channel,
+			// authored by no one — not the requester.
+			post := func(body string) {
+				if _, err := chatSvc.PostSystemMarkdown(ctx, communityID, channelID, body); err != nil {
+					log.Warn("resume: post back", "err", err)
+					return
+				}
+				chatBus.Broadcast(channelID)
+				chatNewMsgBus.Broadcast(channelID)
+				if nc != nil && nc.IsConnected() {
+					_ = nc.Publish(natsx.ChatSubject(communityID), []byte(channelID))
+					_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+				}
+			}
+
+			agents, _ := agentRepo.ListEnabledAgents(ctx, communityID)
+			if len(agents) == 0 {
+				post("🤖 No AI agent is enabled — an admin can add one in Admin → AI.")
+				return
+			}
+			convo := formatChatForResume(chatRepo, ctx, channelID)
+			if strings.TrimSpace(convo) == "" {
+				post("🤖 Nothing to resume yet.")
+				return
+			}
+			chName := "this channel"
+			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
+				chName = "#" + ch.Name
+			}
+			prompt := "Summarise this chat conversation from " + chName + ". Give a concise recap as short bullet points: key topics, any decisions, and open questions.\n\n" + convo
+			threadID, answer, err := agentHandler.Svc.SummarizeToThread(ctx, communityID, requesterID, agents[0], "Resume of "+chName, prompt)
+			if err != nil || strings.TrimSpace(answer) == "" {
+				log.Warn("resume: generate", "err", err)
+				post("🤖 Couldn't generate a resume right now.")
+				return
+			}
+			// Build the header (with the thread link) FIRST, then the answer.
+			// The link must precede the answer: an LLM reply can end with a
+			// dangling/unclosed code fence that would otherwise swallow a
+			// trailing link and render it as a literal URL.
+			header := "🤖 **Resume of the last 300 messages** _(requested by " + requesterName + ")_"
+			if c, err := cRepo.ByID(ctx, communityID); err == nil && threadID != "" {
+				base := strings.TrimRight(cfg.BaseURL, "/")
+				header += " · [↗ View in Agent thread](" + base + "/c/" + c.Slug + "/agent/" + threadID + ")"
+			}
+			post(header + "\n\n" + answer)
+		}
 	}
 
 	// ----- Lobbies (guest access) ------------------------------------------
@@ -1140,4 +1199,39 @@ func newCompressor() *middleware.Compressor {
 		})
 	})
 	return c
+}
+
+// formatChatForResume renders a channel's most recent messages oldest-first as
+// "Name: text" lines for the /resume agent prompt. Caps the length so the
+// prompt stays within model context, keeping the most recent messages.
+func formatChatForResume(repo *chat.Repo, ctx context.Context, channelID string) string {
+	msgs, err := repo.Recent(ctx, channelID, 300)
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	for i := len(msgs) - 1; i >= 0; i-- { // Recent is newest-first → emit oldest-first
+		m := msgs[i]
+		if m.DeletedAt != nil {
+			continue
+		}
+		body := strings.TrimSpace(m.BodyMarkdown)
+		if body == "" {
+			continue
+		}
+		name := strings.TrimSpace(m.AuthorName)
+		if name == "" {
+			name = "User"
+		}
+		b.WriteString(name)
+		b.WriteString(": ")
+		b.WriteString(body)
+		b.WriteByte('\n')
+	}
+	s := b.String()
+	const maxChars = 16000
+	if len(s) > maxChars {
+		s = "…(earlier messages truncated)…\n" + s[len(s)-maxChars:]
+	}
+	return s
 }

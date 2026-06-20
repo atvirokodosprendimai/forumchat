@@ -145,6 +145,58 @@ func (s *Service) Regenerate(ctx context.Context, threadID string) (assistantID 
 	return target.ID, buildHistory(msgs[:lastIdx]), nil
 }
 
+// SummarizeToThread creates a SHARED agent thread seeded with prompt, runs the
+// agent to completion SYNCHRONOUSLY (no streaming runner), stores the answer,
+// and returns the thread id + answer text. Used by the chat /resume slash
+// command — the caller posts the answer back into the channel. Images never
+// apply here (chat history is text), so this is provider-agnostic.
+func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID string, a Agent, title, prompt string) (threadID, answer string, err error) {
+	now := nowUnix()
+	t := Thread{
+		ID: uuid.NewString(), CommunityID: communityID, UserID: userID, AgentID: a.ID,
+		Visibility: VisibilityShared, Title: title, Model: a.Model, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := s.Repo.CreateThread(ctx, t); err != nil {
+		return "", "", err
+	}
+	userHTML, _ := render.RenderMarkdown(prompt)
+	if err := s.Repo.InsertMessage(ctx, Message{
+		ID: uuid.NewString(), ThreadID: t.ID, Role: RoleUser, AuthorID: userID,
+		BodyMD: prompt, BodyHTML: userHTML, Status: StatusDone, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		return "", "", err
+	}
+
+	prov, err := newProvider(a)
+	if err != nil {
+		return "", "", err
+	}
+	msgs := make([]ChatMessage, 0, 2)
+	if sp := strings.TrimSpace(a.SystemPrompt); sp != "" {
+		msgs = append(msgs, ChatMessage{Role: RoleSystem, Content: sp})
+	}
+	msgs = append(msgs, ChatMessage{Role: RoleUser, Content: prompt})
+
+	var sb strings.Builder
+	if err := prov.Stream(ctx, a.Model, msgs, func(d string) error {
+		sb.WriteString(d)
+		return ctx.Err()
+	}); err != nil {
+		return "", "", err
+	}
+	answer = strings.TrimSpace(sb.String())
+
+	asstHTML, _ := render.RenderMarkdown(answer)
+	if err := s.Repo.InsertMessage(ctx, Message{
+		ID: uuid.NewString(), ThreadID: t.ID, Role: RoleAssistant,
+		BodyMD: answer, BodyHTML: asstHTML, Status: StatusDone, CreatedAt: now + 1, UpdatedAt: now + 1,
+	}); err != nil {
+		return "", "", err
+	}
+	_ = s.Repo.TouchThread(ctx, t.ID)
+	return t.ID, answer, nil
+}
+
 // buildHistory maps stored turns into the provider's message list: user/system
 // turns verbatim (carrying any attached images), assistant turns only when
 // cleanly completed (a half-streamed or errored answer is poor context).

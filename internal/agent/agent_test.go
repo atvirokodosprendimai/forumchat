@@ -152,6 +152,30 @@ func TestSwitchThreadAgent(t *testing.T) {
 	}
 }
 
+func TestSummarizeToThread(t *testing.T) {
+	t.Parallel()
+	repo, svc, cid, uid := env(t)
+	ctx := context.Background()
+	srv := stubOllama(t, nil, "Recap: ", "all good.")
+	a := mkAgent(t, svc, cid, func(a *agent.Agent) { a.BaseURL = srv.URL })
+
+	tid, answer, err := svc.SummarizeToThread(ctx, cid, uid, a, "Resume of #general", "summarise: hello world")
+	if err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	if answer != "Recap: all good." {
+		t.Fatalf("answer = %q", answer)
+	}
+	th, _ := repo.ThreadByID(ctx, tid)
+	if th.Visibility != agent.VisibilityShared {
+		t.Fatalf("want shared thread, got %q", th.Visibility)
+	}
+	msgs, _ := repo.Messages(ctx, tid)
+	if len(msgs) != 2 || msgs[1].Role != agent.RoleAssistant || msgs[1].BodyMD != "Recap: all good." {
+		t.Fatalf("messages wrong: %+v", msgs)
+	}
+}
+
 func TestListThreadsVisibility(t *testing.T) {
 	t.Parallel()
 	repo, svc, cid, uid := env(t)
