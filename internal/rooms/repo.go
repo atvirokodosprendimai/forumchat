@@ -281,3 +281,38 @@ func (r *Repo) RevokeInvite(ctx context.Context, token string, now time.Time) er
 		now.UnixMilli(), token)
 	return err
 }
+
+// RevokeAllInvites revokes every still-active invite for a room in one
+// statement. Used by the empty-room reset so stale share-links can't be
+// reused for the next session.
+func (r *Repo) RevokeAllInvites(ctx context.Context, roomID string, now time.Time) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE room_invites SET revoked_at = ? WHERE room_id = ? AND revoked_at IS NULL`,
+		now.UnixMilli(), roomID)
+	return err
+}
+
+// ArchiveChat moves a room's live chat into room_chat_archive, then clears
+// the live rows — leaving the next session a blank chat while the prior
+// conversation is retained. Runs as one transaction so a viewer can never
+// observe a half-archived chat.
+func (r *Repo) ArchiveChat(ctx context.Context, roomID string, now time.Time) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO room_chat_archive
+		  (id, room_id, community_id, author_user_id, author_name, body, body_html, created_at, archived_at)
+		SELECT id, room_id, community_id, author_user_id, author_name, body, body_html, created_at, ?
+		FROM room_chat WHERE room_id = ?`,
+		now.UnixMilli(), roomID); err != nil {
+		return fmt.Errorf("archive room_chat: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM room_chat WHERE room_id = ?`, roomID); err != nil {
+		return fmt.Errorf("clear room_chat: %w", err)
+	}
+	return tx.Commit()
+}

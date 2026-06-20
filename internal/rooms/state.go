@@ -29,6 +29,7 @@ type State struct {
 	mu       sync.Mutex
 	rooms    map[string]*liveRoom
 	onChange func(roomID string)
+	onEmpty  func(roomID string)
 }
 
 func NewState() *State {
@@ -61,11 +62,13 @@ func (s *State) Touch(roomID, key string, now time.Time) {
 }
 
 // SweepStale evicts members whose last-seen ping is older than staleAfter.
-// Returns the rooms whose presence changed (caller publishes events).
-func (s *State) SweepStale(now time.Time) []string {
+// Returns the rooms whose presence changed and, separately, the rooms that
+// became empty as a result (no members and no pending). Emptied rooms are
+// NOT included in `changed` — the caller resets them, which publishes its
+// own presence event, so a duplicate would be redundant.
+func (s *State) SweepStale(now time.Time) (changed, emptied []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var changed []string
 	for roomID, r := range s.rooms {
 		dirty := false
 		for key, id := range r.Members {
@@ -98,11 +101,19 @@ func (s *State) SweepStale(now time.Time) []string {
 			}
 			_ = id // satisfy linter
 		}
-		if dirty {
+		if !dirty {
+			continue
+		}
+		if len(r.Members) == 0 && len(r.Pending) == 0 {
+			// Last live participant evicted — tear down so a later Snapshot
+			// returns clean state, and flag for the empty-room reset.
+			r.Admin = ""
+			emptied = append(emptied, roomID)
+		} else {
 			changed = append(changed, roomID)
 		}
 	}
-	return changed
+	return changed, emptied
 }
 
 // RunJanitor periodically sweeps stale members. Stops when ctx is done.
@@ -116,12 +127,18 @@ func (s *State) RunJanitor(ctx context.Context, log *slog.Logger) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			changed := s.SweepStale(time.Now().UTC())
+			changed, emptied := s.SweepStale(time.Now().UTC())
 			for _, rid := range changed {
 				if log != nil {
 					log.Info("rooms janitor evicted stale members", "room", rid)
 				}
 				s.janitorNotify(rid)
+			}
+			for _, rid := range emptied {
+				if log != nil {
+					log.Info("rooms janitor reset emptied room", "room", rid)
+				}
+				s.emptyNotify(rid)
 			}
 		}
 	}
@@ -140,6 +157,26 @@ func (s *State) janitorNotify(roomID string) {
 func (s *State) OnChange(fn func(roomID string)) {
 	s.mu.Lock()
 	s.onChange = fn
+	s.mu.Unlock()
+}
+
+// emptyNotify fires the onEmpty callback for a room the janitor just emptied.
+// Read under the lock so it can't race OnEmpty installation at boot.
+func (s *State) emptyNotify(roomID string) {
+	s.mu.Lock()
+	fn := s.onEmpty
+	s.mu.Unlock()
+	if fn != nil {
+		fn(roomID)
+	}
+}
+
+// OnEmpty installs the callback the janitor calls when it evicts the last
+// participant from a room. Service wires resetRoom here so a room whose tab
+// just closed without a clean /leave still returns to default state.
+func (s *State) OnEmpty(fn func(roomID string)) {
+	s.mu.Lock()
+	s.onEmpty = fn
 	s.mu.Unlock()
 }
 

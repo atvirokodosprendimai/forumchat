@@ -37,6 +37,12 @@ func NewService(repo *Repo, bus *Bus, state *State) *Service {
 	state.OnChange(func(roomID string) {
 		bus.PublishRoom(roomID, Event{Kind: "presence"})
 	})
+	// Janitor calls this when it evicts the LAST participant — the common
+	// "everyone closed their tab" path. Reset the room to default state.
+	// Background context: the janitor outlives any one request.
+	state.OnEmpty(func(roomID string) {
+		s.resetRoom(context.Background(), roomID)
+	})
 	return s
 }
 
@@ -159,7 +165,9 @@ func (s *Service) Decline(ctx context.Context, roomID, byKey, targetKey string) 
 func (s *Service) Leave(ctx context.Context, roomID, key string) error {
 	newAdmin, empty := s.State.Leave(roomID, key)
 	if empty {
-		_ = s.Repo.SetAdmin(ctx, roomID, "", time.Now().UTC())
+		// Last participant left cleanly: restore the room to its seeded
+		// default (private, no admin, invites revoked, chat archived).
+		s.resetRoom(ctx, roomID)
 	} else if newAdmin != "" {
 		// newAdmin is a participant key — convert to user id for persistence.
 		// auth keys are "u:<userID>"; guests can't be admin.
@@ -173,6 +181,30 @@ func (s *Service) Leave(ctx context.Context, roomID, key string) error {
 	// their next join against a closed RTCPeerConnection — drop them.
 	s.Bus.ClearSignalQueue(roomID, key)
 	return nil
+}
+
+// resetRoom returns an emptied room to its seeded default state: private, no
+// admin, all invites revoked, chat archived. Idempotent — safe to call on a
+// room that is already in default state (every step is a no-op then). Runs
+// from two paths: a clean Service.Leave when the last member leaves, and the
+// janitor's onEmpty callback when the last stale member is evicted (the
+// common real case, since browsers close tabs rather than POST /leave).
+//
+// Best-effort: each step is independent and a failure in one must not block
+// the others, so errors are swallowed (matching the rest of this file). The
+// in-memory live state was already torn down by State.Leave / SweepStale
+// before this runs.
+func (s *Service) resetRoom(ctx context.Context, roomID string) {
+	now := time.Now().UTC()
+	_ = s.Repo.SetAdmin(ctx, roomID, "", now)
+	_ = s.Repo.SetPublic(ctx, roomID, false, now)
+	_ = s.Repo.RevokeAllInvites(ctx, roomID, now)
+	_ = s.Repo.ArchiveChat(ctx, roomID, now)
+	// Nudge any lingering SSE stream (e.g. an admin panel left open in a
+	// background tab) so it re-renders the now-default room.
+	s.Bus.PublishRoom(roomID, Event{Kind: "meta"})
+	s.Bus.PublishRoom(roomID, Event{Kind: "chat"})
+	s.Bus.PublishRoom(roomID, Event{Kind: "presence"})
 }
 
 func (s *Service) Promote(ctx context.Context, roomID, byKey, targetKey string) error {
