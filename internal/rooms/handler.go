@@ -41,6 +41,7 @@ type Handler struct {
 	Sessions   *scs.SessionManager
 	Log        *slog.Logger
 	IceServers []ICEServer // optional STUN/TURN config; client-side passes to RTCPeerConnection
+	ForceRelay bool        // when true, client sets iceTransportPolicy='relay' (TURN-only)
 
 	// ChatSvc + ChatRepo + ChatBus are optional. When wired, "Share to
 	// chat" inserts a join-link message into the admin's community common
@@ -279,6 +280,7 @@ func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
 		VideoCapHit:    snap.MemberCount > VideoCap,
 		HasIceServers:  len(h.IceServers) > 0,
 		IceServersJSON: iceJSON,
+		ForceRelay:     h.ForceRelay,
 	}
 	_ = webtempl.RoomPage(data).Render(r.Context(), w)
 }

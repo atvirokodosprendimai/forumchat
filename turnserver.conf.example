@@ -1,0 +1,48 @@
+# coturn config for forumchat /rooms — copy to turnserver.conf and edit.
+#
+# 90% of "TURN is set but video still fails across networks" bugs are ONE of
+# the two CRITICAL lines below: a missing/wrong external-ip, or a relay UDP
+# port range that the firewall/security-group hasn't opened. Fix those first.
+
+# --- listeners ---------------------------------------------------------------
+listening-port=3478
+tls-listening-port=5349
+# Bind all interfaces (host networking). Leave default unless multi-homed.
+
+# --- CRITICAL #1: the PUBLIC ip clients must reach -------------------------
+# Without this coturn allocates the relay on its private / Docker / LAN ip and
+# advertises THAT as the relay candidate — so the candidate gathers fine but
+# media is sent to an unreachable address and nothing arrives. Set it to the
+# server's public IPv4. If behind 1:1 NAT use external-ip=PUBLIC/PRIVATE.
+external-ip=YOUR.PUBLIC.IP.HERE
+
+# --- CRITICAL #2: relay port range — MUST be open in the firewall (UDP) -----
+# coturn allocates each relay on an ephemeral UDP port in this range. If the
+# range is closed upstream, ALLOCATE succeeds but media can't traverse.
+min-port=49160
+max-port=49200
+
+# --- auth: long-term credentials (match ROOMS_TURN_USERNAME / _PASSWORD) -----
+lt-cred-mech
+realm=turn.example.com
+user=forumchat:change-me-to-match-ROOMS_TURN_PASSWORD
+# Production alternative: time-limited creds via a shared secret instead of a
+# static user (then the app must mint creds). Static user is fine to start.
+# static-auth-secret=...
+
+# --- TLS for turns:5349 (lets 443-only / UDP-blocking clients connect) -------
+# Point these at a real cert for turn.example.com (e.g. letsencrypt). Without
+# valid TLS the turns: transport is silently unusable; turn: still works.
+cert=/etc/coturn/tls/fullchain.pem
+pkey=/etc/coturn/tls/privkey.pem
+
+# --- hardening ---------------------------------------------------------------
+fingerprint
+no-cli
+no-tlsv1
+no-tlsv1_1
+# Block relaying to internal ranges so the TURN server isn't an SSRF pivot.
+no-multicast-peers
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255

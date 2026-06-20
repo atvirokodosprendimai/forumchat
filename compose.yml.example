@@ -27,6 +27,14 @@ services:
       COMMUNITY_NAME: "The Community"
       PRESENCE_TTL: "30s"
       EDIT_GRACE: "15m"
+      # WebRTC /rooms relay. Same credentialed TURN server, three transports so
+      # guests on UDP-blocking / 443-only networks still connect. Replace the
+      # host with your public TURN hostname and the creds with turnserver.conf's.
+      ROOMS_STUN_URLS: "stun:stun.l.google.com:19302"
+      ROOMS_TURN_URLS: "turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp,turns:turn.example.com:5349?transport=tcp"
+      ROOMS_TURN_USERNAME: "forumchat"
+      ROOMS_TURN_PASSWORD: "change-me-to-match-turnserver.conf"
+      ROOMS_FORCE_RELAY: "false"  # set true only if direct/STUN paths are unreliable; needs a working TURN
     volumes:
       - app-data:/data
       - app-uploads:/uploads
@@ -49,6 +57,22 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+    restart: unless-stopped
+
+  # coturn — WebRTC TURN relay for /rooms. Required for guests behind
+  # symmetric NAT / mobile carriers / firewalls (same-LAN works without it).
+  # network_mode: host is DELIBERATE — coturn hands clients a relay address
+  # and an ephemeral UDP port range; Docker's bridge NAT would rewrite both
+  # and break media. Edit ./turnserver.conf (copy turnserver.conf.example):
+  # set external-ip to this host's PUBLIC ip, and open UDP 3478, TCP 3478,
+  # TCP 5349, and the UDP relay range (min-port..max-port) in your firewall.
+  coturn:
+    image: coturn/coturn:4.6
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+      # mount TLS cert + key here for turns:5349 (e.g. letsencrypt live dir)
+      # - /etc/letsencrypt/live/turn.example.com:/etc/coturn/tls:ro
     restart: unless-stopped
 
 volumes:

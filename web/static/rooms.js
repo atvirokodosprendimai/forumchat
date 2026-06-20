@@ -34,6 +34,17 @@
   if (iceServers.length === 0) {
     iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
   }
+  // Force-relay (iceTransportPolicy:'relay') makes every PC use ONLY the TURN
+  // relay — last resort when direct/STUN paths are unreliable. Requires a
+  // working TURN server or no media flows at all, so honour it only when the
+  // server actually shipped a turn:/turns: entry.
+  const hasTurn = iceServers.some(s => []
+    .concat(s.urls || [])
+    .some(u => /^turns?:/i.test(u)));
+  const forceRelay = root.dataset.forceRelay === 'true' && hasTurn;
+  const pcConfig = forceRelay
+    ? { iceServers, iceTransportPolicy: 'relay' }
+    : { iceServers };
 
   const videoGrid = root.querySelector('[data-video-grid]');
   const stage = root.querySelector('[data-rooms-stage]');
@@ -218,7 +229,7 @@
   function ensurePeer(key, name) {
     let entry = peers.get(key);
     if (entry) return entry;
-    const pc = new RTCPeerConnection({ iceServers });
+    const pc = new RTCPeerConnection(pcConfig);
     const audio = document.createElement('audio');
     audio.autoplay = true;
     audio.style.display = 'none';
@@ -309,6 +320,12 @@
     };
     pc.onicecandidate = (ev) => {
       if (!ev.candidate) return;
+      // Diagnostic: a "typ relay" candidate proves the TURN server granted an
+      // allocation. If you never see this line, TURN is the problem (creds,
+      // external-ip, blocked ports) — not the browser.
+      if (/ typ relay /.test(' ' + ev.candidate.candidate + ' ')) {
+        console.log('[rooms] TURN relay candidate ✓', key);
+      }
       sendSignal(key, 'ice', JSON.stringify(ev.candidate));
     };
     pc.oniceconnectionstatechange = () => {

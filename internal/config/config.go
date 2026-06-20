@@ -63,12 +63,22 @@ type Config struct {
 
 	// WebRTC ICE config for /rooms. Without TURN, guests behind symmetric
 	// NAT (mobile carriers, corporate, CGNAT) cannot establish peer
-	// connections — STUN alone is insufficient. Multiple STUN URLs may be
-	// comma-separated. TURN is a single entry: leave URL empty to omit.
+	// connections — STUN alone is insufficient. STUN and TURN URLs may both
+	// be comma-separated so ONE credentialed TURN server can advertise
+	// several transports (udp 3478, tcp 3478, turns/TLS 5349 for firewalls
+	// that only allow 443). A TURN server WITHOUT username+password rejects
+	// relay allocations (401) and silently falls back to STUN — set both.
+	// ROOMS_TURN_URL (singular) is the deprecated alias merged into URLs.
 	STUNURLs     []string `env:"ROOMS_STUN_URLS" envSeparator:"," envDefault:"stun:stun.l.google.com:19302"`
-	TURNURL      string   `env:"ROOMS_TURN_URL" envDefault:""`
+	TURNURLs     []string `env:"ROOMS_TURN_URLS" envSeparator:","`
+	TURNURL      string   `env:"ROOMS_TURN_URL" envDefault:""` // deprecated: single-URL alias, merged into TURNURLs
 	TURNUsername string   `env:"ROOMS_TURN_USERNAME" envDefault:""`
 	TURNPassword string   `env:"ROOMS_TURN_PASSWORD" envDefault:""`
+	// ForceRelay sets RTCPeerConnection iceTransportPolicy='relay' so peers
+	// only ever use the TURN relay (never host/srflx). Last-resort switch for
+	// networks where direct/STUN paths are unreliable; requires a working
+	// TURN server or media won't flow at all.
+	ForceRelay bool `env:"ROOMS_FORCE_RELAY" envDefault:"false"`
 
 	// Projects feature flag. When false the /c/{slug}/projects routes are
 	// not mounted, the nav link is hidden, and SSE streams are absent.

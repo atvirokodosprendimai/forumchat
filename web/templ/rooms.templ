@@ -68,6 +68,7 @@ type RoomPageData struct {
 	VideoCapHit    bool
 	HasIceServers  bool
 	IceServersJSON string
+	ForceRelay     bool
 }
 
 type GuestJoinPageData struct {
@@ -131,6 +132,7 @@ templ RoomPage(d RoomPageData) {
 			data-am-guest={ boolStr(d.IsGuest) }
 			data-video-cap="8"
 			data-ice-servers={ d.IceServersJSON }
+			data-force-relay={ boolStr(d.ForceRelay) }
 			data-signals={ "{\"_rooms_am_admin\":" + boolStr(d.IsAdmin) + "}" }
 		>
 			<div id="rooms-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/rooms/" + d.RoomID + "/stream', {openWhenHidden: true})" }></div>

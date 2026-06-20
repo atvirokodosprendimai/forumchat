@@ -984,6 +984,7 @@ func run() error {
 		ChatBus:    chatBus,
 		Mailer:     mailer,
 		IceServers: buildIceServers(cfg),
+		ForceRelay: cfg.ForceRelay,
 	}
 	// Seed the bootstrap community's 8 rooms on boot. Other communities
 	// get lazy-seeded on first GET /c/{slug}/rooms.
@@ -1446,25 +1447,37 @@ func clockStream(w http.ResponseWriter, req *http.Request, nc *nats.Conn, log *s
 // handler forwards to RTCPeerConnection. STUN-only is fine for same-LAN
 // peers; symmetric-NAT guests need TURN or the connection silently
 // stalls (no media despite signaling completing).
+//
+// All TURN URLs collapse into ONE credentialed ICEServer entry — the
+// browser tries each transport (udp/tcp/tls) against the same allocation.
+// The deprecated singular ROOMS_TURN_URL is merged in so existing deploys
+// keep working after the move to ROOMS_TURN_URLS.
 func buildIceServers(cfg config.Config) []rooms.ICEServer {
 	var out []rooms.ICEServer
-	if len(cfg.STUNURLs) > 0 {
-		urls := make([]string, 0, len(cfg.STUNURLs))
-		for _, u := range cfg.STUNURLs {
-			if u != "" {
-				urls = append(urls, u)
-			}
-		}
-		if len(urls) > 0 {
-			out = append(out, rooms.ICEServer{URLs: urls})
-		}
+	if urls := nonEmpty(cfg.STUNURLs); len(urls) > 0 {
+		out = append(out, rooms.ICEServer{URLs: urls})
 	}
+	turnURLs := nonEmpty(cfg.TURNURLs)
 	if cfg.TURNURL != "" {
+		turnURLs = append(turnURLs, cfg.TURNURL)
+	}
+	if len(turnURLs) > 0 {
 		out = append(out, rooms.ICEServer{
-			URLs:       []string{cfg.TURNURL},
+			URLs:       turnURLs,
 			Username:   cfg.TURNUsername,
 			Credential: cfg.TURNPassword,
 		})
+	}
+	return out
+}
+
+// nonEmpty returns a copy of in with blank entries dropped.
+func nonEmpty(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s != "" {
+			out = append(out, s)
+		}
 	}
 	return out
 }
