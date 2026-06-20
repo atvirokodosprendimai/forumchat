@@ -1035,6 +1035,11 @@ img.thread-announce-img {
 /* Device picker — popover anchored under the 🎛 button, holds the mic +
    camera dropdowns. */
 .rooms-devices { position: relative; display: inline-flex; }
+/* The author `display:grid` below overrides the UA `[hidden]{display:none}`
+   rule (author origin beats UA regardless of specificity), so the popover
+   would never hide. Restore the hidden state explicitly — `[hidden]` raises
+   specificity over the bare class, so this wins. */
+.rooms-devices-panel[hidden] { display: none; }
 .rooms-ctl-devices.on {
   background: var(--accent-soft);
   color: var(--accent-strong);
