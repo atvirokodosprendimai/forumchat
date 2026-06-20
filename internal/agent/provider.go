@@ -12,29 +12,32 @@ import (
 )
 
 // ChatMessage is one turn handed to a Provider. Role is system|user|assistant.
+// Images are base64-encoded image payloads (no data: prefix) attached to a
+// user turn — Ollama's /api/chat accepts them on the message; omitted when empty.
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string   `json:"role"`
+	Content string   `json:"content"`
+	Images  []string `json:"images,omitempty"`
 }
 
 // Provider streams an assistant completion. Stream calls onDelta for each
 // content chunk as it arrives and returns when the model finishes or ctx is
 // cancelled. Implementations MUST respect ctx and MUST NOT call onDelta after
-// returning. We keep the wire format out of the rest of the package so a
-// Claude/OpenAI provider drops in by implementing this one method.
+// returning. Keeping the wire format here means a Claude/OpenAI provider drops
+// in by implementing this one method.
 type Provider interface {
 	Name() string
 	Stream(ctx context.Context, model string, msgs []ChatMessage, onDelta func(string) error) error
 }
 
-// newProvider selects the Provider for a community Config. Ollama needs no
-// key; the Claude/OpenAI branches land here later, reading cfg.APIKeyEnc.
-func newProvider(cfg Config) (Provider, error) {
-	switch cfg.Provider {
+// newProvider selects the Provider for an agent. Ollama needs no key; the
+// Claude/OpenAI branches land here later, reading a.APIKeyEnc.
+func newProvider(a Agent) (Provider, error) {
+	switch a.Provider {
 	case ProviderOllama, "":
-		return NewOllama(cfg.BaseURL), nil
+		return NewOllama(a.BaseURL), nil
 	default:
-		return nil, fmt.Errorf("%w: %q", ErrBadProvider, cfg.Provider)
+		return nil, fmt.Errorf("%w: %q", ErrBadProvider, a.Provider)
 	}
 }
 

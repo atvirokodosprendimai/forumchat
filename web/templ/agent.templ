@@ -17,7 +17,7 @@ type AgentThreadView struct {
 // AgentMsgView is one rendered turn in the active conversation.
 type AgentMsgView struct {
 	ID          string
-	Role        string // user | assistant | system
+	Role        string
 	BodyHTML    string
 	Status      string
 	Error       string
@@ -29,45 +29,79 @@ type AgentMsgView struct {
 	CanShare    bool
 }
 
-// AgentConfigView is the admin AI-settings form model. The stored API key is
+// AgentOptionView is one selectable agent in the "new chat" picker.
+type AgentOptionView struct {
+	ID     string
+	Name   string
+	Vision bool
+}
+
+// AgentAdminView is one agent in the admin manager. The stored API key is
 // never echoed back — APIKeySet just tells the form whether one exists.
-type AgentConfigView struct {
+type AgentAdminView struct {
+	ID           string
+	Name         string
 	Provider     string
 	BaseURL      string
 	Model        string
 	SystemPrompt string
+	Vision       bool
 	Enabled      bool
 	APIKeySet    bool
 }
 
 // AgentPageData drives the whole /agent page.
 type AgentPageData struct {
-	Viewer     Viewer
-	Slug       string
-	Threads    []AgentThreadView
-	Active     AgentThreadView
-	HasActive  bool
-	Generating bool
-	Messages   []AgentMsgView
-	Channels   []ChannelView // share-to-channel dropdown
-	Configured bool          // community ai_configs.enabled
-	CanShare   bool          // chat wired in
+	Viewer          Viewer
+	Slug            string
+	Threads         []AgentThreadView
+	Active          AgentThreadView
+	HasActive       bool
+	Generating      bool
+	Messages        []AgentMsgView
+	Channels        []ChannelView // share-to-channel dropdown
+	Agents          []AgentOptionView
+	ActiveAgentName string
+	ActiveAgentID   string // active thread's agent (for the header switcher)
+	ActiveVision    bool   // active thread's agent accepts images
+	AnyVision       bool // any enabled agent accepts images (empty-state attach)
+	HasEnabledAgent bool
+	CanShare        bool
 }
 
 // AgentPage is the two-pane Agent surface: conversation list on the left,
 // active thread + composer on the right.
 templ AgentPage(d AgentPageData) {
 	@Layout("Agent", d.Viewer) {
-		<div data-signals={ agentSeedSignals(d.Generating) }></div>
+		<div data-signals={ agentPageSignals(d) }></div>
 		<section class="agent-layout">
 			@AgentSidebar(d)
 			<div class="agent-main">
-				if !d.Configured {
+				if !d.HasEnabledAgent {
 					@AgentSetupBanner(d.Slug, d.Viewer.Role == "admin")
 				}
 				if d.HasActive {
 					<header class="agent-thread-head">
-						<h1 class="agent-thread-title">{ d.Active.Title }</h1>
+						<div class="agent-thread-headings">
+							<h1 class="agent-thread-title">{ d.Active.Title }</h1>
+							<div class="agent-thread-sub">
+								<span aria-hidden="true">🤖</span>
+								if len(d.Agents) > 1 {
+									<select class="agent-head-select" data-bind="agent_active" data-on:change={ "@post('/c/" + d.Slug + "/agent/" + d.Active.ID + "/agent')" } aria-label="Model">
+										for _, a := range d.Agents {
+											<option value={ a.ID } selected?={ a.ID == d.ActiveAgentID }>
+												{ a.Name }
+												if a.Vision {
+													{ " 👁" }
+												}
+											</option>
+										}
+									</select>
+								} else {
+									<span>{ d.ActiveAgentName }</span>
+								}
+							</div>
+						</div>
 						<div class="agent-thread-tools">
 							@agentVisibilityBadge(d.Active.Visibility)
 							<button
@@ -77,25 +111,33 @@ templ AgentPage(d AgentPageData) {
 						</div>
 					</header>
 					@AgentMessages(d.Slug, d.Active.ID, d.Messages)
-					@AgentComposer(d.Slug, d.Active.ID, d.Configured)
-					<div id="agent-stream-open" hidden data-init={ "@get('/c/" + d.Slug + "/agent/" + d.Active.ID + "/stream', {openWhenHidden: true})" }></div>
+					@AgentComposer(d.Slug, d.Active.ID, d.ActiveVision)
+					<div id="agent-stream-open" data-init={ "@get('/c/" + d.Slug + "/agent/" + d.Active.ID + "/stream', {openWhenHidden: true})" }></div>
 					if d.CanShare {
 						@AgentShareDialog(d.Slug, d.Active.ID, d.Channels)
 					}
-				} else {
-					@AgentEmptyState(d.Slug, d.Configured)
+				} else if d.HasEnabledAgent {
+					@AgentEmptyState(d.Slug, d.AnyVision)
 				}
 			</div>
 		</section>
 		<div id="agent-notice" aria-live="polite"></div>
+		<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 	}
 }
 
-// AgentSidebar is the conversation list. The visibility select + "New chat"
-// button create a thread (private or shared) via POST /agent/new.
+// AgentSidebar is the conversation list. The agent + visibility selects and
+// "New chat" button create a thread via POST /agent/new.
 templ AgentSidebar(d AgentPageData) {
 	<aside class="agent-sidebar">
 		<div class="agent-sidebar-head">
+			if len(d.Agents) > 1 {
+				<select class="agent-vis-select" data-bind="agent_pick" aria-label="Agent">
+					for _, a := range d.Agents {
+						<option value={ a.ID }>{ a.Name }</option>
+					}
+				</select>
+			}
 			<select class="agent-vis-select" data-bind="agent_visibility" aria-label="New conversation visibility">
 				<option value="private">🔒 Private</option>
 				<option value="shared">👥 Shared</option>
@@ -119,11 +161,11 @@ templ AgentSidebar(d AgentPageData) {
 	</aside>
 }
 
-// AgentMessages is the fat-morph target. Mirrors chat's MessagesContainer:
-// the container owns the scroll, the anchor (last child) re-fires its
-// data-init on every WithModeReplace patch to keep the view pinned to bottom.
+// AgentMessages is the fat-morph target. The container owns the scroll and a
+// one-time data-init for the initial/post-send jump; the anchor handles
+// stick-to-bottom during streaming.
 templ AgentMessages(slug, threadID string, msgs []AgentMsgView) {
-	<div id="agent-messages" class="agent-messages" data-init="el.scrollTo({top: el.scrollHeight, behavior: 'instant'})">
+	<div id="agent-messages" class="agent-messages" data-on:scroll="$_agent_stick = (el.scrollHeight - el.scrollTop - el.clientHeight) < 100">
 		if len(msgs) == 0 {
 			<div class="agent-hello">
 				<div class="agent-hello-icon">🤖</div>
@@ -138,26 +180,21 @@ templ AgentMessages(slug, threadID string, msgs []AgentMsgView) {
 }
 
 // AgentScrollAnchor keeps the view pinned to the bottom DURING streaming, but
-// only when the reader is already near the bottom. data-init re-fires on every
-// WithModeReplace patch (idiomorph remounts the replaced anchor); it measures
-// the scroll container (#agent-messages, the anchor's parent) and scrolls only
-// if within 150px of the bottom — so a reader who scrolled up to read an
-// earlier part of the answer is never yanked down. Initial page scroll is
-// handled separately by #agent-messages' own one-time data-init.
+// only when the reader is already near the bottom (within 150px) — so reading
+// earlier output isn't interrupted. data-init re-fires on every
+// WithModeReplace patch (idiomorph remounts the replaced anchor).
 templ AgentScrollAnchor() {
-	<div id="agent-scroll-anchor" data-init="const m = el.parentElement; if (m && (m.scrollHeight - m.scrollTop - m.clientHeight) < 150) { m.scrollTo({top: m.scrollHeight, behavior: 'instant'}) }"></div>
+	<div id="agent-scroll-anchor" data-init="if($_agent_stick){const m=el.parentElement; if(m){m.scrollTo({top:m.scrollHeight, behavior:'instant'})}}"></div>
 }
 
-// AgentBubble renders one turn. Assistant turns carry the live cursor while
-// generating, a Regenerate affordance when interrupted/errored, and a
-// share-to-channel button when complete.
+// AgentBubble renders one turn.
 templ AgentBubble(slug, threadID string, m AgentMsgView) {
 	if m.IsUser {
-		<div class="agent-row user">
+		<div class="agent-row user" id={ "agent-msg-" + m.ID }>
 			<div class="agent-bubble user">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
 		</div>
 	} else if m.IsAssistant {
-		<div class="agent-row assistant">
+		<div class="agent-row assistant" id={ "agent-msg-" + m.ID }>
 			<div class="agent-avatar" aria-hidden="true">🤖</div>
 			<div class="agent-bubble assistant">
 				if m.Generating && m.BodyHTML == "" {
@@ -187,62 +224,90 @@ templ AgentBubble(slug, threadID string, m AgentMsgView) {
 	}
 }
 
-// AgentComposer is the message box for an existing thread. Enter sends,
-// Shift+Enter newlines; the button flips to Stop while $agent_generating.
-templ AgentComposer(slug, threadID string, configured bool) {
-	<div class="agent-composer">
-		<textarea
-			class="agent-input"
-			data-bind="agent_body"
-			rows="1"
-			placeholder="Message the agent…"
-			disabled?={ !configured }
-			data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
-			data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); if($agent_body.trim() && !$agent_generating){@post('/c/" + slug + "/agent/" + threadID + "/send')}}" }
-		></textarea>
-		<div class="agent-composer-actions">
-			<button
-				type="button"
-				class="agent-send"
-				data-show="!$agent_generating"
-				data-on:click={ "$agent_body.trim() && @post('/c/" + slug + "/agent/" + threadID + "/send')" }
-			>Send</button>
-			<button
-				type="button"
-				class="agent-stop"
-				data-show="$agent_generating"
-				data-on:click={ "@post('/c/" + slug + "/agent/" + threadID + "/stop')" }
-			>■ Stop</button>
-		</div>
-	</div>
-}
-
-// AgentEmptyState is shown when the member has no active thread. The hero
-// composer creates a thread AND sends the first prompt in one POST.
-templ AgentEmptyState(slug string, configured bool) {
-	<div class="agent-empty">
-		<div class="agent-empty-icon" aria-hidden="true">🤖</div>
-		<h1>Agent</h1>
-		<p class="muted">Your private AI assistant. Start a conversation — pick Private or Shared in the sidebar.</p>
-		<div class="agent-composer hero">
+// AgentComposer is the message box for an existing thread. vision adds an image
+// attach affordance. Enter sends, Shift+Enter newlines; the button flips to
+// Stop while $agent_generating.
+templ AgentComposer(slug, threadID string, vision bool) {
+	<div class="agent-composer-wrap" id="agent-composer">
+		if vision {
+			<div class="agent-attach-preview" data-show="$agent_image_data !== ''">
+				<img data-attr:src="$agent_image_data" alt="attachment"/>
+				<button type="button" class="agent-attach-clear" data-on:click="$agent_image_data=''" aria-label="Remove image">✕</button>
+			</div>
+		}
+		<div class="agent-composer">
+			if vision {
+				<label class="agent-attach" title="Attach image">📎
+					<input type="file" accept="image/*" hidden data-on:change="window.fcPickImage(evt,'agent_image_data')"/>
+				</label>
+			}
 			<textarea
 				class="agent-input"
 				data-bind="agent_body"
 				rows="1"
-				placeholder="Ask the agent anything…"
-				disabled?={ !configured }
+				placeholder="Message the agent…"
 				data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
-				data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); if($agent_body.trim()){@post('/c/" + slug + "/agent/new')}}" }
+				data-on:paste="window.fcPasteImage(evt,'agent_image_data')"
+				data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); if(($agent_body.trim()||$agent_image_data) && !$agent_generating){@post('/c/" + slug + "/agent/" + threadID + "/send')}}" }
 			></textarea>
+			<input type="hidden" data-bind="agent_image_data"/>
 			<div class="agent-composer-actions">
-				<button type="button" class="agent-send" data-on:click={ "$agent_body.trim() && @post('/c/" + slug + "/agent/new')" }>Send</button>
+				<button
+					type="button"
+					class="agent-send"
+					data-show="!$agent_generating"
+					data-on:click={ "($agent_body.trim()||$agent_image_data) && @post('/c/" + slug + "/agent/" + threadID + "/send')" }
+				>Send</button>
+				<button
+					type="button"
+					class="agent-stop"
+					data-show="$agent_generating"
+					data-on:click={ "@post('/c/" + slug + "/agent/" + threadID + "/stop')" }
+				>■ Stop</button>
 			</div>
 		</div>
 	</div>
 }
 
-// AgentShareDialog copies an assistant answer into a chat channel. Opened by a
-// bubble's "Share to channel" button setting $_agent_share_open.
+// AgentEmptyState is shown when the member has no active thread. The hero
+// composer creates a thread (with the picked agent) AND sends the first prompt.
+templ AgentEmptyState(slug string, anyVision bool) {
+	<div class="agent-empty">
+		<div class="agent-empty-icon" aria-hidden="true">🤖</div>
+		<h1>Agent</h1>
+		<p class="muted">Your AI assistant. Pick an agent + Private/Shared in the sidebar, then start a conversation.</p>
+		<div class="agent-composer-wrap hero">
+			if anyVision {
+				<div class="agent-attach-preview" data-show="$agent_image_data !== ''">
+					<img data-attr:src="$agent_image_data" alt="attachment"/>
+					<button type="button" class="agent-attach-clear" data-on:click="$agent_image_data=''" aria-label="Remove image">✕</button>
+				</div>
+			}
+			<div class="agent-composer">
+				if anyVision {
+					<label class="agent-attach" title="Attach image">📎
+						<input type="file" accept="image/*" hidden data-on:change="window.fcPickImage(evt,'agent_image_data')"/>
+					</label>
+				}
+				<textarea
+					class="agent-input"
+					data-bind="agent_body"
+					rows="1"
+					placeholder="Ask the agent anything…"
+					data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'"
+					data-on:paste="window.fcPasteImage(evt,'agent_image_data')"
+					data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); if($agent_body.trim()||$agent_image_data){@post('/c/" + slug + "/agent/new')}}" }
+				></textarea>
+				<input type="hidden" data-bind="agent_image_data"/>
+				<div class="agent-composer-actions">
+					<button type="button" class="agent-send" data-on:click={ "($agent_body.trim()||$agent_image_data) && @post('/c/" + slug + "/agent/new')" }>Send</button>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+// AgentShareDialog copies an assistant answer into a chat channel.
 templ AgentShareDialog(slug, threadID string, channels []ChannelView) {
 	<div class="agent-modal-overlay" data-show="$_agent_share_open" data-on:click="$_agent_share_open=false"></div>
 	<div class="agent-modal" data-show="$_agent_share_open" role="dialog" aria-label="Share to channel">
@@ -261,20 +326,19 @@ templ AgentShareDialog(slug, threadID string, channels []ChannelView) {
 	</div>
 }
 
-// AgentSetupBanner nudges admins (and informs members) when AI isn't enabled.
+// AgentSetupBanner nudges admins (and informs members) when no agent is enabled.
 templ AgentSetupBanner(slug string, isAdmin bool) {
 	<div class="agent-banner">
 		if isAdmin {
-			<span>AI isn't enabled yet. </span>
-			<a href={ templ.URL("/c/" + slug + "/admin/ai") }>Configure it in Admin → AI →</a>
+			<span>No AI agent is enabled yet. </span>
+			<a href={ templ.URL("/c/" + slug + "/admin/ai") }>Add one in Admin → AI →</a>
 		} else {
-			<span>The AI assistant isn't enabled for this community yet.</span>
+			<span>The AI assistant isn't available for this community yet.</span>
 		}
 	</div>
 }
 
-// AgentNotice is a transient toast patched into #agent-notice after an action
-// (share result, errors). Auto-clears after a few seconds.
+// AgentNotice is a transient toast patched into #agent-notice after an action.
 templ AgentNotice(msg string) {
 	<div id="agent-notice" aria-live="polite">
 		<div class="agent-toast" data-init="setTimeout(() => el.remove(), 3500)">{ msg }</div>
@@ -297,36 +361,95 @@ templ agentVisibilityIcon(vis string) {
 	}
 }
 
-// agentSeedSignals seeds the generating flag into the bag on page load so the
-// composer renders Send vs Stop correctly before the stream connects.
-func agentSeedSignals(generating bool) string {
-	if generating {
-		return `{"agent_generating":true}`
+// agentPageSignals seeds the generating flag + default agent pick into the bag
+// on page load.
+func agentPageSignals(d AgentPageData) string {
+	gen := "false"
+	if d.Generating {
+		gen = "true"
 	}
-	return `{"agent_generating":false}`
+	pick := ""
+	if len(d.Agents) > 0 {
+		pick = d.Agents[0].ID
+	}
+	active := d.ActiveAgentID
+	if active == "" {
+		active = pick
+	}
+	return `{"agent_generating":` + gen + `,"agent_pick":` + strconv.Quote(pick) +
+		`,"agent_active":` + strconv.Quote(active) + `}`
 }
 
-// --- admin config page ----------------------------------------------------
+// --- admin: manage agents -------------------------------------------------
 
-// AgentConfigPage is the per-community AI settings surface (Admin → AI).
-templ AgentConfigPage(v Viewer, slug string, c AgentConfigView) {
-	@Layout("AI settings", v) {
-		<section class="card narrow agent-config">
-			<h1>AI settings</h1>
-			<p class="muted">Configure the model that powers this community's Agent. Ollama needs only a base URL + model name; API providers come later.</p>
-			@AgentConfigForm(slug, c, "")
+// AgentAdminPage lists a community's agents with an inline editor.
+templ AgentAdminPage(v Viewer, slug string, agents []AgentAdminView) {
+	@Layout("AI agents", v) {
+		<section class="card agent-admin">
+			<h1>AI agents</h1>
+			<p class="muted">Each agent is its own model + system prompt. Enable an agent to let members chat with it. Turn on “vision” for models that accept images.</p>
+			@AgentAdminList(slug, agents)
+			<button class="agent-new agent-add-btn" data-on:click={ "@get('/c/" + slug + "/admin/ai/new')" }>＋ Add agent</button>
+			<div id="ai-agent-form"></div>
 		</section>
 	}
 }
 
-// AgentConfigForm is the morph target for save. status is "" / "Saved." /
-// an error string.
-templ AgentConfigForm(slug string, c AgentConfigView, status string) {
-	<div id="agent-config-form" class="agent-config-form" data-signals={ agentConfigSignals(c) }>
+// AgentAdminList is the morph target after create/delete.
+templ AgentAdminList(slug string, agents []AgentAdminView) {
+	<div id="ai-agent-list" class="agent-admin-list">
+		if len(agents) == 0 {
+			<p class="muted">No agents yet. Add one to enable the Agent feature.</p>
+		}
+		for _, a := range agents {
+			@AgentCard(slug, a)
+		}
+	</div>
+}
+
+templ AgentCard(slug string, a AgentAdminView) {
+	<div class="agent-admin-card">
+		<div class="agent-admin-card-main">
+			<strong>{ a.Name }</strong>
+			<span class="agent-admin-meta">{ a.Provider } · { a.Model }</span>
+			<div class="agent-admin-badges">
+				if a.Enabled {
+					<span class="agent-badge shared">enabled</span>
+				} else {
+					<span class="agent-badge private">disabled</span>
+				}
+				if a.Vision {
+					<span class="agent-badge">👁 vision</span>
+				}
+			</div>
+		</div>
+		<div class="agent-admin-card-actions">
+			<button class="agent-link-btn" data-on:click={ "@get('/c/" + slug + "/admin/ai/" + a.ID + "/edit')" }>Edit</button>
+			<button class="agent-link-btn agent-danger" data-on:click={ "confirm('Delete agent “" + a.Name + "”? Its conversations are removed too.') && @post('/c/" + slug + "/admin/ai/" + a.ID + "/delete')" }>Delete</button>
+		</div>
+	</div>
+}
+
+// AgentAdminForm is the create/edit editor, patched into #ai-agent-form. An
+// empty a.ID means "create"; data-signals seeds the fields server-side (safe
+// for arbitrary system prompts via strconv.Quote).
+templ AgentAdminForm(slug string, a AgentAdminView, status string) {
+	<div id="ai-agent-form" class="agent-config-form" data-signals={ agentFormSignals(a) }>
+		<h2 class="agent-form-title">
+			if a.ID == "" {
+				New agent
+			} else {
+				Edit agent
+			}
+		</h2>
+		<label>
+			<span>Name</span>
+			<input type="text" data-bind="ai_name" placeholder="e.g. Helpdesk, Coder, Lawyer"/>
+		</label>
 		<label>
 			<span>Provider</span>
 			<select data-bind="ai_provider">
-				<option value="ollama" selected?={ c.Provider == "ollama" || c.Provider == "" }>Ollama (local / self-hosted)</option>
+				<option value="ollama">Ollama (local / self-hosted)</option>
 			</select>
 		</label>
 		<label>
@@ -335,22 +458,27 @@ templ AgentConfigForm(slug string, c AgentConfigView, status string) {
 		</label>
 		<label>
 			<span>Model</span>
-			<input type="text" data-bind="ai_model" placeholder="llama3.2"/>
+			<input type="text" data-bind="ai_model" placeholder="llama3.2 (or a vision model like llava)"/>
 		</label>
 		<label>
-			<span>System prompt <span class="muted">(optional)</span></span>
-			<textarea data-bind="ai_system_prompt" rows="3" placeholder="You are a helpful assistant for this community."></textarea>
+			<span>System prompt <span class="muted">(this agent's personality)</span></span>
+			<textarea data-bind="ai_system_prompt" rows="4" placeholder="You are…"></textarea>
+		</label>
+		<label class="agent-config-toggle">
+			<input type="checkbox" data-bind="ai_vision"/>
+			<span>Model supports vision (allow image attachments)</span>
 		</label>
 		<label>
-			<span>API key <span class="muted">(for hosted providers; leave blank for Ollama)</span></span>
-			<input type="password" data-bind="ai_api_key" placeholder={ agentKeyPlaceholder(c.APIKeySet) } autocomplete="off"/>
+			<span>API key <span class="muted">(hosted providers; blank for Ollama)</span></span>
+			<input type="password" data-bind="ai_api_key" placeholder={ agentKeyPlaceholder(a.APIKeySet) } autocomplete="off"/>
 		</label>
 		<label class="agent-config-toggle">
 			<input type="checkbox" data-bind="ai_enabled"/>
-			<span>Enable the Agent for this community</span>
+			<span>Enabled (members can chat with this agent)</span>
 		</label>
 		<div class="agent-config-actions">
 			<button type="button" class="agent-send" data-on:click={ "@post('/c/" + slug + "/admin/ai')" }>Save</button>
+			<button type="button" class="ghost" data-on:click="el.closest('#ai-agent-form').replaceChildren()">Cancel</button>
 			if status != "" {
 				<span class="agent-config-status">{ status }</span>
 			}
@@ -365,20 +493,31 @@ func agentKeyPlaceholder(set bool) string {
 	return "not set"
 }
 
-// agentConfigSignals seeds the form fields. The API key is intentionally NOT
-// seeded — the stored secret is never sent to the browser.
-func agentConfigSignals(c AgentConfigView) string {
-	enabled := "false"
-	if c.Enabled {
-		enabled = "true"
-	}
-	prov := c.Provider
+// agentFormSignals seeds the editor. The API key is intentionally NOT seeded —
+// the stored secret is never sent to the browser.
+func agentFormSignals(a AgentAdminView) string {
+	prov := a.Provider
 	if prov == "" {
 		prov = "ollama"
 	}
-	return `{"ai_provider":` + strconv.Quote(prov) +
-		`,"ai_base_url":` + strconv.Quote(c.BaseURL) +
-		`,"ai_model":` + strconv.Quote(c.Model) +
-		`,"ai_system_prompt":` + strconv.Quote(c.SystemPrompt) +
-		`,"ai_api_key":"","ai_enabled":` + enabled + `}`
+	base := a.BaseURL
+	if base == "" && a.ID == "" {
+		base = "http://localhost:11434"
+	}
+	return `{"ai_agent_id":` + strconv.Quote(a.ID) +
+		`,"ai_name":` + strconv.Quote(a.Name) +
+		`,"ai_provider":` + strconv.Quote(prov) +
+		`,"ai_base_url":` + strconv.Quote(base) +
+		`,"ai_model":` + strconv.Quote(a.Model) +
+		`,"ai_system_prompt":` + strconv.Quote(a.SystemPrompt) +
+		`,"ai_vision":` + agentBoolStr(a.Vision) +
+		`,"ai_enabled":` + agentBoolStr(a.Enabled) +
+		`,"ai_api_key":""}`
+}
+
+func agentBoolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }

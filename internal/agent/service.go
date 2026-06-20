@@ -9,17 +9,53 @@ import (
 	"github.com/google/uuid"
 )
 
-// Service is the write-side orchestration: minting threads and turns, rendering
-// markdown at write time, and assembling the model history. It never talks to
-// the Bus/NATS — broadcasting is the runner's and handler's job — so it stays
-// trivially testable.
+// Service is the write-side orchestration: minting agents, threads and turns,
+// rendering markdown at write time, and assembling the model history. It never
+// talks to the Bus/NATS — broadcasting is the runner's and handler's job — so
+// it stays trivially testable.
 type Service struct{ Repo *Repo }
 
 func NewService(repo *Repo) *Service { return &Service{Repo: repo} }
 
-// CreateThread mints an empty conversation. visibility is normalised to
-// private unless explicitly "shared".
-func (s *Service) CreateThread(ctx context.Context, communityID, userID, visibility, model string) (Thread, error) {
+// SaveAgent creates (when a.ID == "") or updates an agent, validating + caps.
+func (s *Service) SaveAgent(ctx context.Context, a Agent) (Agent, error) {
+	a.Name = strings.TrimSpace(a.Name)
+	if a.Name == "" {
+		return Agent{}, ErrNoName
+	}
+	a.Provider = strings.TrimSpace(a.Provider)
+	if a.Provider == "" {
+		a.Provider = ProviderOllama
+	}
+	a.BaseURL = strings.TrimSpace(a.BaseURL)
+	a.Model = strings.TrimSpace(a.Model)
+	now := nowUnix()
+	if a.ID == "" {
+		n, err := s.Repo.CountAgents(ctx, a.CommunityID)
+		if err != nil {
+			return Agent{}, err
+		}
+		if n >= MaxAgentsPerCommunity {
+			return Agent{}, ErrAgentCap
+		}
+		a.ID = uuid.NewString()
+		a.Position = n
+		a.CreatedAt = now
+		a.UpdatedAt = now
+		if err := s.Repo.CreateAgent(ctx, a); err != nil {
+			return Agent{}, err
+		}
+		return a, nil
+	}
+	a.UpdatedAt = now
+	if err := s.Repo.UpdateAgent(ctx, a); err != nil {
+		return Agent{}, err
+	}
+	return a, nil
+}
+
+// CreateThread mints an empty conversation pinned to agent a.
+func (s *Service) CreateThread(ctx context.Context, communityID, userID string, a Agent, visibility string) (Thread, error) {
 	vis := VisibilityPrivate
 	if visibility == VisibilityShared {
 		vis = VisibilityShared
@@ -29,9 +65,10 @@ func (s *Service) CreateThread(ctx context.Context, communityID, userID, visibil
 		ID:          uuid.NewString(),
 		CommunityID: communityID,
 		UserID:      userID,
+		AgentID:     a.ID,
 		Visibility:  vis,
 		Title:       "New chat",
-		Model:       model,
+		Model:       a.Model,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -41,12 +78,12 @@ func (s *Service) CreateThread(ctx context.Context, communityID, userID, visibil
 	return t, nil
 }
 
-// Send persists a member's user turn plus an empty assistant placeholder
-// (status=generating) and returns the placeholder id together with the model
-// history the runner should generate against. The caller starts the runner.
-func (s *Service) Send(ctx context.Context, t Thread, authorID, body string) (assistantID string, history []ChatMessage, err error) {
+// Send persists a member's user turn (with optional base64 images for a vision
+// agent) plus an empty assistant placeholder (status=generating) and returns
+// the placeholder id together with the model history the runner generates against.
+func (s *Service) Send(ctx context.Context, t Thread, authorID, body string, images []string) (assistantID string, history []ChatMessage, err error) {
 	body = strings.TrimSpace(body)
-	if body == "" {
+	if body == "" && len(images) == 0 {
 		return "", nil, ErrEmptyBody
 	}
 	userHTML, err := render.RenderMarkdown(body)
@@ -56,7 +93,8 @@ func (s *Service) Send(ctx context.Context, t Thread, authorID, body string) (as
 	now := nowUnix()
 	userMsg := Message{
 		ID: uuid.NewString(), ThreadID: t.ID, Role: RoleUser, AuthorID: authorID,
-		BodyMD: body, BodyHTML: userHTML, Status: StatusDone, CreatedAt: now, UpdatedAt: now,
+		BodyMD: body, BodyHTML: userHTML, Status: StatusDone, Images: images,
+		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := s.Repo.InsertMessage(ctx, userMsg); err != nil {
 		return "", nil, err
@@ -83,8 +121,7 @@ func (s *Service) Send(ctx context.Context, t Thread, authorID, body string) (as
 }
 
 // Regenerate resets the thread's last assistant turn back to an empty
-// generating state and returns its id + the history up to (excluding) it, so
-// the runner can stream a fresh answer. Used after an interrupted/errored turn.
+// generating state and returns its id + the history up to (excluding) it.
 func (s *Service) Regenerate(ctx context.Context, threadID string) (assistantID string, history []ChatMessage, err error) {
 	msgs, err := s.Repo.Messages(ctx, threadID)
 	if err != nil {
@@ -109,17 +146,17 @@ func (s *Service) Regenerate(ctx context.Context, threadID string) (assistantID 
 }
 
 // buildHistory maps stored turns into the provider's message list: user/system
-// turns verbatim, assistant turns only when cleanly completed (a half-streamed
-// or errored answer is poor context). Empty bodies are dropped.
+// turns verbatim (carrying any attached images), assistant turns only when
+// cleanly completed (a half-streamed or errored answer is poor context).
 func buildHistory(msgs []Message) []ChatMessage {
 	out := make([]ChatMessage, 0, len(msgs))
 	for _, m := range msgs {
 		switch m.Role {
 		case RoleUser, RoleSystem:
-			if strings.TrimSpace(m.BodyMD) == "" {
+			if strings.TrimSpace(m.BodyMD) == "" && len(m.Images) == 0 {
 				continue
 			}
-			out = append(out, ChatMessage{Role: m.Role, Content: m.BodyMD})
+			out = append(out, ChatMessage{Role: m.Role, Content: m.BodyMD, Images: m.Images})
 		case RoleAssistant:
 			if m.Status != StatusDone || strings.TrimSpace(m.BodyMD) == "" {
 				continue
@@ -140,6 +177,9 @@ func autoTitle(body string) string {
 	const max = 60
 	if len(t) > max {
 		t = strings.TrimSpace(t[:max]) + "…"
+	}
+	if t == "" {
+		t = "Image"
 	}
 	return t
 }

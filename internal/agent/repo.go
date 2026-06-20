@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -13,66 +14,146 @@ type Repo struct{ DB *sql.DB }
 
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 
-// --- config ---------------------------------------------------------------
+// --- agents ---------------------------------------------------------------
 
-// GetConfig returns a community's AI config. A community with no row yet gets
-// a zero-value, disabled config (Enabled=false) carrying sane Ollama
-// defaults, so callers never special-case "not configured yet".
-func (r *Repo) GetConfig(ctx context.Context, communityID string) (Config, error) {
-	c := Config{
-		CommunityID: communityID,
-		Provider:    ProviderOllama,
-		BaseURL:     "http://localhost:11434",
-		Model:       "llama3.2",
-	}
-	var enabled int
-	err := r.DB.QueryRowContext(ctx, `
-		SELECT provider, base_url, model, api_key_enc, system_prompt, enabled,
-		       COALESCE(updated_by,''), updated_at
-		FROM ai_configs WHERE community_id = ?`, communityID).
-		Scan(&c.Provider, &c.BaseURL, &c.Model, &c.APIKeyEnc, &c.SystemPrompt, &enabled, &c.UpdatedBy, &c.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return c, nil
-	}
+const agentCols = `id, community_id, name, provider, base_url, model, api_key_enc,
+	system_prompt, vision, enabled, position, COALESCE(updated_by,''), created_at, updated_at`
+
+func scanAgent(s interface {
+	Scan(dest ...any) error
+}) (Agent, error) {
+	var a Agent
+	var vision, enabled int
+	err := s.Scan(&a.ID, &a.CommunityID, &a.Name, &a.Provider, &a.BaseURL, &a.Model, &a.APIKeyEnc,
+		&a.SystemPrompt, &vision, &enabled, &a.Position, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
-		return Config{}, fmt.Errorf("get config: %w", err)
+		return Agent{}, err
 	}
-	c.Enabled = enabled != 0
-	return c, nil
+	a.Vision = vision != 0
+	a.Enabled = enabled != 0
+	return a, nil
 }
 
-// SaveConfig upserts a community's AI config.
-func (r *Repo) SaveConfig(ctx context.Context, c Config) error {
-	enabled := 0
-	if c.Enabled {
-		enabled = 1
+// ListAgents returns a community's agents in display order.
+func (r *Repo) ListAgents(ctx context.Context, communityID string) ([]Agent, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT `+agentCols+`
+		FROM ai_agents WHERE community_id = ? ORDER BY position, name`, communityID)
+	if err != nil {
+		return nil, fmt.Errorf("list agents: %w", err)
 	}
+	defer rows.Close()
+	var out []Agent
+	for rows.Next() {
+		a, err := scanAgent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ListEnabledAgents returns only the agents members may chat with.
+func (r *Repo) ListEnabledAgents(ctx context.Context, communityID string) ([]Agent, error) {
+	all, err := r.ListAgents(ctx, communityID)
+	if err != nil {
+		return nil, err
+	}
+	out := all[:0]
+	for _, a := range all {
+		if a.Enabled {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+// AgentByID loads one agent. Returns ErrNotFound when absent.
+func (r *Repo) AgentByID(ctx context.Context, id string) (Agent, error) {
+	a, err := scanAgent(r.DB.QueryRowContext(ctx, `SELECT `+agentCols+` FROM ai_agents WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Agent{}, ErrNotFound
+	}
+	if err != nil {
+		return Agent{}, fmt.Errorf("agent by id: %w", err)
+	}
+	return a, nil
+}
+
+// CountAgents returns how many agents a community has.
+func (r *Repo) CountAgents(ctx context.Context, communityID string) (int, error) {
+	var n int
+	err := r.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_agents WHERE community_id = ?`, communityID).Scan(&n)
+	return n, err
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// CreateAgent inserts a new agent.
+func (r *Repo) CreateAgent(ctx context.Context, a Agent) error {
 	var updatedBy any
-	if c.UpdatedBy != "" {
-		updatedBy = c.UpdatedBy
+	if a.UpdatedBy != "" {
+		updatedBy = a.UpdatedBy
 	}
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO ai_configs (community_id, provider, base_url, model, api_key_enc, system_prompt, enabled, updated_by, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(community_id) DO UPDATE SET
-			provider=excluded.provider, base_url=excluded.base_url, model=excluded.model,
-			api_key_enc=excluded.api_key_enc, system_prompt=excluded.system_prompt,
-			enabled=excluded.enabled, updated_by=excluded.updated_by, updated_at=excluded.updated_at`,
-		c.CommunityID, c.Provider, c.BaseURL, c.Model, c.APIKeyEnc, c.SystemPrompt, enabled, updatedBy, nowUnix())
+		INSERT INTO ai_agents (id, community_id, name, provider, base_url, model, api_key_enc,
+			system_prompt, vision, enabled, position, created_at, updated_at, updated_by)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		a.ID, a.CommunityID, a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc,
+		a.SystemPrompt, boolToInt(a.Vision), boolToInt(a.Enabled), a.Position, a.CreatedAt, a.UpdatedAt, updatedBy)
 	if err != nil {
-		return fmt.Errorf("save config: %w", err)
+		return fmt.Errorf("create agent: %w", err)
 	}
 	return nil
 }
 
+// UpdateAgent rewrites an agent's mutable fields.
+func (r *Repo) UpdateAgent(ctx context.Context, a Agent) error {
+	var updatedBy any
+	if a.UpdatedBy != "" {
+		updatedBy = a.UpdatedBy
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE ai_agents SET name=?, provider=?, base_url=?, model=?, api_key_enc=?,
+			system_prompt=?, vision=?, enabled=?, updated_at=?, updated_by=?
+		WHERE id = ?`,
+		a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc, a.SystemPrompt,
+		boolToInt(a.Vision), boolToInt(a.Enabled), a.UpdatedAt, updatedBy, a.ID)
+	if err != nil {
+		return fmt.Errorf("update agent: %w", err)
+	}
+	return nil
+}
+
+// DeleteAgent removes an agent; its threads cascade.
+func (r *Repo) DeleteAgent(ctx context.Context, id string) error {
+	_, err := r.DB.ExecContext(ctx, `DELETE FROM ai_agents WHERE id = ?`, id)
+	return err
+}
+
 // --- threads --------------------------------------------------------------
+
+const threadCols = `id, community_id, user_id, COALESCE(agent_id,''), visibility, title, model, created_at, updated_at`
+
+func scanThread(s interface {
+	Scan(dest ...any) error
+}) (Thread, error) {
+	var t Thread
+	err := s.Scan(&t.ID, &t.CommunityID, &t.UserID, &t.AgentID, &t.Visibility, &t.Title, &t.Model, &t.CreatedAt, &t.UpdatedAt)
+	return t, err
+}
 
 // CreateThread inserts a new conversation.
 func (r *Repo) CreateThread(ctx context.Context, t Thread) error {
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO ai_threads (id, community_id, user_id, visibility, title, model, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		t.ID, t.CommunityID, t.UserID, t.Visibility, t.Title, t.Model, t.CreatedAt, t.UpdatedAt)
+		INSERT INTO ai_threads (id, community_id, user_id, agent_id, visibility, title, model, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.CommunityID, t.UserID, t.AgentID, t.Visibility, t.Title, t.Model, t.CreatedAt, t.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create thread: %w", err)
 	}
@@ -81,11 +162,7 @@ func (r *Repo) CreateThread(ctx context.Context, t Thread) error {
 
 // ThreadByID loads one thread. Returns ErrNotFound when absent.
 func (r *Repo) ThreadByID(ctx context.Context, id string) (Thread, error) {
-	var t Thread
-	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, community_id, user_id, visibility, title, model, created_at, updated_at
-		FROM ai_threads WHERE id = ?`, id).
-		Scan(&t.ID, &t.CommunityID, &t.UserID, &t.Visibility, &t.Title, &t.Model, &t.CreatedAt, &t.UpdatedAt)
+	t, err := scanThread(r.DB.QueryRowContext(ctx, `SELECT `+threadCols+` FROM ai_threads WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Thread{}, ErrNotFound
 	}
@@ -95,11 +172,10 @@ func (r *Repo) ThreadByID(ctx context.Context, id string) (Thread, error) {
 	return t, nil
 }
 
-// ListThreads returns the threads visible to userID in communityID: every
-// shared thread plus the user's own private threads, newest activity first.
+// ListThreads returns the threads visible to userID: every shared thread plus
+// the user's own private threads, newest activity first.
 func (r *Repo) ListThreads(ctx context.Context, communityID, userID string) ([]Thread, error) {
-	rows, err := r.DB.QueryContext(ctx, `
-		SELECT id, community_id, user_id, visibility, title, model, created_at, updated_at
+	rows, err := r.DB.QueryContext(ctx, `SELECT `+threadCols+`
 		FROM ai_threads
 		WHERE community_id = ? AND (visibility = 'shared' OR user_id = ?)
 		ORDER BY updated_at DESC`, communityID, userID)
@@ -109,8 +185,8 @@ func (r *Repo) ListThreads(ctx context.Context, communityID, userID string) ([]T
 	defer rows.Close()
 	var out []Thread
 	for rows.Next() {
-		var t Thread
-		if err := rows.Scan(&t.ID, &t.CommunityID, &t.UserID, &t.Visibility, &t.Title, &t.Model, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		t, err := scanThread(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan thread: %w", err)
 		}
 		out = append(out, t)
@@ -130,6 +206,15 @@ func (r *Repo) SetThreadTitle(ctx context.Context, id, title string) error {
 	return err
 }
 
+// SetThreadAgent repoints a thread to a different agent (in-thread model
+// switch). Subsequent turns use the new agent's provider/model/system-prompt;
+// the visible history is unchanged.
+func (r *Repo) SetThreadAgent(ctx context.Context, id, agentID, model string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE ai_threads SET agent_id = ?, model = ?, updated_at = ? WHERE id = ?`,
+		agentID, model, nowUnix(), id)
+	return err
+}
+
 // DeleteThread removes a thread; ai_messages cascade.
 func (r *Repo) DeleteThread(ctx context.Context, id string) error {
 	_, err := r.DB.ExecContext(ctx, `DELETE FROM ai_threads WHERE id = ?`, id)
@@ -138,6 +223,28 @@ func (r *Repo) DeleteThread(ctx context.Context, id string) error {
 
 // --- messages -------------------------------------------------------------
 
+func encodeImages(imgs []string) string {
+	if len(imgs) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(imgs)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeImages(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
 // InsertMessage appends a turn.
 func (r *Repo) InsertMessage(ctx context.Context, m Message) error {
 	var authorID any
@@ -145,19 +252,33 @@ func (r *Repo) InsertMessage(ctx context.Context, m Message) error {
 		authorID = m.AuthorID
 	}
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO ai_messages (id, thread_id, role, author_id, body_md, body_html, status, error, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		m.ID, m.ThreadID, m.Role, authorID, m.BodyMD, m.BodyHTML, m.Status, m.Error, m.CreatedAt, m.UpdatedAt)
+		INSERT INTO ai_messages (id, thread_id, role, author_id, body_md, body_html, status, error, images, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		m.ID, m.ThreadID, m.Role, authorID, m.BodyMD, m.BodyHTML, m.Status, m.Error, encodeImages(m.Images), m.CreatedAt, m.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("insert message: %w", err)
 	}
 	return nil
 }
 
+const msgCols = `id, thread_id, role, COALESCE(author_id,''), body_md, body_html, status, error, images, created_at, updated_at`
+
+func scanMessage(s interface {
+	Scan(dest ...any) error
+}) (Message, error) {
+	var m Message
+	var images string
+	err := s.Scan(&m.ID, &m.ThreadID, &m.Role, &m.AuthorID, &m.BodyMD, &m.BodyHTML, &m.Status, &m.Error, &images, &m.CreatedAt, &m.UpdatedAt)
+	if err != nil {
+		return Message{}, err
+	}
+	m.Images = decodeImages(images)
+	return m, nil
+}
+
 // Messages returns a thread's turns oldest-first.
 func (r *Repo) Messages(ctx context.Context, threadID string) ([]Message, error) {
-	rows, err := r.DB.QueryContext(ctx, `
-		SELECT id, thread_id, role, COALESCE(author_id,''), body_md, body_html, status, error, created_at, updated_at
+	rows, err := r.DB.QueryContext(ctx, `SELECT `+msgCols+`
 		FROM ai_messages WHERE thread_id = ? ORDER BY created_at ASC, id ASC`, threadID)
 	if err != nil {
 		return nil, fmt.Errorf("messages: %w", err)
@@ -165,8 +286,8 @@ func (r *Repo) Messages(ctx context.Context, threadID string) ([]Message, error)
 	defer rows.Close()
 	var out []Message
 	for rows.Next() {
-		var m Message
-		if err := rows.Scan(&m.ID, &m.ThreadID, &m.Role, &m.AuthorID, &m.BodyMD, &m.BodyHTML, &m.Status, &m.Error, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		m, err := scanMessage(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
 		out = append(out, m)
@@ -176,11 +297,7 @@ func (r *Repo) Messages(ctx context.Context, threadID string) ([]Message, error)
 
 // MessageByID loads one turn. Returns ErrNotFound when absent.
 func (r *Repo) MessageByID(ctx context.Context, id string) (Message, error) {
-	var m Message
-	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, thread_id, role, COALESCE(author_id,''), body_md, body_html, status, error, created_at, updated_at
-		FROM ai_messages WHERE id = ?`, id).
-		Scan(&m.ID, &m.ThreadID, &m.Role, &m.AuthorID, &m.BodyMD, &m.BodyHTML, &m.Status, &m.Error, &m.CreatedAt, &m.UpdatedAt)
+	m, err := scanMessage(r.DB.QueryRowContext(ctx, `SELECT `+msgCols+` FROM ai_messages WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrNotFound
 	}

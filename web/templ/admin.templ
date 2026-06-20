@@ -56,6 +56,14 @@ templ AdminPage(d AdminPageData) {
 				}
 			</section>
 
+			if AIEnabled {
+				<section class="card narrow">
+					<h2>AI agents</h2>
+					<p class="muted">Create and configure the AI agents members can chat with — each with its own model and system prompt.</p>
+					<a class="button" href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin/ai") }>Manage AI agents →</a>
+				</section>
+			}
+
 			<section class="card narrow">
 				<h2>Add member by email</h2>
 				<p class="muted">Existing accounts get pre-approved instantly. New emails get a join URL — tick the box below to send it by email.</p>

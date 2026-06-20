@@ -2,7 +2,28 @@
 
 Per-community AI chat ("Agent") — ChatGPT-style threads + history at
 `/c/{slug}/agent`, nav link below Chat. Gated by `AI_ENABLED` (instance) AND
-per-community `ai_configs.enabled`.
+having ≥1 enabled agent (`ai_agents.enabled`).
+
+## Multi-agent (migration 00037)
+
+A community defines several named **agents** (`ai_agents`), each a full
+independent config: name, provider, base_url, model, api_key_enc, system_prompt,
+`vision`, enabled. A thread pins to one agent (`ai_threads.agent_id`) for its
+lifetime; the runner uses that agent's provider/model/system-prompt. Admin CRUD
+lives at `/c/{slug}/admin/ai` (list + server-driven edit form, `agent.Handler`
+GetAgents/GetNewAgentForm/GetEditAgentForm/PostSaveAgent/PostDeleteAgent). The
+old singleton `ai_configs` was migrated into a default "Assistant" agent.
+
+## Vision / image attach
+
+`ai_agents.vision` → the composer shows an image attach (reuses `paste.js`
+`fcPickImage`/`fcPasteImage` writing the `agent_image_data` hidden-input
+signal). On send, the image is uploaded for display (small signed URL in
+body_md — never a data: URL, which would bloat the 100ms morph) AND its raw
+base64 is stored in `ai_messages.images` (JSON) and forwarded to the model
+(`ChatMessage.Images`, Ollama's `/api/chat` shape). `buildHistory` replays the
+images so regenerate/follow-ups keep them. Ollama accepts images only — PDF /
+document understanding waits for the Claude/OpenAI providers.
 
 ## Shape
 
@@ -10,8 +31,8 @@ per-community `ai_configs.enabled`.
 - `provider.go` — `Provider` interface + `Ollama` (direct NDJSON client to
   `/api/chat`, `stream:true`). `newProvider(cfg)` selects by `cfg.Provider`;
   add Claude/OpenAI branches here.
-- `repo.go` — all SQL (`ai_configs` upsert, threads, messages, the boot
-  `MarkGeneratingInterrupted` sweep).
+- `repo.go` — all SQL (agent CRUD, threads + `agent_id`, messages + `images`,
+  the boot `MarkGeneratingInterrupted` sweep).
 - `bus.go` — per-thread in-process fan-out (copy of `lobbies.Bus`).
 - `runner.go` — **the heart.** A detached goroutine streams the model; a
   `time.Ticker(FlushInterval=100ms)` writes the buffer to the DB and broadcasts

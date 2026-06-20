@@ -58,12 +58,12 @@ func (r *Runner) Stop(threadID string) {
 	}
 }
 
-// Start launches a generation for assistantMsgID in threadID using cfg's
-// provider/model and the conversation history. Refuses (returns ErrGenerating)
-// if a generation is already in flight for the thread. The caller has already
-// inserted the empty assistant placeholder row (status=generating).
-func (r *Runner) Start(communityID, threadID, assistantMsgID string, cfg Config, history []ChatMessage) error {
-	prov, err := newProvider(cfg)
+// Start launches a generation for assistantMsgID in threadID using the agent's
+// provider/model/system-prompt and the conversation history. Refuses (returns
+// ErrGenerating) if a generation is already in flight for the thread. The
+// caller has already inserted the empty assistant placeholder (status=generating).
+func (r *Runner) Start(communityID, threadID, assistantMsgID string, a Agent, history []ChatMessage) error {
+	prov, err := newProvider(a)
 	if err != nil {
 		return err
 	}
@@ -77,11 +77,17 @@ func (r *Runner) Start(communityID, threadID, assistantMsgID string, cfg Config,
 	r.mu.Unlock()
 
 	msgs := history
-	if sp := strings.TrimSpace(cfg.SystemPrompt); sp != "" {
-		msgs = append([]ChatMessage{{Role: RoleSystem, Content: sp}}, history...)
+	if !a.Vision {
+		// A text-only model 400s on image input. The thread's history can still
+		// carry images — e.g. after switching from a vision agent to a plain one
+		// mid-conversation — so drop them for non-vision agents.
+		msgs = stripImages(msgs)
+	}
+	if sp := strings.TrimSpace(a.SystemPrompt); sp != "" {
+		msgs = append([]ChatMessage{{Role: RoleSystem, Content: sp}}, msgs...)
 	}
 
-	go r.run(ctx, cancel, prov, communityID, threadID, assistantMsgID, cfg.Model, msgs)
+	go r.run(ctx, cancel, prov, communityID, threadID, assistantMsgID, a.Model, msgs)
 	return nil
 }
 
@@ -92,6 +98,7 @@ func (r *Runner) run(ctx context.Context, cancel context.CancelFunc, prov Provid
 		delete(r.active, threadID)
 		r.mu.Unlock()
 	}()
+	r.Log.Info("agent: generation start", "thread", threadID, "model", model)
 
 	var (
 		mu    sync.Mutex
@@ -156,6 +163,17 @@ func (r *Runner) run(ctx context.Context, cancel context.CancelFunc, prov Provid
 			return
 		}
 	}
+}
+
+// stripImages returns a copy of the history with all image payloads removed,
+// for providers/models that don't accept image input.
+func stripImages(in []ChatMessage) []ChatMessage {
+	out := make([]ChatMessage, len(in))
+	for i, m := range in {
+		m.Images = nil
+		out[i] = m
+	}
+	return out
 }
 
 // broadcast wakes same-process streams via the Bus and cross-process streams

@@ -7,5 +7,10 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #3752 | 3:53 PM | ✅ | Uploads shared signing and discussion file-picker merged to main branch | ~435 |
+| #3746 | 3:52 PM | 🔄 | Migrated upload URLs from per-viewer to shared signatures with backward compatibility | ~597 |
+| #3703 | 3:25 PM | ✅ | Extended uploads handler to support project guest session resolution | ~558 |
+| #3700 | 3:24 PM | 🔴 | Infinite recursion in uploads.Handler.cid fallback path | ~401 |
+| #3615 | 2:39 PM | ✅ | Committed Phase 8 documentation updates for projects feature | ~313 |
 | #3575 | 2:31 PM | 🟣 | Phase 5 attachments shipped - drag-drop upload, download, permission-checked delete with SSE updates | ~578 |
 </claude-mem-context>

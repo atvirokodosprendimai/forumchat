@@ -5,25 +5,31 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 	"github.com/go-chi/chi/v5"
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
+// AgentImageMaxBytes caps an attached image (pre-base64). Vision agents only.
+const AgentImageMaxBytes = 16 << 20
+
 // Handler is the HTTP boundary for the Agent feature.
 type Handler struct {
-	Repo   *Repo
-	Svc    *Service
-	Runner *Runner
-	Bus    *Bus
-	NATS   *nats.Conn
-	Log    *slog.Logger
+	Repo    *Repo
+	Svc     *Service
+	Runner  *Runner
+	Bus     *Bus
+	NATS    *nats.Conn
+	Uploads *uploads.Store
+	Log     *slog.Logger
 
 	CommunityID   string
 	CommunityName string
@@ -71,8 +77,8 @@ func threadID(r *http.Request) string { return chi.URLParam(r, "thread") }
 
 // resolveReadable loads the routed thread and confirms the viewer may read it:
 // shared threads are open to every member; private threads only to their
-// creator. Writes a 404 and returns ok=false otherwise (404 not 403 so a
-// private thread's existence isn't revealed).
+// creator. Writes a 404 (not 403, so a private thread's existence isn't
+// revealed) and returns ok=false otherwise.
 func (h *Handler) resolveReadable(w http.ResponseWriter, r *http.Request) (Thread, auth.Identity, bool) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -95,6 +101,21 @@ func canDelete(t Thread, userID string, isAdmin bool) bool {
 	return t.UserID == userID || (isAdmin && t.Visibility == VisibilityShared)
 }
 
+// threadAgent resolves a thread's pinned agent, falling back to the first
+// enabled agent for legacy threads with no pin.
+func (h *Handler) threadAgent(ctx context.Context, t Thread) (Agent, error) {
+	if t.AgentID != "" {
+		if a, err := h.Repo.AgentByID(ctx, t.AgentID); err == nil {
+			return a, nil
+		}
+	}
+	enabled, _ := h.Repo.ListEnabledAgents(ctx, t.CommunityID)
+	if len(enabled) == 0 {
+		return Agent{}, ErrDisabled
+	}
+	return enabled[0], nil
+}
+
 // --- pages ----------------------------------------------------------------
 
 // GetIndex (/agent) redirects to the newest visible thread, or renders the
@@ -110,9 +131,7 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/c/"+h.cslug(r.Context())+"/agent/"+threads[0].ID, http.StatusSeeOther)
 		return
 	}
-	cfg, _ := h.Repo.GetConfig(r.Context(), h.cid(r.Context()))
-	d := h.pageData(r, Thread{}, false, nil, threads, cfg.Enabled)
-	_ = webtempl.AgentPage(d).Render(r.Context(), w)
+	_ = webtempl.AgentPage(h.pageData(r, Thread{}, false, nil, threads)).Render(r.Context(), w)
 }
 
 // GetPage (/agent/{thread}) renders the two-pane page for one thread.
@@ -123,29 +142,41 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 	}
 	threads, _ := h.Repo.ListThreads(r.Context(), h.cid(r.Context()), id.User.ID)
 	msgs, _ := h.Repo.Messages(r.Context(), t.ID)
-	cfg, _ := h.Repo.GetConfig(r.Context(), h.cid(r.Context()))
-	d := h.pageData(r, t, true, msgs, threads, cfg.Enabled)
-	_ = webtempl.AgentPage(d).Render(r.Context(), w)
+	_ = webtempl.AgentPage(h.pageData(r, t, true, msgs, threads)).Render(r.Context(), w)
 }
 
-func (h *Handler) pageData(r *http.Request, t Thread, hasActive bool, msgs []Message, threads []Thread, configured bool) webtempl.AgentPageData {
-	slug := h.cslug(r.Context())
+func (h *Handler) pageData(r *http.Request, t Thread, hasActive bool, msgs []Message, threads []Thread) webtempl.AgentPageData {
+	ctx := r.Context()
+	slug := h.cslug(ctx)
 	canShare := h.ShareToChannel != nil
+	enabled, _ := h.Repo.ListEnabledAgents(ctx, h.cid(ctx))
+
 	d := webtempl.AgentPageData{
-		Viewer:     h.viewer(r),
-		Slug:       slug,
-		HasActive:  hasActive,
-		Configured: configured,
-		CanShare:   canShare,
+		Viewer:          h.viewer(r),
+		Slug:            slug,
+		HasActive:       hasActive,
+		HasEnabledAgent: len(enabled) > 0,
+		CanShare:        canShare,
+	}
+	for _, a := range enabled {
+		d.Agents = append(d.Agents, webtempl.AgentOptionView{ID: a.ID, Name: a.Name, Vision: a.Vision})
+		if a.Vision {
+			d.AnyVision = true
+		}
 	}
 	if hasActive {
 		d.Active = webtempl.AgentThreadView{ID: t.ID, Title: t.Title, Visibility: t.Visibility}
+		if a, err := h.threadAgent(ctx, t); err == nil {
+			d.ActiveAgentName = a.Name
+			d.ActiveAgentID = a.ID
+			d.ActiveVision = a.Vision
+		}
 		d.Generating = h.threadGenerating(t.ID, msgs)
 		for _, m := range msgs {
 			d.Messages = append(d.Messages, toMsgView(m, canShare))
 		}
 		if canShare && h.ListChannels != nil {
-			d.Channels = h.ListChannels(r.Context(), h.cid(r.Context()))
+			d.Channels = h.ListChannels(ctx, h.cid(ctx))
 		}
 	}
 	active := ""
@@ -161,8 +192,7 @@ func (h *Handler) pageData(r *http.Request, t Thread, hasActive bool, msgs []Mes
 }
 
 // GetStream (/agent/{thread}/stream) is the per-thread SSE: refetch + fat-morph
-// on every broadcast, exactly like chat. The 100ms-cadence broadcasts come
-// from the generation runner.
+// on every broadcast. The 100ms-cadence broadcasts come from the runner.
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	t, _, ok := h.resolveReadable(w, r)
 	if !ok {
@@ -170,12 +200,10 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := render.NewSSE(w, r)
 
-	// Initial sync on every (re)connection — restores the conversation after a
-	// tab sleep / refresh and, if a generation is in flight, picks it up live.
-	if err := h.streamMorph(r.Context(), sse, t.ID); err != nil {
-		return
-	}
-
+	// Subscribe BEFORE the initial render so a broadcast that lands between the
+	// first paint and the subscription isn't lost (the buffered channel holds
+	// it). Otherwise a generation that started just before this connection
+	// could go un-rendered until the next event.
 	local, unsubscribe := h.Bus.Subscribe(t.ID)
 	defer unsubscribe()
 
@@ -190,6 +218,17 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := h.streamMorph(r.Context(), sse, t.ID); err != nil {
+		return
+	}
+
+	// Safety re-sync: while a generation is in flight on this node, re-render
+	// every interval even if no bus/NATS wake arrives. Event-driven stays the
+	// fast path (100ms via the runner); this is a belt-and-braces fallback so a
+	// freshly-connected stream can never get stuck on the "thinking" dots.
+	resync := time.NewTicker(400 * time.Millisecond)
+	defer resync.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
@@ -199,6 +238,10 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 			if !alive {
 				natsCh = nil
 				continue
+			}
+		case <-resync.C:
+			if !h.Runner.IsRunning(t.ID) {
+				continue // idle thread — don't re-render for nothing
 			}
 		}
 		if err := h.streamMorph(r.Context(), sse, t.ID); err != nil {
@@ -210,7 +253,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) streamMorph(ctx context.Context, sse *datastar.ServerSentEventGenerator, tid string) error {
 	msgs, err := h.Repo.Messages(ctx, tid)
 	if err != nil {
-		return nil // transient; keep the stream open
+		return nil
 	}
 	return h.fatMorph(sse, h.cslug(ctx), tid, msgs)
 }
@@ -252,48 +295,79 @@ func (h *Handler) threadGenerating(tid string, msgs []Message) bool {
 type newSignals struct {
 	Body       string `json:"agent_body"`
 	Visibility string `json:"agent_visibility"`
+	AgentID    string `json:"agent_pick"`
+	ImageData  string `json:"agent_image_data"`
 }
 
-// PostNew (/agent/new) mints a thread and, when the composer carried a prompt,
-// sends the first turn immediately, then navigates to the thread.
+// pickAgent resolves the agent to use for a new thread: the explicitly chosen
+// one (validated against this community + enabled), else the first enabled.
+func (h *Handler) pickAgent(ctx context.Context, agentID string) (Agent, bool) {
+	cid := h.cid(ctx)
+	if agentID != "" {
+		if a, err := h.Repo.AgentByID(ctx, agentID); err == nil && a.CommunityID == cid && a.Enabled {
+			return a, true
+		}
+	}
+	enabled, _ := h.Repo.ListEnabledAgents(ctx, cid)
+	if len(enabled) == 0 {
+		return Agent{}, false
+	}
+	return enabled[0], true
+}
+
+// PostNew (/agent/new) mints a thread (with a chosen agent) and, when the
+// composer carried a prompt/image, sends the first turn, then navigates.
 func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, AgentImageMaxBytes+1<<20)
 	var in newSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	cid := h.cid(r.Context())
-	cfg, _ := h.Repo.GetConfig(r.Context(), cid)
-	t, err := h.Svc.CreateThread(r.Context(), cid, id.User.ID, in.Visibility, cfg.Model)
+	sse := render.NewSSE(w, r)
+	a, ok := h.pickAgent(r.Context(), in.AgentID)
+	if !ok {
+		_ = sse.PatchElementTempl(webtempl.AgentNotice("No AI agent is enabled yet."))
+		return
+	}
+	t, err := h.Svc.CreateThread(r.Context(), h.cid(r.Context()), id.User.ID, a, in.Visibility)
 	if err != nil {
 		h.Log.Error("agent: create thread", "err", err)
 		http.Error(w, "create thread", http.StatusInternalServerError)
 		return
 	}
-	sse := render.NewSSE(w, r)
-	if body := strings.TrimSpace(in.Body); body != "" && cfg.Enabled {
-		h.startSend(r.Context(), t, id.User.ID, body, cfg)
+	body := strings.TrimSpace(in.Body)
+	images := h.stageImage(r.Context(), id.User.ID, a, in.ImageData, &body)
+	if body != "" || len(images) > 0 {
+		h.startSend(r.Context(), t, a, id.User.ID, body, images)
 	}
-	_ = sse.PatchSignals([]byte(`{"agent_body":""}`))
+	_ = sse.PatchSignals([]byte(`{"agent_body":"","agent_image_data":""}`))
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/agent/" + t.ID)
 }
 
 type sendSignals struct {
-	Body string `json:"agent_body"`
+	Body      string `json:"agent_body"`
+	ImageData string `json:"agent_image_data"`
 }
 
-// PostSend (/agent/{thread}/send) appends the member's turn and kicks the
-// generation runner.
+// PostSend (/agent/{thread}/send) appends the member's turn, kicks the runner,
+// and STREAMS the whole generation back through THIS response. Streaming via
+// the POST response (rather than relying on the separate persistent /stream)
+// is deliberate: the browser tears the persistent SSE down when this POST
+// fires, so the sender's live tokens must ride the POST itself. The runner
+// keeps filling the DB regardless, so a navigate-away/refresh still resumes via
+// GetStream.
 func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	t, id, ok := h.resolveReadable(w, r)
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, AgentImageMaxBytes+1<<20)
 	var in sendSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -301,40 +375,159 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	}
 	body := strings.TrimSpace(in.Body)
 	sse := render.NewSSE(w, r)
-	if body == "" || len(body) > 8000 {
+	a, err := h.threadAgent(r.Context(), t)
+	if err != nil || !a.Enabled {
+		_ = sse.PatchElementTempl(webtempl.AgentNotice("This agent isn't available right now."))
 		return
 	}
-	cfg, _ := h.Repo.GetConfig(r.Context(), h.cid(r.Context()))
-	if !cfg.Enabled {
-		_ = sse.PatchElementTempl(webtempl.AgentNotice("AI is not enabled for this community yet. An admin can turn it on in Admin → AI."))
+	images := h.stageImage(r.Context(), id.User.ID, a, in.ImageData, &body)
+	if (body == "" && len(images) == 0) || len(body) > 8000 {
 		return
 	}
 	if h.Runner.IsRunning(t.ID) {
 		_ = sse.PatchElementTempl(webtempl.AgentNotice("Still answering the previous message — hang on."))
 		return
 	}
-	h.startSend(r.Context(), t, id.User.ID, body, cfg)
-	// Immediately reflect the new user turn + empty assistant bubble to the
-	// sender; their own SSE stream also receives the broadcast.
+
+	// Subscribe before kicking the runner so no early flush is missed.
+	local, unsubscribe := h.Bus.Subscribe(t.ID)
+	defer unsubscribe()
+
+	h.startSend(r.Context(), t, a, id.User.ID, body, images)
+
+	// Clear the composer immediately — including the (large) image data URL so
+	// it never lingers in the signal bag.
+	_ = sse.PatchSignals([]byte(`{"agent_body":"","agent_image_data":""}`))
 	if msgs, err := h.Repo.Messages(r.Context(), t.ID); err == nil {
-		_ = h.fatMorph(sse, h.cslug(r.Context()), t.ID, msgs)
+		if err := h.fatMorph(sse, h.cslug(r.Context()), t.ID, msgs); err != nil {
+			return
+		}
 	}
-	_ = sse.PatchSignals([]byte(`{"agent_body":""}`))
+	h.streamUntilDone(r, sse, t.ID, local)
 }
 
-// startSend persists the turn + placeholder and launches the runner. It also
-// fires an immediate broadcast so other open streams render the user turn
-// before the first token lands.
-func (h *Handler) startSend(ctx context.Context, t Thread, authorID, body string, cfg Config) {
-	asstID, history, err := h.Svc.Send(ctx, t, authorID, body)
+// streamUntilDone re-renders the thread on every bus wake (and a 150ms safety
+// tick) until the generation completes or the client disconnects. Shared by
+// PostSend and PostRegenerate so the actor sees streaming through their own
+// request.
+func (h *Handler) streamUntilDone(r *http.Request, sse *datastar.ServerSentEventGenerator, tid string, local <-chan struct{}) {
+	tick := time.NewTicker(120 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-local:
+		case <-tick.C:
+		}
+		msgs, err := h.Repo.Messages(r.Context(), tid)
+		if err != nil {
+			continue
+		}
+		if h.threadGenerating(tid, msgs) {
+			// Incremental: morph ONLY the growing assistant bubble (by id), not
+			// the whole conversation — so the list above doesn't repaint and
+			// flicker on every token batch.
+			if err := h.streamBubble(sse, h.cslug(r.Context()), tid, msgs); err != nil {
+				return
+			}
+			continue
+		}
+		// Finished: one full morph settles status/actions and flips the signal.
+		_ = h.fatMorph(sse, h.cslug(r.Context()), tid, msgs)
+		return
+	}
+}
+
+// streamBubble morphs just the last assistant message (the one being streamed)
+// plus re-fires the scroll anchor. Used during active generation to avoid
+// repainting the entire message list.
+func (h *Handler) streamBubble(sse *datastar.ServerSentEventGenerator, slug, tid string, msgs []Message) error {
+	var last Message
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == RoleAssistant {
+			last = msgs[i]
+			break
+		}
+	}
+	if last.ID == "" {
+		return nil
+	}
+	if err := sse.PatchElementTempl(webtempl.AgentBubble(slug, tid, toMsgView(last, h.ShareToChannel != nil)), datastar.WithModeOuter()); err != nil {
+		return err
+	}
+	return sse.PatchElementTempl(webtempl.AgentScrollAnchor(), datastar.WithModeReplace())
+}
+
+// stageImage handles a vision agent's attached image: it uploads it (so the
+// bubble shows a small signed URL, not a giant data: URL re-sent every morph)
+// AND returns the raw base64 for the model. Non-vision agents / no image → nil.
+// On success it prepends a markdown image to *body for display.
+func (h *Handler) stageImage(ctx context.Context, userID string, a Agent, dataURL string, body *string) []string {
+	dataURL = strings.TrimSpace(dataURL)
+	if dataURL == "" || !a.Vision || h.Uploads == nil {
+		return nil
+	}
+	_, b64, ok := dataURLBase64(dataURL)
+	if !ok {
+		return nil
+	}
+	u, err := h.Uploads.SaveDataURL(ctx, userID, a.CommunityID, dataURL, AgentImageMaxBytes)
+	if err != nil {
+		h.Log.Warn("agent: stage image", "err", err)
+		return nil
+	}
+	url := h.Uploads.SignedURL(u.ID, userID, 24*time.Hour)
+	img := "[![](" + url + ")](" + url + ")"
+	if *body == "" {
+		*body = img
+	} else {
+		*body = img + "\n\n" + *body
+	}
+	return []string{b64}
+}
+
+// startSend persists the turn + placeholder and launches the runner.
+func (h *Handler) startSend(ctx context.Context, t Thread, a Agent, authorID, body string, images []string) {
+	asstID, history, err := h.Svc.Send(ctx, t, authorID, body, images)
 	if err != nil {
 		h.Log.Error("agent: send", "err", err)
 		return
 	}
 	h.broadcast(ctx, t.ID)
-	if err := h.Runner.Start(t.CommunityID, t.ID, asstID, cfg, history); err != nil {
+	if err := h.Runner.Start(t.CommunityID, t.ID, asstID, a, history); err != nil {
 		h.Log.Warn("agent: start generation", "thread", t.ID, "err", err)
 	}
+}
+
+type switchSignals struct {
+	AgentID string `json:"agent_active"`
+}
+
+// PostSetAgent (/agent/{thread}/agent) switches the thread's agent (model +
+// system prompt) mid-conversation. The history stays; the next turn uses the
+// new agent. Re-renders the composer so its vision attach matches.
+func (h *Handler) PostSetAgent(w http.ResponseWriter, r *http.Request) {
+	t, _, ok := h.resolveReadable(w, r)
+	if !ok {
+		return
+	}
+	var in switchSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	a, err := h.Repo.AgentByID(r.Context(), strings.TrimSpace(in.AgentID))
+	if err != nil || a.CommunityID != h.cid(r.Context()) || !a.Enabled {
+		return
+	}
+	if err := h.Repo.SetThreadAgent(r.Context(), t.ID, a.ID, a.Model); err != nil {
+		h.Log.Warn("agent: switch agent", "thread", t.ID, "err", err)
+		return
+	}
+	// Reflect the new agent's vision capability in the composer immediately.
+	_ = sse.PatchElementTempl(webtempl.AgentComposer(h.cslug(r.Context()), t.ID, a.Vision))
 }
 
 // PostStop (/agent/{thread}/stop) cancels an in-flight generation.
@@ -357,21 +550,25 @@ func (h *Handler) PostRegenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := render.NewSSE(w, r)
-	cfg, _ := h.Repo.GetConfig(r.Context(), h.cid(r.Context()))
-	if !cfg.Enabled || h.Runner.IsRunning(t.ID) {
+	a, err := h.threadAgent(r.Context(), t)
+	if err != nil || !a.Enabled || h.Runner.IsRunning(t.ID) {
 		return
 	}
+	local, unsubscribe := h.Bus.Subscribe(t.ID)
+	defer unsubscribe()
 	asstID, history, err := h.Svc.Regenerate(r.Context(), t.ID)
 	if err != nil {
 		return
 	}
-	if err := h.Runner.Start(t.CommunityID, t.ID, asstID, cfg, history); err != nil {
+	if err := h.Runner.Start(t.CommunityID, t.ID, asstID, a, history); err != nil {
 		h.Log.Warn("agent: regenerate", "thread", t.ID, "err", err)
 	}
-	h.broadcast(r.Context(), t.ID)
 	if msgs, err := h.Repo.Messages(r.Context(), t.ID); err == nil {
-		_ = h.fatMorph(sse, h.cslug(r.Context()), t.ID, msgs)
+		if err := h.fatMorph(sse, h.cslug(r.Context()), t.ID, msgs); err != nil {
+			return
+		}
 	}
+	h.streamUntilDone(r, sse, t.ID, local)
 }
 
 // PostDelete (/agent/{thread}/delete) removes a thread the viewer owns (or, for
@@ -433,62 +630,121 @@ func (h *Handler) PostShareToChannel(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchElementTempl(webtempl.AgentNotice("Shared to #" + name + "."))
 }
 
-// --- admin config ---------------------------------------------------------
+// --- admin: manage agents -------------------------------------------------
 
-// GetConfig (/admin/ai) renders the per-community AI settings form.
-func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, err := h.Repo.GetConfig(r.Context(), h.cid(r.Context()))
+// GetAgents (/admin/ai) lists the community's agents with editor + add form.
+func (h *Handler) GetAgents(w http.ResponseWriter, r *http.Request) {
+	agents, err := h.Repo.ListAgents(r.Context(), h.cid(r.Context()))
 	if err != nil {
-		http.Error(w, "load config", http.StatusInternalServerError)
+		http.Error(w, "load agents", http.StatusInternalServerError)
 		return
 	}
-	_ = webtempl.AgentConfigPage(h.viewer(r), h.cslug(r.Context()), toConfigView(cfg)).Render(r.Context(), w)
+	views := make([]webtempl.AgentAdminView, 0, len(agents))
+	for _, a := range agents {
+		views = append(views, toAdminView(a))
+	}
+	_ = webtempl.AgentAdminPage(h.viewer(r), h.cslug(r.Context()), views).Render(r.Context(), w)
 }
 
-type configSignals struct {
+// GetNewAgentForm (/admin/ai/new) patches a blank editor form.
+func (h *Handler) GetNewAgentForm(w http.ResponseWriter, r *http.Request) {
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), webtempl.AgentAdminView{}, ""))
+}
+
+// GetEditAgentForm (/admin/ai/{id}/edit) patches the editor form for one agent.
+func (h *Handler) GetEditAgentForm(w http.ResponseWriter, r *http.Request) {
+	a, err := h.Repo.AgentByID(r.Context(), chi.URLParam(r, "id"))
+	sse := render.NewSSE(w, r)
+	if err != nil || a.CommunityID != h.cid(r.Context()) {
+		_ = sse.PatchElementTempl(webtempl.AgentNotice("Agent not found."))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), toAdminView(a), ""))
+}
+
+type agentSignals struct {
+	AgentID      string `json:"ai_agent_id"`
+	Name         string `json:"ai_name"`
 	Provider     string `json:"ai_provider"`
 	BaseURL      string `json:"ai_base_url"`
 	Model        string `json:"ai_model"`
 	APIKey       string `json:"ai_api_key"`
 	SystemPrompt string `json:"ai_system_prompt"`
+	Vision       bool   `json:"ai_vision"`
 	Enabled      bool   `json:"ai_enabled"`
 }
 
-// PostSaveConfig (/admin/ai) persists the settings and re-renders the form.
-func (h *Handler) PostSaveConfig(w http.ResponseWriter, r *http.Request) {
+// PostSaveAgent (/admin/ai) creates or updates an agent, then re-renders the
+// list and resets the form.
+func (h *Handler) PostSaveAgent(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	var in configSignals
+	var in agentSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	cur, _ := h.Repo.GetConfig(r.Context(), h.cid(r.Context()))
-	cur.CommunityID = h.cid(r.Context())
-	cur.Provider = strings.TrimSpace(in.Provider)
-	if cur.Provider == "" {
-		cur.Provider = ProviderOllama
+	cid := h.cid(r.Context())
+	a := Agent{
+		ID: strings.TrimSpace(in.AgentID), CommunityID: cid, Name: in.Name,
+		Provider: in.Provider, BaseURL: in.BaseURL, Model: in.Model,
+		SystemPrompt: in.SystemPrompt, Vision: in.Vision, Enabled: in.Enabled,
+		UpdatedBy: id.User.ID,
 	}
-	cur.BaseURL = strings.TrimSpace(in.BaseURL)
-	cur.Model = strings.TrimSpace(in.Model)
-	cur.SystemPrompt = in.SystemPrompt
-	cur.Enabled = in.Enabled
-	cur.UpdatedBy = id.User.ID
-	// Only overwrite the stored key when a new one was typed (the form never
-	// echoes the existing secret back).
+	// Preserve the stored key unless a new one was typed (the form never echoes
+	// the secret); load the existing row when editing.
+	if a.ID != "" {
+		if cur, err := h.Repo.AgentByID(r.Context(), a.ID); err == nil && cur.CommunityID == cid {
+			a.APIKeyEnc = cur.APIKeyEnc
+		}
+	}
 	if k := strings.TrimSpace(in.APIKey); k != "" {
-		cur.APIKeyEnc = k
+		a.APIKeyEnc = k
 	}
+
 	sse := render.NewSSE(w, r)
-	if err := h.Repo.SaveConfig(r.Context(), cur); err != nil {
-		h.Log.Error("agent: save config", "err", err)
-		_ = sse.PatchElementTempl(webtempl.AgentConfigForm(h.cslug(r.Context()), toConfigView(cur), "Couldn't save — try again."))
+	if _, err := h.Svc.SaveAgent(r.Context(), a); err != nil {
+		_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), toAdminView(a), saveErr(err)))
 		return
 	}
-	_ = sse.PatchElementTempl(webtempl.AgentConfigForm(h.cslug(r.Context()), toConfigView(cur), "Saved."))
+	h.broadcast(r.Context(), "") // wake any agent pages so the picker refreshes
+	h.renderAdminList(r.Context(), sse)
+	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), webtempl.AgentAdminView{}, "Saved."))
+}
+
+// PostDeleteAgent (/admin/ai/{id}/delete) removes an agent (threads cascade).
+func (h *Handler) PostDeleteAgent(w http.ResponseWriter, r *http.Request) {
+	a, err := h.Repo.AgentByID(r.Context(), chi.URLParam(r, "id"))
+	sse := render.NewSSE(w, r)
+	if err != nil || a.CommunityID != h.cid(r.Context()) {
+		return
+	}
+	_ = h.Repo.DeleteAgent(r.Context(), a.ID)
+	h.renderAdminList(r.Context(), sse)
+}
+
+func (h *Handler) renderAdminList(ctx context.Context, sse *datastar.ServerSentEventGenerator) {
+	agents, _ := h.Repo.ListAgents(ctx, h.cid(ctx))
+	views := make([]webtempl.AgentAdminView, 0, len(agents))
+	for _, a := range agents {
+		views = append(views, toAdminView(a))
+	}
+	_ = sse.PatchElementTempl(webtempl.AgentAdminList(h.cslug(ctx), views))
+}
+
+func saveErr(err error) string {
+	switch err {
+	case ErrNoName:
+		return "Name is required."
+	case ErrAgentCap:
+		return "Too many agents."
+	default:
+		return "Couldn't save — try again."
+	}
 }
 
 func (h *Handler) broadcast(ctx context.Context, tid string) {
@@ -500,7 +756,29 @@ func (h *Handler) broadcast(ctx context.Context, tid string) {
 	}
 }
 
-// --- view mapping ---------------------------------------------------------
+// --- helpers --------------------------------------------------------------
+
+// dataURLBase64 splits a "data:<mime>;base64,<payload>" URL into its mime and
+// raw base64 payload (Ollama's images shape). ok=false for anything else.
+func dataURLBase64(dataURL string) (mime, b64 string, ok bool) {
+	if !strings.HasPrefix(dataURL, "data:") {
+		return "", "", false
+	}
+	i := strings.IndexByte(dataURL, ',')
+	if i < 0 {
+		return "", "", false
+	}
+	meta := dataURL[len("data:"):i]
+	if !strings.Contains(meta, "base64") {
+		return "", "", false
+	}
+	mime = meta
+	if j := strings.IndexByte(mime, ';'); j >= 0 {
+		mime = mime[:j]
+	}
+	b64 = dataURL[i+1:]
+	return mime, b64, b64 != ""
+}
 
 func toMsgView(m Message, canShare bool) webtempl.AgentMsgView {
 	v := webtempl.AgentMsgView{
@@ -519,13 +797,16 @@ func toMsgView(m Message, canShare bool) webtempl.AgentMsgView {
 	return v
 }
 
-func toConfigView(c Config) webtempl.AgentConfigView {
-	return webtempl.AgentConfigView{
-		Provider:     c.Provider,
-		BaseURL:      c.BaseURL,
-		Model:        c.Model,
-		SystemPrompt: c.SystemPrompt,
-		Enabled:      c.Enabled,
-		APIKeySet:    strings.TrimSpace(c.APIKeyEnc) != "",
+func toAdminView(a Agent) webtempl.AgentAdminView {
+	return webtempl.AgentAdminView{
+		ID:           a.ID,
+		Name:         a.Name,
+		Provider:     a.Provider,
+		BaseURL:      a.BaseURL,
+		Model:        a.Model,
+		SystemPrompt: a.SystemPrompt,
+		Vision:       a.Vision,
+		Enabled:      a.Enabled,
+		APIKeySet:    strings.TrimSpace(a.APIKeyEnc) != "",
 	}
 }

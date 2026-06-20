@@ -321,6 +321,7 @@ func run() error {
 		Runner:        agentRunner,
 		Bus:           agentBus,
 		NATS:          nc,
+		Uploads:       uploadStore,
 		Log:           log,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
@@ -697,6 +698,7 @@ func run() error {
 			r.Get("/agent/{thread}", agentHandler.GetPage)
 			r.Get("/agent/{thread}/stream", agentHandler.GetStream)
 			r.Post("/agent/{thread}/send", agentHandler.PostSend)
+			r.Post("/agent/{thread}/agent", agentHandler.PostSetAgent)
 			r.Post("/agent/{thread}/stop", agentHandler.PostStop)
 			r.Post("/agent/{thread}/regenerate", agentHandler.PostRegenerate)
 			r.Post("/agent/{thread}/share", agentHandler.PostShareToChannel)
@@ -798,8 +800,11 @@ func run() error {
 				r.Post("/admin/mail-filters/{id}/apply", mailboxHandler.PostCommunityFilterApply)
 			}
 			if cfg.AIEnabled {
-				r.Get("/admin/ai", agentHandler.GetConfig)
-				r.Post("/admin/ai", agentHandler.PostSaveConfig)
+				r.Get("/admin/ai", agentHandler.GetAgents)
+				r.Get("/admin/ai/new", agentHandler.GetNewAgentForm)
+				r.Get("/admin/ai/{id}/edit", agentHandler.GetEditAgentForm)
+				r.Post("/admin/ai", agentHandler.PostSaveAgent)
+				r.Post("/admin/ai/{id}/delete", agentHandler.PostDeleteAgent)
 			}
 		})
 	})
