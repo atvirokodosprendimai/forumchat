@@ -22,10 +22,33 @@ type SAUser struct {
 	CreatedAt   string
 }
 
+// SAUserMembership is one community a user belongs to, shown in the platform
+// user drill-down. Lets a super-admin see WHICH communities back the bare
+// count, the user's role + state in each, basic activity, and act per-row.
+type SAUserMembership struct {
+	MembershipID string
+	Slug         string
+	Name         string
+	Role         string
+	IsApproved   bool
+	IsBanned     bool
+	ChatCount    int
+	ThreadCount  int
+	LastActive   string // formatted date, or "" when never active
+}
+
 type SuperAdminPageData struct {
 	Viewer      Viewer
 	Communities []SACommunity
 	Users       []SAUser
+}
+
+// sysBanJS builds the per-user "Ban + wipe" click expression: a confirm that
+// spells out the blast radius (disable account platform-wide AND soft-delete
+// all their chat/threads/posts in every community), then posts. The server
+// re-guards self-ban. Email is inlined the same lax way as the Disable button.
+func sysBanJS(u SAUser) string {
+	return "if(confirm('SYSTEM BAN " + u.Email + "?\\n\\nDisables the account (signed out on next request) AND soft-deletes ALL their chat, threads and posts across every community. Reversible only by re-enabling + manual restore.')){$sa_uid='" + u.ID + "'; @post('/superadmin/user/sysban')}"
 }
 
 // deleteConfirmJS builds the per-row Delete click expression: a prompt that
@@ -103,7 +126,11 @@ templ SuperAdminPage(data SuperAdminPageData) {
 						<tr>
 							<td>{ u.Email }</td>
 							<td>{ u.Status }</td>
-							<td>{ itoa(u.Communities) }</td>
+							<td>
+								<button class="ghost"
+									title="Show which communities"
+									data-on:click={ "$sa_open_uid = ($sa_open_uid==='" + u.ID + "' ? '' : '" + u.ID + "'); @get('/superadmin/user/memberships?uid=" + u.ID + "')" }>{ itoa(u.Communities) } ▾</button>
+							</td>
 							<td class="muted">{ u.CreatedAt }</td>
 							<td>
 								if u.Status == "disabled" {
@@ -112,7 +139,14 @@ templ SuperAdminPage(data SuperAdminPageData) {
 								} else {
 									<button class="ghost danger"
 										data-on:click={ "if(confirm('Disable " + u.Email + "? They are signed out on next request.')){$sa_uid='" + u.ID + "'; @post('/superadmin/user/disable')}" }>Disable</button>
+									<button class="ghost danger"
+										data-on:click={ sysBanJS(u) }>Ban + wipe</button>
 								}
+							</td>
+						</tr>
+						<tr data-show={ "$sa_open_uid === '" + u.ID + "'" }>
+							<td colspan="5">
+								<div id={ "sa-um-" + u.ID }></div>
 							</td>
 						</tr>
 					}
@@ -120,4 +154,55 @@ templ SuperAdminPage(data SuperAdminPageData) {
 			</table>
 		</section>
 	}
+}
+
+// SAUserMemberships is the lazy-loaded drill-down for one platform user: the
+// communities behind the bare count, with role/state/activity and per-row
+// ban + remove actions. The root keeps the stable id `sa-um-<uid>` so the
+// expand @get outer-morphs it in place, and stays gated by $sa_open_uid so
+// the client toggle still hides/shows it after load (and post-action re-render).
+templ SAUserMemberships(uid string, rows []SAUserMembership) {
+	<div id={ "sa-um-" + uid } data-show={ "$sa_open_uid === '" + uid + "'" } class="sa-drill">
+		if len(rows) == 0 {
+			<p class="muted">No community memberships.</p>
+		} else {
+			<table class="data-table">
+				<thead>
+					<tr><th>Community</th><th>Role</th><th>State</th><th>Chat</th><th>Threads</th><th>Last active</th><th></th></tr>
+				</thead>
+				<tbody>
+					for _, m := range rows {
+						<tr>
+							<td><a href={ templ.URL("/c/" + m.Slug + "/admin") }>{ m.Name } ↗</a></td>
+							<td>{ m.Role }</td>
+							<td>
+								if m.IsBanned {
+									<span class="danger">banned</span>
+								} else if !m.IsApproved {
+									<span class="muted">pending</span>
+								} else {
+									ok
+								}
+							</td>
+							<td>{ itoa(m.ChatCount) }</td>
+							<td>{ itoa(m.ThreadCount) }</td>
+							<td class="muted">
+								if m.LastActive == "" {
+									—
+								} else {
+									{ m.LastActive }
+								}
+							</td>
+							<td>
+								<button class="ghost danger"
+									data-on:click={ "if(confirm('Permanently ban from " + m.Slug + "? They keep their account but lose access to this community.')){$sa_mid='" + m.MembershipID + "'; $sa_uid='" + uid + "'; @post('/superadmin/user/community/ban')}" }>Ban</button>
+								<button class="ghost danger"
+									data-on:click={ "if(confirm('Remove from " + m.Slug + "? Membership is deleted; the account is kept. They can rejoin with an invite.')){$sa_mid='" + m.MembershipID + "'; $sa_uid='" + uid + "'; @post('/superadmin/user/community/remove')}" }>Remove</button>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	</div>
 }

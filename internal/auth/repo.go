@@ -642,6 +642,71 @@ func (r *Repo) ListAllUsers(ctx context.Context) ([]GlobalUser, error) {
 	return out, rows.Err()
 }
 
+// UserMembership is one community a user belongs to, enriched with the
+// membership id (so platform actions can target it directly), role,
+// approval/ban state and per-community activity counts. Drives the
+// /superadmin user drill-down — "which communities is this user in, and
+// what have they been doing in each".
+type UserMembership struct {
+	MembershipID string
+	CommunityID  string
+	Slug         string
+	Name         string
+	Role         Role
+	IsApproved   bool
+	BannedUntil  *time.Time
+	ChatCount    int
+	ThreadCount  int
+	LastActive   *time.Time // most recent chat message in this community
+}
+
+// UserMemberships returns every community the user belongs to with their
+// membership id, role, state and live activity counts, ordered by community
+// name. Counts ignore soft-deleted rows so they reflect what's still visible.
+func (r *Repo) UserMemberships(ctx context.Context, userID string) ([]UserMembership, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT m.id, c.id, c.slug, c.name, m.role,
+		       COALESCE(m.approved_at, 0),
+		       COALESCE(m.banned_until, 0),
+		       (SELECT COUNT(*) FROM chat_messages cm
+		          WHERE cm.author_id = m.user_id AND cm.community_id = c.id AND cm.deleted_at IS NULL),
+		       (SELECT COUNT(*) FROM threads t
+		          WHERE t.author_id = m.user_id AND t.community_id = c.id AND t.deleted_at IS NULL),
+		       (SELECT MAX(cm.created_at) FROM chat_messages cm
+		          WHERE cm.author_id = m.user_id AND cm.community_id = c.id AND cm.deleted_at IS NULL)
+		FROM memberships m
+		JOIN communities c ON c.id = m.community_id
+		WHERE m.user_id = ?
+		ORDER BY c.name`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []UserMembership
+	for rows.Next() {
+		var um UserMembership
+		var role string
+		var approvedAt, bannedUntil int64
+		var lastActive sql.NullInt64
+		if err := rows.Scan(&um.MembershipID, &um.CommunityID, &um.Slug, &um.Name, &role,
+			&approvedAt, &bannedUntil, &um.ChatCount, &um.ThreadCount, &lastActive); err != nil {
+			return nil, err
+		}
+		um.Role = Role(role)
+		um.IsApproved = approvedAt > 0
+		if bannedUntil > 0 {
+			t := time.Unix(bannedUntil, 0)
+			um.BannedUntil = &t
+		}
+		if lastActive.Valid {
+			t := time.Unix(lastActive.Int64, 0)
+			um.LastActive = &t
+		}
+		out = append(out, um)
+	}
+	return out, rows.Err()
+}
+
 // SetUserStatus flips a user's account status. The super-admin uses this to
 // disable (status=disabled) or re-enable (status=active) an account
 // platform-wide; auth.Loader logs out any non-active user on their next

@@ -1152,7 +1152,7 @@ func run() error {
 
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
-	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log}
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log, Bus: chatHandler.Bus}
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireSuperAdmin)
@@ -1161,6 +1161,10 @@ func run() error {
 		r.Post("/superadmin/community/delete", superHandler.PostDeleteCommunity)
 		r.Post("/superadmin/user/disable", superHandler.PostDisableUser)
 		r.Post("/superadmin/user/enable", superHandler.PostEnableUser)
+		r.Get("/superadmin/user/memberships", superHandler.GetUserMemberships)
+		r.Post("/superadmin/user/sysban", superHandler.PostSystemBan)
+		r.Post("/superadmin/user/community/ban", superHandler.PostCommunityBan)
+		r.Post("/superadmin/user/community/remove", superHandler.PostCommunityRemove)
 	})
 
 	r.Get("/explore", exploreHandler.GetIndex)

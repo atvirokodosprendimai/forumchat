@@ -80,6 +80,156 @@ func TestPostDeleteCommunity_WrongSlugRefuses(t *testing.T) {
 	}
 }
 
+// insertUser inserts a bare active user and returns its id.
+func insertUser(t *testing.T, aRepo *auth.Repo, email string) string {
+	t.Helper()
+	uid := uuid.NewString()
+	now := time.Now().Unix()
+	if _, err := aRepo.DB.ExecContext(context.Background(),
+		`INSERT INTO users (id, email, password_hash, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+		uid, email, "h", "active", now, now); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	return uid
+}
+
+// joinCommunity makes uid an approved member of cid with the given role.
+func joinCommunity(t *testing.T, aRepo *auth.Repo, uid, cid string, role auth.Role) string {
+	t.Helper()
+	approved := time.Now()
+	mid := uuid.NewString()
+	if err := aRepo.CreateMembership(context.Background(), nil, auth.Membership{
+		ID: mid, UserID: uid, CommunityID: cid, DisplayName: "m", Role: role, ApprovedAt: &approved,
+	}); err != nil {
+		t.Fatalf("create membership: %v", err)
+	}
+	return mid
+}
+
+// insertThread inserts one non-deleted thread authored by uid in cid.
+func insertThread(t *testing.T, aRepo *auth.Repo, uid, cid string) {
+	t.Helper()
+	now := time.Now().Unix()
+	if _, err := aRepo.DB.ExecContext(context.Background(),
+		`INSERT INTO threads (id, community_id, author_id, subject, body_md, body_html, last_activity_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+		uuid.NewString(), cid, uid, "s", "b", "<p>b</p>", now, now, now); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+}
+
+func userStatus(t *testing.T, aRepo *auth.Repo, uid string) string {
+	t.Helper()
+	var s string
+	if err := aRepo.DB.QueryRowContext(context.Background(),
+		`SELECT status FROM users WHERE id = ?`, uid).Scan(&s); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	return s
+}
+
+// TestUserMembershipsDrillDown is the core of the reported bug: the platform
+// roster shows a bare community COUNT with no way to see which. UserMemberships
+// is the query that answers "which 2?", with per-community role + activity.
+func TestUserMembershipsDrillDown(t *testing.T) {
+	_, aRepo, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	ca, _ := cRepo.Create(ctx, "alpha", "Alpha")
+	cb, _ := cRepo.Create(ctx, "bravo", "Bravo")
+	uid := insertUser(t, aRepo, "u@x.com")
+	joinCommunity(t, aRepo, uid, ca.ID, auth.RoleMember)
+	joinCommunity(t, aRepo, uid, cb.ID, auth.RoleAdmin)
+	insertThread(t, aRepo, uid, cb.ID) // activity only in Bravo
+
+	mems, err := aRepo.UserMemberships(ctx, uid)
+	if err != nil {
+		t.Fatalf("UserMemberships: %v", err)
+	}
+	if len(mems) != 2 {
+		t.Fatalf("want 2 communities, got %d", len(mems))
+	}
+	// Ordered by community name → Alpha first, Bravo second.
+	if mems[0].Slug != "alpha" || mems[1].Slug != "bravo" {
+		t.Fatalf("unexpected order: %s, %s", mems[0].Slug, mems[1].Slug)
+	}
+	if mems[0].ThreadCount != 0 || mems[1].ThreadCount != 1 {
+		t.Fatalf("thread counts wrong: alpha=%d bravo=%d", mems[0].ThreadCount, mems[1].ThreadCount)
+	}
+	if mems[1].Role != auth.RoleAdmin || mems[0].MembershipID == "" {
+		t.Fatalf("role/membership-id not surfaced: %+v", mems)
+	}
+}
+
+// TestPostSystemBan_DisablesAndWipes verifies the platform kill switch:
+// account disabled + all content soft-deleted across every community.
+func TestPostSystemBan_DisablesAndWipes(t *testing.T) {
+	h, aRepo, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	ca, _ := cRepo.Create(ctx, "alpha", "Alpha")
+	cb, _ := cRepo.Create(ctx, "bravo", "Bravo")
+	uid := insertUser(t, aRepo, "u@x.com")
+	joinCommunity(t, aRepo, uid, ca.ID, auth.RoleMember)
+	joinCommunity(t, aRepo, uid, cb.ID, auth.RoleMember)
+	insertThread(t, aRepo, uid, ca.ID)
+	insertThread(t, aRepo, uid, cb.ID)
+
+	body := `{"sa_uid":"` + uid + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/superadmin/user/sysban", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.PostSystemBan(httptest.NewRecorder(), req)
+
+	if got := userStatus(t, aRepo, uid); got != string(auth.StatusDisabled) {
+		t.Fatalf("account must be disabled, got %q", got)
+	}
+	mems, err := aRepo.UserMemberships(ctx, uid)
+	if err != nil {
+		t.Fatalf("UserMemberships: %v", err)
+	}
+	for _, m := range mems {
+		if m.ThreadCount != 0 {
+			t.Fatalf("threads must be wiped in %s, got %d", m.Slug, m.ThreadCount)
+		}
+	}
+}
+
+// TestPostSystemBan_SelfRefuses guards against a super-admin nuking themselves.
+func TestPostSystemBan_SelfRefuses(t *testing.T) {
+	h, aRepo, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	ca, _ := cRepo.Create(ctx, "alpha", "Alpha")
+	uid := insertUser(t, aRepo, "boss@x.com")
+	joinCommunity(t, aRepo, uid, ca.ID, auth.RoleAdmin)
+
+	body := `{"sa_uid":"` + uid + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/superadmin/user/sysban", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(auth.WithIdentity(req.Context(),
+		auth.Identity{User: auth.User{ID: uid}, IsSuperAdmin: true}))
+	h.PostSystemBan(httptest.NewRecorder(), req)
+
+	if got := userStatus(t, aRepo, uid); got != string(auth.StatusActive) {
+		t.Fatalf("self system-ban must be refused, status=%q", got)
+	}
+}
+
+// TestPostCommunityRemove_LastAdminRefused keeps a community from being
+// orphaned by removing its sole admin from the platform page.
+func TestPostCommunityRemove_LastAdminRefused(t *testing.T) {
+	h, aRepo, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	ca, _ := cRepo.Create(ctx, "alpha", "Alpha")
+	uid := insertUser(t, aRepo, "solo@x.com")
+	mid := joinCommunity(t, aRepo, uid, ca.ID, auth.RoleAdmin)
+
+	body := `{"sa_mid":"` + mid + `","sa_uid":"` + uid + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/superadmin/user/community/remove", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.PostCommunityRemove(httptest.NewRecorder(), req)
+
+	if _, err := aRepo.MembershipByID(ctx, mid); err != nil {
+		t.Fatalf("last-admin membership must survive removal, got err: %v", err)
+	}
+}
+
 func TestPostDeleteCommunity_CorrectSlugCascades(t *testing.T) {
 	h, aRepo, cRepo := newTestHandler(t)
 	c, uid := seedCommunityWithMember(t, aRepo, cRepo)
