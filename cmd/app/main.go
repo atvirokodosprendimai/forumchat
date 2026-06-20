@@ -1378,6 +1378,7 @@ func run() error {
 		r.Post("/superadmin/user/sysban", superHandler.PostSystemBan)
 		r.Post("/superadmin/user/community/ban", superHandler.PostCommunityBan)
 		r.Post("/superadmin/user/community/remove", superHandler.PostCommunityRemove)
+		r.Post("/superadmin/user/community/role", superHandler.PostCommunityRole)
 	})
 
 	r.Get("/explore", exploreHandler.GetIndex)

@@ -87,6 +87,35 @@ func deleteConfirmJS(c SACommunity) string {
 		"'; $sa_confirm_slug=s; @post('/superadmin/community/delete')}"
 }
 
+// roleSwitchJS builds the click expression for changing one membership's role
+// from the super-admin drill-down. Granting or revoking admin is high-stakes,
+// so it asks for confirmation first; member↔moderator switches are instant.
+// The server re-guards the community's last admin. Slug + ids are
+// JS-string-safe (slug charset a-z0-9-, ids are uuids).
+func roleSwitchJS(uid string, m SAUserMembership, target string) string {
+	post := "$sa_mid='" + m.MembershipID + "'; $sa_uid='" + uid + "'; $sa_role='" + target +
+		"'; @post('/superadmin/user/community/role')"
+	switch {
+	case target == "admin":
+		return "if(confirm('Make admin of " + m.Slug + "? They gain full control of this community.')){" + post + "}"
+	case m.Role == "admin":
+		return "if(confirm('Demote the admin of " + m.Slug + " to " + target + "?')){" + post + "}"
+	default:
+		return post
+	}
+}
+
+// saRoleButton renders one segment of the per-membership role switcher: the
+// current role shows as an inert active pill, the others as buttons that POST
+// the change. Keeps the three-way control declarative in the table.
+templ saRoleButton(uid string, m SAUserMembership, role, label string) {
+	if m.Role == role {
+		<span class="role-pill active" aria-current="true">{ label }</span>
+	} else {
+		<button class="role-pill" data-on:click={ roleSwitchJS(uid, m, role) }>{ label }</button>
+	}
+}
+
 templ SuperAdminPage(data SuperAdminPageData) {
 	@Layout("Platform", data.Viewer) {
 		<section class="card">
@@ -304,7 +333,13 @@ templ SAUserMemberships(uid string, rows []SAUserMembership) {
 					for _, m := range rows {
 						<tr>
 							<td><a href={ templ.URL("/c/" + m.Slug + "/admin") }>{ m.Name } ↗</a></td>
-							<td>{ m.Role }</td>
+							<td>
+									<div class="sa-role-switch" role="group" aria-label="Set role">
+										@saRoleButton(uid, m, "member", "Member")
+										@saRoleButton(uid, m, "moderator", "Mod")
+										@saRoleButton(uid, m, "admin", "Admin")
+									</div>
+								</td>
 							<td>
 								if m.IsBanned {
 									<span class="danger">banned</span>

@@ -230,6 +230,53 @@ func TestPostCommunityRemove_LastAdminRefused(t *testing.T) {
 	}
 }
 
+func postRole(h *Handler, mid, uid, role string) {
+	body := `{"sa_mid":"` + mid + `","sa_uid":"` + uid + `","sa_role":"` + role + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/superadmin/user/community/role", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.PostCommunityRole(httptest.NewRecorder(), req)
+}
+
+// TestPostCommunityRole_PromotesToAdmin is the requested feature: a super-admin
+// makes an existing member a community admin from the platform drill-down.
+func TestPostCommunityRole_PromotesToAdmin(t *testing.T) {
+	h, aRepo, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	ca, _ := cRepo.Create(ctx, "alpha", "Alpha")
+	uid := insertUser(t, aRepo, "u@x.com")
+	mid := joinCommunity(t, aRepo, uid, ca.ID, auth.RoleMember)
+
+	postRole(h, mid, uid, string(auth.RoleAdmin))
+
+	got, err := aRepo.MembershipByID(ctx, mid)
+	if err != nil {
+		t.Fatalf("membership by id: %v", err)
+	}
+	if got.Role != auth.RoleAdmin {
+		t.Fatalf("want role=admin after promote, got %s", got.Role)
+	}
+}
+
+// TestPostCommunityRole_LastAdminDemoteRefused keeps a community from losing
+// its sole admin via the role switcher (mirrors the remove guard).
+func TestPostCommunityRole_LastAdminDemoteRefused(t *testing.T) {
+	h, aRepo, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	ca, _ := cRepo.Create(ctx, "alpha", "Alpha")
+	uid := insertUser(t, aRepo, "solo@x.com")
+	mid := joinCommunity(t, aRepo, uid, ca.ID, auth.RoleAdmin)
+
+	postRole(h, mid, uid, string(auth.RoleMember))
+
+	got, err := aRepo.MembershipByID(ctx, mid)
+	if err != nil {
+		t.Fatalf("membership by id: %v", err)
+	}
+	if got.Role != auth.RoleAdmin {
+		t.Fatalf("last admin must stay admin, got %s", got.Role)
+	}
+}
+
 func TestPostDeleteCommunity_CorrectSlugCascades(t *testing.T) {
 	h, aRepo, cRepo := newTestHandler(t)
 	c, uid := seedCommunityWithMember(t, aRepo, cRepo)

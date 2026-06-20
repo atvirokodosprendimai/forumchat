@@ -327,6 +327,60 @@ type memActionSignals struct {
 	MID      string `json:"sa_mid"`
 	UID      string `json:"sa_uid"`
 	BanHours int    `json:"ban_hours"`
+	Role     string `json:"sa_role"`
+}
+
+// PostCommunityRole sets a user's role (member|moderator|admin) in one
+// community, targeting the membership directly. This is the platform
+// super-admin's way to make any email a community admin from the GUI without
+// being a member of that community. Guard: demoting an admin is refused when
+// they're the community's last one, so a community can't be orphaned (mirrors
+// PostCommunityRemove). Re-renders the drill-down so the row flips live.
+func (h *Handler) PostCommunityRole(w http.ResponseWriter, r *http.Request) {
+	var in memActionSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "bad signals: "+err.Error()))
+		return
+	}
+	sse := render.NewSSE(w, r)
+	mid := strings.TrimSpace(in.MID)
+	if mid == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No membership selected"))
+		return
+	}
+	role := auth.Role(strings.TrimSpace(in.Role))
+	if role != auth.RoleMember && role != auth.RoleMod && role != auth.RoleAdmin {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Invalid role"))
+		return
+	}
+	m, err := h.AuthRepo.MembershipByID(r.Context(), mid)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No such membership"))
+		return
+	}
+	if m.Role == role {
+		h.renderMemberships(sse, r, m.UserID) // no-op change, just re-sync the row
+		return
+	}
+	// Demoting away from admin must not leave the community without one.
+	if m.Role == auth.RoleAdmin && role != auth.RoleAdmin {
+		count, err := h.AuthRepo.CountAdmins(r.Context(), m.CommunityID)
+		if err != nil {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "count admins: "+err.Error()))
+			return
+		}
+		if count <= 1 {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Refused — this is the community's last admin. Promote another admin first."))
+			return
+		}
+	}
+	if err := h.AuthRepo.UpdateMembershipRole(r.Context(), mid, role); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Role change failed: "+err.Error()))
+		return
+	}
+	h.audit(r, "super-admin set community role", "membership_id", mid, "community_id", m.CommunityID, "user_id", m.UserID, "role", string(role))
+	h.renderMemberships(sse, r, m.UserID)
 }
 
 // PostCommunityBan bans a user from one community (permanent unless ban_hours

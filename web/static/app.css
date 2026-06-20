@@ -3965,6 +3965,17 @@ hr {
 .form-row input { flex: 1 1 12rem; }
 button.ghost.danger { color: var(--danger); }
 
+/* Segmented role switcher in the super-admin user drill-down. */
+.sa-role-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.sa-role-switch .role-pill {
+	appearance: none; border: 0; border-left: 1px solid var(--border);
+	background: var(--surface); color: var(--muted);
+	padding: .2rem .55rem; font-size: .78rem; line-height: 1.4; cursor: pointer;
+}
+.sa-role-switch .role-pill:first-child { border-left: 0; }
+.sa-role-switch button.role-pill:hover { background: var(--surface-alt); color: var(--fg); }
+.sa-role-switch .role-pill.active { background: var(--accent); color: var(--accent-fg); cursor: default; font-weight: 600; }
+
 /* ============================================================
    Time accounting — budget page (timebudget) + journal (worklog)
    ============================================================ */
