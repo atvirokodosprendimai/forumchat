@@ -238,6 +238,8 @@ const InitialSignals = `{
 	"_presence_open":false,
 	"mention_query":"",
 	"_mention_open":false,
+	"translate_query":"",
+	"_translate_open":false,
 	"agent_body":"",
 	"agent_visibility":"private",
 	"agent_pick":"",
@@ -329,6 +331,7 @@ templ Layout(title string, v Viewer) {
 			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 			<script src={ "/static/mention.js?v=" + AssetVer("mention.js") } defer></script>
+			<script src={ "/static/translate.js?v=" + AssetVer("translate.js") } defer></script>
 		</head>
 		<body
 			data-signals={ InitialSignals }

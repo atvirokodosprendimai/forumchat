@@ -945,6 +945,15 @@ func run() error {
 		return search.Views(results)
 	}
 
+	// /translate composer typeahead. Ollama-direct (TRANSLATE_* config),
+	// independent of the per-community AI agents. Left nil when disabled or no
+	// model is set — the popup then stays empty and the command is inert.
+	if cfg.TranslateEnabled && cfg.TranslateModel != "" {
+		chatHandler.Translate = func(ctx context.Context, text string) ([]string, error) {
+			return agent.Translate(ctx, cfg.TranslateBaseURL, cfg.TranslateModel, text)
+		}
+	}
+
 	pmRepo := privatemsg.NewRepo(db)
 	pmBus := privatemsg.NewBus()
 	pmSvc := &privatemsg.Service{Repo: pmRepo, Bus: pmBus}
@@ -1026,6 +1035,7 @@ func run() error {
 		r.Get("/chat", chatHandler.GetChatRedirect)
 		r.Post("/chat/upload", chatHandler.PostUpload)
 		r.Get("/chat/mention", chatHandler.GetMentionSearch)
+		r.Get("/chat/translate", chatHandler.GetTranslate)
 		r.Get("/chat/events", chatHandler.GetEventsStream)
 		r.Post("/chat/extract", projectsHandler.PostExtractFromChat)
 		r.Post("/chat/forward", chatHandler.PostForward)

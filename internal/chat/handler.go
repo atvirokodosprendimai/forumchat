@@ -66,6 +66,12 @@ type Handler struct {
 	// /resume and /prompt it is NOT posted to the channel — results are personal,
 	// shown only to the sender. Wired in main.go; nil when search is unavailable.
 	Search func(ctx context.Context, communityID, slug, query string, limit int) []webtempl.SearchResultView
+	// Translate powers the interactive /translate composer typeahead: given the
+	// text after "/translate", it returns up to 3 English translations (source
+	// language auto-detected) for the live popup. Wired in main.go to the agent
+	// package's Ollama-backed Translate using the TRANSLATE_* config — nil when
+	// the feature is disabled (the popup then stays empty and closes).
+	Translate func(ctx context.Context, text string) ([]string, error)
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -1429,6 +1435,45 @@ func (h *Handler) GetMentionSearch(w http.ResponseWriter, r *http.Request) {
 		views = append(views, webtempl.MentionHit{UserID: h.UserID, DisplayName: h.DisplayName})
 	}
 	_ = sse.PatchElementTempl(webtempl.MentionPopup(views))
+}
+
+type translateSignals struct {
+	TranslateQuery string `json:"translate_query"`
+}
+
+// GetTranslate renders the /translate typeahead popup as a Datastar patch.
+// Reads the `translate_query` signal — the text after "/translate " that the
+// composer detector extracted — translates it to English (source language
+// auto-detected) and returns up to 3 alternatives. It also patches
+// `_translate_open` to whether there are any rows, so an empty result (feature
+// disabled, blank query, or a provider error) closes the popup cleanly and the
+// composer's Enter falls back to a normal send.
+func (h *Handler) GetTranslate(w http.ResponseWriter, r *http.Request) {
+	if _, ok := auth.FromContext(r.Context()); !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in translateSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	var opts []string
+	if q := strings.TrimSpace(in.TranslateQuery); h.Translate != nil && q != "" {
+		out, err := h.Translate(r.Context(), q)
+		if err != nil {
+			h.Log.Warn("translate", "err", err)
+		} else {
+			opts = out
+		}
+	}
+	_ = sse.PatchElementTempl(webtempl.TranslatePopup(opts))
+	if len(opts) > 0 {
+		_ = sse.PatchSignals([]byte(`{"_translate_open":true}`))
+	} else {
+		_ = sse.PatchSignals([]byte(`{"_translate_open":false}`))
+	}
 }
 
 func toMsgView(m Message) webtempl.MsgView {

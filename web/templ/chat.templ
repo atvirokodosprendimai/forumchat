@@ -319,6 +319,7 @@ templ ChatComposer(slug, channelSlug string) {
 		</div>
 		<input type="hidden" data-bind="image_data"/>
 		<input type="hidden" data-bind="mention_query"/>
+		<input type="hidden" data-bind="translate_query"/>
 		<input type="hidden" data-bind="attachment_ids"/>
 		<div class="paste-preview" data-show="$image_data">
 			<img alt="attached image preview" data-attr:src="$image_data"/>
@@ -330,6 +331,7 @@ templ ChatComposer(slug, channelSlug string) {
 			<button class="link" data-on:click="$attachment_ids=''">clear</button>
 		</div>
 		@MentionPopup(nil)
+		@TranslatePopup(nil)
 		<div class="composer-row">
 			<label class="btn ghost icon-btn" aria-label="Attach files" title="Attach files (images, video, audio, documents)">
 				📎
@@ -341,11 +343,11 @@ templ ChatComposer(slug, channelSlug string) {
 				rows="1"
 				placeholder="Message — markdown, paste, drop, @mention"
 				autocomplete="off"
-				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcMentionDetect(el)){$_mention_open=true; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false}" }
-				data-on:blur="setTimeout(()=>{$_mention_open=false},150)"
+				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcTranslateDetect(el)){$_translate_open=true; $_mention_open=false; @get('/c/" + slug + "/chat/translate')} else if(window.fcMentionDetect(el)){$_mention_open=true; $_translate_open=false; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false; $_translate_open=false}" }
+				data-on:blur="setTimeout(()=>{$_mention_open=false; $_translate_open=false},150)"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
-				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open){evt.preventDefault(); @post('/c/" + slug + "/chat/" + channelSlug + "/send'); el.style.height='auto'}" }></textarea>
-			<button data-on:click={ "@post('/c/" + slug + "/chat/" + channelSlug + "/send'); document.querySelector('.composer-text').style.height='auto'" }>Send</button>
+				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false; $_translate_open=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && $_translate_open){evt.preventDefault(); document.querySelector('#translate-popup .translate-row')?.click()} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open && !$_translate_open){evt.preventDefault(); @post('/c/" + slug + "/chat/" + channelSlug + "/send'); el.style.height='auto'}" }></textarea>
+			<button id="composer-send" data-on:click={ "@post('/c/" + slug + "/chat/" + channelSlug + "/send'); document.querySelector('.composer-text').style.height='auto'" }>Send</button>
 		</div>
 	</div>
 }
@@ -362,6 +364,26 @@ templ MentionPopup(hits []MentionHit) {
 				data-on:click={ "window.fcInsertMention('" + jsString(h.DisplayName) + "'); $_mention_open=false" }>
 				<span class="mention-dot" style={ "background:" + mentionColor(h.UserID) }>{ mentionInitial(h.DisplayName) }</span>
 				<span class="mention-name">{ h.DisplayName }</span>
+			</button>
+		}
+	</div>
+}
+
+// TranslatePopup renders the /translate typeahead dropdown: up to 3 English
+// translations of the composer's "/translate <text>". Always rendered (even
+// empty) so Datastar can morph it on every keystroke without the element
+// leaving the DOM. Visibility is signal-driven via $_translate_open, which the
+// server sets true/false based on whether there are rows. Picking a row (click
+// or Enter on the first) writes the translation into the composer and clicks
+// the existing Send button — so it ships as the viewer, exactly like any
+// message, and clears the composer. fcApplyTranslation is in translate.js.
+templ TranslatePopup(opts []string) {
+	<div id="translate-popup" class="mention-popup translate-popup" data-show="$_translate_open">
+		for _, o := range opts {
+			<button type="button" class="mention-row translate-row" data-tr={ o }
+				data-on:click="window.fcApplyTranslation(el.dataset.tr); $_translate_open=false; document.querySelector('#composer-send').click()">
+				<span class="mention-dot translate-dot" aria-hidden="true">文</span>
+				<span class="mention-name">{ o }</span>
 			</button>
 		}
 	</div>

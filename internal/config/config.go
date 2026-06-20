@@ -146,7 +146,7 @@ type Config struct {
 	RAGEmbedBaseURL  string `env:"RAG_EMBED_BASEURL" envDefault:"http://localhost:11434"`
 	RAGEmbedModel    string `env:"RAG_EMBED_MODEL" envDefault:"bge-m3"`
 	RAGEmbedDim      int    `env:"RAG_EMBED_DIM" envDefault:"1024"`
-	RAGChunkTokens   int    `env:"RAG_CHUNK_TOKENS" envDefault:"2800"` // primary body window
+	RAGChunkTokens   int    `env:"RAG_CHUNK_TOKENS" envDefault:"2800"`  // primary body window
 	RAGChunkOverlap  int    `env:"RAG_CHUNK_OVERLAP" envDefault:"400"`  // context bled in on each side
 	RAGWorkerSeconds int    `env:"RAG_WORKER_INTERVAL" envDefault:"10"` // drain cadence, seconds
 	RAGWorkerBatch   int    `env:"RAG_WORKER_BATCH" envDefault:"64"`
@@ -154,6 +154,17 @@ type Config struct {
 	// QdrantURL is read only when RAG_BACKEND=qdrant (reserved; the chromem
 	// backend ignores it).
 	QdrantURL string `env:"QDRANT_URL" envDefault:""`
+
+	// Translate powers the interactive /translate composer typeahead: type
+	// "/translate <text>" in chat and a popup offers up to 3 English
+	// translations (auto-detected source language) to send as yourself. Like
+	// RAG's embedder it talks to Ollama directly and has its OWN endpoint +
+	// model — independent of the per-community AI agents (ai_agents) — so
+	// translation and chat can point at different daemons. Disabled by default;
+	// with TRANSLATE_MODEL empty the command is silently inert.
+	TranslateEnabled bool   `env:"TRANSLATE_ENABLED" envDefault:"false"`
+	TranslateBaseURL string `env:"TRANSLATE_BASEURL" envDefault:"http://localhost:11434"`
+	TranslateModel   string `env:"TRANSLATE_MODEL" envDefault:""`
 
 	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate
 	// on first boot and persist to VAPID_KEYS_FILE so subsequent boots

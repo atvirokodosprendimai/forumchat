@@ -2673,6 +2673,21 @@ hr {
 }
 .mention-name { font-size: .92rem; }
 
+/* /translate typeahead — same shell as @mention, but each row holds a full
+   sentence so it wraps and the glyph pins to the top-left. */
+.translate-row { align-items: flex-start; }
+.translate-row .mention-name {
+  flex: 1 1 auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.translate-dot {
+  background: var(--accent, #4db6ac);
+  font-size: .8rem;
+  text-transform: none;
+}
+
 /* Login "or" divider between password and magic-link CTAs. */
 .login-divider {
   display: flex;
