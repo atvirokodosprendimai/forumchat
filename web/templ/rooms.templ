@@ -148,6 +148,19 @@ templ RoomPage(d RoomPageData) {
 					<button class="btn rooms-ctl rooms-ctl-cam" data-rooms-cam title="Camera (off)">🎥 off</button>
 					<button class="btn ghost rooms-ctl rooms-ctl-blur" data-rooms-blur title="Background blur">🌫 blur</button>
 					<button class="btn rooms-ctl rooms-ctl-screen" data-rooms-screen title="Share screen">🖥</button>
+					<div class="rooms-devices" data-rooms-devices>
+						<button class="btn ghost rooms-ctl rooms-ctl-devices" type="button" data-rooms-devices-btn title="Choose microphone &amp; camera">🎛</button>
+						<div class="rooms-devices-panel" data-rooms-devices-panel hidden>
+							<label class="rooms-devices-row">
+								<span>🎙 Microphone</span>
+								<select data-rooms-mic-select></select>
+							</label>
+							<label class="rooms-devices-row">
+								<span>🎥 Camera</span>
+								<select data-rooms-cam-select></select>
+							</label>
+						</div>
+					</div>
 					<button class="btn ghost rooms-ctl"
 						data-show="$_rooms_am_admin"
 						data-on:click="$_rooms_admin_open = !$_rooms_admin_open"

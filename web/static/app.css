@@ -1032,6 +1032,42 @@ img.thread-announce-img {
 .rooms-ctl-blur.off { opacity: .85; }
 .rooms-ctl-leave { background: #c63838; color: white; border-color: #8a2418; }
 
+/* Device picker — popover anchored under the 🎛 button, holds the mic +
+   camera dropdowns. */
+.rooms-devices { position: relative; display: inline-flex; }
+.rooms-ctl-devices.on {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent-soft-strong);
+}
+.rooms-devices-panel {
+  position: absolute;
+  top: calc(100% + .4rem);
+  right: 0;
+  z-index: 30;
+  min-width: 240px;
+  display: grid;
+  gap: .65rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: .8rem .85rem;
+  animation: rooms-tray-down .16s var(--ease-out);
+}
+.rooms-devices-row { display: grid; gap: .25rem; font-size: .8rem; }
+.rooms-devices-row > span { font-weight: 600; color: var(--fg-subtle); }
+.rooms-devices-row select {
+  width: 100%;
+  max-width: 260px;
+  padding: .35rem .4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: .85rem;
+}
+
 /* Admin tray — slides down beneath the header, holds the admin
    section cards. Background is a soft sunken band so the cards inside
    feel raised against it. */

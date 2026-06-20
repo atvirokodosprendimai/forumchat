@@ -57,6 +57,43 @@
   const screenBtn = root.querySelector('[data-rooms-screen]');
   const blurBtn = root.querySelector('[data-rooms-blur]');
   const leaveBtn = root.querySelector('[data-rooms-leave]');
+  const devicesWrap = root.querySelector('[data-rooms-devices]');
+  const devicesBtn = root.querySelector('[data-rooms-devices-btn]');
+  const devicesPanel = root.querySelector('[data-rooms-devices-panel]');
+  const micSelect = root.querySelector('[data-rooms-mic-select]');
+  const camSelect = root.querySelector('[data-rooms-cam-select]');
+
+  // ----- input device preferences -----------------------------------------
+  //
+  // Which mic / camera to capture. Empty string = let the browser pick its
+  // default (the original behaviour). Persisted to localStorage so the choice
+  // survives reload, same as the blur toggle above.
+  const devicePrefs = {
+    audio: readDevicePref('rooms.micDeviceId'),
+    video: readDevicePref('rooms.camDeviceId'),
+  };
+  function devicePrefKey(kind) {
+    return kind === 'audio' ? 'rooms.micDeviceId' : 'rooms.camDeviceId';
+  }
+  function readDevicePref(key) {
+    try { return localStorage.getItem(key) || ''; } catch { return ''; }
+  }
+  function setDevicePref(kind, id) {
+    devicePrefs[kind] = id;
+    try {
+      if (id) localStorage.setItem(devicePrefKey(kind), id);
+      else localStorage.removeItem(devicePrefKey(kind));
+    } catch { /* noop */ }
+  }
+  function mediaConstraints(kind) {
+    if (kind === 'audio') {
+      const id = devicePrefs.audio;
+      return { audio: id ? { deviceId: { exact: id } } : true };
+    }
+    const video = { width: 640, height: 480 };
+    if (devicePrefs.video) video.deviceId = { exact: devicePrefs.video };
+    return { video };
+  }
 
   // Background blur is ON by default — the camera stream feeds MediaPipe
   // Selfie Segmentation and remote peers receive the composited
@@ -394,12 +431,21 @@
     }
     let rawStream;
     try {
-      const constraints = kind === 'audio' ? { audio: true } : { video: { width: 640, height: 480 } };
-      rawStream = await navigator.mediaDevices.getUserMedia(constraints);
+      rawStream = await navigator.mediaDevices.getUserMedia(mediaConstraints(kind));
     } catch (e) {
-      console.warn('[rooms] getUserMedia denied', kind, e);
-      flashMediaError(kind, e?.name ? `${e.name}: ${e.message || ''}` : String(e));
-      return false;
+      // A pinned deviceId can become invalid (device unplugged, permissions
+      // reset) → Overconstrained/NotFound. Drop the pin and retry once with
+      // the browser default before surfacing an error.
+      if (devicePrefs[kind] && (e?.name === 'OverconstrainedError' || e?.name === 'NotFoundError')) {
+        setDevicePref(kind, '');
+        try { rawStream = await navigator.mediaDevices.getUserMedia(mediaConstraints(kind)); }
+        catch (e2) { e = e2; }
+      }
+      if (!rawStream) {
+        console.warn('[rooms] getUserMedia denied', kind, e);
+        flashMediaError(kind, e?.name ? `${e.name}: ${e.message || ''}` : String(e));
+        return false;
+      }
     }
 
     // For camera: optionally run through background blur. The wrapped
@@ -429,6 +475,9 @@
       refreshSelfCameraPreview();
       broadcastMeta();
     }
+    // Labels are only exposed once permission is granted — refresh the
+    // picker so the dropdowns show real device names, not "Microphone 1".
+    populateDeviceSelects();
     return true;
   }
 
@@ -502,6 +551,76 @@
       syncToggleLabel(camBtn, 'cam', ok && wasOn);
     }
   });
+
+  // ----- device picker -----------------------------------------------------
+  //
+  // Two dropdowns (mic + camera) in a popover. Selecting a device pins it for
+  // future getUserMedia calls; if that kind is already live we re-acquire so
+  // the switch takes effect immediately (same tear-down/bring-up the blur
+  // toggle uses).
+
+  function fillDeviceSelect(sel, list, current, noun) {
+    if (!sel) return;
+    sel.innerHTML = '';
+    const def = document.createElement('option');
+    def.value = '';
+    def.textContent = `Default ${noun.toLowerCase()}`;
+    sel.appendChild(def);
+    list.forEach((d, i) => {
+      const o = document.createElement('option');
+      o.value = d.deviceId;
+      o.textContent = d.label || `${noun} ${i + 1}`;
+      sel.appendChild(o);
+    });
+    sel.value = [...sel.options].some(o => o.value === current) ? current : '';
+  }
+
+  async function populateDeviceSelects() {
+    if (!micSelect && !camSelect) return;
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    let devs;
+    try { devs = await navigator.mediaDevices.enumerateDevices(); }
+    catch { return; }
+    fillDeviceSelect(micSelect, devs.filter(d => d.kind === 'audioinput'), devicePrefs.audio, 'Microphone');
+    fillDeviceSelect(camSelect, devs.filter(d => d.kind === 'videoinput'), devicePrefs.video, 'Camera');
+  }
+
+  async function applyDeviceChange(kind, id) {
+    setDevicePref(kind, id);
+    if (!local[kind]) return; // not live — picked device used on next enable
+    const btn = kind === 'audio' ? micBtn : camBtn;
+    const label = kind === 'audio' ? 'mic' : 'cam';
+    await disableMedia(kind);
+    const ok = await enableMedia(kind);
+    syncToggleLabel(btn, label, ok);
+  }
+
+  micSelect?.addEventListener('change', () => applyDeviceChange('audio', micSelect.value));
+  camSelect?.addEventListener('change', () => applyDeviceChange('video', camSelect.value));
+
+  function closeDevicesPanel() {
+    devicesPanel?.setAttribute('hidden', '');
+    devicesBtn?.classList.remove('on');
+  }
+  devicesBtn?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    if (!devicesPanel) return;
+    if (devicesPanel.hasAttribute('hidden')) {
+      devicesPanel.removeAttribute('hidden');
+      devicesBtn.classList.add('on');
+      populateDeviceSelects();
+    } else {
+      closeDevicesPanel();
+    }
+  });
+  document.addEventListener('click', (ev) => {
+    if (!devicesWrap || devicesPanel?.hasAttribute('hidden')) return;
+    if (!devicesWrap.contains(ev.target)) closeDevicesPanel();
+  });
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+    if (devicesPanel && !devicesPanel.hasAttribute('hidden')) populateDeviceSelects();
+  });
+  populateDeviceSelects();
 
   // ----- screenshare -------------------------------------------------------
   //
