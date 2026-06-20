@@ -607,6 +607,7 @@ func run() error {
 		r.Get("/chat/mention", chatHandler.GetMentionSearch)
 		r.Get("/chat/events", chatHandler.GetEventsStream)
 		r.Post("/chat/extract", projectsHandler.PostExtractFromChat)
+		r.Post("/chat/forward", chatHandler.PostForward)
 		// Channel management (mod create/rename/topic/archive; admin delete
 		// — role enforced inside the handlers).
 		r.Post("/chat/channels", chatHandler.PostCreateChannel)

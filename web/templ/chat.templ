@@ -30,6 +30,16 @@ type ReplySnippet struct {
 	Snippet    string
 }
 
+// ForwardView is the "Forwarded from #channel" attribution rendered above
+// a forwarded message's body. ChannelSlug links the embed back to the
+// source channel.
+type ForwardView struct {
+	ChannelSlug string
+	ChannelName string
+	AuthorName  string
+	Snippet     string
+}
+
 type MsgView struct {
 	ID               string
 	AuthorID         string
@@ -40,6 +50,7 @@ type MsgView struct {
 	CreatedAt        time.Time
 	Deleted          bool
 	ReplyTo          *ReplySnippet
+	Forwarded        *ForwardView // "Forwarded from #channel" attribution
 	PromotedThreadID string
 	TitleSnippet     string // single-line title derived from body for todo/bookmark dialogs
 	// ReadBy is the read-receipt list rendered under this message.
@@ -172,6 +183,7 @@ templ ChatPage(d ChatPageData) {
 		@BookmarkDialog(d.Viewer.CommunitySlug)
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
+		@ForwardDialog(d.Viewer.CommunitySlug, d.ActiveSlug, d.Channels)
 		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, d.Viewer.Role == "admin")
 		if d.IsMod {
 			@ExtractDialog(d.Viewer.CommunitySlug, d.Projects)
@@ -544,6 +556,10 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 						<span class="mi-icon">↩</span><span class="mi-label">Reply</span>
 					</button>
 					<button class="msg-menu-item" role="menuitem"
+						data-on:click={ "$fwd_source_id='" + m.ID + "'; $fwd_target_channel=''; $fwd_note=''; $_fwd_open=true; el.closest('details').open=false" }>
+						<span class="mi-icon">↪</span><span class="mi-label">Forward</span>
+					</button>
+					<button class="msg-menu-item" role="menuitem"
 						data-on:click={ "$_bm_open_msg = '" + m.ID + "'; el.closest('details').open=false" }>
 						<span class="mi-icon">★</span><span class="mi-label">Bookmark</span>
 					</button>
@@ -580,6 +596,20 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					<span class="muted">{ m.ReplyTo.AuthorName } wrote:</span>
 					<div>{ m.ReplyTo.Snippet }</div>
 				</blockquote>
+			}
+			if m.Forwarded != nil {
+				<a class="forward-embed" href={ templ.URL("/c/" + slug + "/chat/" + m.Forwarded.ChannelSlug) }>
+					<span class="forward-embed-head">
+						<span class="forward-embed-icon" aria-hidden="true">↪</span>
+						Forwarded from <strong>#{ m.Forwarded.ChannelName }</strong>
+						if m.Forwarded.AuthorName != "" {
+							<span class="muted">· { m.Forwarded.AuthorName }</span>
+						}
+					</span>
+					if m.Forwarded.Snippet != "" {
+						<span class="forward-embed-snippet">{ m.Forwarded.Snippet }</span>
+					}
+				</a>
 			}
 			<div class="body">@templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
 			if len(m.Attachments) > 0 {
@@ -788,6 +818,45 @@ func msgClass(m MsgView) string {
 
 func fmtTime(t time.Time) string {
 	return t.Local().Format("15:04 Jan 2")
+}
+
+// ForwardDialog is the "forward this message to another channel" modal.
+// Visibility is signal-driven: a bubble's Forward button stages
+// $fwd_source_id + opens $_fwd_open. The target dropdown lists every
+// non-archived channel except the one the viewer is currently in. Posting
+// redirects the forwarder to the target channel so they see it land.
+templ ForwardDialog(slug, activeSlug string, channels []ChannelView) {
+	<div class="modal-overlay" data-cloak data-show="$_fwd_open"
+		data-on:click="if(evt.target===el){$_fwd_open=false}">
+		<div class="modal forward-dialog" data-on:click="evt.stopPropagation()">
+			<header class="modal-head">
+				<strong>Forward message</strong>
+				<button class="link" data-on:click="$_fwd_open=false">✕</button>
+			</header>
+			<div class="modal-body">
+				<label class="form-row">
+					<span>To channel</span>
+					<select data-bind="fwd_target_channel">
+						<option value="">— pick a channel —</option>
+						for _, c := range channels {
+							if c.Slug != activeSlug {
+								<option value={ c.Slug }>#{ c.Name }</option>
+							}
+						}
+					</select>
+				</label>
+				<label class="form-row">
+					<span>Add a message <span class="muted">(optional)</span></span>
+					<textarea data-bind="fwd_note" rows="2" placeholder="Say something…"></textarea>
+				</label>
+			</div>
+			<footer class="modal-foot">
+				<button class="btn ghost" data-on:click="$_fwd_open=false">Cancel</button>
+				<button class="btn" data-on:click={ "@post('/c/" + slug + "/chat/forward')" }
+					data-attr:disabled="$fwd_target_channel === '' ? true : null">Forward</button>
+			</footer>
+		</div>
+	</div>
 }
 
 // ExtractDialog is the mod / admin "extract attachment to project"

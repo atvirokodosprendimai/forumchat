@@ -26,16 +26,16 @@ import (
 const RecentLimit = 100
 
 type Handler struct {
-	Svc           *Service
-	Repo          *Repo
-	NATS          *nats.Conn
-	Bus           *Bus
+	Svc  *Service
+	Repo *Repo
+	NATS *nats.Conn
+	Bus  *Bus
 	// NewMsgBus carries ONLY "a new message just landed" events. The
 	// global events SSE that powers cross-page notifications subscribes
 	// here so it doesn't ping on edits, deletes, or read-receipt
 	// updates (which still fire on Bus).
-	NewMsgBus     *Bus
-	Uploads       *uploads.Store
+	NewMsgBus *Bus
+	Uploads   *uploads.Store
 	// AuthRepo is used to resolve @mentions in chat messages to user ids
 	// before firing PushNotify. Optional — when nil, mention notifications
 	// are skipped silently.
@@ -43,13 +43,13 @@ type Handler struct {
 	// PushNotify dispatches a web-push notification. Wired in main.go to
 	// the push package's Sender so this package doesn't import push.
 	// userIDs may be empty to broadcast across the whole community.
-	PushNotify    func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
+	PushNotify func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
 	// ListProjects, if non-nil, returns the active projects in the
 	// current community for the extract-to-project modal dropdown.
 	// Set in main.go to avoid an import cycle with internal/projects.
 	// nil → no projects → mod button rendered but the dropdown is
 	// empty (which is fine — modal Save is gated on a non-empty pick).
-	ListProjects  func(ctx context.Context, communityID string) []webtempl.ChatProjectView
+	ListProjects func(ctx context.Context, communityID string) []webtempl.ChatProjectView
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -699,6 +699,59 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type forwardSignals struct {
+	SourceID      string `json:"fwd_source_id"`
+	TargetChannel string `json:"fwd_target_channel"` // target channel slug
+	Note          string `json:"fwd_note"`
+}
+
+// PostForward forwards a chat message into another channel (Discord-style).
+// The forwarded copy carries a "Forwarded from #channel" embed, the
+// optional note as its body, and re-linked copies of the source's
+// attachments. Open to any member — every channel is public. Redirects to
+// the target channel so the forwarder sees the message land.
+func (h *Handler) PostForward(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in forwardSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	srcID := strings.TrimSpace(in.SourceID)
+	targetSlug := strings.TrimSpace(in.TargetChannel)
+	if srcID == "" || targetSlug == "" || len(in.Note) > 4000 {
+		return
+	}
+	cid := h.cid(r.Context())
+	target, err := h.Repo.ChannelBySlug(r.Context(), cid, targetSlug)
+	if err != nil {
+		h.Log.Warn("forward: resolve target channel", "err", err)
+		return
+	}
+	if target.IsArchived() {
+		return // archived channels are read-only
+	}
+	if _, err := h.Svc.Forward(r.Context(), ForwardInput{
+		CommunityID:     cid,
+		TargetChannelID: target.ID,
+		AuthorID:        id.User.ID,
+		Note:            in.Note,
+		SourceMsgID:     srcID,
+	}); err != nil {
+		h.Log.Error("forward", "err", err)
+		return
+	}
+	// Wake the target channel's open streams + cross-page dots, then send
+	// the forwarder there so they see it land.
+	h.broadcastNewMsg(r.Context(), target.ID)
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/chat/" + target.Slug)
+}
+
 // PostUpload accepts a single multipart file from the chat composer
 // and returns JSON describing the persisted upload. chat-attach.js
 // fires this once per dropped / picked file via XHR so it can render
@@ -1190,6 +1243,14 @@ func toMsgView(m Message) webtempl.MsgView {
 			ID:         m.ReplyTo.ID,
 			AuthorName: m.ReplyTo.AuthorName,
 			Snippet:    m.ReplyTo.Snippet,
+		}
+	}
+	if m.ForwardedFrom != nil {
+		v.Forwarded = &webtempl.ForwardView{
+			ChannelSlug: m.ForwardedFrom.ChannelSlug,
+			ChannelName: m.ForwardedFrom.ChannelName,
+			AuthorName:  m.ForwardedFrom.AuthorName,
+			Snippet:     m.ForwardedFrom.Snippet,
 		}
 	}
 	return v

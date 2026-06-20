@@ -2052,6 +2052,37 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
+/* Forwarded-from embed inside bubble (Discord-style) */
+.forward-embed {
+  display: block;
+  margin: .25rem 0 .4rem;
+  padding: .4rem .6rem;
+  background: var(--surface-alt);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  text-decoration: none;
+  color: inherit;
+}
+.forward-embed:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-alt));
+}
+.forward-embed-head {
+  display: block;
+  font-size: .78rem;
+  opacity: .9;
+}
+.forward-embed-icon { color: var(--accent); margin-right: .15rem; }
+.forward-embed-head strong { color: var(--accent); font-weight: 600; }
+.forward-embed-snippet {
+  display: block;
+  margin-top: .15rem;
+  font-size: .85rem;
+  opacity: .7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Composer field — bigger, more inviting */
 .composer-row input {
   padding: .7rem 1rem;

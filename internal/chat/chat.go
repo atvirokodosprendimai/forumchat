@@ -35,9 +35,13 @@ type Message struct {
 	PromotedThreadID *string // thread that was created from this message via promote-chat
 	ReplyToID        *string
 	ReplyTo          *ReplyContext
-	DeletedAt        *time.Time
-	CreatedAt        time.Time
-	Attachments      []Attachment
+	// ForwardedFromMsgID points at the original message this one was
+	// forwarded from (Discord-style). Cross-channel by design.
+	ForwardedFromMsgID *string
+	ForwardedFrom      *ForwardContext // eager-loaded source attribution
+	DeletedAt          *time.Time
+	CreatedAt          time.Time
+	Attachments        []Attachment
 }
 
 // ReplyContext is a denormalised snippet of the message being replied to,
@@ -46,6 +50,18 @@ type ReplyContext struct {
 	ID         string
 	AuthorName string
 	Snippet    string // plain-text excerpt
+}
+
+// ForwardContext is a denormalised snippet of the source message a
+// forward points at — loaded eagerly via JOIN so the bubble can render
+// the "Forwarded from #channel" embed without a second query. ChannelSlug
+// lets the embed link back to the source channel.
+type ForwardContext struct {
+	MsgID       string
+	ChannelSlug string
+	ChannelName string
+	AuthorName  string
+	Snippet     string // plain-text excerpt of the original body
 }
 
 func (m Message) IsDeleted() bool { return m.DeletedAt != nil }
@@ -291,7 +307,18 @@ func (r *Repo) Insert(ctx context.Context, m Message) error {
 		}
 		m.ChannelID = ch.ID
 	}
-	var authorID, refThread, replyTo sql.NullString
+	authorID, refThread, replyTo, fwdFrom := m.nullableRefs()
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, fwdFrom, m.CreatedAt.Unix())
+	return err
+}
+
+// nullableRefs converts the message's optional foreign-key pointers into
+// sql.NullString for the INSERT statements. Shared by Insert and
+// InsertWithAttachments so the two write paths can't drift.
+func (m Message) nullableRefs() (authorID, refThread, replyTo, fwdFrom sql.NullString) {
 	if m.AuthorID != nil {
 		authorID = sql.NullString{String: *m.AuthorID, Valid: true}
 	}
@@ -301,11 +328,10 @@ func (r *Repo) Insert(ctx context.Context, m Message) error {
 	if m.ReplyToID != nil {
 		replyTo = sql.NullString{String: *m.ReplyToID, Valid: true}
 	}
-	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, m.CreatedAt.Unix())
-	return err
+	if m.ForwardedFromMsgID != nil {
+		fwdFrom = sql.NullString{String: *m.ForwardedFromMsgID, Valid: true}
+	}
+	return
 }
 
 func (r *Repo) Recent(ctx context.Context, channelID string, limit int) ([]Message, error) {
@@ -364,11 +390,16 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
-		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, '')
+		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, ''),
+		       m.forwarded_from_msg_id,
+		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, '')
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
 		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
 		LEFT JOIN memberships pmb ON pmb.user_id = p.author_id AND pmb.community_id = p.community_id
+		LEFT JOIN chat_messages f ON f.id = m.forwarded_from_msg_id
+		LEFT JOIN chat_channels fch ON fch.id = f.channel_id
+		LEFT JOIN memberships fmb ON fmb.user_id = f.author_id AND fmb.community_id = f.community_id
 		WHERE m.channel_id = ? AND m.created_at < ?
 		ORDER BY m.created_at DESC
 		LIMIT ?`, channelID, before.Unix(), limit)
@@ -379,17 +410,20 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 	var msgs []Message
 	for rows.Next() {
 		var m Message
-		var aid, ref, promoted, reply sql.NullString
+		var aid, ref, promoted, reply, fwd sql.NullString
 		var del sql.NullInt64
 		var created int64
 		var kind string
 		var pID, pAuthor, pBody string
+		var fID, fSlug, fName, fAuthor, fBody string
 		if err := rows.Scan(&m.ID, &m.CommunityID, &m.ChannelID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
 			&ref, &promoted, &reply, &del, &created,
 			&m.AuthorName, &m.AuthorAvatar,
-			&pID, &pAuthor, &pBody); err != nil {
+			&pID, &pAuthor, &pBody,
+			&fwd, &fID, &fSlug, &fName, &fAuthor, &fBody); err != nil {
 			return nil, err
 		}
+		applyForward(&m, fwd, fID, fSlug, fName, fAuthor, fBody)
 		m.Kind = Kind(kind)
 		if aid.Valid {
 			m.AuthorID = &aid.String
@@ -421,11 +455,16 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
-		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, '')
+		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, ''),
+		       m.forwarded_from_msg_id,
+		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, '')
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
 		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
 		LEFT JOIN memberships pmb ON pmb.user_id = p.author_id AND pmb.community_id = p.community_id
+		LEFT JOIN chat_messages f ON f.id = m.forwarded_from_msg_id
+		LEFT JOIN chat_channels fch ON fch.id = f.channel_id
+		LEFT JOIN memberships fmb ON fmb.user_id = f.author_id AND fmb.community_id = f.community_id
 		WHERE m.id = ?`, id)
 	if err != nil {
 		return Message{}, err
@@ -435,17 +474,20 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 		return Message{}, sql.ErrNoRows
 	}
 	var m Message
-	var aid, ref, promoted, reply sql.NullString
+	var aid, ref, promoted, reply, fwd sql.NullString
 	var del sql.NullInt64
 	var created int64
 	var kind string
 	var pID, pAuthor, pBody string
+	var fID, fSlug, fName, fAuthor, fBody string
 	if err := rows.Scan(&m.ID, &m.CommunityID, &m.ChannelID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
 		&ref, &promoted, &reply, &del, &created,
 		&m.AuthorName, &m.AuthorAvatar,
-		&pID, &pAuthor, &pBody); err != nil {
+		&pID, &pAuthor, &pBody,
+		&fwd, &fID, &fSlug, &fName, &fAuthor, &fBody); err != nil {
 		return Message{}, err
 	}
+	applyForward(&m, fwd, fID, fSlug, fName, fAuthor, fBody)
 	m.Kind = Kind(kind)
 	if aid.Valid {
 		m.AuthorID = &aid.String
@@ -618,20 +660,11 @@ func (r *Repo) InsertWithAttachments(ctx context.Context, m Message, uploadIDs [
 	}
 	defer tx.Rollback()
 
-	var authorID, refThread, replyTo sql.NullString
-	if m.AuthorID != nil {
-		authorID = sql.NullString{String: *m.AuthorID, Valid: true}
-	}
-	if m.RefThreadID != nil {
-		refThread = sql.NullString{String: *m.RefThreadID, Valid: true}
-	}
-	if m.ReplyToID != nil {
-		replyTo = sql.NullString{String: *m.ReplyToID, Valid: true}
-	}
+	authorID, refThread, replyTo, fwdFrom := m.nullableRefs()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, m.CreatedAt.Unix()); err != nil {
+		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, fwdFrom, m.CreatedAt.Unix()); err != nil {
 		return fmt.Errorf("insert chat_messages: %w", err)
 	}
 	now := time.Now().Unix()
@@ -684,6 +717,28 @@ func (r *Repo) AttachmentsForMessages(ctx context.Context, msgIDs []string) (map
 		out[a.ChatMessageID] = append(out[a.ChatMessageID], a)
 	}
 	return out, rows.Err()
+}
+
+// UploadIDsForMessage returns the upload row ids linked to a chat message,
+// in attachment position order. Used by Forward to re-link the source's
+// attachments onto the forwarded copy without duplicating files.
+func (r *Repo) UploadIDsForMessage(ctx context.Context, msgID string) ([]string, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT upload_id FROM chat_message_attachments
+		WHERE chat_message_id = ? ORDER BY position`, msgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // MarkRead upserts the user's read high-water mark in a channel. The row
@@ -767,6 +822,28 @@ func (r *Repo) ReadersSince(ctx context.Context, channelID string, sinceUnix int
 	return out, rows.Err()
 }
 
+// applyForward populates the forward fields on m from a scanned row. fwd
+// is the raw forwarded_from_msg_id; the trailing values are the
+// eager-JOINed source message / channel / author and are empty when the
+// source row is gone (hard-deleted). Shared by listBefore and ByID so the
+// two read paths can't drift.
+func applyForward(m *Message, fwd sql.NullString, srcID, chSlug, chName, author, body string) {
+	if !fwd.Valid {
+		return
+	}
+	id := fwd.String
+	m.ForwardedFromMsgID = &id
+	if srcID != "" {
+		m.ForwardedFrom = &ForwardContext{
+			MsgID:       srcID,
+			ChannelSlug: chSlug,
+			ChannelName: chName,
+			AuthorName:  author,
+			Snippet:     snippet(body),
+		}
+	}
+}
+
 // snippet returns up to 80 chars of plain-text from a markdown body for
 // reply-quote previews.
 func snippet(md string) string {
@@ -784,11 +861,11 @@ type Service struct {
 func NewService(repo *Repo) *Service { return &Service{Repo: repo} }
 
 type SendInput struct {
-	CommunityID   string
-	ChannelID     string
-	AuthorID      string
-	BodyMarkdown  string
-	ReplyToID     *string
+	CommunityID  string
+	ChannelID    string
+	AuthorID     string
+	BodyMarkdown string
+	ReplyToID    *string
 	// AttachmentIDs are upload row ids already persisted (e.g. via the
 	// chat upload endpoint) that the caller wants linked to this new
 	// message. Empty slice → no attachments. The repo verifies each id
@@ -828,6 +905,66 @@ func (s *Service) Send(ctx context.Context, in SendInput) (Message, error) {
 	}
 	if err := s.Repo.InsertWithAttachments(ctx, m, in.AttachmentIDs); err != nil {
 		return Message{}, fmt.Errorf("insert chat with atts: %w", err)
+	}
+	return m, nil
+}
+
+// ForwardInput carries a forward of SourceMsgID into TargetChannelID with
+// the forwarder's optional Note. AuthorID is the forwarder.
+type ForwardInput struct {
+	CommunityID     string
+	TargetChannelID string
+	AuthorID        string
+	Note            string
+	SourceMsgID     string
+}
+
+// Forward creates a message in TargetChannelID carrying a "Forwarded from
+// #channel" embed pointing at SourceMsgID, the forwarder's optional Note
+// as the body, and re-linked copies of the source's attachments (no file
+// copy). The embed itself is content, so an empty note with no attachments
+// is still valid. Attachment upload ids are resolved server-side from the
+// source — unlike Send, no client-supplied ids reach here, so no ownership
+// re-check is needed (the source is already a visible message in the same
+// community).
+func (s *Service) Forward(ctx context.Context, in ForwardInput) (Message, error) {
+	src, err := s.Repo.ByID(ctx, in.SourceMsgID)
+	if err != nil {
+		return Message{}, fmt.Errorf("load source: %w", err)
+	}
+	if src.CommunityID != in.CommunityID {
+		return Message{}, errors.New("chat: cannot forward across communities")
+	}
+	uploadIDs, err := s.Repo.UploadIDsForMessage(ctx, src.ID)
+	if err != nil {
+		return Message{}, fmt.Errorf("load source attachments: %w", err)
+	}
+	body := strings.TrimSpace(in.Note)
+	html, err := render.RenderMarkdown(body)
+	if err != nil {
+		return Message{}, fmt.Errorf("render markdown: %w", err)
+	}
+	aid := in.AuthorID
+	srcID := src.ID
+	m := Message{
+		ID:                 uuid.NewString(),
+		CommunityID:        in.CommunityID,
+		ChannelID:          in.TargetChannelID,
+		AuthorID:           &aid,
+		Kind:               KindUser,
+		BodyMarkdown:       body,
+		BodyHTML:           html,
+		ForwardedFromMsgID: &srcID,
+		CreatedAt:          time.Now(),
+	}
+	if len(uploadIDs) == 0 {
+		if err := s.Repo.Insert(ctx, m); err != nil {
+			return Message{}, fmt.Errorf("insert forward: %w", err)
+		}
+		return m, nil
+	}
+	if err := s.Repo.InsertWithAttachments(ctx, m, uploadIDs); err != nil {
+		return Message{}, fmt.Errorf("insert forward with atts: %w", err)
 	}
 	return m, nil
 }
