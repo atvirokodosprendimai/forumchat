@@ -332,7 +332,7 @@ func run() error {
 		// Tools: a tools-enabled agent gets the built-in internal full-text search
 		// (search_fts) plus this community's enabled MCP servers. The manager is
 		// wired here (the agent package depends only on its ToolSet interface).
-		agentRunner.Tools = mcpx.New(
+		mcpMgr := mcpx.New(
 			agentRepo.SearchContent,
 			func(ctx context.Context, communityID string) []mcpx.ServerConfig {
 				servers, err := agentRepo.ListEnabledMCPServers(ctx, communityID)
@@ -350,7 +350,48 @@ func run() error {
 			},
 			cfg.AgentMCPAllowStdio,
 			log,
-		).Build
+		)
+		// Extra internal tools that read the local DB to load context. Each query
+		// is community-scoped (the WHERE p.community_id binds the agent's own
+		// community — that scoping IS the authorization), so the tool can never
+		// reach another community's rows. Add more tools by following this shape.
+		if cfg.ProjectsEnabled {
+			mcpMgr.ListIssues = func(ctx context.Context, communityID string, limit int) []mcpx.IssueRef {
+				if limit <= 0 || limit > 200 {
+					limit = 50
+				}
+				rows, err := db.QueryContext(ctx, `
+					SELECT i.id, i.title, i.status, p.title
+					FROM project_issues i JOIN projects p ON p.id = i.project_id
+					WHERE p.community_id = ? AND p.archived_at IS NULL
+					ORDER BY i.updated_at DESC LIMIT ?`, communityID, limit)
+				if err != nil {
+					return nil
+				}
+				defer rows.Close()
+				var out []mcpx.IssueRef
+				for rows.Next() {
+					var r mcpx.IssueRef
+					if rows.Scan(&r.ID, &r.Title, &r.Status, &r.Project) == nil {
+						out = append(out, r)
+					}
+				}
+				return out
+			}
+			mcpMgr.GetIssue = func(ctx context.Context, communityID, id string) (mcpx.IssueDetail, bool) {
+				var d mcpx.IssueDetail
+				err := db.QueryRowContext(ctx, `
+					SELECT i.title, i.body_md, i.status, p.title
+					FROM project_issues i JOIN projects p ON p.id = i.project_id
+					WHERE i.id = ? AND p.community_id = ?`, id, communityID).
+					Scan(&d.Title, &d.Body, &d.Status, &d.Project)
+				if err != nil {
+					return mcpx.IssueDetail{}, false
+				}
+				return d, true
+			}
+		}
+		agentRunner.Tools = mcpMgr.Build
 		// Share-to-channel: copy an assistant answer into a chat channel as the
 		// requesting member. Closures (not a chat import in the agent package)
 		// keep the dependency one-way and reuse chat's send + fan-out.

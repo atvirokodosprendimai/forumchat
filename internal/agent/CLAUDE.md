@@ -42,6 +42,15 @@ tools" checkbox). The chat renders each call as a chip (persisted on
   MCP server exposing `search` (community-scoped FTS) over an in-memory
   transport, plus the community's enabled external servers. Wired in `main.go`
   as `agentRunner.Tools` (closure pattern, like `ShareToChannel`).
+  - **Adding an internal DB tool** (recipe — see `list_issues` / `get_issue`):
+    1. add an optional `…Func` field on `mcpx.Manager` (community id is a
+       PARAM, never a model arg — that scoping IS the authorization);
+    2. register the tool in `internalSession` with `mcp.AddTool` inside an
+       `if m.XFunc != nil {…}` guard (input struct uses `jsonschema:` tags);
+    3. wire the closure in `main.go` with a community-scoped `WHERE
+       p.community_id = ?` query (gate behind the relevant feature flag).
+    Only expose community-public content — the generation runs detached and a
+    shared thread has multiple readers, so don't surface per-user-private rows.
 - The **agentic loop** lives in `runner.go` (`run`): model → tool calls →
   results → model, capped at `MaxToolIterations`. The provider only does one
   turn and reports tool calls; it never executes them. Ollama tool turns run

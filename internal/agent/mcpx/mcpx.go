@@ -39,12 +39,39 @@ type ServerConfig struct {
 // main.go to ai_mcp_servers.
 type ServersFunc func(ctx context.Context, communityID string) []ServerConfig
 
+// IssueRef is one issue in a list_issues result.
+type IssueRef struct {
+	ID      string
+	Title   string
+	Status  string
+	Project string
+}
+
+// IssueDetail is the full body of one issue (get_issue result).
+type IssueDetail struct {
+	Title   string
+	Body    string
+	Status  string
+	Project string
+}
+
+// ListIssuesFunc / GetIssueFunc back the optional internal issue tools. Both are
+// community-scoped (the community id is supplied by the in-process server, not
+// the model), so they can only ever read the agent's own community.
+type (
+	ListIssuesFunc func(ctx context.Context, communityID string, limit int) []IssueRef
+	GetIssueFunc   func(ctx context.Context, communityID, id string) (IssueDetail, bool)
+)
+
 // Manager builds tool sets. AllowStdio gates external stdio servers (they run
 // arbitrary host commands) behind an instance-operator opt-in; HTTP servers are
-// always allowed.
+// always allowed. The internal server always exposes `search`; it additionally
+// exposes `list_issues` / `get_issue` when those optional funcs are wired.
 type Manager struct {
 	Search     SearchFunc
 	Servers    ServersFunc
+	ListIssues ListIssuesFunc
+	GetIssue   GetIssueFunc
 	AllowStdio bool
 	Log        *slog.Logger
 }
@@ -115,6 +142,29 @@ func (m *Manager) internalSession(ctx context.Context, communityID string) (*mcp
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: formatHits(hits)}}}, nil, nil
 	})
 
+	// Optional structured tools — registered only when wired. Same community
+	// scoping: the id below is closed over, the model never supplies it.
+	if list := m.ListIssues; list != nil {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "list_issues",
+			Description: "List this community's project issues (id, status, title, project). Use it to discover which issues exist, then load one with get_issue.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in listIssuesInput) (*mcp.CallToolResult, any, error) {
+			return textResult(formatIssueRefs(list(ctx, communityID, in.Limit))), nil, nil
+		})
+	}
+	if get := m.GetIssue; get != nil {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name:        "get_issue",
+			Description: "Fetch one project issue by id — title, status and full body — to load it as context.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest, in getIssueInput) (*mcp.CallToolResult, any, error) {
+			d, ok := get(ctx, communityID, in.ID)
+			if !ok {
+				return textResult("Issue not found in this community."), nil, nil
+			}
+			return textResult(formatIssueDetail(d)), nil, nil
+		})
+	}
+
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	ss, err := srv.Connect(ctx, serverTransport, nil)
 	if err != nil {
@@ -133,6 +183,35 @@ func (m *Manager) internalSession(ctx context.Context, communityID string) (*mcp
 type searchInput struct {
 	Query string `json:"query" jsonschema:"the full-text search query (keywords)"`
 	Limit int    `json:"limit,omitempty" jsonschema:"maximum number of results (default 10)"`
+}
+
+type listIssuesInput struct {
+	Limit int `json:"limit,omitempty" jsonschema:"maximum number of issues to list (default 50)"`
+}
+
+type getIssueInput struct {
+	ID string `json:"id" jsonschema:"the issue id (from list_issues)"`
+}
+
+// textResult wraps plain text as a tool result.
+func textResult(s string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
+}
+
+func formatIssueRefs(refs []IssueRef) string {
+	if len(refs) == 0 {
+		return "No issues found."
+	}
+	var b strings.Builder
+	for _, r := range refs {
+		fmt.Fprintf(&b, "- %s  [%s]  %s  (project: %s)\n", r.ID, r.Status, strings.TrimSpace(r.Title), strings.TrimSpace(r.Project))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatIssueDetail(d IssueDetail) string {
+	return fmt.Sprintf("Title: %s\nStatus: %s\nProject: %s\n\n%s",
+		strings.TrimSpace(d.Title), d.Status, strings.TrimSpace(d.Project), strings.TrimSpace(d.Body))
 }
 
 // externalSession connects to one configured MCP server.
