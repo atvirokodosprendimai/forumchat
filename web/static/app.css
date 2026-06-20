@@ -1293,12 +1293,28 @@ img.thread-announce-img {
 
 /* Narrow screens: stack chat below stage */
 @media (max-width: 760px) {
+  /* Header wraps as a whole: back+title+pill stay on row 1, the control
+     buttons drop to their own full-width row instead of crowding into a
+     ragged cluster beside the title. */
+  .rooms-room-head { flex-wrap: wrap; row-gap: .4rem; }
+  .rooms-room-title { font-size: 1.05rem; }
+  .rooms-room-spacer { display: none; }
+  .rooms-room-controls {
+    width: 100%; justify-content: flex-start; gap: .3rem;
+  }
+  .rooms-room-controls .rooms-ctl-leave { margin-left: auto; }
+  .rooms-ctl { padding: .3rem .5rem; font-size: .9em; }
+
+  /* Stack stage over chat. Stage area is capped so it can't dominate the
+     viewport, and chat becomes a 1fr internal-scroll region with the
+     composer pinned at the bottom — previously the second row was `auto`,
+     so chat sized to its content and the composer fell below the section's
+     fixed height, off-screen and unreachable. */
   .rooms-layout-v3 {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(220px, 50dvh) auto;
+    grid-template-rows: minmax(0, 42dvh) minmax(0, 1fr);
   }
-  .rooms-room-controls { gap: .25rem; }
-  .rooms-ctl { padding: .3rem .5rem; font-size: .9em; }
+  .rooms-people { min-height: 0; max-height: 96px; }
 }
 
 /* Rooms email-invite textarea */
