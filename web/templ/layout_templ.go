@@ -456,7 +456,7 @@ func Layout(title string, v Viewer) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if MailboxEnabled && IsAdminOfAnyCommunity(ctx) {
+			if MailboxEnabled && IsSuperAdmin(ctx) {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<a href=\"/inbox\" aria-current=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

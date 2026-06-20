@@ -347,7 +347,7 @@ templ Layout(title string, v Viewer) {
 				<nav data-on:click="evt.target.closest('a,button') && ($_nav_open = false)">
 					if v.IsAuthed {
 						<h3 class="sidebar-group">You</h3>
-						if MailboxEnabled && IsAdminOfAnyCommunity(ctx) {
+						if MailboxEnabled && IsSuperAdmin(ctx) {
 							<a href="/inbox" aria-current={ navActive(ctx, "/inbox") }><span class="sb-icon" aria-hidden="true">📥</span>Inbox</a>
 						}
 						if IsAdminOfAnyCommunity(ctx) {

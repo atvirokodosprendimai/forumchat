@@ -1343,6 +1343,7 @@ func run() error {
 	if cfg.MailboxEnabled && mailboxHandler != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth)
+			r.Use(auth.RequireSuperAdmin) // /inbox is the company-owner surface
 			r.Get("/inbox", mailboxHandler.GetGlobalInbox)
 			r.Get("/inbox/more", mailboxHandler.GetMore)
 			r.Get("/inbox/stream", mailboxHandler.GetStream)

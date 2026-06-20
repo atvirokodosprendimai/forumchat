@@ -37,31 +37,43 @@ type Handler struct {
 	Log           *slog.Logger
 }
 
-// GetGlobalInbox renders /inbox for an admin-of-any-community viewer.
-// Non-admin and unauthenticated visitors get a 404 (anti-enumeration —
-// the page must appear not-to-exist to anyone unauthorised, see the
-// spec's anti-enumeration block).
-func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
+// inboxScope authorises an /inbox request and returns the community ids whose
+// mail the viewer may read. /inbox is a platform-super-admin-only surface (the
+// "company owner" inbox): a non-super-admin gets a 404 (anti-enumeration — the
+// page must appear not-to-exist to anyone unauthorised), and a super-admin gets
+// EVERY community, because the super-admin reads all mail across communities.
+// The route group is also gated by auth.RequireSuperAdmin; this duplicates the
+// gate (defence in depth) and resolves the all-communities scope in one place.
+func (h *Handler) inboxScope(w http.ResponseWriter, r *http.Request) (auth.Identity, []string, bool) {
 	id, ok := auth.FromContext(r.Context())
-	if !ok {
+	if !ok || !id.IsSuperAdmin {
 		http.NotFound(w, r)
-		return
+		return auth.Identity{}, nil, false
 	}
-
-	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
+	stats, err := h.CommunityRepo.ListAll(r.Context())
 	if err != nil {
-		h.Log.Error("mailbox: load admin community ids", "err", err)
+		h.Log.Error("mailbox: list communities for inbox scope", "err", err)
 		http.Error(w, "internal", http.StatusInternalServerError)
-		return
+		return auth.Identity{}, nil, false
 	}
-	if len(adminCIDs) == 0 {
-		http.NotFound(w, r)
+	cids := make([]string, len(stats))
+	for i, s := range stats {
+		cids[i] = s.Community.ID
+	}
+	return id, cids, true
+}
+
+// GetGlobalInbox renders /inbox for a platform super-admin (company owner).
+// Everyone else gets a 404 — see inboxScope.
+func (h *Handler) GetGlobalInbox(w http.ResponseWriter, r *http.Request) {
+	id, adminCIDs, ok := h.inboxScope(w, r)
+	if !ok {
 		return
 	}
 
 	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
 	if communityFilter != "" && communityFilter != UnassignedCommunityID && !contains(adminCIDs, communityFilter) {
-		// Don't leak the existence of a community the viewer is not admin in.
+		// Don't leak the existence of a community outside the known set.
 		http.NotFound(w, r)
 		return
 	}
@@ -276,14 +288,8 @@ func decodeCursor(s string) (*QueueCursor, error) {
 // response appends rows to `#inbox-rows` and replaces `#inbox-more`
 // with the next sentinel (or empty when exhausted).
 func (h *Handler) GetMore(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
+	_, adminCIDs, ok := h.inboxScope(w, r)
 	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
-	if err != nil || len(adminCIDs) == 0 {
-		http.NotFound(w, r)
 		return
 	}
 	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
@@ -343,14 +349,8 @@ func (h *Handler) GetMore(w http.ResponseWriter, r *http.Request) {
 // the stream re-renders the first page so the user sees fresh mail
 // without manual refresh.
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
+	_, adminCIDs, ok := h.inboxScope(w, r)
 	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
-	if err != nil || len(adminCIDs) == 0 {
-		http.NotFound(w, r)
 		return
 	}
 	communityFilter := strings.TrimSpace(r.URL.Query().Get("community"))
@@ -514,14 +514,8 @@ type attachSenderSignals struct {
 // PostAttachSender creates a community_mail_filter row from the inbox
 // popover. The viewer MUST be admin in the chosen community.
 func (h *Handler) PostAttachSender(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
+	id, adminCIDs, ok := h.inboxScope(w, r)
 	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
-	if err != nil || len(adminCIDs) == 0 {
-		http.NotFound(w, r)
 		return
 	}
 	var in attachSenderSignals
@@ -583,9 +577,8 @@ type moveSignals struct {
 // community (guard inside Svc.Materialise). Returns 204 on success;
 // the inbox SSE morph picks up the change via Bus.Broadcast.
 func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
+	id, adminCIDs, ok := h.inboxScope(w, r)
 	if !ok {
-		http.NotFound(w, r)
 		return
 	}
 	if h.Svc == nil {
@@ -613,13 +606,8 @@ func (h *Handler) PostMoveAttachment(w http.ResponseWriter, r *http.Request) {
 		writeToast(w, r, fmt.Sprintf("attachment lookup failed (id=%s): %v", attID, err))
 		return
 	}
-	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
-	if err != nil || len(adminCIDs) == 0 {
-		writeToast(w, r, "not authorised")
-		return
-	}
 	if look.Ingest.CommunityID != "" && !contains(adminCIDs, look.Ingest.CommunityID) {
-		writeToast(w, r, "not admin in this ingest's community")
+		writeToast(w, r, "unknown community for this ingest")
 		return
 	}
 
@@ -683,14 +671,8 @@ type searchSignals struct {
 // that replaces the rows fragment. Empty queries fall back to the
 // recent list so clearing the box re-shows the page-1 view.
 func (h *Handler) PostSearch(w http.ResponseWriter, r *http.Request) {
-	id, ok := auth.FromContext(r.Context())
+	_, adminCIDs, ok := h.inboxScope(w, r)
 	if !ok {
-		http.NotFound(w, r)
-		return
-	}
-	adminCIDs, err := h.AuthRepo.AdminCommunityIDs(r.Context(), id.User.ID)
-	if err != nil || len(adminCIDs) == 0 {
-		http.NotFound(w, r)
 		return
 	}
 	var in searchSignals
