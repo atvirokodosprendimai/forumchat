@@ -3455,7 +3455,7 @@ hr {
   z-index: 70;
   display: flex; align-items: center; justify-content: center;
 }
-.extract-dialog {
+.extract-dialog, .forward-dialog {
   background: var(--surface, #fff);
   border: 1px solid var(--border, #e4e4ea);
   border-radius: var(--radius, 0.6rem);
@@ -3476,12 +3476,15 @@ hr {
 }
 .modal-body .form-row span { color: var(--fg-muted, #6c6c75); }
 .modal-body .form-row input,
-.modal-body .form-row select {
+.modal-body .form-row select,
+.modal-body .form-row textarea {
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border, #e4e4ea);
   border-radius: var(--radius-sm, 0.45rem);
   background: var(--bg, #fff);
+  font: inherit;
 }
+.modal-body .form-row textarea { resize: vertical; min-height: 2.4rem; }
 .seg {
   display: flex;
   border: 1px solid var(--border, #e4e4ea);
