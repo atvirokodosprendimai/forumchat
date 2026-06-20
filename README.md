@@ -4,6 +4,8 @@
 [![Watch the video](https://img.youtube.com/vi/rFDVdcsU5lU/hqdefault.jpg)](https://youtu.be/rFDVdcsU5lU)
 
 
+[![Watch the video](https://img.youtube.com/vi/vUgS1wlzTMc/hqdefault.jpg)](https://youtu.be/vUgS1wlzTMc)
+
 
 > **Self-hosted community platform in a single Go binary.** Realtime
 > multi-channel chat, a durable forum, WebRTC video rooms, projects with
