@@ -156,3 +156,4 @@
 - 2026-06-18 `2f95635` feat(auth): config flags for open registration (Phase 1)
 - 2026-06-18 `fe396e0` feat(auth): optional invite + auto-approve for open registration (Phase 2)
 - 2026-06-20 `aa9399b` feat(agent): internal MCP DB tools — list_issues + get_issue (context loading)
+- 2026-06-20 `c6792ef` fix(rooms): device-picker popover would not hide

@@ -7,6 +7,40 @@
 
 | ID | Time | T | Title | Read |
 |----|------|---|-------|------|
+| #5583 | 10:58 PM | ✅ | Inbox restricted to platform superadmin with all-communities scope | ~722 |
+| #5581 | 10:36 PM | ✅ | Inbox visibility restricted to superadmin only | ~388 |
+| #5578 | 10:32 PM | 🔵 | Inbox permission model: admin-of-any-community, not superadmin-only | ~388 |
+| #5577 | 10:13 PM | 🟣 | Room device picker for microphone and camera selection | ~425 |
+| #5576 | 9:45 PM | 🔄 | Decluttered left nav by moving Mail filters to Admin panel | ~421 |
+| #5573 | 9:25 PM | 🔴 | Superadmin Global Chat Inbox Feature Complete | ~490 |
+| #5571 | 9:23 PM | 🔴 | Added openWhenHidden to Superadmin Chat SSE Stream | ~372 |
+| #5550 | 9:07 PM | ✅ | SAChatRow BodyText Fallback Field | ~281 |
+| #5546 | 9:06 PM | 🔵 | Main Element Scroll Behavior in App Shell | ~377 |
+| #5544 | 9:05 PM | 🔴 | Chat Auto-Scroll Mechanism via Anchor Element | ~374 |
+| #5543 | " | 🔴 | Chat Message Body Rendering Pattern Analysis | ~352 |
+| #5542 | " | 🟣 | Superadmin Global Chat Navigation Link | ~287 |
+| #5541 | 9:04 PM | 🔵 | Per-Community Chat Scrollable Container Pattern | ~379 |
+| #5533 | 8:59 PM | 🟣 | Superadmin Chat Inbox Page Template with SSE Integration | ~503 |
+| #5532 | " | 🟣 | Superadmin Chat Inbox View Models and Navigation Link | ~379 |
+| #5528 | 8:58 PM | 🔵 | Superadmin Template Structure and UI Patterns | ~383 |
+| #5513 | 7:57 PM | 🟣 | Form signals now seed ai_summarizer checkbox state | ~337 |
+| #5512 | 7:55 PM | 🟣 | Admin UI for summarizer agent designation | ~425 |
+| #5500 | 6:31 PM | ✅ | Multi-transport TURN configuration committed to task/rooms-turn-relay branch | ~685 |
+| #5499 | " | ✅ | WebRTC TURN configuration changes staged for commit | ~738 |
+| #5498 | " | 🔵 | WebRTC TURN relay feature branch ready for commit | ~494 |
+| #5491 | 6:21 PM | 🟣 | Client-side force-relay mode for WebRTC with TURN server detection | ~633 |
+| #5483 | 5:04 PM | ✅ | Search feature documentation updated across module CLAUDE.md files | ~321 |
+| #5482 | " | ✅ | RRF search feature merged to main and pushed to production | ~279 |
+| #5481 | 5:03 PM | 🟣 | /search RRF fusion feature shipped to main | ~672 |
+| #5470 | 4:45 PM | ✅ | Added search signal fields to global InitialSignals bag | ~348 |
+| #5468 | " | 🟣 | Added share-to-channel buttons to chat search results panel | ~407 |
+| #5464 | 4:36 PM | 🟣 | Added ephemeral search results container to chat template | ~346 |
+| #5461 | 4:26 PM | 🟣 | Search navigation link added to sidebar | ~243 |
+| #5460 | " | 🟣 | Search UI template created with RRF result rendering | ~504 |
+| #5455 | 4:24 PM | 🔵 | RRF search implementation discovery phase completed | ~594 |
+| #5454 | 4:16 PM | 🔵 | No public Search UI exists - RRF fusion requires new page creation | ~517 |
+| #5453 | " | 🔵 | Dual search infrastructure discovered for RRF fusion | ~466 |
+| #5450 | 4:07 PM | 🟣 | RAG semantic vector search shipped to production | ~831 |
 | #5432 | 2:58 PM | 🟣 | MCP tool support shipped to production | ~509 |
 | #5420 | 2:51 PM | 🟣 | Committed MCP tool support for forumchat agents | ~780 |
 | #5416 | 2:20 PM | 🟣 | Agent tools feature compiles and generates successfully | ~255 |
@@ -23,38 +57,4 @@
 | #5387 | 12:43 PM | 🟣 | Agent composer $-triggered autocomplete for thread and content references | ~1126 |
 | #5386 | " | 🟣 | Agent composer $-autocomplete for cross-referencing threads, forum posts, and projects | ~819 |
 | #5376 | 12:36 PM | 🟣 | Agent $ Reference Autocomplete - Script Integration | ~558 |
-| #5373 | 12:32 PM | 🟣 | Agent handler prepared for forum thread autocomplete | ~379 |
-| #5372 | 12:26 PM | 🟣 | /resume slash command — agent-powered channel recap in chat | ~549 |
-| #5354 | 11:52 AM | 🟣 | Multi-agent AI feature with vision and in-thread model switching committed to repository | ~1015 |
-| #5348 | 11:43 AM | 🟣 | Multi-agent support with vision capabilities and in-thread model switching | ~767 |
-| #5347 | " | ✅ | Multi-agent refactor builds successfully after template regeneration | ~418 |
-| #5346 | " | ✅ | In-thread agent switching feature merged to main | ~440 |
-| #5345 | 11:39 AM | 🔴 | Fixed Agent streaming stuck on dots by streaming through POST response | ~660 |
-| #5342 | 11:33 AM | 🔴 | Auto-scroll prevents reading earlier messages during AI generation | ~359 |
-| #5332 | 11:06 AM | 🟣 | In-Thread Agent Switching with Dynamic Composer Re-rendering | ~730 |
-| #5330 | 11:04 AM | ✅ | Agent picker signals added to global signal bag | ~380 |
-| #5329 | " | 🔴 | Agent picker dropdown now tracks active agent correctly | ~301 |
-| #5328 | " | 🟣 | In-Thread Agent Switcher with Vision Indicator | ~430 |
-| #5325 | 10:42 AM | ⚖️ | Multi-agent architecture decision documented: per-agent configs with vision support | ~800 |
-| #5324 | 10:41 AM | 🟣 | Multi-agent feature implementation verified with clean build and tests | ~369 |
-| #5319 | 10:37 AM | 🔄 | Renamed boolStr to agentBoolStr for namespace clarity | ~290 |
-| #5318 | " | 🟣 | Added AI agents management link to community admin page | ~354 |
-| #5315 | 10:36 AM | 🔄 | Cancel button refactored to use el.closest() instead of document.querySelector() | ~322 |
-| #5300 | 10:20 AM | 🟣 | Agent: Per-Community AI Chat with Ollama and Resumable Streaming | ~701 |
-| #5301 | " | 🔴 | Fixed Datastar Crash from Empty data-on:submit__prevent Expressions | ~572 |
-| #5302 | " | 🟣 | Smart Auto-Scroll with Proximity Gating During AI Streaming | ~578 |
-| #5303 | " | 🔴 | Fixed Missing Agent Nav Link on Deploys by Tracking Generated Templ Files | ~662 |
-| #5298 | 10:13 AM | 🔴 | Template generation deployment bug fixed: gitignore removed for *_templ.go | ~557 |
-| #5297 | 10:12 AM | ✅ | Deployed Agent feature and templ build strategy to main branch | ~325 |
-| #5294 | 10:11 AM | 🔴 | Agent nav icon missing after deployment - templates not regenerated | ~308 |
-| #5291 | 10:08 AM | 🔵 | Agent feature flag wiring verification | ~275 |
-| #5290 | 9:58 AM | 🟣 | Agent feature merged to main and pushed to origin | ~407 |
-| #5289 | " | 🟣 | Agent feature deployed to main branch | ~522 |
-| #5288 | 9:57 AM | 🟣 | Agent feature committed to version control | ~532 |
-| #5287 | " | 🟣 | Agent feature staged for commit with complete implementation and bugfixes | ~544 |
-| #5286 | 9:51 AM | ✅ | Agent template bugfix verified through regeneration and build | ~292 |
-| #5285 | " | 🟣 | Added instant scroll-to-bottom on Agent messages container load | ~296 |
-| #5284 | 9:50 AM | ✅ | Agent auto-scroll behavior modification request | ~348 |
-| #5283 | 9:44 AM | ✅ | Verified Agent template fixes compile cleanly with zero form elements | ~268 |
-| #5282 | " | 🔴 | Converted AgentConfigForm from form to div for Datastar signal binding | ~319 |
 </claude-mem-context>
