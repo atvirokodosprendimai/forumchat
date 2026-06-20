@@ -64,6 +64,7 @@ type Agent struct {
 	Vision       bool // model accepts image input → composer offers attach
 	ToolsEnabled bool // agent may call MCP tools (internal search + connected servers)
 	Enabled      bool
+	IsSummarizer bool // this agent handles the chat /resume channel summary (one per community)
 	Position     int
 	UpdatedBy    string
 	CreatedAt    int64

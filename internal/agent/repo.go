@@ -18,21 +18,22 @@ func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 // --- agents ---------------------------------------------------------------
 
 const agentCols = `id, community_id, name, provider, base_url, model, api_key_enc,
-	system_prompt, vision, tools_enabled, enabled, position, COALESCE(updated_by,''), created_at, updated_at`
+	system_prompt, vision, tools_enabled, enabled, is_summarizer, position, COALESCE(updated_by,''), created_at, updated_at`
 
 func scanAgent(s interface {
 	Scan(dest ...any) error
 }) (Agent, error) {
 	var a Agent
-	var vision, tools, enabled int
+	var vision, tools, enabled, summarizer int
 	err := s.Scan(&a.ID, &a.CommunityID, &a.Name, &a.Provider, &a.BaseURL, &a.Model, &a.APIKeyEnc,
-		&a.SystemPrompt, &vision, &tools, &enabled, &a.Position, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt)
+		&a.SystemPrompt, &vision, &tools, &enabled, &summarizer, &a.Position, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return Agent{}, err
 	}
 	a.Vision = vision != 0
 	a.ToolsEnabled = tools != 0
 	a.Enabled = enabled != 0
+	a.IsSummarizer = summarizer != 0
 	return a, nil
 }
 
@@ -82,6 +83,33 @@ func (r *Repo) AgentByID(ctx context.Context, id string) (Agent, error) {
 	return a, nil
 }
 
+// SummarizerAgent returns the enabled agent a community marked to handle the
+// chat /resume channel summary. ErrNotFound when none is marked (or the marked
+// one is disabled) — callers fall back to the first enabled agent.
+func (r *Repo) SummarizerAgent(ctx context.Context, communityID string) (Agent, error) {
+	a, err := scanAgent(r.DB.QueryRowContext(ctx, `SELECT `+agentCols+`
+		FROM ai_agents WHERE community_id = ? AND is_summarizer = 1 AND enabled = 1
+		ORDER BY position, name LIMIT 1`, communityID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Agent{}, ErrNotFound
+	}
+	if err != nil {
+		return Agent{}, fmt.Errorf("summarizer agent: %w", err)
+	}
+	return a, nil
+}
+
+// ClearOtherSummarizers unsets the summarizer flag on every agent in the
+// community except keepID, enforcing the one-summarizer-per-community invariant.
+func (r *Repo) ClearOtherSummarizers(ctx context.Context, communityID, keepID string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE ai_agents SET is_summarizer = 0
+		WHERE community_id = ? AND id <> ?`, communityID, keepID)
+	if err != nil {
+		return fmt.Errorf("clear other summarizers: %w", err)
+	}
+	return nil
+}
+
 // CountAgents returns how many agents a community has.
 func (r *Repo) CountAgents(ctx context.Context, communityID string) (int, error) {
 	var n int
@@ -104,10 +132,10 @@ func (r *Repo) CreateAgent(ctx context.Context, a Agent) error {
 	}
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO ai_agents (id, community_id, name, provider, base_url, model, api_key_enc,
-			system_prompt, vision, tools_enabled, enabled, position, created_at, updated_at, updated_by)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			system_prompt, vision, tools_enabled, enabled, is_summarizer, position, created_at, updated_at, updated_by)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.CommunityID, a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc,
-		a.SystemPrompt, boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), a.Position, a.CreatedAt, a.UpdatedAt, updatedBy)
+		a.SystemPrompt, boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), boolToInt(a.IsSummarizer), a.Position, a.CreatedAt, a.UpdatedAt, updatedBy)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
@@ -122,10 +150,10 @@ func (r *Repo) UpdateAgent(ctx context.Context, a Agent) error {
 	}
 	_, err := r.DB.ExecContext(ctx, `
 		UPDATE ai_agents SET name=?, provider=?, base_url=?, model=?, api_key_enc=?,
-			system_prompt=?, vision=?, tools_enabled=?, enabled=?, updated_at=?, updated_by=?
+			system_prompt=?, vision=?, tools_enabled=?, enabled=?, is_summarizer=?, updated_at=?, updated_by=?
 		WHERE id = ?`,
 		a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc, a.SystemPrompt,
-		boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), a.UpdatedAt, updatedBy, a.ID)
+		boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), boolToInt(a.IsSummarizer), a.UpdatedAt, updatedBy, a.ID)
 	if err != nil {
 		return fmt.Errorf("update agent: %w", err)
 	}

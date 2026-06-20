@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -159,7 +160,7 @@ func TestSummarizeToThread(t *testing.T) {
 	srv := stubOllama(t, nil, "Recap: ", "all good.")
 	a := mkAgent(t, svc, cid, func(a *agent.Agent) { a.BaseURL = srv.URL })
 
-	tid, answer, err := svc.SummarizeToThread(ctx, cid, uid, a, "Resume of #general", "summarise: hello world")
+	tid, answer, err := svc.SummarizeToThread(ctx, cid, uid, a, "Resume of #general", "summarise: hello world", nil)
 	if err != nil {
 		t.Fatalf("summarize: %v", err)
 	}
@@ -331,5 +332,67 @@ func TestRunnerStripsImagesForNonVisionAgent(t *testing.T) {
 	}
 	if strings.Contains(reqBody, "IMGDATA") {
 		t.Fatalf("non-vision agent should not forward the image: %s", reqBody)
+	}
+}
+
+func TestSaveAgentSingleSummarizer(t *testing.T) {
+	t.Parallel()
+	repo, svc, cid, _ := env(t)
+	ctx := context.Background()
+
+	a := mkAgent(t, svc, cid, func(a *agent.Agent) { a.Name = "A"; a.IsSummarizer = true })
+	b := mkAgent(t, svc, cid, func(a *agent.Agent) { a.Name = "B"; a.IsSummarizer = true })
+
+	// Only the most recently-marked agent keeps the flag.
+	got, err := repo.SummarizerAgent(ctx, cid)
+	if err != nil {
+		t.Fatalf("summarizer agent: %v", err)
+	}
+	if got.ID != b.ID {
+		t.Fatalf("summarizer = %q, want %q (B)", got.ID, b.ID)
+	}
+	if a2, _ := repo.AgentByID(ctx, a.ID); a2.IsSummarizer {
+		t.Fatal("agent A should have lost the summarizer flag")
+	}
+
+	// A disabled summarizer is not returned — callers fall back to first enabled.
+	b.Enabled = false
+	if _, err := svc.SaveAgent(ctx, b); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if _, err := repo.SummarizerAgent(ctx, cid); !errors.Is(err, agent.ErrNotFound) {
+		t.Fatalf("disabled summarizer should be ErrNotFound, got %v", err)
+	}
+}
+
+func TestSummarizeToThreadForwardsImagesForVisionAgent(t *testing.T) {
+	t.Parallel()
+	_, svc, cid, uid := env(t)
+	ctx := context.Background()
+	var reqBody string
+	srv := stubOllama(t, &reqBody, "ok")
+	a := mkAgent(t, svc, cid, func(a *agent.Agent) { a.BaseURL = srv.URL; a.Vision = true })
+
+	if _, _, err := svc.SummarizeToThread(ctx, cid, uid, a, "Resume", "summarise", []string{"IMGDATA"}); err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	if !strings.Contains(reqBody, "IMGDATA") {
+		t.Fatalf("vision summarizer should forward the image: %s", reqBody)
+	}
+}
+
+func TestSummarizeToThreadStripsImagesForNonVisionAgent(t *testing.T) {
+	t.Parallel()
+	_, svc, cid, uid := env(t)
+	ctx := context.Background()
+	var reqBody string
+	srv := stubOllama(t, &reqBody, "ok")
+	a := mkAgent(t, svc, cid, func(a *agent.Agent) { a.BaseURL = srv.URL; a.Vision = false })
+
+	if _, _, err := svc.SummarizeToThread(ctx, cid, uid, a, "Resume", "summarise", []string{"IMGDATA"}); err != nil {
+		t.Fatalf("summarize: %v", err)
+	}
+	if strings.Contains(reqBody, "IMGDATA") {
+		t.Fatalf("non-vision summarizer should not forward the image: %s", reqBody)
 	}
 }

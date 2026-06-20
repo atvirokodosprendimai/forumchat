@@ -45,11 +45,21 @@ func (s *Service) SaveAgent(ctx context.Context, a Agent) (Agent, error) {
 		if err := s.Repo.CreateAgent(ctx, a); err != nil {
 			return Agent{}, err
 		}
+		if a.IsSummarizer {
+			if err := s.Repo.ClearOtherSummarizers(ctx, a.CommunityID, a.ID); err != nil {
+				return Agent{}, err
+			}
+		}
 		return a, nil
 	}
 	a.UpdatedAt = now
 	if err := s.Repo.UpdateAgent(ctx, a); err != nil {
 		return Agent{}, err
+	}
+	if a.IsSummarizer {
+		if err := s.Repo.ClearOtherSummarizers(ctx, a.CommunityID, a.ID); err != nil {
+			return Agent{}, err
+		}
 	}
 	return a, nil
 }
@@ -148,9 +158,12 @@ func (s *Service) Regenerate(ctx context.Context, threadID string) (assistantID 
 // SummarizeToThread creates a SHARED agent thread seeded with prompt, runs the
 // agent to completion SYNCHRONOUSLY (no streaming runner), stores the answer,
 // and returns the thread id + answer text. Used by the chat /resume slash
-// command — the caller posts the answer back into the channel. Images never
-// apply here (chat history is text), so this is provider-agnostic.
-func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID string, a Agent, title, prompt string) (threadID, answer string, err error) {
+// command — the caller posts the answer back into the channel. images is the
+// set of base64-encoded image payloads the caller collected from the channel
+// for a vision agent; pass nil for a text-only summary (the runner strips them
+// from a non-vision agent's request anyway, but the caller already gates on
+// a.Vision before reading the files).
+func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID string, a Agent, title, prompt string, images []string) (threadID, answer string, err error) {
 	now := nowUnix()
 	t := Thread{
 		ID: uuid.NewString(), CommunityID: communityID, UserID: userID, AgentID: a.ID,
@@ -162,7 +175,7 @@ func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID str
 	userHTML, _ := render.RenderMarkdown(prompt)
 	if err := s.Repo.InsertMessage(ctx, Message{
 		ID: uuid.NewString(), ThreadID: t.ID, Role: RoleUser, AuthorID: userID,
-		BodyMD: prompt, BodyHTML: userHTML, Status: StatusDone, CreatedAt: now, UpdatedAt: now,
+		BodyMD: prompt, BodyHTML: userHTML, Status: StatusDone, Images: images, CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		return "", "", err
 	}
@@ -171,11 +184,14 @@ func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID str
 	if err != nil {
 		return "", "", err
 	}
+	if !a.Vision {
+		images = nil // a text-only model 400s on image input
+	}
 	msgs := make([]ChatMessage, 0, 2)
 	if sp := strings.TrimSpace(a.SystemPrompt); sp != "" {
 		msgs = append(msgs, ChatMessage{Role: RoleSystem, Content: sp})
 	}
-	msgs = append(msgs, ChatMessage{Role: RoleUser, Content: prompt})
+	msgs = append(msgs, ChatMessage{Role: RoleUser, Content: prompt, Images: images})
 
 	var sb strings.Builder
 	if _, err := prov.Stream(ctx, a.Model, msgs, nil, func(d string) error {

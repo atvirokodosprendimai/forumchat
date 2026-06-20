@@ -891,6 +891,7 @@ type agentSignals struct {
 	Vision       bool   `json:"ai_vision"`
 	ToolsEnabled bool   `json:"ai_tools"`
 	Enabled      bool   `json:"ai_enabled"`
+	Summarizer   bool   `json:"ai_summarizer"`
 }
 
 // PostSaveAgent (/admin/ai) creates or updates an agent, then re-renders the
@@ -911,7 +912,7 @@ func (h *Handler) PostSaveAgent(w http.ResponseWriter, r *http.Request) {
 		ID: strings.TrimSpace(in.AgentID), CommunityID: cid, Name: in.Name,
 		Provider: in.Provider, BaseURL: in.BaseURL, Model: in.Model,
 		SystemPrompt: in.SystemPrompt, Vision: in.Vision, ToolsEnabled: in.ToolsEnabled, Enabled: in.Enabled,
-		UpdatedBy: id.User.ID,
+		IsSummarizer: in.Summarizer, UpdatedBy: id.User.ID,
 	}
 	// Preserve the stored key unless a new one was typed (the form never echoes
 	// the secret); load the existing row when editing.
@@ -1031,6 +1032,7 @@ func toAdminView(a Agent) webtempl.AgentAdminView {
 		Vision:       a.Vision,
 		ToolsEnabled: a.ToolsEnabled,
 		Enabled:      a.Enabled,
+		IsSummarizer: a.IsSummarizer,
 		APIKeySet:    strings.TrimSpace(a.APIKeyEnc) != "",
 	}
 }

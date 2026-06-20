@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -746,6 +747,12 @@ func run() error {
 				post("🤖 No AI agent is enabled — an admin can add one in Admin → AI.")
 				return
 			}
+			// Use the agent the admin marked for /resume; fall back to the
+			// first enabled one when none is marked.
+			sumAgent := agents[0]
+			if a, err := agentRepo.SummarizerAgent(ctx, communityID); err == nil {
+				sumAgent = a
+			}
 			convo := formatChatForResume(chatRepo, ctx, channelID)
 			if strings.TrimSpace(convo) == "" {
 				post("🤖 Nothing to resume yet.")
@@ -756,7 +763,16 @@ func run() error {
 				chName = "#" + ch.Name
 			}
 			prompt := "Summarise this chat conversation from " + chName + ". Give a concise recap as short bullet points: key topics, any decisions, and open questions.\n\n" + convo
-			threadID, answer, err := agentHandler.Svc.SummarizeToThread(ctx, communityID, requesterID, agents[0], "Resume of "+chName, prompt)
+			// A vision summarizer also gets the channel's recent images so the
+			// recap can describe them.
+			var images []string
+			if sumAgent.Vision {
+				images = recentChannelImages(ctx, chatRepo, uploadStore, channelID, 8)
+				if len(images) > 0 {
+					prompt += "\n\nThe channel's most recent images are attached — fold anything notable in them into the recap."
+				}
+			}
+			threadID, answer, err := agentHandler.Svc.SummarizeToThread(ctx, communityID, requesterID, sumAgent, "Resume of "+chName, prompt, images)
 			if err != nil || strings.TrimSpace(answer) == "" {
 				log.Warn("resume: generate", "err", err)
 				post("🤖 Couldn't generate a resume right now.")
@@ -1581,4 +1597,39 @@ func formatChatForResume(repo *chat.Repo, ctx context.Context, channelID string)
 		s = "…(earlier messages truncated)…\n" + s[len(s)-maxChars:]
 	}
 	return s
+}
+
+// recentChannelImages collects up to limit base64-encoded image payloads from a
+// channel's most recent messages (newest first) for a vision /resume agent.
+// Non-image attachments are skipped; unreadable uploads are silently dropped so
+// one bad file never breaks the summary.
+func recentChannelImages(ctx context.Context, repo *chat.Repo, store *uploads.Store, channelID string, limit int) []string {
+	msgs, err := repo.Recent(ctx, channelID, 300) // newest-first
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, limit)
+	for _, m := range msgs {
+		if m.DeletedAt != nil {
+			continue
+		}
+		for _, att := range m.Attachments {
+			if att.Kind != "image" {
+				continue
+			}
+			u, err := store.Get(ctx, att.UploadID)
+			if err != nil {
+				continue
+			}
+			data, err := os.ReadFile(store.PathFor(u))
+			if err != nil {
+				continue
+			}
+			out = append(out, base64.StdEncoding.EncodeToString(data))
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
 }

@@ -67,6 +67,7 @@ type AgentAdminView struct {
 	Vision       bool
 	ToolsEnabled bool
 	Enabled      bool
+	IsSummarizer bool
 	APIKeySet    bool
 }
 
@@ -627,6 +628,9 @@ templ AgentCard(slug string, a AgentAdminView) {
 				if a.ToolsEnabled {
 					<span class="agent-badge">🔧 tools</span>
 				}
+				if a.IsSummarizer {
+					<span class="agent-badge">📝 /resume</span>
+				}
 			</div>
 		</div>
 		<div class="agent-admin-card-actions">
@@ -678,6 +682,10 @@ templ AgentAdminForm(slug string, a AgentAdminView, status string) {
 			<input type="checkbox" data-bind="ai_tools"/>
 			<span>Agent supports tools (let this agent use the internal search + connected MCP servers)</span>
 		</label>
+		<label class="agent-config-toggle">
+			<input type="checkbox" data-bind="ai_summarizer"/>
+			<span>Use for /resume channel summaries (one per community — combine with vision to summarise images too)</span>
+		</label>
 		<label>
 			<span>API key <span class="muted">(hosted providers; blank for Ollama)</span></span>
 			<input type="password" data-bind="ai_api_key" placeholder={ agentKeyPlaceholder(a.APIKeySet) } autocomplete="off"/>
@@ -723,6 +731,7 @@ func agentFormSignals(a AgentAdminView) string {
 		`,"ai_vision":` + agentBoolStr(a.Vision) +
 		`,"ai_tools":` + agentBoolStr(a.ToolsEnabled) +
 		`,"ai_enabled":` + agentBoolStr(a.Enabled) +
+		`,"ai_summarizer":` + agentBoolStr(a.IsSummarizer) +
 		`,"ai_api_key":""}`
 }
 
