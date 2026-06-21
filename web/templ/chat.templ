@@ -271,7 +271,7 @@ func activeChannelName(channels []ChannelView, activeID string) string {
 templ ChannelManageDialog(slug string) {
 	<div data-on:fc:chan-edit__window="$_ch_edit_id=evt.detail.id; $ch_name=evt.detail.name; $ch_topic=evt.detail.topic; $_ch_create_open=false; $_ch_edit_open=true"></div>
 	// Create
-	<div class="modal-backdrop" data-show="$_ch_create_open" data-on:click="$_ch_create_open=false">
+	<div class="modal-backdrop" data-cloak data-show="$_ch_create_open" data-on:click="$_ch_create_open=false">
 		<div class="modal-card" data-on:click="evt.stopPropagation()">
 			<h3>New channel</h3>
 			<label class="field">
@@ -290,7 +290,7 @@ templ ChannelManageDialog(slug string) {
 		</div>
 	</div>
 	// Edit (rename / topic / archive / delete)
-	<div class="modal-backdrop" data-show="$_ch_edit_open" data-on:click="$_ch_edit_open=false">
+	<div class="modal-backdrop" data-cloak data-show="$_ch_edit_open" data-on:click="$_ch_edit_open=false">
 		<div class="modal-card" data-on:click="evt.stopPropagation()">
 			<h3>Channel settings</h3>
 			<label class="field">
@@ -365,7 +365,7 @@ templ ChatComposer(slug, channelSlug string) {
 // driven via $_mention_open — set true when fcMentionDetect finds an
 // active @token, false on blur / Escape / mention insert.
 templ MentionPopup(hits []MentionHit) {
-	<div id="mention-popup" class="mention-popup" data-show="$_mention_open">
+	<div id="mention-popup" class="mention-popup" data-show="$_mention_open" style="display:none">
 		for _, h := range hits {
 			<button type="button" class="mention-row"
 				data-on:click={ "window.fcInsertMention('" + jsString(h.DisplayName) + "'); $_mention_open=false" }>
@@ -385,7 +385,7 @@ templ MentionPopup(hits []MentionHit) {
 // the existing Send button — so it ships as the viewer, exactly like any
 // message, and clears the composer. fcApplyTranslation is in translate.js.
 templ TranslatePopup(opts []string) {
-	<div id="translate-popup" class="mention-popup translate-popup" data-show="$_translate_open">
+	<div id="translate-popup" class="mention-popup translate-popup" data-show="$_translate_open" style="display:none">
 		for _, o := range opts {
 			<button type="button" class="mention-row translate-row" data-tr={ o }
 				data-on:click="window.fcApplyTranslation(el.dataset.tr); $_translate_open=false; document.querySelector('#composer-send').click()">

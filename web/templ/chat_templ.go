@@ -598,7 +598,7 @@ func ChannelManageDialog(slug string) templ.Component {
 			templ_7745c5c3_Var21 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<div data-on:fc:chan-edit__window=\"$_ch_edit_id=evt.detail.id; $ch_name=evt.detail.name; $ch_topic=evt.detail.topic; $_ch_create_open=false; $_ch_edit_open=true\"></div><div class=\"modal-backdrop\" data-show=\"$_ch_create_open\" data-on:click=\"$_ch_create_open=false\"><div class=\"modal-card\" data-on:click=\"evt.stopPropagation()\"><h3>New channel</h3><label class=\"field\"><span>Name</span> <input type=\"text\" data-bind=\"ch_name\" maxlength=\"60\" placeholder=\"e.g. design\" autofocus></label> <label class=\"field\"><span>Topic <span class=\"muted\">(optional)</span></span> <input type=\"text\" data-bind=\"ch_topic\" maxlength=\"200\" placeholder=\"What's this channel about?\"></label><div id=\"chan-error\" class=\"form-error\" aria-live=\"polite\"></div><div class=\"modal-actions\"><button class=\"ghost\" data-on:click=\"$_ch_create_open=false\">Cancel</button> <button data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "<div data-on:fc:chan-edit__window=\"$_ch_edit_id=evt.detail.id; $ch_name=evt.detail.name; $ch_topic=evt.detail.topic; $_ch_create_open=false; $_ch_edit_open=true\"></div><div class=\"modal-backdrop\" data-cloak data-show=\"$_ch_create_open\" data-on:click=\"$_ch_create_open=false\"><div class=\"modal-card\" data-on:click=\"evt.stopPropagation()\"><h3>New channel</h3><label class=\"field\"><span>Name</span> <input type=\"text\" data-bind=\"ch_name\" maxlength=\"60\" placeholder=\"e.g. design\" autofocus></label> <label class=\"field\"><span>Topic <span class=\"muted\">(optional)</span></span> <input type=\"text\" data-bind=\"ch_topic\" maxlength=\"200\" placeholder=\"What's this channel about?\"></label><div id=\"chan-error\" class=\"form-error\" aria-live=\"polite\"></div><div class=\"modal-actions\"><button class=\"ghost\" data-on:click=\"$_ch_create_open=false\">Cancel</button> <button data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -611,7 +611,7 @@ func ChannelManageDialog(slug string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\">Create</button></div></div></div><div class=\"modal-backdrop\" data-show=\"$_ch_edit_open\" data-on:click=\"$_ch_edit_open=false\"><div class=\"modal-card\" data-on:click=\"evt.stopPropagation()\"><h3>Channel settings</h3><label class=\"field\"><span>Name</span> <input type=\"text\" data-bind=\"ch_name\" maxlength=\"60\"></label> <label class=\"field\"><span>Topic</span> <input type=\"text\" data-bind=\"ch_topic\" maxlength=\"200\"></label><div id=\"chan-error\" class=\"form-error\" aria-live=\"polite\"></div><div class=\"modal-actions\"><button data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "\">Create</button></div></div></div><div class=\"modal-backdrop\" data-cloak data-show=\"$_ch_edit_open\" data-on:click=\"$_ch_edit_open=false\"><div class=\"modal-card\" data-on:click=\"evt.stopPropagation()\"><h3>Channel settings</h3><label class=\"field\"><span>Name</span> <input type=\"text\" data-bind=\"ch_name\" maxlength=\"60\"></label> <label class=\"field\"><span>Topic</span> <input type=\"text\" data-bind=\"ch_topic\" maxlength=\"200\"></label><div id=\"chan-error\" class=\"form-error\" aria-live=\"polite\"></div><div class=\"modal-actions\"><button data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -790,7 +790,7 @@ func MentionPopup(hits []MentionHit) templ.Component {
 			templ_7745c5c3_Var32 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<div id=\"mention-popup\" class=\"mention-popup\" data-show=\"$_mention_open\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<div id=\"mention-popup\" class=\"mention-popup\" data-show=\"$_mention_open\" style=\"display:none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -889,7 +889,7 @@ func TranslatePopup(opts []string) templ.Component {
 			templ_7745c5c3_Var37 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<div id=\"translate-popup\" class=\"mention-popup translate-popup\" data-show=\"$_translate_open\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<div id=\"translate-popup\" class=\"mention-popup translate-popup\" data-show=\"$_translate_open\" style=\"display:none\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

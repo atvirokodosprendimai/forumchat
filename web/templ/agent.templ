@@ -421,8 +421,8 @@ templ AgentEmptyState(slug string, anyVision bool) {
 
 // AgentShareDialog copies an assistant answer into a chat channel.
 templ AgentShareDialog(slug, threadID string, channels []ChannelView) {
-	<div class="agent-modal-overlay" data-show="$_agent_share_open" data-on:click="$_agent_share_open=false"></div>
-	<div class="agent-modal" data-show="$_agent_share_open" role="dialog" aria-label="Share to channel">
+	<div class="agent-modal-overlay" data-cloak data-show="$_agent_share_open" data-on:click="$_agent_share_open=false"></div>
+	<div class="agent-modal" data-cloak data-show="$_agent_share_open" role="dialog" aria-label="Share to channel">
 		<h3>Share to a channel</h3>
 		<p class="muted">Post this answer into a public chat channel.</p>
 		<select class="agent-channel-select" data-bind="agent_share_channel">

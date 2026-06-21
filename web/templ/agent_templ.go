@@ -1280,7 +1280,7 @@ func AgentShareDialog(slug, threadID string, channels []ChannelView) templ.Compo
 			templ_7745c5c3_Var50 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "<div class=\"agent-modal-overlay\" data-show=\"$_agent_share_open\" data-on:click=\"$_agent_share_open=false\"></div><div class=\"agent-modal\" data-show=\"$_agent_share_open\" role=\"dialog\" aria-label=\"Share to channel\"><h3>Share to a channel</h3><p class=\"muted\">Post this answer into a public chat channel.</p><select class=\"agent-channel-select\" data-bind=\"agent_share_channel\"><option value=\"\">Choose a channel…</option> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "<div class=\"agent-modal-overlay\" data-cloak data-show=\"$_agent_share_open\" data-on:click=\"$_agent_share_open=false\"></div><div class=\"agent-modal\" data-cloak data-show=\"$_agent_share_open\" role=\"dialog\" aria-label=\"Share to channel\"><h3>Share to a channel</h3><p class=\"muted\">Post this answer into a public chat channel.</p><select class=\"agent-channel-select\" data-bind=\"agent_share_channel\"><option value=\"\">Choose a channel…</option> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

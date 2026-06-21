@@ -364,7 +364,7 @@ templ InboxToast() {
 // inside the page so a Datastar expression can flip $_attach_open without
 // crossing component boundaries. Pills double as the community list.
 templ InboxAttachDialog(pills []InboxPill) {
-	<div id="inbox-attach-dialog" data-show="$_attach_open" class="modal-backdrop">
+	<div id="inbox-attach-dialog" data-cloak data-show="$_attach_open" class="modal-backdrop">
 		<div class="modal-card">
 			<h2>Attach sender to community</h2>
 			<p>Future messages from this sender will land in the chosen community's inbox.</p>
