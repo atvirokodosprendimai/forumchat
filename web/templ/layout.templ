@@ -316,6 +316,15 @@ templ Layout(title string, v Viewer) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width,initial-scale=1"/>
 			<title>{ title } — forumchat</title>
+			<style>
+				/* FOUC guard — inline so it applies at first paint with no
+				   external dependency. Hides data-show dialogs/popups until
+				   Datastar hydrates and nav.js strips data-cloak. Mirrors the
+				   rule in app.css; the inline copy is the load-bearing one
+				   because an external stylesheet can lose the race to first
+				   paint, leaving modals briefly visible. */
+				[data-cloak]{display:none!important}
+			</style>
 			<link rel="preconnect" href="https://fonts.googleapis.com"/>
 				<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
 				<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;600&display=swap"/>
