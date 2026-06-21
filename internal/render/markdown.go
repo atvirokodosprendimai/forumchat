@@ -88,6 +88,60 @@ func sanitizeUserMarkdown(s string) string {
 	})
 }
 
+// ytLinkRE matches a sanitized anchor so EmbedYouTube can inspect its href.
+// Anchors don't nest, so the non-greedy body is safe. Runs at DISPLAY time on
+// already-sanitized HTML (after bluemonday), so the facade it injects is trusted
+// output — same contract as WrapUploadImages / LinkNewTab.
+var ytLinkRE = regexp.MustCompile(`<a\b[^>]*\bhref="([^"]+)"[^>]*>.*?</a>`)
+
+// ytIDRE extracts the 11-char video id from the common YouTube URL shapes
+// (watch?v=, youtu.be/, /shorts/, /embed/, /v/). The href is HTML-escaped
+// (& → &amp;) but the id charset stops before any '&', so that's irrelevant.
+var ytIDRE = regexp.MustCompile(`(?:youtu\.be/|youtube(?:-nocookie)?\.com/(?:embed/|shorts/|v/|watch\?[^"]*\bv=))([A-Za-z0-9_-]{11})`)
+
+// EmbedYouTube replaces every anchor whose href is a YouTube link with a
+// lightweight click-to-play facade (thumbnail + play badge). The facade is a
+// plain <img>, so the chat fat-morph re-renders it cheaply; clicking opens the
+// player in the global lightbox overlay (web/templ/layout.templ) which lives
+// outside #messages and so survives a morph (a live in-bubble iframe would
+// reload on every chat event). The original link stays as the href for a no-JS
+// fallback. Non-YouTube anchors pass through untouched.
+func EmbedYouTube(s string) string {
+	if s == "" {
+		return s
+	}
+	return ytLinkRE.ReplaceAllStringFunc(s, func(m string) string {
+		sub := ytLinkRE.FindStringSubmatch(m)
+		ids := ytIDRE.FindStringSubmatch(sub[1])
+		if ids == nil {
+			return m
+		}
+		return ytFacade(ids[1], sub[1])
+	})
+}
+
+// ytFacade is the click-to-play thumbnail. id is [A-Za-z0-9_-]{11} (safe inside
+// the single-quoted Datastar expression — no escaping needed); href is the
+// already-escaped original URL, kept as a no-JS fallback that opens YouTube.
+func ytFacade(id, href string) string {
+	return `<a class="yt-embed" href="` + href + `" target="_blank" rel="noopener nofollow"` +
+		` data-on:click="evt.preventDefault();$_yt_id='` + id + `';$_yt_open=true"` +
+		` aria-label="Play YouTube video">` +
+		`<img class="yt-embed-thumb" loading="lazy" alt="YouTube video"` +
+		` src="https://i.ytimg.com/vi/` + id + `/hqdefault.jpg"/>` +
+		`<span class="yt-embed-play" aria-hidden="true"></span></a>`
+}
+
+// RichHTML applies the standard DISPLAY-time enrichments to already-rendered
+// (sanitized) body HTML: upload-image anchors, then YouTube embeds. It is the
+// single chokepoint every body-render call site uses so the enrichment set stays
+// consistent across chat, forum, projects, etc. Mention highlighting and new-tab
+// rewriting stay caller-specific wrappers around this (they need extra args /
+// only apply on some surfaces).
+func RichHTML(s string) string {
+	return EmbedYouTube(WrapUploadImages(s))
+}
+
 var (
 	mdOnce sync.Once
 	md     goldmark.Markdown
