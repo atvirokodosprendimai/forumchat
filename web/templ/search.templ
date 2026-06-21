@@ -198,6 +198,19 @@ templ ChatSearchResults(slug, channelSlug, query string, results []SearchResultV
 	</div>
 }
 
+// ChatPanelLoading is the instant placeholder rendered into #chat-search the
+// moment a slow slash command (/search, /summary) starts, so the composer
+// doesn't go blank while the server works. The handler outer-morphs it into the
+// real panel once the result is ready (same #chat-search id).
+templ ChatPanelLoading(label string) {
+	<div id="chat-search" class="chat-search-panel">
+		<div class="loading-row" aria-live="polite" aria-busy="true">
+			<span class="dot-spinner" aria-hidden="true"><span></span><span></span><span></span></span>
+			<span class="muted">{ label }</span>
+		</div>
+	</div>
+}
+
 // ChatSummaryPanel is the ephemeral panel rendered into #chat-search for the
 // /summary slash command — the agent's channel recap, shown only to the sender.
 // "Post to channel" publishes it (the thread id is stashed in summary_thread_id

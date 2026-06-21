@@ -855,6 +855,10 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	// cancels (the recap would have nowhere to render anyway).
 	if h.Summary != nil && isSlashCommand(body, "summary") {
 		_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
+		// Show a spinner immediately — the summary takes a few seconds and the
+		// composer has already cleared, so without this the UI looks frozen. The
+		// SDK flushes per event, so this lands before the slow call below.
+		_ = sse.PatchElementTempl(webtempl.ChatPanelLoading("🧠 Summarising the channel…"))
 		res := h.Summary(r.Context(), h.cid(r.Context()), ch.ID, id.User.ID, id.Membership.DisplayName)
 		_ = sse.PatchElementTempl(webtempl.ChatSummaryPanel(h.cslug(r.Context()), ch.Slug, res.ThreadID, res.BodyHTML, res.ThreadURL, res.Err))
 		return
@@ -900,6 +904,10 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		if query == "" {
 			return
 		}
+		// Show a spinner immediately — search can take a couple of seconds and the
+		// composer has already cleared. The SDK flushes per event, so this lands
+		// before the (slow) search below; the results then morph it in place.
+		_ = sse.PatchElementTempl(webtempl.ChatPanelLoading("🔍 Searching “" + query + "”…"))
 		views := h.Search(r.Context(), h.cid(r.Context()), h.cslug(r.Context()), query, 6)
 		// Stash the query in a signal so the panel's share buttons can re-run it
 		// server-side on publish (JSON avoids any URL-escaping pitfalls).
