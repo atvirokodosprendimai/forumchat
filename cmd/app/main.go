@@ -55,6 +55,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/search"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 	"github.com/atvirokodosprendimai/forumchat/internal/superadmin"
+	"github.com/atvirokodosprendimai/forumchat/internal/support"
 	"github.com/atvirokodosprendimai/forumchat/internal/timebudget"
 	"github.com/atvirokodosprendimai/forumchat/internal/todos"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
@@ -337,6 +338,24 @@ func run() error {
 		return &projects.CommunityRef{ID: c.ID, Slug: c.Slug, Name: c.Name}, nil
 	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
+
+	// ----- support inbox (hidden cross-tenant write-only issue inbox) ------
+	// ONE designated community (SUPPORT_INBOX_SLUG) collects reports filed
+	// from the global "Report issue" button. Reporters never join it, so
+	// they only read back their own reports; only platform super-admins read
+	// the full inbox (god-mode at /c/<slug>/projects/<inbox>/issues). Empty
+	// slug = feature off (no routes, no nav link, nothing seeded). The Inbox
+	// project is created lazily on the first report.
+	var supportHandler *support.Handler
+	if cfg.SupportInboxSlug != "" {
+		supportCommunity, err := cRepo.BootstrapOrFetch(ctx, cfg.SupportInboxSlug, cfg.SupportInboxName)
+		if err != nil {
+			return fmt.Errorf("bootstrap support inbox community: %w", err)
+		}
+		supportHandler = support.New(supportCommunity.ID, cRepo, projectsSvc, projectsRepo, log)
+		webtempl.SupportInboxEnabled = true
+		log.Info("support inbox ready", "slug", supportCommunity.Slug, "id", supportCommunity.ID)
+	}
 
 	// ----- RAG (semantic vector search) ------------------------------------
 	// Built here so the agent's internal MCP can expose it as `rag_search`. The
@@ -1651,6 +1670,19 @@ func run() error {
 		r.Get("/issues", projectsHandler.GetGlobalIssues)
 		r.Get("/issues/stream", projectsHandler.GetGlobalIssuesStream)
 	})
+
+	// Hidden support inbox — any signed-in user files a report; reads back
+	// only their own. RequireAuth only (no RequireApproved) so even a
+	// pending member can reach out for help.
+	if supportHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth)
+			r.Get("/report-issue", supportHandler.GetReport)
+			r.Post("/report-issue", supportHandler.PostReport)
+			r.Get("/report-issue/{iid}", supportHandler.GetReportDetail)
+			r.Post("/report-issue/{iid}/reply", supportHandler.PostReply)
+		})
+	}
 
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.

@@ -50,6 +50,39 @@ func (r *Repo) ListIssues(ctx context.Context, projectID string, includeClosed b
 	return out, rows.Err()
 }
 
+// IssuesByCreator returns a project's issues authored by one auth user,
+// every status, newest activity first. Powers the support-inbox
+// "my reports" read-back, which MUST be scoped to the caller — a
+// reporter is never a member of the support community and may only see
+// their own reports.
+func (r *Repo) IssuesByCreator(ctx context.Context, projectID, creatorUserID string) ([]Issue, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT id, project_id, title, body_md, body_html, status,
+		       COALESCE(creator_user_id,''), COALESCE(creator_guest_id,''),
+		       creator_name, created_at, updated_at
+		FROM project_issues
+		WHERE project_id = ? AND creator_user_id = ?
+		ORDER BY updated_at DESC`, projectID, creatorUserID)
+	if err != nil {
+		return nil, fmt.Errorf("issues by creator: %w", err)
+	}
+	defer rows.Close()
+	var out []Issue
+	for rows.Next() {
+		var i Issue
+		var cAt, uAt int64
+		if err := rows.Scan(&i.ID, &i.ProjectID, &i.Title, &i.BodyMD, &i.BodyHTML,
+			&i.Status, &i.CreatorUserID, &i.CreatorGuestID, &i.CreatorName,
+			&cAt, &uAt); err != nil {
+			return nil, err
+		}
+		i.CreatedAt = time.UnixMilli(cAt).UTC()
+		i.UpdatedAt = time.UnixMilli(uAt).UTC()
+		out = append(out, i)
+	}
+	return out, rows.Err()
+}
+
 // CountIssuesByStatus returns a map of status -> count for one project.
 // Used by the issues-tab header to render per-tab badges.
 func (r *Repo) CountIssuesByStatus(ctx context.Context, projectID string) (map[string]int, error) {

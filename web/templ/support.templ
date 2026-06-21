@@ -1,0 +1,199 @@
+package templ
+
+import (
+	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
+)
+
+// SupportInboxEnabled is the instance-level flag for the hidden support
+// inbox. Set at boot in main.go from config.SupportInboxSlug != "".
+// Read by layout.templ to show the global "Report issue" nav link.
+var SupportInboxEnabled bool
+
+// SupportReportRow is one of the caller's own support reports.
+type SupportReportRow struct {
+	IssueID       string
+	Title         string
+	Status        string
+	CreatedAtUnix int64
+	UpdatedAtUnix int64
+}
+
+// SupportCommentView is one message in a report's conversation.
+type SupportCommentView struct {
+	AuthorName    string
+	BodyHTML      string
+	CreatedAtUnix int64
+	IsMine        bool // authored by the viewing reporter ("You")
+}
+
+// SupportReportPageData drives GET /report-issue.
+type SupportReportPageData struct {
+	Viewer  Viewer
+	Reports []SupportReportRow
+}
+
+// SupportReportDetailData drives GET /report-issue/{iid}.
+type SupportReportDetailData struct {
+	Viewer   Viewer
+	Report   SupportReportRow
+	BodyHTML string
+	Comments []SupportCommentView
+}
+
+// SupportReportPage is the composer + the caller's own past reports.
+templ SupportReportPage(d SupportReportPageData) {
+	@Layout("Report an issue", d.Viewer) {
+		<section class="support" data-signals="{report_title:'', report_body:''}">
+			<header class="support-head">
+				<h1>🛟 Report an issue</h1>
+				<p class="muted">Send a problem or request to the team. Only the platform team can see this — other members can’t. We’ll reply right here.</p>
+			</header>
+			@SupportFlash("", false)
+			<form class="support-form card" data-on:submit__prevent="@post('/report-issue')">
+				<label class="support-label" for="support-subject">Subject</label>
+				<input
+					id="support-subject"
+					class="support-input"
+					type="text"
+					maxlength="200"
+					placeholder="Short summary"
+					data-bind="report_title"
+				/>
+				<label class="support-label" for="support-body">Details</label>
+				<textarea
+					id="support-body"
+					class="support-textarea"
+					rows="5"
+					placeholder="What happened? Steps you took, what you expected, links to screenshots…"
+					data-bind="report_body"
+				></textarea>
+				<div class="support-actions">
+					<button class="support-send" type="submit" data-attr:disabled="$report_title.trim() === ''">Send report</button>
+				</div>
+			</form>
+			<h2 class="support-subhead">Your reports</h2>
+			@SupportMyReports(d.Reports)
+		</section>
+	}
+}
+
+// SupportMyReports is the caller's own report list. Stable id so the
+// create handler can outer-morph it after a new report lands.
+templ SupportMyReports(reports []SupportReportRow) {
+	<div id="support-my-reports" class="support-reports">
+		if len(reports) == 0 {
+			<p class="empty muted">No reports yet. Anything you send appears here.</p>
+		} else {
+			<ul class="support-report-list">
+				for _, rep := range reports {
+					<li>
+						<a class="support-report" href={ supportReportURL(rep.IssueID) }>
+							<span class={ "support-status", "status-" + rep.Status }>{ supportStatusLabel(rep.Status) }</span>
+							<span class="support-report-title">{ rep.Title }</span>
+							<time class="support-report-time" datetime={ supportRFC(rep.UpdatedAtUnix) }>{ supportShort(rep.UpdatedAtUnix) }</time>
+						</a>
+					</li>
+				}
+			</ul>
+		}
+	</div>
+}
+
+// SupportFlash is the result banner (ok / error). Stable id, always
+// present so the morph target exists even before the first action.
+templ SupportFlash(msg string, isErr bool) {
+	<div id="support-flash" class={ "support-flash", templ.KV("is-error", isErr && msg != ""), templ.KV("is-ok", !isErr && msg != "") } aria-live="polite">
+		if msg != "" {
+			<p>{ msg }</p>
+		}
+	</div>
+}
+
+// SupportReportDetailPage shows one report + its conversation + reply box.
+templ SupportReportDetailPage(d SupportReportDetailData) {
+	@Layout("Report · "+d.Report.Title, d.Viewer) {
+		<section class="support support-detail" data-signals="{report_reply:''}">
+			<a class="support-back" href="/report-issue">← All your reports</a>
+			<header class="support-head">
+				<span class={ "support-status", "status-" + d.Report.Status }>{ supportStatusLabel(d.Report.Status) }</span>
+				<h1>{ d.Report.Title }</h1>
+				<p class="muted support-report-time">Opened { supportShort(d.Report.CreatedAtUnix) }</p>
+			</header>
+			<div class="support-body card">@templ.Raw(render.RichHTML(d.BodyHTML))</div>
+			<h2 class="support-subhead">Conversation</h2>
+			@SupportThread(d.Comments)
+			<form class="support-form card" data-on:submit__prevent={ "@post('/report-issue/" + d.Report.IssueID + "/reply')" }>
+				<label class="support-label" for="support-reply">Add a reply</label>
+				<textarea
+					id="support-reply"
+					class="support-textarea"
+					rows="3"
+					placeholder="Reply to the team…"
+					data-bind="report_reply"
+				></textarea>
+				<div class="support-actions">
+					<button class="support-send" type="submit" data-attr:disabled="$report_reply.trim() === ''">Send reply</button>
+				</div>
+			</form>
+		</section>
+	}
+}
+
+// SupportThread is the report conversation. Stable id so a reply can
+// outer-morph it.
+templ SupportThread(comments []SupportCommentView) {
+	<div id="support-thread" class="support-thread">
+		if len(comments) == 0 {
+			<p class="empty muted">No replies yet.</p>
+		} else {
+			for _, c := range comments {
+				<div class={ "support-msg", templ.KV("mine", c.IsMine) }>
+					<div class="support-msg-head">
+						<span class="support-msg-author">{ supportAuthor(c) }</span>
+						<time datetime={ supportRFC(c.CreatedAtUnix) }>{ supportShort(c.CreatedAtUnix) }</time>
+					</div>
+					<div class="support-msg-body">@templ.Raw(render.RichHTML(c.BodyHTML))</div>
+				</div>
+			}
+		}
+	</div>
+}
+
+func supportReportURL(iid string) templ.SafeURL {
+	return templ.SafeURL("/report-issue/" + iid)
+}
+
+func supportRFC(u int64) string {
+	return time.Unix(u, 0).UTC().Format(time.RFC3339)
+}
+
+func supportShort(u int64) string {
+	return time.Unix(u, 0).UTC().Format("2006-01-02 15:04")
+}
+
+// supportStatusLabel maps the issue status to reporter-friendly wording.
+func supportStatusLabel(s string) string {
+	switch s {
+	case "open":
+		return "Open"
+	case "triaged":
+		return "Triaged"
+	case "in_progress":
+		return "In progress"
+	case "closed":
+		return "Resolved"
+	}
+	return s
+}
+
+func supportAuthor(c SupportCommentView) string {
+	if c.IsMine {
+		return "You"
+	}
+	if c.AuthorName == "" {
+		return "Team"
+	}
+	return c.AuthorName
+}

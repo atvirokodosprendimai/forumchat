@@ -383,6 +383,9 @@ templ Layout(title string, v Viewer) {
 							@MessagesBadge(0)
 						</a>
 						<a href="/explore" aria-current={ navActive(ctx, "/explore") }><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
+						if SupportInboxEnabled {
+							<a href="/report-issue" aria-current={ navActive(ctx, "/report-issue") }><span class="sb-icon" aria-hidden="true">🛟</span>Report issue</a>
+						}
 						if TimeEnabled {
 							<a href="/journal" aria-current={ navActive(ctx, "/journal") }><span class="sb-icon" aria-hidden="true">⏱</span>Journal</a>
 						}
