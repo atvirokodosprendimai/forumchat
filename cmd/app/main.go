@@ -499,7 +499,7 @@ func run() error {
 			// the channel, but it bypasses chat.PostSend (where the normal relay
 			// lives), so fire it here. No-op when webhooks are off.
 			if chatHandler.RelayOut != nil {
-				chatHandler.RelayOut(communityID, ch.ID, authorName, bodyMD, ch.Name, nil)
+				chatHandler.RelayOut(communityID, ch.ID, authorName, bodyMD, ch.Name, "", "", nil)
 			}
 			return ch.Name, nil
 		}
@@ -695,7 +695,7 @@ func run() error {
 		}
 		if chatHandler.RelayOut != nil {
 			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
-				chatHandler.RelayOut(communityID, channelID, "", bodyMD, ch.Name, nil)
+				chatHandler.RelayOut(communityID, channelID, "", bodyMD, ch.Name, "", "", nil)
 			}
 		}
 		return nil
@@ -871,7 +871,7 @@ func run() error {
 			}
 			return out
 		}
-		chatHandler.RelayOut = relay.Dispatch
+		chatHandler.RelayOut = relay.DispatchChat
 		// Forum new-thread announcements land in #general — relay them too so
 		// external chat mirrors hear about new threads. Same Dispatch as chat.
 		forumHandler.RelayOut = relay.Dispatch
@@ -943,7 +943,7 @@ func run() error {
 			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
 				chName = ch.Name
 			}
-			chatHandler.RelayOut(communityID, channelID, label, body, chName, nil)
+			chatHandler.RelayOut(communityID, channelID, label, body, chName, "", "", nil)
 		}
 		chatHandler.Summary = func(ctx context.Context, communityID, channelID, requesterID, requesterName string) chat.SummaryResult {
 			ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)

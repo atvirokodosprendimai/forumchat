@@ -58,6 +58,12 @@ type OutboundMsg struct {
 	MessageID   string // forum post id; "" for the thread-opening announce
 	Subject     string // thread subject (forum relays only)
 	ThreadRoot  bool   // true = this is the thread's opening message
+	// MessageKey / ReplyToKey carry chat inline-reply identity (chat relays
+	// only), mirroring the inbound message_key / reply_to_key envelope so a
+	// bridge can nest a forumchat-origin reply on the far side. MessageKey is
+	// this chat message's own id; ReplyToKey is its parent's id ("" = flat).
+	MessageKey string
+	ReplyToKey string
 	// AttachmentUploadIDs are upload row ids to relay as media (chat sends only).
 	AttachmentUploadIDs []string
 	// Attachments is the resolved form (URL + metadata), filled by dispatch
@@ -80,6 +86,25 @@ func (r *Relay) Dispatch(communityID, channelID, authorName, bodyMD, channelName
 		ChannelName:         channelName,
 		Author:              authorName,
 		BodyMD:              bodyMD,
+		AttachmentUploadIDs: attachmentUploadIDs,
+	})
+}
+
+// DispatchChat is Dispatch plus the chat inline-reply identity: messageID is the
+// chat message's own id (relayed as message_key) and replyToID is its parent's
+// id (relayed as reply_to_key, "" when the message is flat). This lets a bridge
+// nest a forumchat-origin reply on the far side — the outbound mirror of the
+// inbound message_key / reply_to_key envelope. Non-reply chat sends pass
+// replyToID="" and the generic payload omits reply_to_key.
+func (r *Relay) DispatchChat(communityID, channelID, authorName, bodyMD, channelName, messageID, replyToID string, attachmentUploadIDs []string) {
+	r.dispatch(OutboundMsg{
+		CommunityID:         communityID,
+		ChannelID:           channelID,
+		ChannelName:         channelName,
+		Author:              authorName,
+		BodyMD:              bodyMD,
+		MessageKey:          messageID,
+		ReplyToKey:          replyToID,
 		AttachmentUploadIDs: attachmentUploadIDs,
 	})
 }
@@ -151,6 +176,8 @@ func (r *Relay) post(ctx context.Context, url string, payload []byte) string {
 // the generic payload also carries the thread identity (thread_id, subject,
 // thread_root, message_id) so a bridge can mirror the conversation into one
 // external thread; chat relays omit those keys (payload stays byte-stable).
+// A chat reply instead carries message_key (this message's id) and reply_to_key
+// (its parent's id) so a bridge can nest it; both are omitted when empty.
 // When a chat message has attachments the generic payload also carries an
 // `attachments` array (url + mime + name); omitted when empty.
 func encodePayload(provider string, m OutboundMsg) []byte {
@@ -177,6 +204,14 @@ func encodePayload(provider string, m OutboundMsg) []byte {
 			if m.MessageID != "" {
 				out["message_id"] = m.MessageID
 			}
+		}
+		// Chat inline-reply identity, mirroring the inbound envelope. Omitted
+		// when empty so the payload stays byte-stable for existing consumers.
+		if m.MessageKey != "" {
+			out["message_key"] = m.MessageKey
+		}
+		if m.ReplyToKey != "" {
+			out["reply_to_key"] = m.ReplyToKey
 		}
 		if len(m.Attachments) > 0 {
 			out["attachments"] = m.Attachments

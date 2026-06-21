@@ -81,6 +81,56 @@ func TestEncodePayloadForum(t *testing.T) {
 	}
 }
 
+// TestEncodePayloadChatReply covers the chat inline-reply identity: a flat
+// message omits both keys; a message carries message_key always and reply_to_key
+// only when it is a reply; slack/discord ignore both.
+func TestEncodePayloadChatReply(t *testing.T) {
+	base := OutboundMsg{CommunityID: "c1", ChannelName: "general", Author: "alice", BodyMD: "hi"}
+
+	// Flat send (no keys): both omitted.
+	var flat map[string]any
+	if err := json.Unmarshal(encodePayload("generic", base), &flat); err != nil {
+		t.Fatalf("flat unmarshal: %v", err)
+	}
+	for _, k := range []string{"message_key", "reply_to_key"} {
+		if _, ok := flat[k]; ok {
+			t.Fatalf("flat payload should omit %q: %v", k, flat)
+		}
+	}
+
+	// Non-reply message: message_key present, reply_to_key omitted.
+	m := base
+	m.MessageKey = "$evtB"
+	var p map[string]any
+	if err := json.Unmarshal(encodePayload("generic", m), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if p["message_key"] != "$evtB" {
+		t.Fatalf("message_key = %v", p["message_key"])
+	}
+	if _, ok := p["reply_to_key"]; ok {
+		t.Fatalf("non-reply must omit reply_to_key: %v", p)
+	}
+
+	// Reply: both present.
+	m.ReplyToKey = "$evtA"
+	if err := json.Unmarshal(encodePayload("generic", m), &p); err != nil {
+		t.Fatalf("unmarshal reply: %v", err)
+	}
+	if p["message_key"] != "$evtB" || p["reply_to_key"] != "$evtA" {
+		t.Fatalf("reply payload keys wrong: %v", p)
+	}
+
+	// slack stays flat — no reply keys.
+	var slack map[string]any
+	if err := json.Unmarshal(encodePayload("slack", m), &slack); err != nil {
+		t.Fatalf("slack unmarshal: %v", err)
+	}
+	if len(slack) != 1 || slack["text"] == "" {
+		t.Fatalf("slack payload should be just {text}: %v", slack)
+	}
+}
+
 // TestEncodePayloadAttachments covers the media path: generic carries an
 // attachments array when present and omits it when empty; slack/discord never do.
 func TestEncodePayloadAttachments(t *testing.T) {

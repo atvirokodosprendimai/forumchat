@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -171,6 +172,78 @@ func TestOutboundCreateValidation(t *testing.T) {
 	}
 	if wh.Token != "" {
 		t.Fatal("outbound webhook must not have a token")
+	}
+}
+
+// TestOutboundChatReplyKeys drives the real outbound delivery: a chat send and
+// a reply are relayed to an HTTP sink, and the captured JSON carries message_key
+// always and reply_to_key only for the reply — the wire a bridge needs to nest a
+// forumchat-origin reply back on the far side.
+func TestOutboundChatReplyKeys(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sqlite.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := sqlite.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	c, err := community.NewRepo(db).BootstrapOrFetch(ctx, "test", "Test")
+	if err != nil {
+		t.Fatalf("community: %v", err)
+	}
+	general, err := chat.NewRepo(db).EnsureDefaultChannel(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("default channel: %v", err)
+	}
+
+	got := make(chan map[string]any, 4)
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		got <- p
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer sink.Close()
+
+	whRepo := webhooks.NewRepo(db)
+	if _, err := webhooks.NewService(whRepo).Create(ctx, webhooks.CreateInput{
+		CommunityID: c.ID, Direction: webhooks.DirOut, Provider: "generic",
+		Name: "Bridge out", TargetURL: sink.URL, // channel_id NULL → all channels
+	}); err != nil {
+		t.Fatalf("create outbound webhook: %v", err)
+	}
+
+	relay := webhooks.NewRelay(whRepo, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	recv := func() map[string]any {
+		t.Helper()
+		select {
+		case p := <-got:
+			return p
+		case <-time.After(3 * time.Second):
+			t.Fatal("timed out waiting for outbound delivery")
+			return nil
+		}
+	}
+
+	// A reply: both keys present.
+	relay.DispatchChat(c.ID, general.ID, "bob", "ship friday", "general", "$evtB", "$evtA", nil)
+	p := recv()
+	if p["message_key"] != "$evtB" || p["reply_to_key"] != "$evtA" {
+		t.Fatalf("reply payload keys wrong: %v", p)
+	}
+
+	// A flat send: message_key present, reply_to_key absent.
+	relay.DispatchChat(c.ID, general.ID, "carol", "lunch?", "general", "$evtC", "", nil)
+	p = recv()
+	if p["message_key"] != "$evtC" {
+		t.Fatalf("flat message_key = %v", p["message_key"])
+	}
+	if _, ok := p["reply_to_key"]; ok {
+		t.Fatalf("flat send must omit reply_to_key: %v", p)
 	}
 }
 
