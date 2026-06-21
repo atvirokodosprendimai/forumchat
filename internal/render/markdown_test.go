@@ -78,3 +78,57 @@ func TestHighlightMentions_LeadingMention(t *testing.T) {
 		t.Errorf("leading @-token should match: %s", out)
 	}
 }
+
+func TestLinkNewTab(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "external link gets target blank",
+			in:   `<a href="https://example.com" rel="nofollow noreferrer">example</a>`,
+			want: `<a target="_blank" href="https://example.com" rel="nofollow noreferrer">example</a>`,
+		},
+		{
+			name: "upload anchor already has target, left alone",
+			in:   `<a target="_blank" rel="noopener" href="/uploads/x">img</a>`,
+			want: `<a target="_blank" rel="noopener" href="/uploads/x">img</a>`,
+		},
+		{
+			name: "relative link untouched",
+			in:   `<a href="/c/slug/forum">forum</a>`,
+			want: `<a href="/c/slug/forum">forum</a>`,
+		},
+		{
+			name: "idempotent on its own output",
+			in:   `<a target="_blank" href="https://example.com">x</a>`,
+			want: `<a target="_blank" href="https://example.com">x</a>`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := render.LinkNewTab(tc.in); got != tc.want {
+				t.Errorf("LinkNewTab(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// Full pipeline: a markdown external link rendered then passed through the
+// agent-bubble display chain must end up target="_blank".
+func TestLinkNewTab_FromRenderedMarkdown(t *testing.T) {
+	t.Parallel()
+	html, err := render.RenderMarkdown("see [the site](https://example.com)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := render.LinkNewTab(render.WrapUploadImages(html))
+	if !strings.Contains(out, `target="_blank"`) {
+		t.Fatalf("expected target=\"_blank\" in %q", out)
+	}
+	if !strings.Contains(out, `href="https://example.com"`) {
+		t.Fatalf("expected href preserved in %q", out)
+	}
+}

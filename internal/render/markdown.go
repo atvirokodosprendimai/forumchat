@@ -126,6 +126,27 @@ func RenderMarkdown(src string) (string, error) {
 	return out, nil
 }
 
+// anchorOpenRE matches an opening `<a …>` tag so we can post-process its
+// attributes at display time.
+var anchorOpenRE = regexp.MustCompile(`<a\s[^>]*>`)
+
+// LinkNewTab forces external (http/https) links to open in a new tab by
+// adding target="_blank" to any anchor that doesn't already declare a target.
+// Runs at DISPLAY time on already-sanitized (bluemonday) HTML, so the added
+// attribute is trusted output. Upload anchors already carry target="_blank"
+// from RenderMarkdown / WrapUploadImages, so the "no existing target" guard
+// keeps this idempotent and never duplicates the attribute. Security: external
+// links already carry rel="noreferrer" (RequireNoReferrerOnLinks), which
+// blocks window.opener access, so no extra rel is needed.
+func LinkNewTab(s string) string {
+	return anchorOpenRE.ReplaceAllStringFunc(s, func(tag string) string {
+		if strings.Contains(tag, "target=") || !strings.Contains(tag, `href="http`) {
+			return tag
+		}
+		return `<a target="_blank"` + tag[len("<a"):]
+	})
+}
+
 // mentionTokenRE matches an `@name` token that's NOT preceded by an
 // identifier-like char (so `email@host` won't match) and whose name is
 // 1..32 chars of the same alphabet allowed by the typeahead popup.
