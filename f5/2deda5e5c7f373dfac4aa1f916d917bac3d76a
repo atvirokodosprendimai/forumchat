@@ -1,0 +1,31 @@
+examples/maubot/forumchat-outbound/forumchat_outbound/__init__.py
+  s_e9cea9680b5ec8::t_e2087bf54e3af2 1-83
+examples/maubot/forumchat-outbound/tests/test_logic.py
+  s_e9cea9680b5ec8::t_2ebb7b0478fb17 1-106
+examples/maubot/forumchat-outbound/forumchat_outbound/logic.py
+  s_e9cea9680b5ec8::t_e3b29ab83b025c 1-45
+examples/maubot/forumchat-outbound/base-config.yaml
+  s_e9cea9680b5ec8::t_8ac79eb798868e 1-34
+examples/maubot/forumchat-outbound/README.md
+  s_e9cea9680b5ec8::t_bdcfda7b010420 1-77
+examples/maubot/forumchat-outbound/maubot.yaml
+  s_e9cea9680b5ec8::t_8442c7eba94a54 1-13
+examples/maubot/README.md
+  s_e9cea9680b5ec8::t_1c2578b965670e 50-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "f52deda5e5c7f373dfac4aa1f916d917bac3d76a",
+  "prompts": {},
+  "sessions": {
+    "s_e9cea9680b5ec8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1180e190-95e3-4569-b80f-0f7349711aa9",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
