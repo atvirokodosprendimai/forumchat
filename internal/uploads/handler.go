@@ -88,20 +88,21 @@ func (h *Handler) PostUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
+	uploadID := chi.URLParam(r, "id")
 	viewerID := h.viewerID(r)
 	if viewerID == "" {
-		http.Error(w, "auth required", http.StatusUnauthorized)
-		return
-	}
-	uploadID := chi.URLParam(r, "id")
-	// HMAC verification is best-effort: it's a defense-in-depth check
-	// that the URL came from us. The auth/guest-session gate above is
-	// the real access control. If the signature is missing or stale
-	// (legacy per-viewer URLs that no longer verify under the shared
-	// scheme, or URLs past their 24h TTL) we still serve to any
-	// authenticated viewer. Anonymous viewers were already rejected
-	// by the viewerID check above.
-	if sig := r.URL.Query().Get("sig"); sig != "" {
+		// No session. Admit ONLY when the request carries a valid, unexpired
+		// shared signature — this lets a trusted external consumer (e.g. an
+		// outbound-webhook receiver) fetch a shared-signed URL we minted,
+		// without a forumchat session. Anything else stays rejected.
+		if !hasValidSharedSig(h.Store, r, uploadID) {
+			http.Error(w, "auth required", http.StatusUnauthorized)
+			return
+		}
+	} else if sig := r.URL.Query().Get("sig"); sig != "" {
+		// Authed viewer: HMAC verification is best-effort defense-in-depth
+		// (the session gate above is the real access control). Stale/legacy
+		// signatures still serve to any authenticated viewer.
 		if expStr := r.URL.Query().Get("exp"); expStr != "" {
 			if exp, err := strconv.ParseInt(expStr, 10, 64); err == nil {
 				_ = h.Store.Verify(uploadID, viewerID, sig, exp)
@@ -128,6 +129,22 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", `inline; filename="`+u.Filename+`"`)
 	}
 	http.ServeFile(w, r, h.Store.PathFor(u))
+}
+
+// hasValidSharedSig reports whether the request carries a valid, unexpired
+// shared signature for uploadID. Used to admit session-less fetches of
+// shared-signed URLs (Verify rejects expired or non-matching signatures).
+func hasValidSharedSig(store *Store, r *http.Request, uploadID string) bool {
+	sig := r.URL.Query().Get("sig")
+	expStr := r.URL.Query().Get("exp")
+	if sig == "" || expStr == "" {
+		return false
+	}
+	exp, err := strconv.ParseInt(expStr, 10, 64)
+	if err != nil {
+		return false
+	}
+	return store.Verify(uploadID, "", sig, exp) == nil
 }
 
 // viewerID returns the identity to verify the signed URL against. Auth

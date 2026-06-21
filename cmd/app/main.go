@@ -491,7 +491,7 @@ func run() error {
 			// the channel, but it bypasses chat.PostSend (where the normal relay
 			// lives), so fire it here. No-op when webhooks are off.
 			if chatHandler.RelayOut != nil {
-				chatHandler.RelayOut(communityID, ch.ID, authorName, bodyMD, ch.Name)
+				chatHandler.RelayOut(communityID, ch.ID, authorName, bodyMD, ch.Name, nil)
 			}
 			return ch.Name, nil
 		}
@@ -669,7 +669,7 @@ func run() error {
 		}
 		if chatHandler.RelayOut != nil {
 			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
-				chatHandler.RelayOut(communityID, channelID, "", bodyMD, ch.Name)
+				chatHandler.RelayOut(communityID, channelID, "", bodyMD, ch.Name, nil)
 			}
 		}
 		return nil
@@ -824,6 +824,24 @@ func run() error {
 			Log:           log,
 		}
 		relay := webhooks.NewRelay(whRepo, log)
+		// Resolve a message's upload IDs into fetchable outbound attachments:
+		// a shared-signed, session-less URL (served by uploads.GetFile) plus
+		// MIME + filename. Lets a generic-webhook consumer download images.
+		relay.ResolveAttachments = func(ctx context.Context, uploadIDs []string) []webhooks.OutboundAttachment {
+			out := make([]webhooks.OutboundAttachment, 0, len(uploadIDs))
+			for _, id := range uploadIDs {
+				u, err := uploadStore.Get(ctx, id)
+				if err != nil {
+					continue
+				}
+				out = append(out, webhooks.OutboundAttachment{
+					URL:  cfg.BaseURL + uploadStore.SignedURL(id, "", 24*time.Hour),
+					MIME: u.MIME,
+					Name: u.Filename,
+				})
+			}
+			return out
+		}
 		chatHandler.RelayOut = relay.Dispatch
 		// Forum new-thread announcements land in #general — relay them too so
 		// external chat mirrors hear about new threads. Same Dispatch as chat.
@@ -891,7 +909,7 @@ func run() error {
 			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
 				chName = ch.Name
 			}
-			chatHandler.RelayOut(communityID, channelID, label, body, chName)
+			chatHandler.RelayOut(communityID, channelID, label, body, chName, nil)
 		}
 		chatHandler.Summary = func(ctx context.Context, communityID, channelID, requesterID, requesterName string) chat.SummaryResult {
 			ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)

@@ -17,6 +17,20 @@ type Relay struct {
 	Repo   *Repo
 	Client *http.Client
 	Log    *slog.Logger
+	// ResolveAttachments, if set, resolves a message's upload IDs into fetchable
+	// outbound attachments (shared-signed URL + metadata). Optional — nil means
+	// attachments are never included in the payload. Wired in main.go so this
+	// package stays decoupled from the uploads store.
+	ResolveAttachments func(ctx context.Context, uploadIDs []string) []OutboundAttachment
+}
+
+// OutboundAttachment is one file attached to a relayed message, as carried in
+// the generic provider's payload. URL is a shared-signed, session-less link a
+// downstream consumer can fetch directly.
+type OutboundAttachment struct {
+	URL  string `json:"url"`
+	MIME string `json:"mime"`
+	Name string `json:"name"`
 }
 
 // NewRelay returns a Relay with a short-timeout HTTP client.
@@ -41,6 +55,11 @@ type OutboundMsg struct {
 	MessageID   string // forum post id; "" for the thread-opening announce
 	Subject     string // thread subject (forum relays only)
 	ThreadRoot  bool   // true = this is the thread's opening message
+	// AttachmentUploadIDs are upload row ids to relay as media (chat sends only).
+	AttachmentUploadIDs []string
+	// Attachments is the resolved form (URL + metadata), filled by dispatch
+	// before encoding via Relay.ResolveAttachments.
+	Attachments []OutboundAttachment
 }
 
 // Dispatch fires-and-forgets the relay of one chat message. It detaches from
@@ -51,13 +70,14 @@ type OutboundMsg struct {
 // shared /search results), and forum new-thread announcements — never a
 // KindWebhook bot post, so an inbound bot post never triggers an outbound relay
 // (no echo loop).
-func (r *Relay) Dispatch(communityID, channelID, authorName, bodyMD, channelName string) {
+func (r *Relay) Dispatch(communityID, channelID, authorName, bodyMD, channelName string, attachmentUploadIDs []string) {
 	r.dispatch(OutboundMsg{
-		CommunityID: communityID,
-		ChannelID:   channelID,
-		ChannelName: channelName,
-		Author:      authorName,
-		BodyMD:      bodyMD,
+		CommunityID:         communityID,
+		ChannelID:           channelID,
+		ChannelName:         channelName,
+		Author:              authorName,
+		BodyMD:              bodyMD,
+		AttachmentUploadIDs: attachmentUploadIDs,
 	})
 }
 
@@ -80,6 +100,9 @@ func (r *Relay) dispatch(m OutboundMsg) {
 		if err != nil {
 			r.Log.Error("webhooks relay: load outbound", "err", err)
 			return
+		}
+		if r.ResolveAttachments != nil && len(m.AttachmentUploadIDs) > 0 {
+			m.Attachments = r.ResolveAttachments(ctx, m.AttachmentUploadIDs)
 		}
 		for _, wh := range hooks {
 			payload := encodePayload(wh.Provider, m)
@@ -116,6 +139,8 @@ func (r *Relay) post(ctx context.Context, url string, payload []byte) string {
 // the generic payload also carries the thread identity (thread_id, subject,
 // thread_root, message_id) so a bridge can mirror the conversation into one
 // external thread; chat relays omit those keys (payload stays byte-stable).
+// When a chat message has attachments the generic payload also carries an
+// `attachments` array (url + mime + name); omitted when empty.
 func encodePayload(provider string, m OutboundMsg) []byte {
 	switch provider {
 	case "slack", "discord":
@@ -140,6 +165,9 @@ func encodePayload(provider string, m OutboundMsg) []byte {
 			if m.MessageID != "" {
 				out["message_id"] = m.MessageID
 			}
+		}
+		if len(m.Attachments) > 0 {
+			out["attachments"] = m.Attachments
 		}
 		b, _ := json.Marshal(out)
 		return b

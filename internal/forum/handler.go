@@ -46,7 +46,7 @@ type Handler struct {
 	// thread surfaced in #general) to outbound webhooks so external chat
 	// mirrors hear about new threads. Wired in main.go to the same
 	// webhooks.Relay.Dispatch as chat. nil disables the relay (no-op).
-	RelayOut func(communityID, channelID, authorName, bodyMD, channelName string)
+	RelayOut func(communityID, channelID, authorName, bodyMD, channelName string, attachmentUploadIDs []string)
 	// RelayThread, if non-nil, mirrors forum-thread content to outbound webhooks
 	// with the thread identity attached (so a bridge can group messages into one
 	// external thread, e.g. a Matrix m.thread). root=true marks the opening
@@ -88,7 +88,7 @@ func (h *Handler) relayThreadAnnounce(ctx context.Context, communityID, authorNa
 		h.RelayThread(communityID, ch.ID, ch.Name, authorName, body, threadID, "", subject, true)
 		return
 	}
-	h.RelayOut(communityID, ch.ID, authorName, body, ch.Name)
+	h.RelayOut(communityID, ch.ID, authorName, body, ch.Name, nil)
 }
 
 // relayForumReply mirrors a human forum reply to outbound webhooks, tagged with

@@ -50,7 +50,7 @@ type Handler struct {
 	// package doesn't import webhooks. The normal user-send path calls it here;
 	// slash-command output (/summary, /prompt) relays separately from main.go.
 	// KindWebhook bot posts are never passed in — no echo loop.
-	RelayOut func(communityID, channelID, authorName, bodyMD, channelName string)
+	RelayOut func(communityID, channelID, authorName, bodyMD, channelName string, attachmentUploadIDs []string)
 	// ListProjects, if non-nil, returns the active projects in the
 	// current community for the extract-to-project modal dropdown.
 	// Set in main.go to avoid an import cycle with internal/projects.
@@ -477,7 +477,7 @@ func (h *Handler) PostSearchPublish(w http.ResponseWriter, r *http.Request) {
 	// with a plain-text body (the channel message itself is trusted HTML, which
 	// Slack/Discord would render literally). No-op when webhooks are off.
 	if h.RelayOut != nil {
-		h.RelayOut(h.cid(r.Context()), ch.ID, name, publishSearchText(query, shared), ch.Name)
+		h.RelayOut(h.cid(r.Context()), ch.ID, name, publishSearchText(query, shared), ch.Name, nil)
 	}
 
 	sse := render.NewSSE(w, r)
@@ -997,7 +997,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	// Relay to outbound webhooks (Slack/Discord/generic). Fire-and-forget;
 	// the callback detaches from the request. Human messages only.
 	if h.RelayOut != nil {
-		h.RelayOut(h.cid(r.Context()), ch.ID, id.Membership.DisplayName, body, ch.Name)
+		h.RelayOut(h.cid(r.Context()), ch.ID, id.Membership.DisplayName, body, ch.Name, attIDs)
 	}
 
 	// Fire-and-forget push notifications. Runs in the background so a
@@ -1122,7 +1122,7 @@ func (h *Handler) PostForward(w http.ResponseWriter, r *http.Request) {
 		if relayBody == "" {
 			relayBody = "↪ forwarded a message"
 		}
-		h.RelayOut(cid, target.ID, id.Membership.DisplayName, relayBody, target.Name)
+		h.RelayOut(cid, target.ID, id.Membership.DisplayName, relayBody, target.Name, nil)
 	}
 
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/chat/" + target.Slug)
