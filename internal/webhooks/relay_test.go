@@ -21,7 +21,7 @@ func TestEncodePayloadChat(t *testing.T) {
 			t.Fatalf("generic payload missing %q: %v", k, generic)
 		}
 	}
-	for _, k := range []string{"thread_id", "subject", "thread_root", "message_id"} {
+	for _, k := range []string{"thread_id", "subject", "thread_root", "message_id", "attachments"} {
 		if _, ok := generic[k]; ok {
 			t.Fatalf("chat payload should omit %q: %v", k, generic)
 		}
@@ -78,5 +78,48 @@ func TestEncodePayloadForum(t *testing.T) {
 	}
 	if len(slack) != 1 || slack["text"] == "" {
 		t.Fatalf("slack payload should be just {text}: %v", slack)
+	}
+}
+
+// TestEncodePayloadAttachments covers the media path: generic carries an
+// attachments array when present and omits it when empty; slack/discord never do.
+func TestEncodePayloadAttachments(t *testing.T) {
+	m := OutboundMsg{
+		CommunityID: "c1", ChannelName: "general", Author: "alice", BodyMD: "see pic",
+		Attachments: []OutboundAttachment{
+			{URL: "https://h.example/uploads/a1?exp=1&sig=x", MIME: "image/png", Name: "shot.png"},
+		},
+	}
+	var p map[string]any
+	if err := json.Unmarshal(encodePayload("generic", m), &p); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	a, ok := p["attachments"].([]any)
+	if !ok || len(a) != 1 {
+		t.Fatalf("attachments missing/short: %v", p["attachments"])
+	}
+	first := a[0].(map[string]any)
+	if first["url"] != m.Attachments[0].URL || first["mime"] != "image/png" || first["name"] != "shot.png" {
+		t.Fatalf("attachment fields wrong: %v", first)
+	}
+
+	// Empty -> key absent. Fresh map: Unmarshal merges into a reused map.
+	m.Attachments = nil
+	var empty map[string]any
+	if err := json.Unmarshal(encodePayload("generic", m), &empty); err != nil {
+		t.Fatalf("unmarshal empty: %v", err)
+	}
+	if _, present := empty["attachments"]; present {
+		t.Fatalf("attachments should be absent when empty: %v", empty)
+	}
+
+	// slack never carries attachments.
+	m.Attachments = []OutboundAttachment{{URL: "u", MIME: "image/png", Name: "n"}}
+	var slack map[string]any
+	if err := json.Unmarshal(encodePayload("slack", m), &slack); err != nil {
+		t.Fatalf("slack unmarshal: %v", err)
+	}
+	if _, present := slack["attachments"]; present {
+		t.Fatalf("slack must not carry attachments: %v", slack)
 	}
 }
