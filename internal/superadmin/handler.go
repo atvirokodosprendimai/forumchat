@@ -34,6 +34,13 @@ type Reindexer interface {
 	ReindexAll(ctx context.Context) (int, error)
 }
 
+// ChatBroadcaster posts a pre-rendered HTML system message into one community's
+// #general and fans it out live. Implemented by *chat.Handler.SystemBroadcast;
+// PostBroadcast loops it over every community for a platform announcement.
+type ChatBroadcaster interface {
+	SystemBroadcast(ctx context.Context, communityID, bodyHTML string) error
+}
+
 type Handler struct {
 	AuthRepo    *auth.Repo
 	Communities *community.Repo
@@ -50,6 +57,9 @@ type Handler struct {
 	NATS *nats.Conn
 	// RAG triggers a global vector reindex. Nil when RAG is disabled.
 	RAG Reindexer
+	// Chat fans an announcement into every community's #general live. Wired in
+	// main.go to *chat.Handler. Nil-safe — the broadcast card errors cleanly.
+	Chat ChatBroadcaster
 }
 
 var slugRE = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -519,6 +529,75 @@ func (h *Handler) PostReindexAll(w http.ResponseWriter, r *http.Request) {
 	h.audit(r, "reindex all queued", "jobs", n)
 	_ = sse.PatchElementTempl(webtempl.SAReindexResult(
 		fmt.Sprintf("Reindex queued — %d jobs. The embed worker is processing them in the background.", n)))
+}
+
+type broadcastSignals struct {
+	Message string `json:"sa_broadcast"`
+}
+
+// PostBroadcast posts the super-admin's announcement as a system message into
+// EVERY community's #general and fans each out live, so it appears in all open
+// chats immediately. The text is rendered through the user-markdown pipeline
+// (sanitised) and prefixed with a 📢 banner. Best-effort per community: a
+// failure on one is logged and the rest still go out.
+func (h *Handler) PostBroadcast(w http.ResponseWriter, r *http.Request) {
+	var in broadcastSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-broadcast-result", "bad signals: "+err.Error()))
+		return
+	}
+	sse := render.NewSSE(w, r)
+	msg := strings.TrimSpace(in.Message)
+	if msg == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-broadcast-result", "Message is required"))
+		return
+	}
+	if h.Chat == nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-broadcast-result", "Chat broadcast is unavailable on this instance"))
+		return
+	}
+	body, err := render.RenderMarkdown(msg)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-broadcast-result", "render message: "+err.Error()))
+		return
+	}
+	html := `<p>📢 <strong>Platform broadcast</strong></p>` + body
+	comms, err := h.Communities.ListAll(r.Context())
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-broadcast-result", "load communities: "+err.Error()))
+		return
+	}
+	var sent, failed int
+	for _, c := range comms {
+		if err := h.Chat.SystemBroadcast(r.Context(), c.ID, html); err != nil {
+			failed++
+			if h.Log != nil {
+				h.Log.Error("super-admin broadcast", "err", err, "community_id", c.ID)
+			}
+			continue
+		}
+		sent++
+	}
+	h.audit(r, "super-admin broadcast to all communities", "sent", sent, "failed", failed)
+	_ = sse.PatchSignals([]byte(`{"sa_broadcast":""}`))
+	_ = sse.PatchElementTempl(webtempl.SABroadcastResult(broadcastSummary(sent, failed)))
+}
+
+// broadcastSummary phrases the broadcast outcome for the result fragment.
+func broadcastSummary(sent, failed int) string {
+	out := fmt.Sprintf("📢 Sent to %d communit%s.", sent, plural(sent))
+	if failed > 0 {
+		out += fmt.Sprintf(" %d failed (see logs).", failed)
+	}
+	return out
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }
 
 // globalChatLimit caps the cross-community inbox. The FE never holds more

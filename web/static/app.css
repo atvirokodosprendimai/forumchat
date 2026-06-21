@@ -4163,6 +4163,8 @@ button.ghost.danger { color: var(--danger); }
 .sa-role-switch button.role-pill:hover { background: var(--surface-alt); color: var(--fg); }
 .sa-role-switch .role-pill.active { background: var(--accent); color: var(--accent-fg); cursor: default; font-weight: 600; }
 
+.sa-broadcast-input { display: block; width: 100%; margin: .25rem 0 .6rem; resize: vertical; min-height: 4.5rem; }
+
 /* ============================================================
    Time accounting — budget page (timebudget) + journal (worklog)
    ============================================================ */

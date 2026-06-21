@@ -1630,7 +1630,7 @@ func run() error {
 
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
-	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log, Bus: chatHandler.Bus, ChatRepo: chatRepo, NATS: nc}
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log, Bus: chatHandler.Bus, ChatRepo: chatRepo, NATS: nc, Chat: chatHandler}
 	if ragSvc != nil {
 		superHandler.RAG = ragSvc
 	}
@@ -1641,6 +1641,7 @@ func run() error {
 		r.Get("/superadmin/chat", superHandler.GetChat)
 		r.Get("/superadmin/chat/stream", superHandler.GetChatStream)
 		r.Post("/superadmin/reindex", superHandler.PostReindexAll)
+		r.Post("/superadmin/broadcast", superHandler.PostBroadcast)
 		r.Post("/superadmin/community/create", superHandler.PostCreateCommunity)
 		r.Post("/superadmin/community/delete", superHandler.PostDeleteCommunity)
 		r.Post("/superadmin/user/disable", superHandler.PostDisableUser)

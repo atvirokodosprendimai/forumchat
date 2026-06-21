@@ -344,13 +344,32 @@ func (h *Handler) Welcome(ctx context.Context, communityID, displayName string) 
 		return
 	}
 	body := "👋 Say hello to <strong>" + htmlEscape(name) + "</strong>!"
-	if _, err := h.Svc.PostSystem(ctx, communityID, body, KindSystem, nil); err != nil {
+	if err := h.SystemBroadcast(ctx, communityID, body); err != nil {
 		h.Log.Warn("welcome system msg", "err", err)
-		return
 	}
-	// Welcome lands in #general (PostSystem → Insert default-channel
-	// fallback). Broadcast empty channel id → every open stream refreshes
-	// its active channel safely.
+}
+
+// SystemBroadcast posts a TRUSTED, pre-rendered HTML system message into a
+// community's #general (PostSystem → Insert default-channel fallback) and fans
+// it out live — in-process Bus + NewMsgBus + cross-process NATS — exactly like
+// a normal chat write. Welcome is the single-community greeting built on it;
+// the platform super-admin loops it over every community for an announcement.
+func (h *Handler) SystemBroadcast(ctx context.Context, communityID, bodyHTML string) error {
+	if h.Svc == nil {
+		return errors.New("chat: service unavailable")
+	}
+	if _, err := h.Svc.PostSystem(ctx, communityID, bodyHTML, KindSystem, nil); err != nil {
+		return err
+	}
+	h.fanoutChat(communityID)
+	return nil
+}
+
+// fanoutChat signals every open chat stream that #general changed: an empty
+// channel id makes each stream refresh its active channel safely (§6.8). It
+// pings the in-process Bus + NewMsgBus and, when NATS is up, the community's
+// chat subjects for cross-process viewers.
+func (h *Handler) fanoutChat(communityID string) {
 	if h.Bus != nil {
 		h.Bus.Broadcast("")
 	}

@@ -3,6 +3,7 @@ package superadmin
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -64,6 +65,84 @@ func postDelete(h *Handler, cid, confirmSlug string) {
 	req := httptest.NewRequest(http.MethodPost, "/superadmin/community/delete", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	h.PostDeleteCommunity(httptest.NewRecorder(), req)
+}
+
+// fakeBroadcaster records each SystemBroadcast call so a test can assert the
+// platform broadcast fanned out to every community with the rendered body.
+type fakeBroadcaster struct {
+	cids  []string
+	htmls []string
+}
+
+func (f *fakeBroadcaster) SystemBroadcast(_ context.Context, cid, html string) error {
+	f.cids = append(f.cids, cid)
+	f.htmls = append(f.htmls, html)
+	return nil
+}
+
+func postBroadcast(h *Handler, message string) {
+	body := `{"sa_broadcast":` + jsonString(message) + `}`
+	req := httptest.NewRequest(http.MethodPost, "/superadmin/broadcast", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.PostBroadcast(httptest.NewRecorder(), req)
+}
+
+// jsonString quotes s as a JSON string literal for the request body.
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
+
+// TestPostBroadcast_FansToAllCommunities is the feature core: one super-admin
+// announcement lands in EVERY community's #general, rendered through markdown
+// and carrying the platform banner.
+func TestPostBroadcast_FansToAllCommunities(t *testing.T) {
+	h, _, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	a, err := cRepo.Create(ctx, "alpha", "Alpha")
+	if err != nil {
+		t.Fatalf("create alpha: %v", err)
+	}
+	b, err := cRepo.Create(ctx, "bravo", "Bravo")
+	if err != nil {
+		t.Fatalf("create bravo: %v", err)
+	}
+	fb := &fakeBroadcaster{}
+	h.Chat = fb
+
+	postBroadcast(h, "hello **world**")
+
+	if len(fb.cids) != 2 {
+		t.Fatalf("want a broadcast per community (2), got %d", len(fb.cids))
+	}
+	got := map[string]bool{fb.cids[0]: true, fb.cids[1]: true}
+	if !got[a.ID] || !got[b.ID] {
+		t.Fatalf("both communities must receive the broadcast, got %v", fb.cids)
+	}
+	html := fb.htmls[0]
+	if !strings.Contains(html, "Platform broadcast") {
+		t.Errorf("broadcast must carry the platform banner, got %q", html)
+	}
+	if !strings.Contains(html, "<strong>world</strong>") {
+		t.Errorf("broadcast body must be rendered markdown, got %q", html)
+	}
+}
+
+// TestPostBroadcast_EmptyMessageNoOp guards against blasting a blank message to
+// every community.
+func TestPostBroadcast_EmptyMessageNoOp(t *testing.T) {
+	h, _, cRepo := newTestHandler(t)
+	if _, err := cRepo.Create(context.Background(), "alpha", "Alpha"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	fb := &fakeBroadcaster{}
+	h.Chat = fb
+
+	postBroadcast(h, "   ")
+
+	if len(fb.cids) != 0 {
+		t.Fatalf("blank message must broadcast to nobody, got %d calls", len(fb.cids))
+	}
 }
 
 func TestPostDeleteCommunity_WrongSlugRefuses(t *testing.T) {

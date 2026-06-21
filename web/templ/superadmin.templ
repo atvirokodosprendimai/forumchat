@@ -126,6 +126,16 @@ templ SuperAdminPage(data SuperAdminPageData) {
 		</section>
 
 		<section class="card">
+			<h2>📢 Broadcast to all chats</h2>
+			<p class="muted">Post a one-off announcement into <strong>every</strong> community’s #general channel. It appears live in all open chats, as a system message. Markdown supported.</p>
+			<textarea class="sa-broadcast-input" rows="3" placeholder="Your announcement to every community…" data-bind="sa_broadcast"></textarea>
+			<div class="form-row">
+				<button data-on:click="if(($sa_broadcast||'').trim()){if(confirm('Send this announcement to EVERY community’s chat?')){@post('/superadmin/broadcast')}}">Broadcast</button>
+			</div>
+			<div id="sa-broadcast-result"></div>
+		</section>
+
+		<section class="card">
 			<h2>Create community</h2>
 			<div class="form-row">
 				<input type="text" placeholder="Name" data-bind="sa_name"/>
@@ -313,6 +323,12 @@ func kindLabel(kind string) string {
 // a stable id so the POST handler can patch the outcome in place.
 templ SAReindexResult(msg string) {
 	<div id="sa-reindex-result"><p class="muted">{ msg }</p></div>
+}
+
+// SABroadcastResult is the morph target for the broadcast outcome — a stable id
+// so PostBroadcast patches the result in place.
+templ SABroadcastResult(msg string) {
+	<div id="sa-broadcast-result"><p class="muted">{ msg }</p></div>
 }
 
 // SAUserMemberships is the lazy-loaded drill-down for one platform user: the
