@@ -24,6 +24,11 @@ func TestMatch(t *testing.T) {
 		{"mention miss plain name", ag("nick", agent.TriggerModeMention, "."), "nick come here", false, false},
 		{"mention miss different token", ag("nick", agent.TriggerModeMention, "."), "@nicky hi", false, false},
 		{"mention does not fire on prefix", ag("nick", agent.TriggerModeMention, "."), ".nick hi", false, false},
+		// multi-word bot names: the WHOLE name (spaces included) must match.
+		{"mention multiword full", ag("nick name here", agent.TriggerModeMention, "."), "hey @nick name here help", false, true},
+		{"mention multiword trailing punct", ag("nick name here", agent.TriggerModeMention, "."), "@nick name here, what's up", false, true},
+		{"mention multiword partial misses", ag("nick name here", agent.TriggerModeMention, "."), "@nick only", false, false},
+		{"mention multiword case", ag("Nick Name Here", agent.TriggerModeMention, "."), "yo @nick name here", false, true},
 
 		// prefix, lone agent (multiPrefix=false): any prefixed line summons it
 		{"prefix lone bare", ag("nick", agent.TriggerModePrefix, "."), ".do the thing", false, true},

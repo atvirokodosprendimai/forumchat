@@ -167,3 +167,4 @@
 - 2026-06-21 `ac6cfff` feat(chat-agents): phase 2 — trigger matcher, dispatch, streaming bot reply
 - 2026-06-21 `44fc1a7` docs(plan): agent conversations as forum threads (pivot from channel bubble)
 - 2026-06-21 `74a916d` feat(agent-forum): phase 1 — forum bot-post identity + agent threads schema
+- 2026-06-21 `92daa56` chore: untrack out.log and ignore *.log

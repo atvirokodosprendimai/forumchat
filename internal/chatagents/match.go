@@ -28,18 +28,36 @@ func Match(a agent.Agent, body string, multiPrefix bool) bool {
 	}
 }
 
-// matchMention is true when body @mentions the agent by name.
+// matchMention is true when body @mentions the agent by its FULL name —
+// spaces included. Because the matcher already knows the exact name, it looks
+// for "@<name>" directly rather than tokenising on word boundaries (a bot named
+// "nick name here" must match "@nick name here", not just "@nick"). A trailing
+// word char fails the match so "@nick" never matches an agent named "nicky".
 func matchMention(a agent.Agent, body string) bool {
 	name := strings.ToLower(strings.TrimSpace(a.Name))
 	if name == "" {
 		return false
 	}
-	for _, tok := range mentionTokens(body) {
-		if tok == name {
+	hay := strings.ToLower(body)
+	needle := "@" + name
+	for from := 0; ; {
+		i := strings.Index(hay[from:], needle)
+		if i < 0 {
+			return false
+		}
+		i += from
+		end := i + len(needle)
+		if end >= len(hay) || !isMentionWordChar(hay[end]) {
 			return true
 		}
+		from = i + 1
 	}
-	return false
+}
+
+// isMentionWordChar reports whether b continues a mention name token — used to
+// reject a partial match ("@nick" inside "@nickname").
+func isMentionWordChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
 }
 
 // matchPrefix is true when a line of body starts with the agent's trigger
@@ -65,42 +83,6 @@ func matchPrefix(a agent.Agent, body string, multiPrefix bool) bool {
 		}
 	}
 	return false
-}
-
-// mentionTokens extracts @name tokens from body. Mirrors chat.parseMentions:
-// a contiguous run of [a-zA-Z0-9_-] of length >= 2 after '@', lowercased.
-func mentionTokens(body string) []string {
-	if body == "" {
-		return nil
-	}
-	var out []string
-	var b strings.Builder
-	in := false
-	flush := func() {
-		if b.Len() >= 2 {
-			out = append(out, strings.ToLower(b.String()))
-		}
-		b.Reset()
-	}
-	for _, r := range body {
-		if r == '@' {
-			in = true
-			b.Reset()
-			continue
-		}
-		if in {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
-				b.WriteRune(r)
-				continue
-			}
-			flush()
-			in = false
-		}
-	}
-	if in {
-		flush()
-	}
-	return out
 }
 
 // countPrefixAgents counts the agents in a set whose trigger involves a prefix
