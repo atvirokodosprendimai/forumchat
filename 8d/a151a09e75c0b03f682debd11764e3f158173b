@@ -1,0 +1,33 @@
+internal/webhooks/handler.go
+  s_e9cea9680b5ec8::t_a2c1820fc45fac 156-158,163-165,167-169
+  s_e9cea9680b5ec8::t_e48d932c84c0f6 142-143
+  s_e9cea9680b5ec8::t_546964d6605c0c 25
+  s_e9cea9680b5ec8::t_e41a649361a27a 9
+  s_e9cea9680b5ec8::t_40b1622cb1e8f3 73-81
+  s_e9cea9680b5ec8::t_ba692bad369145 136-141,144-155,159-162,166,170-218
+  s_e9cea9680b5ec8::t_d2e327e9987a96 43-47
+internal/webhooks/integration_test.go
+  s_e9cea9680b5ec8::t_121bd4b70d9ab5 4,15
+  s_e9cea9680b5ec8::t_534f0fb6904497 178,182,186,192,194-200,203,209,212,217,220,223,228
+  s_e9cea9680b5ec8::t_327fae21e39c7e 9-11
+internal/chat/chat.go
+  s_e9cea9680b5ec8::t_aceb7f910c5ecf 1150,1154-1185
+cmd/app/main.go
+  s_e9cea9680b5ec8::t_b2962721329d1b 827
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "8da151a09e75c0b03f682debd11764e3f158173b",
+  "prompts": {},
+  "sessions": {
+    "s_e9cea9680b5ec8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1180e190-95e3-4569-b80f-0f7349711aa9",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
