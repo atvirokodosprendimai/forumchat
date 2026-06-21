@@ -3,9 +3,16 @@ package webhooks_test
 import (
 	"bytes"
 	"context"
+	"io"
+	"log/slog"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"net/textproto"
 	"path/filepath"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
@@ -225,5 +232,117 @@ func TestInboundMediaVertical(t *testing.T) {
 	// Empty body + no attachments must still be rejected.
 	if _, err := chatSvc.PostBotWithAttachments(ctx, c.ID, general.ID, "Bridge", "", "", nil); err == nil {
 		t.Fatal("empty body + no attachments should error")
+	}
+}
+
+// onePxPNG is a minimal valid PNG so uploads.MIMEFromHeader sniffs image/png.
+var onePxPNG = []byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+	0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+	0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+	0x42, 0x60, 0x82,
+}
+
+// TestPostInboundMultipart drives the public /hooks/{token} endpoint with the
+// exact multipart shape an external bridge sends (a `text` field plus a `file`
+// part) and asserts the image is stored and linked to a KindWebhook message —
+// the full inbound-media path through the HTTP handler, not just the data layer.
+func TestPostInboundMultipart(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sqlite.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := sqlite.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	c, err := community.NewRepo(db).BootstrapOrFetch(ctx, "test", "Test")
+	if err != nil {
+		t.Fatalf("community: %v", err)
+	}
+	chatRepo := chat.NewRepo(db)
+	general, err := chatRepo.EnsureDefaultChannel(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("default channel: %v", err)
+	}
+	// uploads.owner_id is FK'd to users; the webhook's creator owns its media.
+	owner := auth.User{ID: uuid.NewString(), Email: "wh@x.test", PasswordHash: "x", Status: auth.StatusActive}
+	if err := auth.NewRepo(db).CreateUser(ctx, owner); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	whRepo := webhooks.NewRepo(db)
+	wh, err := webhooks.NewService(whRepo).Create(ctx, webhooks.CreateInput{
+		CommunityID: c.ID, Direction: webhooks.DirIn, Provider: "generic",
+		Name: "Bridge", ChannelID: general.ID, CreatedBy: owner.ID,
+	})
+	if err != nil {
+		t.Fatalf("create webhook: %v", err)
+	}
+
+	h := &webhooks.Handler{
+		Repo:     whRepo,
+		Chat:     chat.NewService(chatRepo),
+		ChatRepo: chatRepo,
+		Uploads:  uploads.NewStore(db, t.TempDir(), 1<<20, "sign-key"),
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	// Build the multipart body: a `text` field then an image `file` part —
+	// the shape an external bridge (Matrix → forumchat) posts.
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if err := mw.WriteField("text", "saint"); err != nil {
+		t.Fatalf("write text field: %v", err)
+	}
+	hdr := make(textproto.MIMEHeader)
+	hdr.Set("Content-Disposition", `form-data; name="file"; filename="Screenshot%202025-10-26%20at%2020.14.03.png"`)
+	hdr.Set("Content-Type", "image/png")
+	part, err := mw.CreatePart(hdr)
+	if err != nil {
+		t.Fatalf("create part: %v", err)
+	}
+	if _, err := part.Write(onePxPNG); err != nil {
+		t.Fatalf("write part: %v", err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close mw: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/hooks/"+wh.Token, &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+
+	router := chi.NewRouter()
+	router.Post("/hooks/{token}", h.PostInbound)
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	msgs, err := chatRepo.Recent(ctx, general.ID, 10)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("want 1 message, got %d", len(msgs))
+	}
+	m := msgs[0]
+	if m.Kind != chat.KindWebhook {
+		t.Fatalf("kind = %q, want webhook", m.Kind)
+	}
+	if m.BodyMarkdown != "saint" {
+		t.Fatalf("body = %q, want %q", m.BodyMarkdown, "saint")
+	}
+	if len(m.Attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(m.Attachments))
+	}
+	if m.Attachments[0].MIME != "image/png" {
+		t.Fatalf("attachment mime = %q, want image/png", m.Attachments[0].MIME)
 	}
 }

@@ -611,6 +611,9 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					<span class="gen-cursor" aria-hidden="true">▍</span>
 				}
 			</div>
+			if len(m.Attachments) > 0 {
+				@MessageAttachments(m.Attachments, isMod)
+			}
 		} else {
 			if showMeta {
 				<header class="meta">
