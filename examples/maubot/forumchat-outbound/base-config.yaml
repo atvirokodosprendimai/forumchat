@@ -1,0 +1,34 @@
+# forumchat-outbound plugin configuration
+
+# Forumchat inbound generic webhook URL.
+# Create an INBOUND webhook (provider: generic) in forumchat
+# (/c/<slug>/admin/webhooks) and paste its URL here.
+# Example: https://your-forumchat-host/hooks/<token>
+# Leave blank to disable relaying (fail-safe default).
+target_url: ""
+
+# List of Matrix room IDs to relay messages from.
+# Empty list = relay nothing (fail-safe). Add room IDs explicitly.
+# Example: ["!roomid:example.org"]
+rooms: []
+
+# LOOP GUARD: senders whose messages are never relayed.
+# Set this to the MXID of your forumchat->Matrix bot (the maubot-webhook
+# instance's client) to prevent echo loops. forumchat also dedupes inbound
+# messages, but this is a second layer of defence.
+ignore_senders:
+  - "@bot.maubot:example.org"
+
+# Matrix message types to relay.
+# m.text = plain text; m.emote = /me actions.
+allowed_msgtypes:
+  - "m.text"
+  - "m.emote"
+
+# Format string for the text sent to forumchat.
+# Available placeholders: {sender} (display name or localpart), {body} (message text).
+format: "{sender}: {body}"
+
+# Resolve {sender} to the room display name instead of the raw MXID.
+# Falls back to MXID localpart if the display name cannot be fetched.
+use_display_name: true

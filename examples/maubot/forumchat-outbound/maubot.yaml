@@ -1,0 +1,13 @@
+maubot: 0.4.0
+id: lt.atvirokodosprendimai.forumchat_outbound
+version: 0.1.0
+license: AGPL-3.0-or-later
+modules:
+- forumchat_outbound
+main_class: ForumchatOutbound
+extra_files:
+- base-config.yaml
+dependencies:
+- aiohttp
+config: true
+database: false

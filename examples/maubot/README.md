@@ -47,7 +47,23 @@ practical control (front it with a reverse proxy if you need a shared secret).
 
 ## Matrix → forumchat
 
-maubot's webhook plugins only **receive** HTTP (HTTP → room), so they can't push
-a room's messages out. For Matrix → forumchat use **matrix-hookshot** outbound
-webhooks pointed at your forumchat inbound `generic` endpoint
-(`https://<host>/hooks/<token>`) — details in [`../README.md`](../README.md).
+The `jkhsjdhjs/maubot-webhook` plugin above only **receives** HTTP (HTTP → room),
+so a second piece is needed to push a room's messages out.
+
+### Option A (recommended): the `forumchat-outbound` maubot plugin
+
+[`forumchat-outbound/`](./forumchat-outbound) is a small maubot plugin that does
+the reverse cleanly: it watches room messages and POSTs `{"text": "..."}` to your
+forumchat inbound `generic` endpoint (`https://<host>/hooks/<token>`). Pair it
+with the receive plugin above for a maubot-only **bidirectional** bridge — no
+extra services. It has a built-in loop guard and notes on encrypted rooms; see
+its [README](./forumchat-outbound/README.md). (Text only — forumchat's generic
+inbound is a text webhook, so images/media aren't relayed outbound.)
+
+### Option B: matrix-hookshot
+
+Alternatively use **matrix-hookshot** outbound webhooks pointed at the same
+inbound `generic` endpoint — details in [`../README.md`](../README.md). Note
+hookshot's outbound delivery is `multipart/form-data` carrying the raw Matrix
+event, so the `generic` adapter posts it verbatim (fenced) unless you supply a
+hookshot transformation function that emits `{"text": ...}`.
