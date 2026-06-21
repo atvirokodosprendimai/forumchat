@@ -130,16 +130,21 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	isPublic := false
+	ratePerUser, ratePerCommunity := 0, 0
 	if c, ok := community.FromContext(r.Context()); ok {
 		isPublic = c.IsPublic
+		ratePerUser = c.AgentRatePerUserMin
+		ratePerCommunity = c.AgentRatePerCommunityMin
 	}
 	data := webtempl.AdminPageData{
-		Viewer:   h.viewer(r),
-		IsPublic: isPublic,
-		Pending:  memberRowsToAdminMembers(pending, now),
-		Members:  memberRowsToAdminMembers(members, now),
-		Invites:  invitesToAdminInvites(invites),
-		Reports:  reportsToAdminReports(reports),
+		Viewer:                   h.viewer(r),
+		IsPublic:                 isPublic,
+		Pending:                  memberRowsToAdminMembers(pending, now),
+		Members:                  memberRowsToAdminMembers(members, now),
+		Invites:                  invitesToAdminInvites(invites),
+		Reports:                  reportsToAdminReports(reports),
+		AgentRatePerUserMin:      ratePerUser,
+		AgentRatePerCommunityMin: ratePerCommunity,
 	}
 	_ = webtempl.AdminPage(data).Render(r.Context(), w)
 }
@@ -180,6 +185,38 @@ func (h *Handler) PostTogglePublic(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/admin")
+}
+
+// PostSetAgentLimits saves the community's AI-agent prompt rate limits
+// (requests/minute, 0 = unlimited). The shared Gate reads these fresh on every
+// check, so changes apply immediately — no restart. Negative inputs clamp to 0.
+func (h *Handler) PostSetAgentLimits(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	// ReadSignals MUST come before NewSSE — NewSSE closes the request body.
+	var in struct {
+		PerUser      int `json:"agent_rate_user"`
+		PerCommunity int `json:"agent_rate_community"`
+	}
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	if err := h.Communities.SetAgentRateLimits(r.Context(), c.ID, in.PerUser, in.PerCommunity); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if in.PerUser < 0 {
+		in.PerUser = 0
+	}
+	if in.PerCommunity < 0 {
+		in.PerCommunity = 0
+	}
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.AdminAgentLimitsSaved(in.PerUser, in.PerCommunity))
 }
 
 func (h *Handler) PostReject(w http.ResponseWriter, r *http.Request) {

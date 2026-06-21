@@ -1441,6 +1441,7 @@ func run() error {
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
 			r.Post("/admin/add-member", adminHandler.PostAddMember)
 			r.Post("/admin/toggle-public", adminHandler.PostTogglePublic)
+			r.Post("/admin/ai/limits", adminHandler.PostSetAgentLimits)
 			r.Post("/admin/reindex", adminHandler.PostReindex)
 			r.Post("/forum/{id}/hard-delete", forumHandler.PostHardDeleteThread)
 			if cfg.MailboxEnabled && mailboxHandler != nil {

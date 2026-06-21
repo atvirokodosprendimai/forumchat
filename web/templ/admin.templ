@@ -37,6 +37,17 @@ type AdminPageData struct {
 	Members  []AdminMember
 	Invites  []AdminInvite
 	Reports  []AdminReport
+	// AgentRatePerUserMin / AgentRatePerCommunityMin seed the AI prompt
+	// rate-limit form (per minute, 0 = unlimited).
+	AgentRatePerUserMin      int
+	AgentRatePerCommunityMin int
+}
+
+// agentLimitSignals seeds the rate-limit number inputs with the community's
+// current values, merged over InitialSignals on page load.
+func agentLimitSignals(d AdminPageData) string {
+	return `{"agent_rate_user":` + itoa(d.AgentRatePerUserMin) +
+		`,"agent_rate_community":` + itoa(d.AgentRatePerCommunityMin) + `}`
 }
 
 templ AdminPage(d AdminPageData) {
@@ -61,6 +72,19 @@ templ AdminPage(d AdminPageData) {
 					<h2>AI agents</h2>
 					<p class="muted">Create and configure the AI agents members can chat with — each with its own model and system prompt.</p>
 					<a class="button" href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin/ai") }>Manage AI agents →</a>
+					<div data-signals={ agentLimitSignals(d) }></div>
+					<h3>Prompt rate limits</h3>
+					<p class="muted">Cap how often members can trigger agents, in requests per minute. <strong>0 = unlimited.</strong> Platform super-admins are never limited. Changes apply immediately.</p>
+					<div class="field">
+						<label for="agent_rate_user">Per member · per minute</label>
+						<input id="agent_rate_user" type="number" min="0" step="1" data-bind="agent_rate_user"/>
+					</div>
+					<div class="field">
+						<label for="agent_rate_community">Whole community · per minute</label>
+						<input id="agent_rate_community" type="number" min="0" step="1" data-bind="agent_rate_community"/>
+					</div>
+					<button data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/admin/ai/limits')" }>Save limits</button>
+					<div id="ai-limits-result" aria-live="polite"></div>
 				</section>
 			}
 
@@ -146,6 +170,26 @@ templ AdminPage(d AdminPageData) {
 // AdminReindexResult is the morph target for the per-community "Reindex" button.
 templ AdminReindexResult(msg string) {
 	<div id="admin-reindex-result"><p class="muted">{ msg }</p></div>
+}
+
+// AdminAgentLimitsSaved is the morph target for the "Save limits" button.
+templ AdminAgentLimitsSaved(perUser, perCommunity int) {
+	<div id="ai-limits-result">
+		<p class="ok-text">Saved ✓ — { agentLimitSummary(perUser, perCommunity) }</p>
+	</div>
+}
+
+// agentLimitSummary renders a human sentence for the saved limits.
+func agentLimitSummary(perUser, perCommunity int) string {
+	user := "unlimited per member"
+	if perUser > 0 {
+		user = itoa(perUser) + "/min per member"
+	}
+	comm := "unlimited community-wide"
+	if perCommunity > 0 {
+		comm = itoa(perCommunity) + "/min community-wide"
+	}
+	return user + ", " + comm + "."
 }
 
 templ AdminReports(slug string, rows []AdminReport) {

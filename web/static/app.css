@@ -4949,3 +4949,6 @@ button.ghost.danger { color: var(--danger); }
 @media (prefers-reduced-motion: reduce) {
   .agent-rate-notice { animation: none; }
 }
+
+/* Admin "saved" confirmation line (e.g. agent rate-limit save). */
+.ok-text { color: var(--success); font-weight: 500; }
