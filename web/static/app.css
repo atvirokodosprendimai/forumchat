@@ -5150,3 +5150,80 @@ button.ghost.danger { color: var(--danger); }
 
 /* Admin "saved" confirmation line (e.g. agent rate-limit save). */
 .ok-text { color: var(--success); font-weight: 500; }
+
+/* ============================================================
+   Support inbox — /report-issue (write-only cross-tenant reports)
+   ============================================================ */
+.support { max-width: 46rem; margin: 1.5rem auto; padding: 0 1rem 3rem; }
+.support-head { margin-bottom: 1rem; }
+.support-head h1 { margin: 0 0 .25rem; font-size: 1.5rem; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.support-head .muted { margin: 0; max-width: 42rem; }
+
+.support-flash { margin: 0 0 1rem; }
+.support-flash:empty { display: none; }
+.support-flash p { margin: 0; padding: .7rem .9rem; border-radius: var(--radius); font-size: .92rem; border: 1px solid var(--border); }
+.support-flash.is-ok p { background: var(--success-soft); border-color: color-mix(in oklch, var(--success) 35%, var(--border)); color: var(--success); }
+.support-flash.is-error p { background: var(--danger-soft, oklch(95% 0.04 25)); border-color: color-mix(in oklch, var(--danger, oklch(58% 0.2 25)) 35%, var(--border)); color: var(--danger, oklch(48% 0.2 25)); }
+
+.support-form { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1.75rem; }
+.support-label { font-size: .82rem; font-weight: 500; color: var(--fg-muted); }
+.support-input, .support-textarea {
+  width: 100%; box-sizing: border-box;
+  padding: .6rem .75rem; font: inherit; color: var(--fg);
+  background: var(--surface-sunken); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); transition: border-color .12s, box-shadow .12s;
+}
+.support-textarea { resize: vertical; min-height: 3.5rem; }
+.support-input:focus, .support-textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+.support-actions { display: flex; justify-content: flex-end; margin-top: .35rem; }
+.support-send {
+  padding: .55rem 1.1rem; font: inherit; font-weight: 600; cursor: pointer;
+  color: var(--accent-fg); background: var(--accent); border: none;
+  border-radius: var(--radius-pill); transition: background .12s, transform .12s, opacity .12s;
+}
+.support-send:hover:not([disabled]) { background: var(--accent-hover); transform: translateY(-1px); }
+.support-send[disabled] { opacity: .5; cursor: not-allowed; }
+
+.support-subhead { font-size: 1.05rem; margin: 1.5rem 0 .6rem; }
+
+.support-report-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.support-report {
+  display: flex; align-items: center; gap: .75rem; text-decoration: none;
+  padding: .65rem .85rem; background: var(--surface); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-xs); transition: border-color .12s, box-shadow .12s, transform .12s;
+}
+.support-report:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+.support-report-title { flex: 1 1 auto; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.support-report-time { flex: 0 0 auto; font-size: .8rem; color: var(--fg-muted); }
+
+/* status chip — reused on the list and the detail header */
+.support-status {
+  flex: 0 0 auto; font-size: .72rem; font-weight: 600; letter-spacing: .02em;
+  padding: .18rem .5rem; border-radius: var(--radius-pill); color: #fff; white-space: nowrap;
+}
+.support-status.status-open        { background: oklch(58% 0.18 250); }
+.support-status.status-triaged     { background: oklch(60% 0.16 300); }
+.support-status.status-in_progress { background: oklch(65% 0.18 70); }
+.support-status.status-closed      { background: var(--success); }
+
+/* detail view */
+.support-back { display: inline-block; margin-bottom: .75rem; font-size: .88rem; color: var(--accent); text-decoration: none; }
+.support-back:hover { text-decoration: underline; }
+.support-detail .support-head h1 { font-size: 1.3rem; }
+.support-body { margin: .25rem 0 1rem; padding: 1rem 1.1rem; line-height: 1.55; }
+.support-body > :first-child { margin-top: 0; }
+.support-body > :last-child { margin-bottom: 0; }
+
+.support-thread { display: flex; flex-direction: column; gap: .6rem; margin-bottom: 1.5rem; }
+.support-msg {
+  padding: .6rem .8rem; border-radius: var(--radius); max-width: 85%;
+  background: var(--surface-alt); border: 1px solid var(--border-subtle);
+}
+.support-msg.mine { align-self: flex-end; background: var(--accent-soft); border-color: var(--accent-soft-strong); }
+.support-msg-head { display: flex; gap: .6rem; align-items: baseline; margin-bottom: .2rem; }
+.support-msg-author { font-weight: 600; font-size: .85rem; }
+.support-msg-head time { font-size: .75rem; color: var(--fg-muted); }
+.support-msg-body { line-height: 1.5; }
+.support-msg-body > :first-child { margin-top: 0; }
+.support-msg-body > :last-child { margin-bottom: 0; }
