@@ -26,6 +26,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -99,7 +100,7 @@ func (h *Handler) PostReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
 		h.flash(sse, "Please add a subject.", true)
@@ -166,7 +167,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	}
 	issue, owned := h.ownedIssue(r.Context(), chi.URLParam(r, "iid"), id.UserID)
 
-	sse := datastar.NewSSE(w, r)
+	sse := render.NewSSE(w, r)
 	if !owned {
 		_ = sse.Redirect("/report-issue")
 		return

@@ -203,3 +203,25 @@ spec.
 - 2606212304 — Plan created. Context loaded (effective-go, eidos specs, code
   graph, mempalace). Decisions D-designation/who/read-back resolved with user.
   Branch `task/support-inbox-write-only-community`.
+- 2606212320 — Phases 1–4 implemented + verified. Commits:
+  - `7ae21f3` refactor: extract `projects.Service.EnsureNamedProject`
+    (DRY; mailbox delegates to it). D1 → chose new `internal/support` package.
+  - `cc8a97b` config: `SUPPORT_INBOX_SLUG` / `SUPPORT_INBOX_NAME` (off by default).
+  - `31d6c70` feat: `internal/support` handler (write + own-only read-back),
+    `projects.Repo.IssuesByCreator`, `web/templ/support.templ`, layout 🛟 link,
+    main.go boot-seed + route mount.
+  - `4a99852` test: owner-scoped read-back, `ownedIssue` guard, triage stamp (4 tests, green).
+  - `593f30c` style: `.support-*` CSS (token-based, dark-safe).
+  - => **Lesson (cost a debug cycle):** never call raw `datastar.NewSSE` in a
+    handler — this app's chi compressor garbles the SSE body unless headers are
+    primed first. ALWAYS use `render.NewSSE(w, r)` (it calls `httpx.PrimeSSE`).
+    Symptom: handler runs + DB write lands, but the client applies no patches +
+    a "superfluous response.WriteHeader" log line. Fixed both POST handlers.
+  - => Runtime-verified with Playwright (register → report → reply): green
+    "Thanks" flash, owner-scoped list, triage blockquote (reporter + home
+    community), "You" reply bubble. Screenshots captured.
+  - => Inbox project is created lazily on first report (creator = first
+    reporter) — avoids needing a valid users(id) FK at boot on a fresh DB.
+- Phase 0 (spec) deferred — user chose "start coding". The cross-tenant
+  isolation exception still warrants `eidos/spec - support-inbox`; left as the
+  one open follow-up.
