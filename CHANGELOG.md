@@ -157,3 +157,4 @@
 - 2026-06-18 `fe396e0` feat(auth): optional invite + auto-approve for open registration (Phase 2)
 - 2026-06-20 `aa9399b` feat(agent): internal MCP DB tools — list_issues + get_issue (context loading)
 - 2026-06-20 `c6792ef` fix(rooms): device-picker popover would not hide
+- 2026-06-21 `b130723` feat(webhooks): inbound bot messages + outbound chat relay
