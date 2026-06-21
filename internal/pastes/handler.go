@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar-go/datastar"
@@ -23,7 +24,11 @@ type Handler struct {
 	// PostToChat posts a paste's URL into a channel as the member and fans it
 	// out (Bus + NATS + relay). Wired in main.go to avoid a chat import cycle —
 	// same shape as the agent share-to-channel closure.
-	PostToChat    func(ctx context.Context, communityID, channelID, authorID, bodyMarkdown string) error
+	PostToChat func(ctx context.Context, communityID, channelID, authorID, bodyMarkdown string) error
+	// BaseURL is the public origin (e.g. https://chat.example.com) used to build
+	// the ABSOLUTE paste link posted to chat, so relayed bots (Matrix etc.) get a
+	// clickable URL rather than a host-relative /c/… path.
+	BaseURL       string
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
@@ -155,7 +160,7 @@ func (h *Handler) PostSave(w http.ResponseWriter, r *http.Request) {
 	// the source channel is gone (channel_id was SET NULL).
 	channelID, channelSlug := h.resolveChannel(r.Context(), cid, p.ChannelID)
 	if channelID != "" && h.PostToChat != nil {
-		body := pasteMessage(h.cslug(r.Context()), p)
+		body := pasteMessage(h.BaseURL, h.cslug(r.Context()), p)
 		if err := h.PostToChat(r.Context(), cid, channelID, id.User.ID, body); err != nil {
 			h.Log.Error("paste post-to-chat", "err", err)
 		}
@@ -181,16 +186,19 @@ func (h *Handler) resolveChannel(ctx context.Context, communityID string, channe
 	return "", ""
 }
 
-// pasteMessage is the chat message body announcing a saved paste. The link is
-// an explicit [url](url) (label == href) so it survives the user-markdown
-// "no hidden URLs" rewrite and stays a clickable relative link.
-func pasteMessage(slug string, p Paste) string {
-	url := "/c/" + slug + "/pastes/" + p.ID
-	title := p.Title
-	if title == "" {
+// pasteMessage is the chat message body announcing a saved paste: a markdown
+// link whose text is the paste title and whose href is the ABSOLUTE paste URL.
+// Absolute (baseURL-prefixed) so relayed bots — Matrix etc. — get a clickable
+// link instead of a host-relative /c/… path. Falls back to a relative URL when
+// baseURL is unset. Brackets are stripped from the title so they can't break
+// the markdown link.
+func pasteMessage(baseURL, slug string, p Paste) string {
+	url := strings.TrimRight(baseURL, "/") + "/c/" + slug + "/pastes/" + p.ID
+	title := strings.NewReplacer("[", "", "]", "").Replace(p.Title)
+	if strings.TrimSpace(title) == "" {
 		title = "Paste"
 	}
-	return "📋 **" + title + "**\n[" + url + "](" + url + ")"
+	return "📋 [" + title + "](" + url + ")"
 }
 
 func toView(p Paste) webtempl.PasteView {

@@ -644,6 +644,7 @@ func run() error {
 		Svc:           pastes.NewService(pastesRepo),
 		Repo:          pastesRepo,
 		ChatRepo:      chatRepo,
+		BaseURL:       cfg.BaseURL,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
