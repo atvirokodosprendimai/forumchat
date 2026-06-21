@@ -198,6 +198,43 @@ templ ChatSearchResults(slug, channelSlug, query string, results []SearchResultV
 	</div>
 }
 
+// ChatSummaryPanel is the ephemeral panel rendered into #chat-search for the
+// /summary slash command — the agent's channel recap, shown only to the sender.
+// "Post to channel" publishes it (the thread id is stashed in summary_thread_id
+// so the server re-reads the answer authoritatively); the close button strips
+// the panel client-side while keeping the #chat-search wrapper for the next run.
+templ ChatSummaryPanel(slug, channelSlug, threadID, bodyHTML, threadURL, errMsg string) {
+	<div id="chat-search" class="chat-search-panel chat-summary-panel" data-signals={ "{summary_thread_id: '" + threadID + "'}" }>
+		<header class="cs-head">
+			<span class="cs-query">🧠 Channel summary</span>
+			<div class="cs-head-actions">
+				if errMsg == "" && threadID != "" {
+					<button
+						type="button"
+						class="cs-pub-all"
+						title="Post this summary to the channel"
+						data-on:click={ "@post('/c/" + slug + "/chat/" + channelSlug + "/summary/publish')" }
+					>📢 Post to channel</button>
+				}
+				<button
+					type="button"
+					class="cs-close"
+					aria-label="Dismiss summary"
+					data-on:click="const w = el.closest('#chat-search'); w.className=''; w.replaceChildren()"
+				>✕</button>
+			</div>
+		</header>
+		if errMsg != "" {
+			<p class="cs-empty">🤖 { errMsg }</p>
+		} else {
+			<div class="cs-summary-body">@templ.Raw(bodyHTML)</div>
+			if threadURL != "" {
+				<a class="cs-more" href={ templ.SafeURL(threadURL) }>Open in agent thread →</a>
+			}
+		}
+	</div>
+}
+
 // searchResultTitle falls back to a kind label when a hit has no title (chat
 // messages, replies and comments are bodies without a subject).
 func searchResultTitle(r SearchResultView) string {

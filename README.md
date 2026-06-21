@@ -51,7 +51,7 @@ a Discord + forum mix would fit but you want to own the data.
 - **Multi-channel realtime chat.** Discord-style named text channels, durable in SQLite, with mentions, image paste/drop, multi-file attachments, reply quote, forward, and per-channel unread dots.
 - **Self-hosted AI assistant.** Per-community ChatGPT-style agent with persistent threads, streaming answers, vision, multiple named agents, and a tool layer (internal full-text/semantic search + connectable MCP servers). Backed by *your* Ollama.
 - **Fused search.** SQLite FTS5 (instant) + semantic vector search (RAG) merged by Reciprocal Rank Fusion across chat, forum, projects, issues, and AI threads.
-- **Slash commands in chat.** `/search`, `/resume` (AI recap of the channel), `/prompt` (run a prompt → thread), `/translate` (live typeahead, auto-detected source language).
+- **Slash commands in chat.** `/search`, `/summary` (AI recap of the channel, personal panel), `/prompt` (run a prompt → thread), `/translate` (live typeahead, auto-detected source language).
 - **Email in.** Optional read-only IMAP ingest: per-community filters route matched mail into an inbox, optionally auto-file as project issues.
 - **Built-in video rooms.** Mesh WebRTC, screen + camera as independent tiles, no Jitsi sidecar.
 - **Push notifications that don't spam.** Per-event toggles + 5 / 15 / 60 / 240-min digest mode.
@@ -113,7 +113,7 @@ docker run -p 8080:8080 \
 | **Global read-only chat** | Platform super-admin only (`/superadmin/chat`). A live, cross-community feed of the latest 100 chat messages from **every** community and channel at once — newest-first, deep-linked back to source, soft-deleted rows included (god-mode). Read-only: it never writes. Streamed via the process-wide chat bus + the NATS `community.*.chat` wildcard. |
 | **Webhooks**        | Optional (`WEBHOOKS_ENABLED`). Per-community integrations both ways. **Inbound:** external systems `POST` to a secret `/hooks/<token>` URL and the payload posts as a named **bot** message (provider adapters: `generic` JSON `{text}`/`{content}`, or `github` push/PR/issue/release with HMAC verify). **Outbound:** human chat in a chosen channel is relayed as JSON to a `target_url` (`slack`/`discord`/`generic`). Matrix bridges via maubot/hookshot — see `examples/`. |
 | **Chat**            | Multiple realtime named text channels per community (Discord-style, `#general` is the undeletable default). Persistent (SQLite), live (NATS pub/sub + datastar SSE), auto-grow composer, mentions, image paste/drop, multi-file attachments, reply quote, forward-to-channel, per-channel unread dots. Extract any chat attachment into a project (as Docs or a new issue) so documents shared in chat aren't lost to scrollback. |
-| **Slash commands**  | In the chat composer: `/search` (personal fused search panel), `/resume` (AI recap of the channel → thread), `/prompt` (run a prompt → thread), `/translate` (live English-translation typeahead, source auto-detected). |
+| **Slash commands**  | In the chat composer: `/search` (personal fused search panel), `/summary` (AI recap of the channel in a personal panel, postable to the channel), `/prompt` (run a prompt → thread), `/translate` (live English-translation typeahead, source auto-detected). |
 | **AI assistant**    | Optional (`AI_ENABLED`). Per-community ChatGPT-style Agent: persistent threads + history, streaming answers (100 ms morph cadence), vision/image input, multiple named agents (provider/model/system-prompt each), in-thread model switch, resumable streams, `$`-reference autocomplete, share-thread-to-channel. Tool layer: internal full-text + `rag_search` + DB tools (list/get issues) + connectable MCP servers. Backed by your own Ollama. |
 | **Search**          | Fused search over chat, forum, projects, issues, discussions, and shared AI threads. SQLite **FTS5** (synchronous, trigger-maintained) + optional **semantic vector** index (RAG, `RAG_ENABLED`) merged by Reciprocal Rank Fusion; every hit resolves to a deep link. Page at `/search`, the `/search` chat slash command, and share-result-to-channel. |
 | **Email ingest**    | Optional (`MAILBOX_ENABLED`). Read-only IMAP poll worker; per-community filters route matched mail into a global `/inbox`, attachments indexed metadata-only (bytes fetched on demand), optional auto-create of project issues from matched mail. |
@@ -231,14 +231,15 @@ optional and degrade to silent no-ops when their backing feature is disabled.
 | Command       | Backed by        | What it does                                                                                                  |
 |---------------|------------------|--------------------------------------------------------------------------------------------------------------|
 | `/search <q>` | FTS5 + RAG       | Runs a fused full-text + semantic search and shows results in an **ephemeral panel visible only to you** (not posted). A result can then be shared to the channel. |
-| `/resume`     | AI agent         | Summarises the channel's recent history (~last 300 messages) with an agent in a public agent thread, then posts the recap back into the channel. |
+| `/summary`    | AI agent         | Summarises the channel's recent history (~last 300 messages) with an agent in a public agent thread, then shows the recap in an **ephemeral panel visible only to you** (not posted). You can post it to the channel from the panel. |
 | `/prompt <p>` | AI agent         | Runs a free-form prompt through an agent in a new public thread and posts the result (+ a link to the thread) back to the channel. |
 | `/translate <text>` | Ollama     | Interactive composer typeahead: a popup offers up to 3 English translations (source language auto-detected) that you send as yourself. 150 ms debounced. |
 
-`/resume`, `/prompt`, and `/translate` are wired as closures in `main.go` so the
+`/summary`, `/prompt`, and `/translate` are wired as closures in `main.go` so the
 chat package bridges to the agent/translate packages without an import cycle.
-`/search` and `/resume` / `/prompt` differ in visibility: search results are
-personal; resume/prompt outputs are posted for everyone.
+`/search` / `/summary` and `/prompt` differ in visibility: search and summary
+results are personal until you choose to share them; prompt output is posted for
+everyone.
 
 ---
 

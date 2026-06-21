@@ -739,12 +739,13 @@ func run() error {
 		return out
 	}
 
-	// Wire the /resume chat slash command: summarise the channel's last 300
-	// messages with an agent (in a public agent thread) and post the recap
-	// back. Closure bridges chat → agent → chat without an import cycle. Only
+	// Wire the /summary chat slash command: summarise the channel's last 300
+	// messages with an agent (in a public agent thread) and return the recap
+	// for the requester's ephemeral panel; PublishSummary posts it back on
+	// demand. Closures bridge chat → agent → chat without an import cycle. Only
 	// when the Agent feature is on.
 	if cfg.AIEnabled {
-		// relaySlash mirrors slash-command output (/resume, /prompt results) to
+		// relaySlash mirrors slash-command output (/summary, /prompt results) to
 		// any matching outbound webhooks. These are KindSystem messages, so the
 		// normal user-send relay path (chat handler) skips them — relay here
 		// explicitly so external integrations hear agent answers too. Never
@@ -759,41 +760,25 @@ func run() error {
 			}
 			chatHandler.RelayOut(communityID, channelID, label, body, chName)
 		}
-		chatHandler.Resume = func(ctx context.Context, communityID, channelID, requesterID, requesterName string) {
+		chatHandler.Summary = func(ctx context.Context, communityID, channelID, requesterID, requesterName string) chat.SummaryResult {
 			ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 			defer cancel()
 
-			// Posts the recap as a system ("yellow") message into the channel,
-			// authored by no one — not the requester.
-			post := func(body string) {
-				if _, err := chatSvc.PostSystemMarkdown(ctx, communityID, channelID, body); err != nil {
-					log.Warn("resume: post back", "err", err)
-					return
-				}
-				chatBus.Broadcast(channelID)
-				chatNewMsgBus.Broadcast(channelID)
-				if nc != nil && nc.IsConnected() {
-					_ = nc.Publish(natsx.ChatSubject(communityID), []byte(channelID))
-					_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
-				}
-				relaySlash(ctx, communityID, channelID, "/resume", body)
-			}
+			fail := func(msg string) chat.SummaryResult { return chat.SummaryResult{Err: msg} }
 
 			agents, _ := agentRepo.ListEnabledAgents(ctx, communityID)
 			if len(agents) == 0 {
-				post("🤖 No AI agent is enabled — an admin can add one in Admin → AI.")
-				return
+				return fail("No AI agent is enabled — an admin can add one in Admin → AI.")
 			}
-			// Use the agent the admin marked for /resume; fall back to the
+			// Use the agent the admin marked for summaries; fall back to the
 			// first enabled one when none is marked.
 			sumAgent := agents[0]
 			if a, err := agentRepo.SummarizerAgent(ctx, communityID); err == nil {
 				sumAgent = a
 			}
-			convo := formatChatForResume(chatRepo, ctx, channelID)
+			convo := formatChatForSummary(chatRepo, ctx, channelID)
 			if strings.TrimSpace(convo) == "" {
-				post("🤖 Nothing to resume yet.")
-				return
+				return fail("Nothing to summarise yet.")
 			}
 			chName := "this channel"
 			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
@@ -809,22 +794,65 @@ func run() error {
 					prompt += "\n\nThe channel's most recent images are attached — fold anything notable in them into the recap."
 				}
 			}
-			threadID, answer, err := agentHandler.Svc.SummarizeToThread(ctx, communityID, requesterID, sumAgent, "Resume of "+chName, prompt, images)
+			threadID, answer, err := agentHandler.Svc.SummarizeToThread(ctx, communityID, requesterID, sumAgent, "Summary of "+chName, prompt, images)
 			if err != nil || strings.TrimSpace(answer) == "" {
-				log.Warn("resume: generate", "err", err)
-				post("🤖 Couldn't generate a resume right now.")
-				return
+				log.Warn("summary: generate", "err", err)
+				return fail("Couldn't generate a summary right now.")
+			}
+			bodyHTML, _ := render.RenderMarkdown(answer)
+			threadURL := ""
+			if c, err := cRepo.ByID(ctx, communityID); err == nil && threadID != "" {
+				threadURL = "/c/" + c.Slug + "/agent/" + threadID
+			}
+			return chat.SummaryResult{ThreadID: threadID, BodyHTML: bodyHTML, ThreadURL: threadURL}
+		}
+		// PublishSummary posts a generated /summary into the channel as a system
+		// ("yellow") message everyone sees. The answer is re-read from its agent
+		// thread server-side — after confirming the thread is this community's
+		// and belongs to the requester — so the client only supplies the id.
+		chatHandler.PublishSummary = func(ctx context.Context, communityID, channelID, threadID, requesterID, requesterName string) bool {
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+
+			t, err := agentRepo.ThreadByID(ctx, threadID)
+			if err != nil || t.CommunityID != communityID || t.UserID != requesterID {
+				return false
+			}
+			msgs, err := agentRepo.Messages(ctx, threadID)
+			if err != nil {
+				return false
+			}
+			answer := ""
+			for _, m := range msgs {
+				if m.Role == agent.RoleAssistant && m.Status == agent.StatusDone && strings.TrimSpace(m.BodyMD) != "" {
+					answer = strings.TrimSpace(m.BodyMD)
+				}
+			}
+			if answer == "" {
+				return false
 			}
 			// Build the header (with the thread link) FIRST, then the answer.
 			// The link must precede the answer: an LLM reply can end with a
 			// dangling/unclosed code fence that would otherwise swallow a
 			// trailing link and render it as a literal URL.
-			header := "🤖 **Resume of the last 300 messages** _(requested by " + requesterName + ")_"
-			if c, err := cRepo.ByID(ctx, communityID); err == nil && threadID != "" {
+			header := "🤖 **Channel summary** _(shared by " + requesterName + ")_"
+			if c, err := cRepo.ByID(ctx, communityID); err == nil {
 				base := strings.TrimRight(cfg.BaseURL, "/")
 				header += " · [↗ View in Agent thread](" + base + "/c/" + c.Slug + "/agent/" + threadID + ")"
 			}
-			post(header + "\n\n" + answer)
+			body := header + "\n\n" + answer
+			if _, err := chatSvc.PostSystemMarkdown(ctx, communityID, channelID, body); err != nil {
+				log.Warn("summary: publish", "err", err)
+				return false
+			}
+			chatBus.Broadcast(channelID)
+			chatNewMsgBus.Broadcast(channelID)
+			if nc != nil && nc.IsConnected() {
+				_ = nc.Publish(natsx.ChatSubject(communityID), []byte(channelID))
+				_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+			}
+			relaySlash(ctx, communityID, channelID, "/summary", body)
+			return true
 		}
 		// /prompt <text> — run a free-form prompt through an agent in a new
 		// public thread and post the answer + link back to the channel.
@@ -1116,6 +1144,7 @@ func run() error {
 		r.Get("/chat/{channel}/stream", chatHandler.GetStream)
 		r.Post("/chat/{channel}/send", chatHandler.PostSend)
 		r.Post("/chat/{channel}/search/publish", chatHandler.PostSearchPublish)
+		r.Post("/chat/{channel}/summary/publish", chatHandler.PostSummaryPublish)
 		r.Post("/chat/{channel}/read", chatHandler.PostMarkRead)
 		r.Post("/block", chatHandler.PostBlock)
 		r.Post("/unblock", chatHandler.PostUnblock)
@@ -1623,10 +1652,10 @@ func capRefContent(s string) string {
 	return s
 }
 
-// formatChatForResume renders a channel's most recent messages oldest-first as
-// "Name: text" lines for the /resume agent prompt. Caps the length so the
+// formatChatForSummary renders a channel's most recent messages oldest-first as
+// "Name: text" lines for the /summary agent prompt. Caps the length so the
 // prompt stays within model context, keeping the most recent messages.
-func formatChatForResume(repo *chat.Repo, ctx context.Context, channelID string) string {
+func formatChatForSummary(repo *chat.Repo, ctx context.Context, channelID string) string {
 	msgs, err := repo.Recent(ctx, channelID, 300)
 	if err != nil {
 		return ""

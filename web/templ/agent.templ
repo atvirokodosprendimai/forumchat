@@ -629,7 +629,7 @@ templ AgentCard(slug string, a AgentAdminView) {
 					<span class="agent-badge">🔧 tools</span>
 				}
 				if a.IsSummarizer {
-					<span class="agent-badge">📝 /resume</span>
+					<span class="agent-badge">📝 /summary</span>
 				}
 			</div>
 		</div>
@@ -684,7 +684,7 @@ templ AgentAdminForm(slug string, a AgentAdminView, status string) {
 		</label>
 		<label class="agent-config-toggle">
 			<input type="checkbox" data-bind="ai_summarizer"/>
-			<span>Use for /resume channel summaries (one per community — combine with vision to summarise images too)</span>
+			<span>Use for /summary channel summaries (one per community — combine with vision to summarise images too)</span>
 		</label>
 		<label>
 			<span>API key <span class="muted">(hosted providers; blank for Ollama)</span></span>

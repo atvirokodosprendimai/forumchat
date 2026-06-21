@@ -1065,7 +1065,7 @@ func (s *Service) Forward(ctx context.Context, in ForwardInput) (Message, error)
 // PostSystem inserts a system / thread_announce message (no author).
 // PostSystemMarkdown renders bodyMarkdown and inserts it as a system ("yellow")
 // message into a SPECIFIC channel (PostSystem always lands in #general). Used by
-// the /resume slash command to post the agent's recap back into the channel it
+// the /summary slash command to post the agent's recap back into the channel it
 // was run in, authored by no one.
 func (s *Service) PostSystemMarkdown(ctx context.Context, communityID, channelID, bodyMarkdown string) (Message, error) {
 	html, err := render.RenderMarkdown(bodyMarkdown)

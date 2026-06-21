@@ -84,7 +84,7 @@ func (r *Repo) AgentByID(ctx context.Context, id string) (Agent, error) {
 }
 
 // SummarizerAgent returns the enabled agent a community marked to handle the
-// chat /resume channel summary. ErrNotFound when none is marked (or the marked
+// chat /summary channel summary. ErrNotFound when none is marked (or the marked
 // one is disabled) — callers fall back to the first enabled agent.
 func (r *Repo) SummarizerAgent(ctx context.Context, communityID string) (Agent, error) {
 	a, err := scanAgent(r.DB.QueryRowContext(ctx, `SELECT `+agentCols+`

@@ -157,8 +157,8 @@ func (s *Service) Regenerate(ctx context.Context, threadID string) (assistantID 
 
 // SummarizeToThread creates a SHARED agent thread seeded with prompt, runs the
 // agent to completion SYNCHRONOUSLY (no streaming runner), stores the answer,
-// and returns the thread id + answer text. Used by the chat /resume slash
-// command — the caller posts the answer back into the channel. images is the
+// and returns the thread id + answer text. Used by the chat /summary slash
+// command — the caller shows the answer in a panel and may post it. images is the
 // set of base64-encoded image payloads the caller collected from the channel
 // for a vision agent; pass nil for a text-only summary (the runner strips them
 // from a non-vision agent's request anyway, but the caller already gates on

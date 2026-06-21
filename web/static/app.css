@@ -4487,6 +4487,15 @@ button.ghost.danger { color: var(--danger); }
 }
 .cs-more { display: inline-block; margin-top: .4rem; font-size: .8rem; color: oklch(40% 0.12 150); }
 
+/* /summary recap body — rendered markdown inside the ephemeral panel */
+.cs-summary-body { font-size: .88rem; line-height: 1.5; color: var(--fg); max-height: 18rem; overflow-y: auto; overflow-wrap: anywhere; }
+.cs-summary-body > :first-child { margin-top: 0; }
+.cs-summary-body > :last-child { margin-bottom: 0; }
+.cs-summary-body ul, .cs-summary-body ol { margin: .25rem 0; padding-left: 1.2rem; }
+.cs-summary-body li { margin: .1rem 0; }
+.cs-summary-body p { margin: .35rem 0; }
+.cs-summary-body pre { overflow-x: auto; }
+
 /* Shared-to-channel search results (system message body) */
 .chat-search-shared { margin: .35rem 0 0; padding-left: 1.1rem; }
 .chat-search-shared li { margin: .1rem 0; }

@@ -48,7 +48,7 @@ type Handler struct {
 	// RelayOut, if non-nil, fires-and-forgets a chat message to any matching
 	// outbound webhooks. Wired in main.go to webhooks.Relay.Dispatch so this
 	// package doesn't import webhooks. The normal user-send path calls it here;
-	// slash-command output (/resume, /prompt) relays separately from main.go.
+	// slash-command output (/summary, /prompt) relays separately from main.go.
 	// KindWebhook bot posts are never passed in — no echo loop.
 	RelayOut func(communityID, channelID, authorName, bodyMD, channelName string)
 	// ListProjects, if non-nil, returns the active projects in the
@@ -57,19 +57,27 @@ type Handler struct {
 	// nil → no projects → mod button rendered but the dropdown is
 	// empty (which is fine — modal Save is gated on a non-empty pick).
 	ListProjects func(ctx context.Context, communityID string) []webtempl.ChatProjectView
-	// Resume runs the /resume slash command: summarise the channel's recent
-	// history with an agent (in a public agent thread) and post the result back
-	// into the channel. Wired in main.go to bridge chat → agent → chat without
-	// an import cycle. Fire-and-forget (handles its own errors/posting). nil
-	// when the Agent feature is disabled — the command is then ignored.
-	Resume func(ctx context.Context, communityID, channelID, requesterID, requesterName string)
+	// Summary runs the /summary slash command: summarise the channel's recent
+	// history with an agent (in a public agent thread) and RETURN the recap for
+	// an ephemeral panel shown only to the requester — like /search, it is NOT
+	// posted to the channel. The user may then publish it with PublishSummary.
+	// Wired in main.go to bridge chat → agent → chat without an import cycle.
+	// nil when the Agent feature is disabled — the command is then ignored.
+	Summary func(ctx context.Context, communityID, channelID, requesterID, requesterName string) SummaryResult
+	// PublishSummary posts a previously-generated /summary into the channel as a
+	// system message everyone sees. The summary is identified by its agent
+	// thread id; the answer is re-read server-side from that thread (after
+	// confirming it belongs to the requester) so the client can't inject
+	// content. Returns false when nothing was posted. Wired in main.go; nil
+	// when the Agent feature is disabled.
+	PublishSummary func(ctx context.Context, communityID, channelID, threadID, requesterID, requesterName string) bool
 	// Prompt runs the /prompt slash command: run a free-form prompt through an
 	// agent in a new public thread and post the result (+ thread link) back to
 	// the channel. Wired in main.go; nil when AI is disabled.
 	Prompt func(ctx context.Context, communityID, channelID, requesterID, requesterName, prompt string)
 	// Search runs the /search slash command: fused full-text + semantic search,
 	// returning up to limit result views for the sender's ephemeral panel. Unlike
-	// /resume and /prompt it is NOT posted to the channel — results are personal,
+	// /summary and /prompt it is NOT posted to the channel — results are personal,
 	// shown only to the sender. Wired in main.go; nil when search is unavailable.
 	Search func(ctx context.Context, communityID, slug, query string, limit int) []webtempl.SearchResultView
 	// Translate powers the interactive /translate composer typeahead: given the
@@ -99,6 +107,17 @@ type Handler struct {
 // *presence.Tracker.Bump. Optional — nil-safe.
 type RosterNotifier interface {
 	Bump(communityID string)
+}
+
+// SummaryResult is the outcome of the /summary slash command: a channel recap
+// generated into a (shared) agent thread and returned for the requester's
+// ephemeral panel rather than posted. Publish it later via PublishSummary using
+// ThreadID. On failure Err carries a user-facing message and ThreadID is empty.
+type SummaryResult struct {
+	ThreadID  string // agent thread holding the answer; "" on error
+	BodyHTML  string // rendered summary markdown, for the panel
+	ThreadURL string // relative deep link to the agent thread, "" if none
+	Err       string // non-empty → render as the panel's error text
 }
 
 const PasteImageMaxBytes = 1 << 20 // 1 MiB
@@ -432,6 +451,46 @@ func (h *Handler) PostSearchPublish(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// PostSummaryPublish posts a previously-generated /summary into the channel as a
+// system message everyone sees. The summary is identified by the
+// `summary_thread_id` signal and re-read server-side from its agent thread (so
+// the client can't inject content); PublishSummary verifies ownership. The
+// sender's ephemeral panel is then cleared and the channel re-rendered.
+func (h *Handler) PostSummaryPublish(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok || h.PublishSummary == nil {
+		return
+	}
+	var in struct {
+		ThreadID string `json:"summary_thread_id"`
+	}
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	threadID := strings.TrimSpace(in.ThreadID)
+	if threadID == "" {
+		return
+	}
+	ch, err := h.activeChannel(r.Context(), channelSlug(r))
+	if err != nil || ch.IsArchived() {
+		return
+	}
+	if !h.PublishSummary(r.Context(), h.cid(r.Context()), ch.ID, threadID, id.User.ID, id.Membership.DisplayName) {
+		return
+	}
+
+	sse := render.NewSSE(w, r)
+	// Clear the ephemeral panel + its stashed thread id, then re-render the
+	// channel so the published summary appears for the sender too (the chat
+	// stream is torn down by this @post — same as a normal send).
+	_ = sse.PatchSignals([]byte(`{"summary_thread_id":""}`))
+	_ = sse.ExecuteScript(`const w=document.querySelector('#chat-search'); if(w){w.className='';w.replaceChildren();}`)
+	if msgs, err := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); err == nil {
+		_ = fatMorph(sse, msgs, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
+	}
+}
+
 // publishSearchHTML renders a system-message body as TRUSTED HTML: a header
 // crediting the sharer plus one real anchor per result. We build HTML directly
 // (not markdown) because the user-markdown pipeline's "no hidden URLs" rewrite
@@ -756,31 +815,16 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	if ch.IsArchived() {
 		return // archived channels are read-only
 	}
-	// Slash commands. /resume summarises the channel's recent history with an
-	// agent and posts the result back — handled out-of-band, NOT stored as a
-	// chat message. Only when the Agent feature wired the bridge.
-	if h.Resume != nil && isSlashCommand(body, "resume") {
-		cid := h.cid(r.Context())
-		chID := ch.ID
-		rid := id.User.ID
-		rname := id.Membership.DisplayName
+	// Slash commands. /summary summarises the channel's recent history with an
+	// agent and shows the recap in an ephemeral panel for the SENDER only (like
+	// /search) — it is NOT stored or broadcast. The user may publish it to the
+	// channel from the panel. Only when the Agent feature wired the bridge. The
+	// generation runs on the request context: if the sender navigates away it
+	// cancels (the recap would have nowhere to render anyway).
+	if h.Summary != nil && isSlashCommand(body, "summary") {
 		_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
-		// Run detached (context.Background) so it still posts + broadcasts to
-		// other viewers even if the client disconnects, but wait here to
-		// re-render the channel for the SENDER through THIS response. datastar
-		// tears the persistent chat stream down on a post, so — exactly like a
-		// normal send — the sender's own view must come back via the @post, not
-		// the stream (which won't be alive when the async recap lands).
-		done := make(chan struct{})
-		go func() { h.Resume(context.Background(), cid, chID, rid, rname); close(done) }()
-		select {
-		case <-done:
-		case <-r.Context().Done():
-			return
-		}
-		if views, err := h.loadRecentFor(r.Context(), chID, rid); err == nil {
-			_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), rid, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
-		}
+		res := h.Summary(r.Context(), h.cid(r.Context()), ch.ID, id.User.ID, id.Membership.DisplayName)
+		_ = sse.PatchElementTempl(webtempl.ChatSummaryPanel(h.cslug(r.Context()), ch.Slug, res.ThreadID, res.BodyHTML, res.ThreadURL, res.Err))
 		return
 	}
 	// /prompt <text> — run a free-form prompt through an agent in a new public
