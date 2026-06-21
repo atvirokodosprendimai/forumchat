@@ -159,3 +159,5 @@
 - 2026-06-20 `c6792ef` fix(rooms): device-picker popover would not hide
 - 2026-06-21 `b130723` feat(webhooks): inbound bot messages + outbound chat relay
 - 2026-06-21 `eccb092` docs(webhooks): add examples/ with maubot + integration configs
+- 2026-06-21 `3780746` chore(changelog): log webhooks examples commit
+- 2026-06-21 `1c0df0a` docs(readme): document webhooks + global read-only chat
