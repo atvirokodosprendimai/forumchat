@@ -1,0 +1,44 @@
+# maubot-webhook plugin instance config — forwards forumchat OUTBOUND webhooks
+# into a Matrix room (forumchat chat  ->  Matrix).
+#
+# Plugin:  https://github.com/jkhsjdhjs/maubot-webhook   (incoming HTTP -> Matrix room)
+# Pairs with: a forumchat OUTBOUND webhook (provider: generic) whose target_url
+# points at this plugin instance's endpoint:
+#
+#   https://<your-maubot-host>/_matrix/maubot/plugin/<instance-id>/forumchat
+#
+# forumchat's generic outbound payload (what arrives here) is:
+#   {"community":"<id>","channel":"general","author":"alice","body_md":"hello","created_at":"2026-..."}
+
+# HTTP endpoint this instance listens on (appended to the maubot plugin base path).
+path: /forumchat
+method: POST
+# Parse the body as JSON even if the Content-Type weren't application/json.
+force_json: true
+
+# Target Matrix room. Copy the internal room ID from your Matrix client
+# (Room settings -> Advanced -> Internal room ID).
+room: "!yourRoomId:example.org"
+
+# Auth: forumchat's outbound relay sends NO auth header in v1 (only
+# Content-Type). So leave auth disabled and rely on the unguessable endpoint id
+# (and/or a reverse proxy that injects a header). Do NOT set auth_token here, or
+# every delivery will be rejected.
+auth_type: null
+auth_token: null
+
+# Render author + channel + the original markdown body. body_md is already
+# markdown, so message_format: markdown passes it through rendered.
+message: "**{{ json.author }}** in #{{ json.channel }}: {{ json.body_md }}"
+message_format: markdown
+message_type: m.text
+
+# If a field is missing and the template renders empty, don't post a blank line.
+ignore_empty_messages: true
+
+# --- Alternative: consume a slack/discord-shaped forumchat webhook ----------
+# If you instead create the forumchat outbound webhook with provider: slack
+# (or discord), the payload is just {"text": "[#channel] author: body"}.
+# Then use:
+#   message: "{{ json.text }}"
+#   message_format: markdown
