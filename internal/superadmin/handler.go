@@ -22,6 +22,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
@@ -60,6 +61,10 @@ type Handler struct {
 	// Chat fans an announcement into every community's #general live. Wired in
 	// main.go to *chat.Handler. Nil-safe — the broadcast card errors cleanly.
 	Chat ChatBroadcaster
+	// Debug is the platform-wide debug recorder behind the in-memory on/off
+	// switch the dashboard exposes. Nil-safe (its methods guard a nil receiver),
+	// so the debug card simply shows "off" when unwired.
+	Debug *debuglog.Recorder
 }
 
 var slugRE = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -95,10 +100,13 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load users: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	debugCount, _ := h.Debug.Count(r.Context())
 	data := webtempl.SuperAdminPageData{
-		Viewer:      h.viewer(r),
-		Communities: toSACommunities(comms),
-		Users:       toSAUsers(users),
+		Viewer:       h.viewer(r),
+		Communities:  toSACommunities(comms),
+		Users:        toSAUsers(users),
+		DebugEnabled: h.Debug.Enabled(),
+		DebugCount:   debugCount,
 	}
 	_ = webtempl.SuperAdminPage(data).Render(r.Context(), w)
 }
@@ -766,4 +774,64 @@ func (h *Handler) audit(r *http.Request, msg string, kv ...any) {
 		actor = id.User.Email
 	}
 	h.Log.Warn(msg, append([]any{"actor", actor}, kv...)...)
+}
+
+// ----- Debug log (in-memory switch + DB capture) ----------------------------
+
+// PostDebugToggle flips the in-memory debug-recording switch from the ?on=1|0
+// query param and morphs the shared #sa-debug-card so the new state shows live
+// on whichever surface fired it (dashboard or the debug page).
+func (h *Handler) PostDebugToggle(w http.ResponseWriter, r *http.Request) {
+	on := r.URL.Query().Get("on") == "1"
+	h.Debug.SetEnabled(on)
+	h.audit(r, "super-admin toggled debug recording", "enabled", on)
+	count, _ := h.Debug.Count(r.Context())
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.SADebugCard(h.Debug.Enabled(), count))
+}
+
+// GetDebug renders the platform debug-log viewer: the on/off card plus the
+// captured payloads, newest first.
+func (h *Handler) GetDebug(w http.ResponseWriter, r *http.Request) {
+	entries, err := h.Debug.List(r.Context())
+	if err != nil {
+		http.Error(w, "load debug log: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	data := webtempl.SADebugPageData{
+		Viewer:  h.viewer(r),
+		Enabled: h.Debug.Enabled(),
+		Count:   len(entries),
+		Entries: toSADebugEntries(entries),
+	}
+	_ = webtempl.SADebugPage(data).Render(r.Context(), w)
+}
+
+// PostDebugClear deletes every captured entry and re-renders the (now empty)
+// list plus the card count. The switch itself is left as-is.
+func (h *Handler) PostDebugClear(w http.ResponseWriter, r *http.Request) {
+	sse := render.NewSSE(w, r)
+	if err := h.Debug.Clear(r.Context()); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-debug-list", "Clear failed: "+err.Error()))
+		return
+	}
+	h.audit(r, "super-admin cleared debug log")
+	_ = sse.PatchElementTempl(webtempl.SADebugCard(h.Debug.Enabled(), 0))
+	_ = sse.PatchElementTempl(webtempl.SADebugList(nil))
+}
+
+func toSADebugEntries(in []debuglog.Entry) []webtempl.SADebugEntry {
+	out := make([]webtempl.SADebugEntry, 0, len(in))
+	for _, e := range in {
+		out = append(out, webtempl.SADebugEntry{
+			ID:        e.ID,
+			CreatedAt: e.CreatedAt.Local().Format("Jan 2 15:04:05"),
+			Source:    e.Source,
+			Event:     e.Event,
+			Summary:   e.Summary,
+			Payload:   e.Payload,
+			Meta:      e.Meta,
+		})
+	}
+	return out
 }

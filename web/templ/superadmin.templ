@@ -38,9 +38,29 @@ type SAUserMembership struct {
 }
 
 type SuperAdminPageData struct {
-	Viewer      Viewer
-	Communities []SACommunity
-	Users       []SAUser
+	Viewer       Viewer
+	Communities  []SACommunity
+	Users        []SAUser
+	DebugEnabled bool
+	DebugCount   int
+}
+
+// SADebugEntry is one captured payload in the platform debug log viewer.
+type SADebugEntry struct {
+	ID        string
+	CreatedAt string // formatted timestamp
+	Source    string // 'webhook'
+	Event     string // 'inbound' | 'outbound'
+	Summary   string // short human label
+	Payload   string // raw body (possibly truncated)
+	Meta      string // JSON context blob, "" when none
+}
+
+type SADebugPageData struct {
+	Viewer  Viewer
+	Enabled bool
+	Count   int
+	Entries []SADebugEntry
 }
 
 // SAChatRow is one message in the platform super-admin's cross-community
@@ -145,6 +165,8 @@ templ SuperAdminPage(data SuperAdminPageData) {
 			</div>
 			<div id="sa-cc-error"></div>
 		</section>
+
+		@SADebugCard(data.DebugEnabled, data.DebugCount)
 
 		if RAGEnabled {
 			<section class="card">
@@ -329,6 +351,74 @@ templ SAReindexResult(msg string) {
 // so PostBroadcast patches the result in place.
 templ SABroadcastResult(msg string) {
 	<div id="sa-broadcast-result"><p class="muted">{ msg }</p></div>
+}
+
+// SADebugCard is the shared on/off control for platform debug recording. It
+// carries the stable id #sa-debug-card so PostDebugToggle / PostDebugClear can
+// morph it in place on EITHER surface it appears on (the dashboard and the
+// debug-log page header) — the same idempotent stable-id morph pattern (§4.7).
+// The switch is in-memory only; the note spells out that it resets on restart.
+templ SADebugCard(enabled bool, count int) {
+	<section id="sa-debug-card" class="card">
+		<h2>🐞 Debug recording</h2>
+		<p class="muted">Captures raw integration payloads (webhook inbound + outbound) into a platform log for debugging. <strong>Off by default and stored in memory only</strong> — it resets to off whenever the server restarts. Turn it on, reproduce the issue, inspect the payloads, then turn it off.</p>
+		<div class="form-row sa-debug-toggle">
+			if enabled {
+				<span class="role-pill active">● Recording</span>
+				<button class="ghost danger" data-on:click="@post('/superadmin/debug/toggle?on=0')">Turn off</button>
+			} else {
+				<span class="muted">○ Off</span>
+				<button data-on:click="@post('/superadmin/debug/toggle?on=1')">Turn on</button>
+			}
+			<a class="ghost" href="/superadmin/debug">View log ({ itoa(count) }) →</a>
+		</div>
+	</section>
+}
+
+// SADebugPage is the captured-payload viewer: the same on/off card (so the
+// admin can toggle without leaving the page) plus the newest-first list. The
+// list is the stable morph target #sa-debug-list for the Clear action.
+templ SADebugPage(data SADebugPageData) {
+	@Layout("Debug log", data.Viewer) {
+		<section class="card">
+			<h1>🐞 Debug log</h1>
+			<p class="muted">Raw integration payloads captured while recording was on. Newest first, latest 300. <a href="/superadmin">← back to platform admin</a></p>
+		</section>
+		@SADebugCard(data.Enabled, data.Count)
+		<section class="card">
+			<div class="form-row">
+				<h2>Captured payloads ({ itoa(data.Count) })</h2>
+				if data.Count > 0 {
+					<button class="ghost danger" data-on:click="if(confirm('Delete all captured debug payloads?')){@post('/superadmin/debug/clear')}">Clear all</button>
+				}
+			</div>
+			@SADebugList(data.Entries)
+		</section>
+	}
+}
+
+// SADebugList renders the captured payloads. Stable id #sa-debug-list so
+// PostDebugClear morphs it to empty in place.
+templ SADebugList(entries []SADebugEntry) {
+	<div id="sa-debug-list" class="sa-debug-list">
+		if len(entries) == 0 {
+			<p class="muted">Nothing captured. Turn recording on, then trigger a webhook.</p>
+		} else {
+			for _, e := range entries {
+				<details class="sa-debug-entry">
+					<summary>
+						<span class={ "sa-debug-event sa-debug-event-" + e.Event }>{ e.Event }</span>
+						<span class="sa-debug-summary">{ e.Summary }</span>
+						<span class="sa-debug-time muted">{ e.CreatedAt }</span>
+					</summary>
+					if e.Meta != "" {
+						<pre class="sa-debug-meta">{ e.Meta }</pre>
+					}
+					<pre class="sa-debug-payload">{ e.Payload }</pre>
+				</details>
+			}
+		}
+	</div>
 }
 
 // SAUserMemberships is the lazy-loaded drill-down for one platform user: the

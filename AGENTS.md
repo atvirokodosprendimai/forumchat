@@ -600,6 +600,19 @@ allowlist that grants god-mode across every community:
   users). Per-community admin still happens in each community's own `/admin`;
   the super-admin just reaches it via bypass #2. A super-admin can't disable
   their own account.
+- **Debug recorder** (`internal/debuglog`, migration 00051): a platform-wide
+  capture of raw integration payloads for debugging, gated by an **in-memory**
+  `atomic.Bool` switch (off at boot, NOT persisted — resets to off on every
+  restart, by design for a debug toggle). `debuglog.Recorder.Record` is a
+  cheap no-op (and nil-safe) when off; when on it writes to `debug_logs`.
+  Webhooks capture into it: inbound raw body in `webhooks.Handler.PostInbound`
+  (before parse, so even rejected payloads show) + outbound JSON in
+  `webhooks.Relay.dispatch`. Webhooks depends on a local `DebugRecorder`
+  interface (consumer-side, §6b anti-pattern), not the concrete type. Surface:
+  the dashboard's `SADebugCard` (shared stable-id `#sa-debug-card`, idempotent
+  morph on toggle) + `/superadmin/debug` viewer (`GetDebug`) with a Clear
+  action. To capture from a new source later, hold the shared `*debuglog.Recorder`
+  and call `Record(ctx, source, event, summary, payload, meta)` — one line.
 - **Delete is destructive, NOT FK-safe.** Most community-owned tables declare
   `REFERENCES communities(id) ON DELETE CASCADE` (memberships, chat_messages,
   threads, channels, invites, rooms, projects, todos, bookmarks, mailbox …),

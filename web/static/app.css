@@ -4165,6 +4165,33 @@ button.ghost.danger { color: var(--danger); }
 
 .sa-broadcast-input { display: block; width: 100%; margin: .25rem 0 .6rem; resize: vertical; min-height: 4.5rem; }
 
+/* Platform debug recorder — toggle card + captured-payload viewer. */
+.sa-debug-toggle { align-items: center; gap: .6rem; }
+.sa-debug-toggle .role-pill.active { background: var(--danger); color: #fff; border-radius: var(--radius-pill); padding: .2rem .6rem; font-size: .78rem; font-weight: 600; }
+.sa-debug-toggle a.ghost { margin-left: auto; font-size: .85rem; }
+
+.sa-debug-list { display: flex; flex-direction: column; gap: .4rem; margin-top: .6rem; }
+.sa-debug-entry { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
+.sa-debug-entry > summary {
+	display: flex; align-items: center; gap: .55rem; cursor: pointer;
+	padding: .45rem .7rem; list-style: none; user-select: none;
+}
+.sa-debug-entry > summary::-webkit-details-marker { display: none; }
+.sa-debug-entry[open] > summary { border-bottom: 1px solid var(--border-subtle); background: var(--surface-alt); }
+.sa-debug-event {
+	font-family: var(--font-mono); font-size: .7rem; font-weight: 600; text-transform: uppercase;
+	letter-spacing: .03em; padding: .12rem .4rem; border-radius: var(--radius-sm); white-space: nowrap;
+}
+.sa-debug-event-inbound { background: var(--accent-soft); color: var(--accent-strong); }
+.sa-debug-event-outbound { background: var(--surface-2); color: var(--fg); }
+.sa-debug-summary { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
+.sa-debug-time { font-size: .75rem; white-space: nowrap; }
+.sa-debug-meta, .sa-debug-payload {
+	margin: 0; padding: .55rem .7rem; font-family: var(--font-mono); font-size: .78rem;
+	white-space: pre-wrap; word-break: break-word; overflow-x: auto;
+}
+.sa-debug-meta { color: var(--fg-muted); background: var(--surface-sunken); border-bottom: 1px solid var(--border-subtle); }
+
 /* ============================================================
    Time accounting — budget page (timebudget) + journal (worklog)
    ============================================================ */

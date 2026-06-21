@@ -22,6 +22,9 @@ type Relay struct {
 	// attachments are never included in the payload. Wired in main.go so this
 	// package stays decoupled from the uploads store.
 	ResolveAttachments func(ctx context.Context, uploadIDs []string) []OutboundAttachment
+	// Debug, if set, records each delivered outbound payload to the platform
+	// debug log when a super-admin has turned recording on. nil disables capture.
+	Debug DebugRecorder
 }
 
 // OutboundAttachment is one file attached to a relayed message, as carried in
@@ -107,6 +110,15 @@ func (r *Relay) dispatch(m OutboundMsg) {
 		for _, wh := range hooks {
 			payload := encodePayload(wh.Provider, m)
 			status := r.post(ctx, wh.TargetURL, payload)
+			if r.Debug != nil {
+				r.Debug.Record(ctx, "webhook", "outbound", wh.Provider+" → "+wh.TargetURL+" ["+status+"]", payload, map[string]string{
+					"provider":     wh.Provider,
+					"community_id": m.CommunityID,
+					"webhook_id":   wh.ID,
+					"target_url":   wh.TargetURL,
+					"status":       status,
+				})
+			}
 			if err := r.Repo.Stamp(ctx, wh.ID, status); err != nil {
 				r.Log.Warn("webhooks relay: stamp", "err", err)
 			}

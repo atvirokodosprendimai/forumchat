@@ -26,6 +26,14 @@ import (
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
+// DebugRecorder captures an integration payload for the super-admin debug log.
+// Implemented by *debuglog.Recorder, which no-ops unless recording is enabled,
+// so call sites need no guard beyond a nil check. Declared here (consumer side)
+// to keep webhooks decoupled from the debuglog package.
+type DebugRecorder interface {
+	Record(ctx context.Context, source, event, summary string, payload []byte, meta map[string]string)
+}
+
 // Handler serves the public inbound endpoint (/hooks/{token}) and the
 // per-community admin CRUD page (/c/{slug}/admin/webhooks).
 type Handler struct {
@@ -39,6 +47,10 @@ type Handler struct {
 	BaseURL       string
 	MaxBytes      int64
 	Log           *slog.Logger
+
+	// Debug, if set, records inbound payloads to the platform debug log when a
+	// super-admin has turned recording on. nil disables capture.
+	Debug DebugRecorder
 
 	// Uploads, if set, lets the inbound generic webhook accept media via
 	// multipart/form-data (a text field + file parts) — the bytes are stored
@@ -87,6 +99,18 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
 		return
+	}
+
+	// Capture the raw inbound body for debugging before any parsing/validation,
+	// so even a rejected payload is visible. No-op unless a super-admin enabled
+	// recording.
+	if h.Debug != nil {
+		h.Debug.Record(r.Context(), "webhook", "inbound", wh.Provider+" → "+wh.Name, body, map[string]string{
+			"provider":     wh.Provider,
+			"community_id": wh.CommunityID,
+			"webhook_id":   wh.ID,
+			"content_type": r.Header.Get("Content-Type"),
+		})
 	}
 
 	if wh.Secret != "" && wh.Provider == "github" {
@@ -190,6 +214,16 @@ func (h *Handler) postInboundMultipart(w http.ResponseWriter, r *http.Request, w
 			}
 			ids = append(ids, id)
 		}
+	}
+
+	if h.Debug != nil {
+		h.Debug.Record(r.Context(), "webhook", "inbound", wh.Provider+" (media) → "+wh.Name, []byte(text), map[string]string{
+			"provider":     wh.Provider,
+			"community_id": wh.CommunityID,
+			"webhook_id":   wh.ID,
+			"content_type": "multipart/form-data",
+			"attachments":  strconv.Itoa(len(ids)),
+		})
 	}
 
 	if text == "" && len(ids) == 0 {

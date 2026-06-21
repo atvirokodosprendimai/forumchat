@@ -34,6 +34,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
+	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
 	"github.com/atvirokodosprendimai/forumchat/internal/explore"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/history"
@@ -91,6 +92,11 @@ func run() error {
 			return err
 		}
 	}
+
+	// Platform debug recorder — in-memory on/off switch (off at boot), gates
+	// payload capture into debug_logs. Shared by webhooks (capture) and the
+	// super-admin surface (toggle + view + clear).
+	debugRec := debuglog.New(db, log)
 
 	cRepo := community.NewRepo(db)
 	bootCommunity, err := cRepo.BootstrapOrFetch(ctx, cfg.CommunitySlug, cfg.CommunityName)
@@ -843,8 +849,10 @@ func run() error {
 			MaxBytes:      cfg.WebhooksMaxBytes,
 			Log:           log,
 			Uploads:       uploadStore,
+			Debug:         debugRec,
 		}
 		relay := webhooks.NewRelay(whRepo, log)
+		relay.Debug = debugRec
 		// Resolve a message's upload IDs into fetchable outbound attachments:
 		// a shared-signed, session-less URL (served by uploads.GetFile) plus
 		// MIME + filename. Lets a generic-webhook consumer download images.
@@ -1630,7 +1638,7 @@ func run() error {
 
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
-	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log, Bus: chatHandler.Bus, ChatRepo: chatRepo, NATS: nc, Chat: chatHandler}
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log, Bus: chatHandler.Bus, ChatRepo: chatRepo, NATS: nc, Chat: chatHandler, Debug: debugRec}
 	if ragSvc != nil {
 		superHandler.RAG = ragSvc
 	}
@@ -1640,6 +1648,9 @@ func run() error {
 		r.Get("/superadmin", superHandler.GetIndex)
 		r.Get("/superadmin/chat", superHandler.GetChat)
 		r.Get("/superadmin/chat/stream", superHandler.GetChatStream)
+		r.Get("/superadmin/debug", superHandler.GetDebug)
+		r.Post("/superadmin/debug/toggle", superHandler.PostDebugToggle)
+		r.Post("/superadmin/debug/clear", superHandler.PostDebugClear)
 		r.Post("/superadmin/reindex", superHandler.PostReindexAll)
 		r.Post("/superadmin/broadcast", superHandler.PostBroadcast)
 		r.Post("/superadmin/community/create", superHandler.PostCreateCommunity)
