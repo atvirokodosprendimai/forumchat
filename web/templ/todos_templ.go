@@ -346,7 +346,11 @@ func TodosPage(d TodosPageData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</section>   ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = TodoDialog(d.Viewer.CommunitySlug).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -455,7 +459,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.ResolveAttributeValue("todo-" + t.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 91, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 95, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 		if templ_7745c5c3_Err != nil {
@@ -490,7 +494,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(todoStatusLabel(t.Status))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 92, Col: 74}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 96, Col: 74}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 		if templ_7745c5c3_Err != nil {
@@ -503,7 +507,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(t.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 93, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 97, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -521,7 +525,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(t.Category)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 95, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 99, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
@@ -540,7 +544,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 			var templ_7745c5c3_Var33 templ.SafeURL
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(todoBacklinkHref(slug, t)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 98, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 102, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
@@ -553,7 +557,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 			var templ_7745c5c3_Var34 string
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(todoBacklinkLabel(t))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 98, Col: 87}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 102, Col: 87}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
@@ -572,7 +576,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 			var templ_7745c5c3_Var35 string
 			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/todos/" + t.ID + "/status?next=doing')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 102, Col: 83}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 106, Col: 83}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 			if templ_7745c5c3_Err != nil {
@@ -590,7 +594,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 			var templ_7745c5c3_Var36 string
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/todos/" + t.ID + "/status?next=open')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 105, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 109, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 			if templ_7745c5c3_Err != nil {
@@ -609,7 +613,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/todos/" + t.ID + "/status?next=done')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 109, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 113, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 			if templ_7745c5c3_Err != nil {
@@ -627,7 +631,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 			var templ_7745c5c3_Var38 string
 			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/todos/" + t.ID + "/status?next=open')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 112, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 116, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 			if templ_7745c5c3_Err != nil {
@@ -645,7 +649,7 @@ func TodoRowView(slug string, t TodoRow) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/todos/" + t.ID + "/delete')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 115, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 119, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 		if templ_7745c5c3_Err != nil {
@@ -738,7 +742,7 @@ func TodoDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/todos')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 180, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/todos.templ`, Line: 184, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 		if templ_7745c5c3_Err != nil {

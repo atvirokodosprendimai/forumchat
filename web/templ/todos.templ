@@ -67,6 +67,10 @@ templ TodosPage(d TodosPageData) {
 
 			@TodosList(d.Viewer.CommunitySlug, d.Rows)
 		</section>
+		// The page-level dialog the "+ New todo" button (and any future
+		// triggers) drives via $todo_open_source. Without it mounted here the
+		// button sets the signal but nothing is in the DOM to show.
+		@TodoDialog(d.Viewer.CommunitySlug)
 	}
 }
 
