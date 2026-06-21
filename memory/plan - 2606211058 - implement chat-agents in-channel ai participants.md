@@ -54,30 +54,31 @@ lands in Phase 3.
 
 Goal: `@nick hi` (or `.nick hi`) in a bound channel makes nick stream a reply.
 
-1. [ ] `internal/chatagents/match.go`: pure `Match(agent, body) bool` honoring
-   `trigger_mode` (mention word-boundary / prefix lone-vs-`<prefix><name>` /
-   both / all). Table-tested.
-2. [ ] `internal/chatagents/dispatch.go`: `Dispatch(ctx, communityID, channelID, msg)`
-   — **no-op unless `msg.Kind == KindUser`** (loop guard); load agents bound to
-   the channel; for each match, kick a generation. One gen per `(agent, channel)`
-   via the runner `active` map key `chat:<channelID>:<agentID>` (drop if busy).
-3. [ ] `internal/chatagents/runner.go`: `buildChannelHistory` (last
-   `ChatAgentContextLimit`≈30 non-bot msgs via `chat.Repo.Recent`; bot's own
-   `bot_agent_id` msgs → assistant, others → user prefixed w/ display name;
-   system = `agent.system_prompt` + name preamble). Insert placeholder
-   `kind='bot'` row (`gen_status='generating'`), reuse `internal/agent` provider
-   + 100ms flush loop to rewrite `body_md` + broadcast channel id; `done` /
-   `interrupted` terminal states; Regenerate path.
-4. [ ] Wire `Dispatch` into `chat.Handler.PostSend` **after** the user message's
-   fan-out. Boot: extend the agent interrupt sweep to flip stranded `kind='bot'`
-   `gen_status='generating'` rows → `interrupted`.
-5. [ ] `cmd/app/main.go`: build the `chatagents` orchestrator when `AI_ENABLED`;
-   inject `chat.Service`/`Repo`/`Bus`, `agent` provider factory, NATS.
-6. [ ] Tests: `match_test.go` (matrix incl. loop-guard); `runner_test.go` with a
-   stub Ollama (mirror `agent_test.go`) → placeholder row → flush rewrites →
-   `done`; interrupt sweep flips a bot gen row.
-7. [ ] Verify: `AI_ENABLED=true`, seeded agent → `@nick hi` streams; `.nick hi`
-   same; plain message → silent; an inbound webhook post → silent (loop guard).
+1. [x] `internal/chatagents/match.go`: pure `Match(agent, body, multiPrefix)` —
+   mention (token mirror of `chat.parseMentions`) / prefix (lone bare vs
+   `<prefix><name>` when multiPrefix) / both / all. `countPrefixAgents` helper.
+2. [x] `internal/chatagents/dispatch.go`: `Dispatcher.Dispatch(ctx, cid, channelID, kind, body)`
+   — **no-op unless `kind == chat.KindUser`** (loop guard); `AgentSource` iface
+   (= `agent.Repo.AgentsForChannel`); computes `multiPrefix`; `Runner.Trigger` per match.
+3. [x] `internal/chatagents/runner.go`: `NewRunner(chatRepo, chatBus, nc, limit, log)`;
+   `Trigger` with `active map["channelID:agentID"]` (drop if busy); `run` builds
+   history (last 30 non-bot via `chat.Repo.Recent`; own bot→assistant, others→user
+   `name: body`; system = preamble + system_prompt), inserts placeholder
+   `kind='bot'` (`gen_status='generating'`), reuses `agent.NewProvider` (exported)
+   + 100ms ticker → `chat.Repo.UpdateBotBody` + broadcast; `done`/`interrupted`.
+   - => added `agent.NewProvider` (exported wrapper); `chat.Repo.UpdateBotBody` +
+     `MarkBotGeneratingInterrupted` + gen-status consts.
+4. [x] Wired `chatHandler.Dispatch` closure into `PostSend` (detached goroutine,
+   after `broadcastNewMsg`). Boot: `chatRepo.MarkBotGeneratingInterrupted` next to
+   the agent sweep.
+5. [x] `cmd/app/main.go`: built `chatagents.NewRunner` + `NewDispatcher(agentRepo, …)`
+   inside the `AIEnabled` block, wired `chatHandler.Dispatch`.
+6. [x] Tests: `match_test.go` (21-case matrix incl. multi-prefix disambiguation);
+   `runner_test.go` stub-Ollama → placeholder → flush → `done` (+ identity asserts);
+   interrupt-sweep flips a bot gen row. All green.
+7. [x] Verify: `go build ./...` + `go test ./...` green. Loop guard verified by
+   construction (Dispatch is only called from the user-send path + guards on kind).
+   (Live `@nick` HTTP smoke needs a real Ollama — covered by the stub end-to-end test.)
 
 ## Phase 3 — admin form + cache invalidation
 
@@ -123,3 +124,10 @@ runner stub-Ollama, identity/render, roster, E2E smoke).
   under `AI_ENABLED=true`. Deviation logged: roster/mention are community-wide (not
   channel-scoped) for consistency with the existing community-wide member roster.
   Next: Phase 2 (matcher + dispatch + streaming generation + loop guard).
+- 2606211140 — **Phase 2 complete.** New `internal/chatagents` seam: pure matcher
+  (table-tested), `Dispatcher` with the kind=='user' loop guard, and a streaming
+  `Runner` that reuses `agent.NewProvider` + a 100ms flush into a `kind='bot'`
+  bubble. Wired into `PostSend` (detached) + boot interrupt sweep. Added exported
+  `agent.NewProvider`, `chat.Repo.UpdateBotBody` / `MarkBotGeneratingInterrupted`.
+  Tests: matcher matrix + stub-Ollama runner end-to-end + sweep — all green;
+  `go build ./...` + `go test ./...` clean. Next: Phase 3 (admin form + cache invalidation).

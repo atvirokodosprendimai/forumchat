@@ -31,6 +31,13 @@ const (
 	KindBot Kind = "bot"
 )
 
+// Streaming lifecycle of a KindBot bubble (Message.GenStatus / gen_status).
+const (
+	GenGenerating  = "generating"
+	GenDone        = "done"
+	GenInterrupted = "interrupted"
+)
+
 type Message struct {
 	ID           string
 	CommunityID  string
@@ -650,6 +657,31 @@ func (r *Repo) MarkPromoted(ctx context.Context, msgID, threadID string) (bool, 
 func (r *Repo) ClearPromoted(ctx context.Context, threadID string) error {
 	_, err := r.DB.ExecContext(ctx, `UPDATE chat_messages SET promoted_thread_id = NULL WHERE promoted_thread_id = ?`, threadID)
 	return err
+}
+
+// UpdateBotBody rewrites a KindBot message's rendered body + streaming status
+// as the model streams. Called every FlushInterval by the chat-agent runner;
+// the SSE streams refetch + fat-morph on the broadcast that follows.
+func (r *Repo) UpdateBotBody(ctx context.Context, msgID, bodyMD, bodyHTML, genStatus string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE chat_messages SET body_md = ?, body_html = ?, gen_status = ?
+		WHERE id = ? AND kind = 'bot'`, bodyMD, bodyHTML, genStatus, msgID)
+	return err
+}
+
+// MarkBotGeneratingInterrupted flips any lingering 'generating' bot rows to
+// 'interrupted' on boot — a server restart can't resume an in-flight model
+// completion, so the partial is kept and the bubble offers regenerate. Returns
+// the number of rows swept. Mirrors agent.Repo.MarkGeneratingInterrupted.
+func (r *Repo) MarkBotGeneratingInterrupted(ctx context.Context) (int64, error) {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE chat_messages SET gen_status = 'interrupted'
+		WHERE kind = 'bot' AND gen_status = 'generating'`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (r *Repo) SoftDelete(ctx context.Context, id string) error {

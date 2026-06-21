@@ -42,6 +42,11 @@ type Provider interface {
 	Stream(ctx context.Context, model string, msgs []ChatMessage, tools []ToolDef, onDelta func(string) error) (*StreamResult, error)
 }
 
+// NewProvider selects the Provider for an agent — the exported entry point for
+// callers outside this package (e.g. internal/chatagents) that drive a
+// generation against an agent's configured model.
+func NewProvider(a Agent) (Provider, error) { return newProvider(a) }
+
 // newProvider selects the Provider for an agent. Ollama needs no key; the
 // Claude/OpenAI branches land here later, reading a.APIKeyEnc.
 func newProvider(a Agent) (Provider, error) {

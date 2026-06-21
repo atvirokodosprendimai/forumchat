@@ -91,6 +91,12 @@ type Handler struct {
 	// the @mention autocomplete so a member can address a bot by name. Wired in
 	// main.go from agent.Repo; nil when AI is disabled.
 	MentionAgents func(ctx context.Context, communityID string) []webtempl.MentionHit
+	// Dispatch, if non-nil, routes a freshly-sent user message to any
+	// chat-agents it triggers (starting a streaming kind='bot' reply). Wired in
+	// main.go to chatagents.Dispatcher.Dispatch; nil when AI is disabled. Called
+	// ONLY on the human user-send path — the loop guard that keeps a bot/webhook/
+	// system message from ever triggering an agent.
+	Dispatch func(ctx context.Context, communityID, channelID string, kind Kind, body string)
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -943,6 +949,15 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
 
 	h.broadcastNewMsg(r.Context(), ch.ID)
+
+	// Route to chat-agents: a bound agent @mentioned or prefix-triggered by
+	// this message starts a streaming reply. Detached so a slow model never
+	// stalls the send; this is the only call into Dispatch, so a bot/system
+	// message can never trigger an agent (loop guard).
+	if h.Dispatch != nil {
+		cid := h.cid(r.Context())
+		go h.Dispatch(context.Background(), cid, ch.ID, KindUser, body)
+	}
 
 	// Relay to outbound webhooks (Slack/Discord/generic). Fire-and-forget;
 	// the callback detaches from the request. Human messages only.

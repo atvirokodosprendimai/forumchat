@@ -29,6 +29,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/bookmarks"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
+	"github.com/atvirokodosprendimai/forumchat/internal/chatagents"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
@@ -580,6 +581,11 @@ func run() error {
 			}
 			return out
 		}
+		// Trigger dispatch: a user message that @mentions or prefix-summons a
+		// bound agent starts a streaming kind='bot' reply (chatagents is the seam
+		// between chat + agent). The loop guard lives in Dispatch (user-kind only).
+		chatAgentRunner := chatagents.NewRunner(chatRepo, chatBus, nc, 0, log)
+		chatHandler.Dispatch = chatagents.NewDispatcher(agentRepo, chatAgentRunner, log).Dispatch
 	}
 	webtempl.AIEnabled = cfg.AIEnabled
 	webtempl.RAGEnabled = cfg.RAGEnabled
@@ -1132,6 +1138,12 @@ func run() error {
 			log.Warn("agent: heal generating rows failed", "err", err)
 		} else if n > 0 {
 			log.Info("agent: healed interrupted generations", "count", n)
+		}
+		// Same heal for in-channel chat-agent bubbles (kind='bot').
+		if n, err := chatRepo.MarkBotGeneratingInterrupted(ctx); err != nil {
+			log.Warn("chatagents: heal generating bot rows failed", "err", err)
+		} else if n > 0 {
+			log.Info("chatagents: healed interrupted bot generations", "count", n)
 		}
 	}
 
