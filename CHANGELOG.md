@@ -170,3 +170,4 @@
 - 2026-06-21 `92daa56` chore: untrack out.log and ignore *.log
 - 2026-06-21 `0986cd0` fix(chat-agents): @mention matches the full bot name including spaces
 - 2026-06-21 `ca4d609` docs(pastes): plan chat pastebin feature
+- 2026-06-21 `19bd0bb` fix(webhooks): announce inbound thread_key forum thread in chat

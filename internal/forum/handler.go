@@ -677,35 +677,55 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + *msg.PromotedThreadID)
 		return
 	}
-	subject := deriveSubject(msg.BodyMarkdown)
+
+	// Carry the reply chain: when the promoted message is a reply (B → A), the
+	// PARENT (A) becomes the thread root and the clicked reply (B) falls into the
+	// thread as its first post. Promoting a non-reply keeps the single-message
+	// behaviour. A deleted parent is ignored (clicked message stays the root).
+	root := msg
+	var replyChild *chat.Message
+	if msg.ReplyToID != nil {
+		if parent, perr := h.ChatRepo.ByID(r.Context(), *msg.ReplyToID); perr == nil && parent.DeletedAt == nil {
+			// If the parent already opened a thread, just fold this reply into it
+			// rather than spawning a duplicate.
+			if parent.PromotedThreadID != nil {
+				h.foldReplyIntoThread(w, r, id, msg, *parent.PromotedThreadID)
+				return
+			}
+			child := msg
+			root, replyChild = parent, &child
+		}
+	}
+
+	subject := deriveSubject(root.BodyMarkdown)
 	if subject == "" {
 		http.Error(w, "empty message", http.StatusBadRequest)
 		return
 	}
 	threadAuthorID := id.User.ID
-	if msg.AuthorID != nil {
-		threadAuthorID = *msg.AuthorID
+	if root.AuthorID != nil {
+		threadAuthorID = *root.AuthorID
 	}
 	t, err := h.Svc.CreateThread(r.Context(), CreateThreadInput{
 		CommunityID:  h.cid(r.Context()),
 		AuthorID:     threadAuthorID,
 		Subject:      subject,
-		BodyMarkdown: msg.BodyMarkdown,
+		BodyMarkdown: root.BodyMarkdown,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// Claim the chat message for this thread atomically. If somebody else won
-	// the race, drop our thread and redirect to theirs.
-	claimed, err := h.ChatRepo.MarkPromoted(r.Context(), msg.ID, t.ID)
+	// Claim the root chat message for this thread atomically. If somebody else
+	// won the race, drop our thread and redirect to theirs.
+	claimed, err := h.ChatRepo.MarkPromoted(r.Context(), root.ID, t.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if !claimed {
 		_, _ = h.Repo.HardDeleteThread(r.Context(), t.ID)
-		fresh, err2 := h.ChatRepo.ByID(r.Context(), msg.ID)
+		fresh, err2 := h.ChatRepo.ByID(r.Context(), root.ID)
 		sse := render.NewSSE(w, r)
 		if err2 == nil && fresh.PromotedThreadID != nil {
 			_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + *fresh.PromotedThreadID)
@@ -714,14 +734,32 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// Add the clicked reply as the thread's first post, attributed to its author
+	// (falling back to the promoter for a bot/webhook message), then link it to
+	// the thread so its own "→ thread" button redirects here.
+	if replyChild != nil {
+		childAuthorID := id.User.ID
+		if replyChild.AuthorID != nil {
+			childAuthorID = *replyChild.AuthorID
+		}
+		if _, perr := h.Svc.CreatePost(r.Context(), CreatePostInput{
+			ThreadID:     t.ID,
+			AuthorID:     childAuthorID,
+			BodyMarkdown: replyChild.BodyMarkdown,
+		}); perr != nil {
+			h.Log.Warn("promote: add reply post", "err", perr)
+		} else {
+			_, _ = h.ChatRepo.MarkPromoted(r.Context(), replyChild.ID, t.ID)
+		}
+	}
 	if h.Chat != nil {
 		link := fmt.Sprintf(`%s/c/%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), h.cslug(r.Context()), t.ID)
-		announceName := msg.AuthorName
+		announceName := root.AuthorName
 		if announceName == "" {
 			announceName = id.Membership.DisplayName
 		}
 		threadID := t.ID
-		announceHTML := buildThreadAnnounce(announceName, link, t.Subject, msg.BodyMarkdown)
+		announceHTML := buildThreadAnnounce(announceName, link, t.Subject, root.BodyMarkdown)
 		_, err := h.Chat.PostSystem(r.Context(), h.cid(r.Context()), announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("promote thread-announce", "err", err)
@@ -744,6 +782,29 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)
+}
+
+// foldReplyIntoThread appends a promoted reply to the thread its parent already
+// opened (instead of spawning a duplicate), attributing the post to the reply's
+// author — falling back to the promoter for a bot/webhook message — links the
+// reply to that thread, wakes open thread viewers, and redirects there.
+func (h *Handler) foldReplyIntoThread(w http.ResponseWriter, r *http.Request, id auth.Identity, msg chat.Message, threadID string) {
+	authorID := id.User.ID
+	if msg.AuthorID != nil {
+		authorID = *msg.AuthorID
+	}
+	if _, err := h.Svc.CreatePost(r.Context(), CreatePostInput{
+		ThreadID:     threadID,
+		AuthorID:     authorID,
+		BodyMarkdown: msg.BodyMarkdown,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = h.ChatRepo.MarkPromoted(r.Context(), msg.ID, threadID)
+	h.BroadcastThreadID(h.cid(r.Context()), threadID)
+	sse := render.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + threadID)
 }
 
 // CreateAgentThread opens an agent-owned forum thread for a triggered
