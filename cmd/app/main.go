@@ -582,10 +582,29 @@ func run() error {
 			return out
 		}
 		// Trigger dispatch: a user message that @mentions or prefix-summons a
-		// bound agent starts a streaming kind='bot' reply (chatagents is the seam
-		// between chat + agent). The loop guard lives in Dispatch (user-kind only).
-		chatAgentRunner := chatagents.NewRunner(chatRepo, chatBus, nc, 0, log)
-		chatHandler.Dispatch = chatagents.NewDispatcher(agentRepo, chatAgentRunner, log).Dispatch
+		// bound agent opens a forum thread (forum.CreateAgentThread) and streams
+		// the agent's reply into it (chatagents.ThreadRunner). chatagents is the
+		// seam over chat + agent + forum; the loop guard lives in Dispatch
+		// (user-kind only).
+		threadRunner := chatagents.NewThreadRunner(forumRepo, forumBus, nc, 0, log)
+		dispatcher := chatagents.NewDispatcher(agentRepo, forumHandler.CreateAgentThread, threadRunner, log)
+		chatHandler.Dispatch = func(ctx context.Context, t chat.AgentTrigger) {
+			dispatcher.Dispatch(ctx, chatagents.Trigger{
+				CommunityID: t.CommunityID, Slug: t.Slug, ChannelID: t.ChannelID,
+				AuthorID: t.AuthorID, AuthorName: t.AuthorName, Body: t.Body, Kind: t.Kind,
+			})
+		}
+		// Reply-as-prompt: a human reply in an agent thread re-runs the agent
+		// over the full thread history. forum stays agent-free — it hands us the
+		// thread's agent_id and we load + run it.
+		forumHandler.OnAgentReply = func(ctx context.Context, communityID, threadID, agentID string) {
+			a, err := agentRepo.AgentByID(ctx, agentID)
+			if err != nil {
+				log.Warn("chatagents: reply agent lookup", "agent", agentID, "err", err)
+				return
+			}
+			threadRunner.Generate(communityID, threadID, a)
+		}
 		// Admin form's channel picker + live roster refresh after a save.
 		agentHandler.RosterBump = presenceTracker.Bump
 	}
@@ -1141,11 +1160,11 @@ func run() error {
 		} else if n > 0 {
 			log.Info("agent: healed interrupted generations", "count", n)
 		}
-		// Same heal for in-channel chat-agent bubbles (kind='bot').
-		if n, err := chatRepo.MarkBotGeneratingInterrupted(ctx); err != nil {
-			log.Warn("chatagents: heal generating bot rows failed", "err", err)
+		// Same heal for agent reply posts streaming in forum threads.
+		if n, err := forumRepo.MarkBotPostsInterrupted(ctx); err != nil {
+			log.Warn("chatagents: heal generating bot posts failed", "err", err)
 		} else if n > 0 {
-			log.Info("chatagents: healed interrupted bot generations", "count", n)
+			log.Info("chatagents: healed interrupted bot posts", "count", n)
 		}
 	}
 

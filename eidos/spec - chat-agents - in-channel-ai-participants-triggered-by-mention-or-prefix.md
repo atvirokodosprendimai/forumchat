@@ -7,6 +7,24 @@ tldr: Bring-your-own-agent for the live chat channel. The existing per-community
 
 # Chat Agents — in-channel AI participants
 
+> **Pivot (2026-06-21) — the response now lives in a FORUM THREAD, not the
+> channel.** The trigger half of this spec (roster bot, @mention/prefix
+> matching, channel binding, the `chatagents` matcher + `Dispatcher` loop guard)
+> stands unchanged. What changed: a trigger no longer streams a `kind='bot'`
+> bubble in the channel — it **opens an agent-owned forum thread**
+> (`forum.Handler.CreateAgentThread`), streams the agent's answer as a bot
+> **post** there, and drops a `thread_announce` link back in the channel. Every
+> member's reply in that thread is a new prompt; the agent replays the full
+> thread (body + posts) and answers as the next post (`chatagents.ThreadRunner` +
+> `forum.Handler.OnAgentReply`). Schema: migration **00044** adds `threads.agent_id`
+> + agent-identity columns on `posts` (no rebuild — a sentinel `agent-bot` user
+> owns agent posts' NOT-NULL `author_id`). The channel-streaming `chatagents.Runner`
+> and `chat.Repo.UpdateBotBody`/`MarkBotGeneratingInterrupted` were removed; the
+> dormant `kind='bot'` chat columns remain unused. Plan:
+> `memory/plan - 2606211139 - …`. The sections below describe the original
+> in-channel-bubble model and are kept for the trigger/admin design they still
+> govern.
+
 A community already has **agents** (`ai_agents`: unique name, provider, model,
 system prompt, MCP tools) reachable as a separate ChatGPT-style pane at
 `/c/{slug}/agent`. This spec makes those same agents **participants in the live

@@ -45,7 +45,13 @@ type Handler struct {
 	// thread surfaced in #general) to outbound webhooks so external chat
 	// mirrors hear about new threads. Wired in main.go to the same
 	// webhooks.Relay.Dispatch as chat. nil disables the relay (no-op).
-	RelayOut      func(communityID, channelID, authorName, bodyMD, channelName string)
+	RelayOut func(communityID, channelID, authorName, bodyMD, channelName string)
+	// OnAgentReply, when set, is fired after a human reply lands in an
+	// agent-owned thread (thread.AgentID set) — the agent re-runs over the full
+	// thread history and streams the next post. Wired in main.go to chatagents;
+	// nil when AI is disabled. The thread's agent_id is passed; forum stays
+	// agent-free. A bot post never fires it (loop guard).
+	OnAgentReply  func(ctx context.Context, communityID, threadID, agentID string)
 	CommunityID   string
 	CommunityName string
 	BaseURL       string
@@ -417,6 +423,16 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
 	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","_reply_quote_label":"","image_data":""}`))
 	h.broadcastThread(r.Context(), threadID)
+
+	// Reply-as-prompt: in an agent-owned thread every human reply re-runs the
+	// agent over the full thread history (it answers as the next post). Detached
+	// so a slow model never stalls the reply. Bot posts are inserted elsewhere
+	// (InsertBotPost), never through PostReply, so they can't re-trigger.
+	if h.OnAgentReply != nil {
+		if th, err := h.Repo.GetThread(r.Context(), threadID); err == nil && th.AgentID != nil {
+			go h.OnAgentReply(context.Background(), h.cid(r.Context()), threadID, *th.AgentID)
+		}
+	}
 }
 
 // PostResolve / PostUnresolve toggle the resolved marker. Author of the
@@ -654,6 +670,51 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)
+}
+
+// CreateAgentThread opens an agent-owned forum thread for a triggered
+// chat-agent and announces it back in chat. Returns the new thread id. This is
+// the chat→forum bridge for chat-agents: wired into chatagents in main.go so
+// neither package imports the other. communityID/slug are passed explicitly
+// because the caller runs detached (no community in ctx). The thread is
+// authored by the triggering human (authorID); agentID marks it for replies.
+func (h *Handler) CreateAgentThread(ctx context.Context, communityID, slug, authorID, agentID, agentName, prompt string) (string, error) {
+	subject := deriveSubject(prompt)
+	if subject == "" {
+		subject = agentName + " conversation"
+	}
+	aid := agentID
+	t, err := h.Svc.CreateThread(ctx, CreateThreadInput{
+		CommunityID:  communityID,
+		AuthorID:     authorID,
+		Subject:      subject,
+		BodyMarkdown: prompt,
+		AgentID:      &aid,
+	})
+	if err != nil {
+		return "", err
+	}
+	if h.Chat != nil {
+		link := fmt.Sprintf("%s/c/%s/forum/%s", strings.TrimRight(h.BaseURL, "/"), slug, t.ID)
+		threadID := t.ID
+		announceHTML := buildThreadAnnounce(agentName, link, t.Subject, prompt)
+		if _, err := h.Chat.PostSystem(ctx, communityID, announceHTML, chat.KindThreadAnnounce, &threadID); err != nil {
+			h.Log.Error("agent thread-announce", "err", err)
+		} else {
+			h.relayThreadAnnounce(ctx, communityID, agentName, t.Subject, link)
+		}
+	}
+	if h.ChatBus != nil {
+		h.ChatBus.Broadcast("")
+	}
+	if h.ChatNewMsgBus != nil {
+		h.ChatNewMsgBus.Broadcast("")
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.ChatSubject(communityID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+	}
+	return t.ID, nil
 }
 
 // buildThreadAnnounce returns the chat fan-out HTML for a new thread. When

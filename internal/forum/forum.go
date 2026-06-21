@@ -379,6 +379,58 @@ func (r *Repo) UpdatePost(ctx context.Context, id, md, html string) error {
 	return err
 }
 
+// AgentBotUserID is the sentinel user that owns every agent reply post's
+// NOT-NULL author_id FK (migration 00044). The real identity is the post's
+// agent_id / bot_name columns.
+const AgentBotUserID = "agent-bot"
+
+// Streaming lifecycle of an agent reply post (Post.GenStatus / gen_status).
+const (
+	GenGenerating  = "generating"
+	GenDone        = "done"
+	GenInterrupted = "interrupted"
+)
+
+// InsertBotPost inserts an agent reply post (author_id = AgentBotUserID,
+// agent_id + bot identity set). The streaming runner inserts it with an empty
+// body and gen_status='generating', then rewrites via UpdateBotPostBody.
+func (r *Repo) InsertBotPost(ctx context.Context, p Post) error {
+	var agentID any
+	if p.AgentID != nil {
+		agentID = *p.AgentID
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO posts (id, thread_id, author_id, body_md, body_html, agent_id, bot_name, bot_avatar_url, gen_status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.ThreadID, p.AuthorID, p.BodyMarkdown, p.BodyHTML, agentID, p.BotName, p.BotAvatar, p.GenStatus,
+		p.CreatedAt.Unix(), p.CreatedAt.Unix())
+	return err
+}
+
+// UpdateBotPostBody rewrites an agent reply post's body + streaming status as
+// the model streams (called every flush; the thread stream re-renders on the
+// broadcast that follows).
+func (r *Repo) UpdateBotPostBody(ctx context.Context, postID, md, html, genStatus string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE posts SET body_md = ?, body_html = ?, gen_status = ?, updated_at = ?
+		WHERE id = ? AND agent_id IS NOT NULL`,
+		md, html, genStatus, time.Now().Unix(), postID)
+	return err
+}
+
+// MarkBotPostsInterrupted flips lingering 'generating' agent posts to
+// 'interrupted' on boot — a restart can't resume an in-flight completion.
+func (r *Repo) MarkBotPostsInterrupted(ctx context.Context) (int64, error) {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE posts SET gen_status = 'interrupted'
+		WHERE agent_id IS NOT NULL AND gen_status = 'generating'`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 func (r *Repo) SoftDeletePost(ctx context.Context, id string) error {
 	_, err := r.DB.ExecContext(ctx, `UPDATE posts SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`,
 		time.Now().Unix(), id)

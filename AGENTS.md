@@ -809,12 +809,52 @@ non-archived channel — **no membership table**, just a `channel_id` column.
   `channelID`. `PostSystem` is the exception (stays community-level, lands in
   `#general`).
 
-### 6.9 Chat-agents — `ai_agents` as in-channel `kind='bot'` participants (migration 00043)
+### 6.9 Chat-agents — a trigger opens a FORUM THREAD (migrations 00043 + 00044)
 
-Spec: `eidos/spec - chat-agents - …`. Plan: `memory/plan - 2606211058 - …`. The
-community's existing **`ai_agents`** (the threaded-pane agents) can also join the
-live chat channel as bot participants: roster bot row, @mentionable, triggered
-in-line. Gated by `AI_ENABLED` + per-agent `ai_agents.in_chat_enabled`.
+Spec: `eidos/spec - chat-agents - …` (see its **Pivot** note). Plans:
+`memory/plan - 2606211058` (original) + `memory/plan - 2606211139` (pivot). The
+community's existing **`ai_agents`** join chat as bot participants: roster bot
+row, @mentionable, triggered in-line. Gated by `AI_ENABLED` + per-agent
+`ai_agents.in_chat_enabled`.
+
+**The response lives in the forum, not the channel** (pivot, 2026-06-21):
+
+- A trigger opens an **agent-owned forum thread** via
+  `forum.Handler.CreateAgentThread` (the chat→forum bridge — reuses
+  `buildThreadAnnounce` + `relayThreadAnnounce`, modelled on `PostPromoteChat`),
+  authored by the triggering human, `threads.agent_id` set, and drops a
+  `thread_announce` link in the channel. NO `kind='bot'` channel bubble.
+- `chatagents.ThreadRunner.Generate` streams the agent's reply as a forum **post**
+  (`forum.Repo.InsertBotPost` placeholder → 100ms flush `UpdateBotPostBody` +
+  forum thread Bus/NATS broadcast → `ForumPost` re-renders with a `▍` cursor).
+  Boot sweep `forum.Repo.MarkBotPostsInterrupted`.
+- **Reply-as-prompt:** `forum.PostReply` fires `forum.Handler.OnAgentReply`
+  (closure → chatagents, wired in main.go) when the thread's `agent_id` is set;
+  the runner replays the full thread (body + all posts: own bot posts →
+  assistant, humans → user `name: body`) and answers as the next post. **Any
+  member** can drive it. Loop guard: bot posts are inserted via `InsertBotPost`,
+  never through `PostReply`, so they can't re-trigger.
+- **Schema 00044, no posts rebuild** (posts carry FTS+RAG triggers): `posts` gain
+  `agent_id` + `bot_name` + `bot_avatar_url` + `gen_status` via `ADD COLUMN`; a
+  sentinel **`agent-bot`** user (disabled) owns agent posts' NOT-NULL `author_id`
+  — real identity is the `agent_id`/`bot_name` columns, overridden on scan in
+  `forum.ListPosts`/`GetPost`. Friction: 100ms `UPDATE`s re-fire the FTS/RAG
+  triggers (RAG outbox accumulates rows for the streaming post — wasteful, not
+  incorrect).
+- **`chatagents` is the seam over chat + agent + forum.** `match.go` +
+  `dispatch.go` (the loop guard, unchanged) + `thread.go` (the streaming runner).
+  `forum` stays agent-free: `OnAgentReply` passes the `agent_id` string and
+  main.go loads + runs it.
+- **Removed by the pivot:** `chatagents.Runner` (channel streaming) +
+  `chat.Repo.UpdateBotBody`/`MarkBotGeneratingInterrupted`. The `kind='bot'` chat
+  columns + bubble render are now **dormant** (kept, unused). Roster bot + mention
+  union stay (still the trigger surface). Everything below describes the original
+  in-channel model.
+
+### 6.9.1 (historical) the original in-channel `kind='bot'` bubble (migration 00043)
+
+The original chat-agents shipped an in-channel streaming bubble (now replaced by
+§6.9's forum thread). Kept for context:
 
 - **`kind='bot'` is its own chat message kind** — distinct from webhooks'
   `kind='webhook'`. Both reuse the denormalised `chat_messages.bot_name` /

@@ -1,6 +1,6 @@
 ---
 name: plan-agent-forum-threads
-status: active
+status: completed
 type: plan
 spec: spec - chat-agents - in-channel-ai-participants-triggered-by-mention-or-prefix
 tldr: Pivot chat-agents: a trigger no longer streams an in-channel bubble — it creates a FORUM THREAD (agent-owned), streams the agent's answer as a bot post, and announces the thread link back in chat. Every member's reply in that thread is a new prompt with the full thread history as context; the agent answers as the next post. Replaces the Phase-2 channel bubble.
@@ -61,35 +61,37 @@ Branch: `task/agent-forum-threads`.
 
 ## Phase 2 — trigger → create thread + stream first reply; remove channel bubble
 
-1. [ ] `internal/forum`: `Repo.InsertBotPost`, `Repo.UpdateBotPostBody`,
-   `Repo.MarkBotPostsInterrupted`; `Service`/closure to create an agent thread
-   (subject from trigger first line, body = prompt, `agent_id` set).
-2. [ ] `internal/chatagents`: delete the channel `runner.go`; add `thread.go`
-   `ThreadRunner` (imports forum+agent): create thread (or reuse a thread-create
-   closure), run `agent.NewProvider` + 100ms flush → `forum.Repo.UpdateBotPostBody`
-   + forum thread Bus broadcast; one generation per (thread) `active` map.
-3. [ ] `Dispatcher.Dispatch` repointed: on a chat trigger, create the agent
-   thread, kick `ThreadRunner`, and announce the thread link in chat (reuse the
-   `thread_announce` bridge via a closure — no channel bot bubble).
-4. [ ] Remove the Phase-2 channel wiring: `chatHandler.Dispatch` now routes to the
-   thread path; `chat.Repo.UpdateBotBody` / `MarkBotGeneratingInterrupted` and the
-   `kind='bot'` channel-message render become unused (keep columns; drop the
-   channel runner + its boot sweep). Roster bot + mention stay (still the trigger).
-5. [ ] Boot sweep `forum.Repo.MarkBotPostsInterrupted`; main.go rewiring.
-6. [ ] Tests: thread-runner stub-Ollama → thread created + bot post streams to done.
+1. [x] `internal/forum`: `Repo.InsertBotPost`, `Repo.UpdateBotPostBody`,
+   `Repo.MarkBotPostsInterrupted`, `AgentBotUserID` + gen consts;
+   `forum.Handler.CreateAgentThread` (CreateThread w/ agent_id + thread_announce
+   bridge — reuses `buildThreadAnnounce`/`deriveSubject`/`relayThreadAnnounce`).
+2. [x] `internal/chatagents`: deleted channel `runner.go`+test; added `thread.go`
+   `ThreadRunner` (imports forum+agent): provider + 100ms flush →
+   `UpdateBotPostBody` + forum thread Bus/NATS broadcast; one gen per thread.
+3. [x] `Dispatcher` repointed: `Trigger` struct + `CreateThreadFunc`; on a chat
+   trigger → CreateThread closure → `ThreadRunner.Generate`. No channel bubble.
+4. [x] `chat.Handler`: `AgentTrigger` struct + `Dispatch func(ctx, AgentTrigger)`;
+   `PostSend` builds it. Removed dead `chat.Repo.UpdateBotBody`/
+   `MarkBotGeneratingInterrupted`; swapped boot sweep → `forum.MarkBotPostsInterrupted`.
+   `kind='bot'` chat columns/render left dormant; roster bot + mention stay.
+5. [x] main.go: `NewThreadRunner(forumRepo,…)` + `NewDispatcher(agentRepo,
+   forumHandler.CreateAgentThread, runner)`; `chatHandler.Dispatch` adapter.
+6. [x] Test: `TestThreadRunnerStreamsReplyToDone` (stub-Ollama → thread bot post
+   streams to done, identity + sentinel author asserts) + `MarkBotPostsInterrupted`.
 
 ## Phase 3 — reply-as-prompt (any member) + full thread history
 
-1. [ ] `forum.Handler` gets `OnAgentReply func(ctx, threadID, communityID string)`
-   closure (wired main.go → chatagents). `PostReply`: after a human post lands in
-   a thread whose `agent_id` is set, fire it (detached). Loop guard: a post with
-   `agent_id` set (the bot's own) never fires.
-2. [ ] `ThreadRunner` reply path: `buildHistory` from the thread (body + all posts
-   oldest→newest; bot posts → assistant, humans → user `name: body`; system =
-   preamble + `system_prompt`), stream a new bot post.
-3. [ ] Tests: a human reply triggers a bot post; a bot post does not re-trigger.
-4. [ ] Update spec (status, decisions, render section) + AGENTS.md §6.9 to the
-   forum-thread model. Verify full build+test green; boot smoke.
+1. [x] `forum.Handler.OnAgentReply func(ctx, communityID, threadID, agentID string)`
+   (wired main.go → loads agent + `Generate`). `PostReply` fires it after a human
+   post when `thread.AgentID` set. Loop guard: bot posts use `InsertBotPost`,
+   never `PostReply`, so never re-trigger. (forum stays agent-free.)
+2. [x] `ThreadRunner.buildHistory`: thread body = opening user turn; own bot posts
+   → assistant; humans → user `name: body`; cap last `ContextLimit` posts; system
+   = preamble + `system_prompt`.
+3. [x] Reply path covered by the runner test (history includes posts) + loop guard
+   by construction. (Phase 2+3 wiring merged — they share the runner.)
+4. [x] Spec **Pivot** note + AGENTS.md §6.9 rewritten to the forum-thread model
+   (§6.9.1 keeps the historical channel model). Full build+test green; boot clean.
 
 ## Verification (overall)
 
@@ -100,3 +102,11 @@ open thread → answer streams → any member replies → answer streams as next
 ## Progress Log
 
 - 2606211139 — plan from 3 locked decisions; branch `task/agent-forum-threads`. Starting Phase 1.
+- 2606211145 — **Phase 1 done.** Schema 00044 (threads.agent_id; posts bot cols;
+  sentinel agent-bot user) + forum bot-post identity + render. Build/test/boot green.
+- 2606211153 — **Phase 2+3 done → plan COMPLETE.** Trigger now opens an agent forum
+  thread (`CreateAgentThread` bridge) + streams the reply as a bot post
+  (`ThreadRunner`); every human reply re-runs the agent over full thread history
+  (`OnAgentReply`). Channel `chatagents.Runner` + dead chat-bot methods removed.
+  Tests: thread-runner stub-Ollama end-to-end + sweep + matcher + binding — all
+  green; `go build ./...` + `go test ./...` clean; boots clean under AI_ENABLED.

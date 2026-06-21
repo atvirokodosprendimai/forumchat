@@ -92,11 +92,11 @@ type Handler struct {
 	// main.go from agent.Repo; nil when AI is disabled.
 	MentionAgents func(ctx context.Context, communityID string) []webtempl.MentionHit
 	// Dispatch, if non-nil, routes a freshly-sent user message to any
-	// chat-agents it triggers (starting a streaming kind='bot' reply). Wired in
-	// main.go to chatagents.Dispatcher.Dispatch; nil when AI is disabled. Called
-	// ONLY on the human user-send path — the loop guard that keeps a bot/webhook/
-	// system message from ever triggering an agent.
-	Dispatch func(ctx context.Context, communityID, channelID string, kind Kind, body string)
+	// chat-agents it triggers — each match opens a forum thread and streams the
+	// agent's reply there. Wired in main.go to chatagents; nil when AI is
+	// disabled. Called ONLY on the human user-send path — the loop guard that
+	// keeps a bot/webhook/system message from ever triggering an agent.
+	Dispatch func(ctx context.Context, t AgentTrigger)
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -111,6 +111,19 @@ type Handler struct {
 	// time of the last broadcast.
 	readBroadcastMu sync.Mutex
 	readBroadcastAt map[string]time.Time
+}
+
+// AgentTrigger is the context a freshly-sent chat message carries to chat-agent
+// dispatch: who sent it, where, and what — enough to open + author an agent
+// forum thread without re-reading the request.
+type AgentTrigger struct {
+	CommunityID string
+	Slug        string
+	ChannelID   string
+	AuthorID    string
+	AuthorName  string
+	Body        string
+	Kind        Kind
 }
 
 // RosterNotifier wakes open presence sidebars so per-viewer markers
@@ -951,12 +964,19 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	h.broadcastNewMsg(r.Context(), ch.ID)
 
 	// Route to chat-agents: a bound agent @mentioned or prefix-triggered by
-	// this message starts a streaming reply. Detached so a slow model never
-	// stalls the send; this is the only call into Dispatch, so a bot/system
-	// message can never trigger an agent (loop guard).
+	// this message opens a forum thread and answers there. Detached so a slow
+	// model never stalls the send; this is the only call into Dispatch, so a
+	// bot/system message can never trigger an agent (loop guard).
 	if h.Dispatch != nil {
-		cid := h.cid(r.Context())
-		go h.Dispatch(context.Background(), cid, ch.ID, KindUser, body)
+		go h.Dispatch(context.Background(), AgentTrigger{
+			CommunityID: h.cid(r.Context()),
+			Slug:        h.cslug(r.Context()),
+			ChannelID:   ch.ID,
+			AuthorID:    id.User.ID,
+			AuthorName:  id.Membership.DisplayName,
+			Body:        body,
+			Kind:        KindUser,
+		})
 	}
 
 	// Relay to outbound webhooks (Slack/Discord/generic). Fire-and-forget;
