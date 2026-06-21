@@ -462,26 +462,13 @@ func (s *Service) ensureInboxProject(ctx context.Context, communityID, creatorID
 	}
 	s.inboxMu.Unlock()
 
-	rows, err := s.Projs.ListActiveForCommunity(ctx, communityID)
-	if err != nil {
-		return "", err
-	}
-	for _, r := range rows {
-		if strings.EqualFold(r.Title, "Inbox") {
-			s.inboxMu.Lock()
-			s.inboxCache[communityID] = r.ID
-			s.inboxMu.Unlock()
-			return r.ID, nil
-		}
-	}
-
-	p, err := s.Projects.CreateProject(ctx, communityID, creatorID, "Inbox",
+	pid, err := s.Projects.EnsureNamedProject(ctx, communityID, creatorID, "Inbox",
 		"Auto-generated container for emails that filters with `to_issue=true` turn into issues.")
 	if err != nil {
 		return "", err
 	}
 	s.inboxMu.Lock()
-	s.inboxCache[communityID] = p.ID
+	s.inboxCache[communityID] = pid
 	s.inboxMu.Unlock()
-	return p.ID, nil
+	return pid, nil
 }

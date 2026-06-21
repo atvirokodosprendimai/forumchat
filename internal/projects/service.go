@@ -68,6 +68,28 @@ func (s *Service) CreateProject(ctx context.Context, communityID, creatorID, tit
 	return p, nil
 }
 
+// EnsureNamedProject finds (case-insensitive) an active project titled
+// `title` in the community, or creates one with descMD. Returns the
+// project id. The single find-or-create-by-title helper, shared by the
+// mailbox auto-issue inbox and the support-inbox boot seed. Caching, if
+// any, is the caller's concern (this hits the DB every call).
+func (s *Service) EnsureNamedProject(ctx context.Context, communityID, creatorID, title, descMD string) (string, error) {
+	rows, err := s.Repo.ListActiveForCommunity(ctx, communityID)
+	if err != nil {
+		return "", fmt.Errorf("list active projects: %w", err)
+	}
+	for _, r := range rows {
+		if strings.EqualFold(r.Title, title) {
+			return r.ID, nil
+		}
+	}
+	p, err := s.CreateProject(ctx, communityID, creatorID, title, descMD)
+	if err != nil {
+		return "", fmt.Errorf("create %q project: %w", title, err)
+	}
+	return p.ID, nil
+}
+
 // UpdateTitle persists a new title and publishes a header event.
 func (s *Service) UpdateTitle(ctx context.Context, projectID, title string) error {
 	title = strings.TrimSpace(title)
