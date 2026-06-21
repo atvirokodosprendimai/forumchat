@@ -33,6 +33,20 @@ type Config struct {
 	CommunitySlug  string        `env:"COMMUNITY_SLUG" envDefault:"main"`
 	CommunityName  string        `env:"COMMUNITY_NAME" envDefault:"The Community"`
 
+	// SupportInboxSlug designates ONE hidden community as a write-only,
+	// cross-tenant issue inbox: any signed-in member can file a report from
+	// the global "Report issue" button; the report lands as a project_issue
+	// in this community's "Inbox" project. Reporters never become members,
+	// so they can only read back their OWN reports (+ replies) via
+	// /report-issue — they cannot browse the inbox. Only platform
+	// super-admins read the full inbox (existing god-mode at
+	// /c/<slug>/projects/<inbox>/issues). Empty (default) = feature OFF: no
+	// button, no routes, nothing seeded. Boot-seeds the community + Inbox
+	// project when set (see cmd/app/main.go). SupportInboxName is the
+	// display name used when seeding.
+	SupportInboxSlug string `env:"SUPPORT_INBOX_SLUG" envDefault:""`
+	SupportInboxName string `env:"SUPPORT_INBOX_NAME" envDefault:"Support"`
+
 	// SuperAdminEmails is the platform super-admin allowlist. Any signed-in
 	// user whose email matches (case-insensitive) gets god-mode across every
 	// community: enter any /c/<slug>/admin without a membership, set roles
