@@ -1,0 +1,37 @@
+internal/webhooks/relay.go
+  s_e9cea9680b5ec8::t_d707a78c182e0d 73,106
+  s_e9cea9680b5ec8::t_957543d6bb7e0f 25-33
+  s_e9cea9680b5ec8::t_a69e12edd8e6f2 160,171
+internal/webhooks/relay_test.go
+  s_e9cea9680b5ec8::t_e8337e2b422e41 1-7,13,14,48-49,72,98,100-101,103-104,105,114,115,124-125
+cmd/app/main.go
+  s_e9cea9680b5ec8::t_df208c5b720a5e 494
+  s_e9cea9680b5ec8::t_ac18e1654ef27c 826-829,831-845
+  s_e9cea9680b5ec8::t_a534f94ff89758 912
+internal/uploads/handler_internal_test.go
+  s_e9cea9680b5ec8::t_16abbfa94646bd 1-59
+internal/chat/handler.go
+  s_e9cea9680b5ec8::t_91155c8a9bd492 480
+  s_e9cea9680b5ec8::t_6fe0cb9904d26b 1000
+  s_e9cea9680b5ec8::t_68008f0f8281a8 53
+  s_e9cea9680b5ec8::t_0f795eaca968a6 1125
+internal/uploads/handler.go
+  s_e9cea9680b5ec8::t_084959de0b1c73 134-149
+  s_e9cea9680b5ec8::t_8e7abfa5e4a536 91,94-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "74a48fe2d4f89b789db9b1f478a202de03557457",
+  "prompts": {},
+  "sessions": {
+    "s_e9cea9680b5ec8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1180e190-95e3-4569-b80f-0f7349711aa9",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
