@@ -775,10 +775,33 @@ func run() error {
 			MaxBytes:      cfg.WebhooksMaxBytes,
 			Log:           log,
 		}
-		chatHandler.RelayOut = webhooks.NewRelay(whRepo, log).Dispatch
+		relay := webhooks.NewRelay(whRepo, log)
+		chatHandler.RelayOut = relay.Dispatch
 		// Forum new-thread announcements land in #general — relay them too so
 		// external chat mirrors hear about new threads. Same Dispatch as chat.
-		forumHandler.RelayOut = chatHandler.RelayOut
+		forumHandler.RelayOut = relay.Dispatch
+		// Forum-thread content (new-thread announce + human replies) also relays
+		// with the thread identity attached, so a bridge can mirror it into one
+		// external thread (e.g. a Matrix m.thread). See webhooks.OutboundMsg.
+		forumHandler.RelayThread = func(cid, chID, chName, author, body, threadID, postID, subject string, root bool) {
+			relay.DispatchForum(webhooks.OutboundMsg{
+				CommunityID: cid, ChannelID: chID, ChannelName: chName,
+				Author: author, BodyMD: body,
+				ThreadID: threadID, MessageID: postID, Subject: subject, ThreadRoot: root,
+			})
+		}
+		// Inbound forum routing: a generic message carrying a thread_key opens or
+		// appends to a forum thread instead of posting in the chat channel. The
+		// forum-side write goes through forum.Service (closures, no import cycle).
+		webhooksHandler.OpenForumThread = func(ctx context.Context, communityID, author, subject, markdown string) (string, error) {
+			t, err := forumHandler.Svc.CreateWebhookThread(ctx, communityID, author, subject, markdown)
+			return t.ID, err
+		}
+		webhooksHandler.AddForumPost = func(ctx context.Context, threadID, author, avatar, markdown string) (string, error) {
+			p, err := forumHandler.Svc.CreateWebhookPost(ctx, threadID, author, avatar, markdown)
+			return p.ID, err
+		}
+		webhooksHandler.NotifyForumThread = forumHandler.BroadcastThreadID
 	}
 	webtempl.WebhooksEnabled = cfg.WebhooksEnabled
 

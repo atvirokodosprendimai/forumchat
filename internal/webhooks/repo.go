@@ -168,6 +168,33 @@ func (r *Repo) Stamp(ctx context.Context, id, status string) error {
 	return err
 }
 
+// ThreadLink returns the forum thread id previously linked to externalKey for
+// this inbound webhook, or ErrNotFound if the key has never been seen. It is
+// the inbound-direction map: external thread root -> forumchat forum thread.
+func (r *Repo) ThreadLink(ctx context.Context, webhookID, externalKey string) (string, error) {
+	if webhookID == "" || externalKey == "" {
+		return "", ErrNotFound
+	}
+	var threadID string
+	err := r.DB.QueryRowContext(ctx,
+		`SELECT thread_id FROM webhook_thread_links WHERE webhook_id = ? AND external_key = ?`,
+		webhookID, externalKey).Scan(&threadID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return threadID, err
+}
+
+// LinkThread records that externalKey maps to threadID for this webhook. Called
+// once, when an inbound message first opens a forum thread for a new key.
+func (r *Repo) LinkThread(ctx context.Context, webhookID, externalKey, threadID string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO webhook_thread_links (webhook_id, external_key, thread_id, created_at)
+		VALUES (?, ?, ?, ?)`,
+		webhookID, externalKey, threadID, time.Now().Unix())
+	return err
+}
+
 func nullable(s string) any {
 	if s == "" {
 		return nil

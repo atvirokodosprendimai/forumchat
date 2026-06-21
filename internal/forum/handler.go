@@ -47,6 +47,13 @@ type Handler struct {
 	// mirrors hear about new threads. Wired in main.go to the same
 	// webhooks.Relay.Dispatch as chat. nil disables the relay (no-op).
 	RelayOut func(communityID, channelID, authorName, bodyMD, channelName string)
+	// RelayThread, if non-nil, mirrors forum-thread content to outbound webhooks
+	// with the thread identity attached (so a bridge can group messages into one
+	// external thread, e.g. a Matrix m.thread). root=true marks the opening
+	// message; postID is "" for the opener. Only human-authored content reaches
+	// here — inbound-webhook posts are bot posts and bypass this path (no echo).
+	// Wired in main.go to webhooks.Relay.DispatchForum; nil disables it.
+	RelayThread func(communityID, channelID, channelName, author, bodyMD, threadID, postID, subject string, root bool)
 	// OnAgentReply, when set, is fired after a human reply lands in an
 	// agent-owned thread (thread.AgentID set) — the agent re-runs over the full
 	// thread history and streams the next post. Wired in main.go to chatagents;
@@ -64,9 +71,11 @@ const PasteImageMaxBytes = 1 << 20
 // relayThreadAnnounce mirrors a new-thread announcement to outbound webhooks.
 // The announce row lands in #general; resolve it so the relay matches webhooks
 // bound to that channel. A clean text body (not the announce HTML) keeps
-// Slack/Discord output readable. No-op when the relay or chat repo is absent.
-func (h *Handler) relayThreadAnnounce(ctx context.Context, communityID, authorName, subject, link string) {
-	if h.RelayOut == nil || h.ChatRepo == nil {
+// Slack/Discord output readable. When RelayThread is wired (webhooks on) the
+// announce carries the thread identity (root message); otherwise it falls back
+// to the plain RelayOut. No-op when no relay or chat repo is present.
+func (h *Handler) relayThreadAnnounce(ctx context.Context, communityID, authorName, threadID, subject, link string) {
+	if h.ChatRepo == nil || (h.RelayOut == nil && h.RelayThread == nil) {
 		return
 	}
 	ch, err := h.ChatRepo.DefaultChannel(ctx, communityID)
@@ -74,7 +83,27 @@ func (h *Handler) relayThreadAnnounce(ctx context.Context, communityID, authorNa
 		h.Log.Warn("relay thread-announce: default channel", "err", err)
 		return
 	}
-	h.RelayOut(communityID, ch.ID, authorName, "📋 started a thread: "+subject+"\n"+link, ch.Name)
+	body := "📋 started a thread: " + subject + "\n" + link
+	if h.RelayThread != nil {
+		h.RelayThread(communityID, ch.ID, ch.Name, authorName, body, threadID, "", subject, true)
+		return
+	}
+	h.RelayOut(communityID, ch.ID, authorName, body, ch.Name)
+}
+
+// relayForumReply mirrors a human forum reply to outbound webhooks, tagged with
+// the thread identity so a bridge posts it under the matching external thread.
+// Rides the default channel like the announce. No-op without RelayThread.
+func (h *Handler) relayForumReply(ctx context.Context, t Thread, author, body, postID string) {
+	if h.RelayThread == nil || h.ChatRepo == nil {
+		return
+	}
+	ch, err := h.ChatRepo.DefaultChannel(ctx, t.CommunityID)
+	if err != nil {
+		h.Log.Warn("relay forum reply: default channel", "err", err)
+		return
+	}
+	h.RelayThread(t.CommunityID, ch.ID, ch.Name, author, body, t.ID, postID, t.Subject, false)
 }
 
 func (h *Handler) cid(ctx context.Context) string {
@@ -119,11 +148,18 @@ func (h *Handler) attachPastedImage(r *http.Request, userID, body, imageData str
 }
 
 func (h *Handler) broadcastThread(ctx context.Context, threadID string) {
+	h.BroadcastThreadID(h.cid(ctx), threadID)
+}
+
+// BroadcastThreadID wakes open viewers of a thread (in-process Bus + NATS) so
+// they refetch and re-render. Exported for cross-package callers (e.g. the
+// webhooks inbound bridge) that hold the community id but no request context.
+func (h *Handler) BroadcastThreadID(communityID, threadID string) {
 	if h.Bus != nil {
 		h.Bus.Broadcast(threadID)
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ForumThreadSubject(h.cid(ctx), threadID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ForumThreadSubject(communityID, threadID), []byte("changed"))
 	}
 }
 
@@ -264,7 +300,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.Log.Error("post thread-announce", "err", err)
 		} else {
-			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), id.Membership.DisplayName, t.Subject, link)
+			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), id.Membership.DisplayName, t.ID, t.Subject, link)
 			if h.ChatNewMsgBus != nil {
 				h.ChatNewMsgBus.Broadcast("")
 			}
@@ -424,10 +460,11 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	if q := strings.TrimSpace(in.QuotedPostID); q != "" {
 		quoted = &q
 	}
-	if _, err := h.Svc.CreatePost(r.Context(), CreatePostInput{
+	post, err := h.Svc.CreatePost(r.Context(), CreatePostInput{
 		ThreadID: threadID, AuthorID: id.User.ID,
 		QuotedPostID: quoted, BodyMarkdown: body,
-	}); err != nil {
+	})
+	if err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("reply-error", err.Error()))
 		return
 	}
@@ -440,13 +477,21 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchSignals([]byte(`{"body":"","quoted_post_id":"","_reply_quote_label":"","image_data":""}`))
 	h.broadcastThread(r.Context(), threadID)
 
-	// Reply-as-prompt: in an agent-owned thread every human reply re-runs the
-	// agent over the full thread history (it answers as the next post). Detached
-	// so a slow model never stalls the reply. Bot posts are inserted elsewhere
-	// (InsertBotPost), never through PostReply, so they can't re-trigger.
-	if h.OnAgentReply != nil {
-		if th, err := h.Repo.GetThread(r.Context(), threadID); err == nil && th.AgentID != nil {
-			go h.OnAgentReply(context.Background(), h.cid(r.Context()), threadID, *th.AgentID)
+	// One thread lookup serves two post-reply paths:
+	//   - agent threads (AgentID set): reply-as-prompt re-runs the agent over the
+	//     full history; it answers as the next post. Detached so a slow model
+	//     never stalls the reply. Bot posts are inserted via InsertBotPost, never
+	//     through PostReply, so they can't re-trigger.
+	//   - plain threads: mirror the human reply to outbound webhooks tagged with
+	//     the thread identity (Matrix-thread sync). Agent threads stay local.
+	if h.OnAgentReply != nil || h.RelayThread != nil {
+		if th, err := h.Repo.GetThread(r.Context(), threadID); err == nil {
+			switch {
+			case th.AgentID != nil && h.OnAgentReply != nil:
+				go h.OnAgentReply(context.Background(), h.cid(r.Context()), threadID, *th.AgentID)
+			case th.AgentID == nil:
+				h.relayForumReply(r.Context(), th, id.Membership.DisplayName, body, post.ID)
+			}
 		}
 	}
 }
@@ -668,7 +713,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.Log.Error("promote thread-announce", "err", err)
 		} else {
-			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), announceName, t.Subject, link)
+			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), announceName, t.ID, t.Subject, link)
 		}
 	}
 	// Refresh open chat tabs so the thread_announce shows up live,
@@ -717,7 +762,7 @@ func (h *Handler) CreateAgentThread(ctx context.Context, communityID, slug, auth
 		if _, err := h.Chat.PostSystem(ctx, communityID, announceHTML, chat.KindThreadAnnounce, &threadID); err != nil {
 			h.Log.Error("agent thread-announce", "err", err)
 		} else {
-			h.relayThreadAnnounce(ctx, communityID, agentName, t.Subject, link)
+			h.relayThreadAnnounce(ctx, communityID, agentName, t.ID, t.Subject, link)
 		}
 	}
 	if h.ChatBus != nil {

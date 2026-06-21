@@ -39,6 +39,37 @@ func TestGenericAdapter(t *testing.T) {
 	}
 }
 
+func TestGenericAdapterThreadFields(t *testing.T) {
+	body := `{"text":"hi there","thread_key":"!room:srv/$evt","subject":"Deploy chat","author":"alice"}`
+	got, err := genericAdapter{}.Parse(http.Header{}, []byte(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Markdown != "hi there" {
+		t.Fatalf("markdown = %q", got.Markdown)
+	}
+	if got.ThreadKey != "!room:srv/$evt" {
+		t.Fatalf("thread_key = %q", got.ThreadKey)
+	}
+	if got.Subject != "Deploy chat" {
+		t.Fatalf("subject = %q", got.Subject)
+	}
+	if got.Author != "alice" {
+		t.Fatalf("author = %q", got.Author)
+	}
+}
+
+func TestGenericAdapterNoThreadFields(t *testing.T) {
+	// A plain message leaves the thread routing fields empty (chat path).
+	got, err := genericAdapter{}.Parse(http.Header{}, []byte(`{"text":"hi"}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ThreadKey != "" || got.Subject != "" || got.Author != "" {
+		t.Fatalf("expected empty thread fields, got %+v", got)
+	}
+}
+
 func TestGithubAdapterPing(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-GitHub-Event", "ping")

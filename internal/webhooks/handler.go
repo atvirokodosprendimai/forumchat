@@ -1,6 +1,9 @@
 package webhooks
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -34,6 +37,16 @@ type Handler struct {
 	BaseURL       string
 	MaxBytes      int64
 	Log           *slog.Logger
+
+	// Forum-routing seams (optional). When an inbound generic message carries a
+	// thread_key, it is mirrored into the forum instead of the chat channel:
+	// OpenForumThread opens a thread the first time a key is seen, AddForumPost
+	// appends to it thereafter, and NotifyForumThread wakes open forum viewers.
+	// All three are wired in main.go to forum (closures, no import). nil
+	// disables forum routing — a thread_key then falls back to the chat path.
+	OpenForumThread   func(ctx context.Context, communityID, author, subject, markdown string) (threadID string, err error)
+	AddForumPost      func(ctx context.Context, threadID, author, avatar, markdown string) (postID string, err error)
+	NotifyForumThread func(communityID, threadID string)
 }
 
 // ----- Inbound (public, token-authed) ---------------------------------------
@@ -79,6 +92,13 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A thread_key routes the message into the forum (Matrix-thread sync) when
+	// the forum seams are wired; otherwise it falls through to the chat path.
+	if rendered.ThreadKey != "" && h.OpenForumThread != nil {
+		h.postInboundForum(w, r, wh, rendered)
+		return
+	}
+
 	if _, err := h.Chat.PostBot(r.Context(), wh.CommunityID, wh.ChannelID, wh.Name, wh.AvatarURL, rendered.Markdown); err != nil {
 		h.Log.Error("webhooks: PostBot", "err", err)
 		_ = h.Repo.Stamp(r.Context(), wh.ID, "error")
@@ -89,6 +109,59 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 	_ = h.Repo.Stamp(r.Context(), wh.ID, "ok")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+// postInboundForum mirrors an inbound message into the forum: the first message
+// for a given thread_key opens a thread; later messages with the same key
+// append posts. Forum content is bot-authored (the far-side human's name rides
+// the bot identity), so it never relays back out — the inbound echo guard. The
+// response returns the forum thread/post ids so a stateful bridge can record
+// the reverse (forumchat -> external) mapping.
+func (h *Handler) postInboundForum(w http.ResponseWriter, r *http.Request, wh Webhook, rendered Rendered) {
+	author := rendered.Author
+	if author == "" {
+		author = wh.Name
+	}
+
+	threadID, err := h.Repo.ThreadLink(r.Context(), wh.ID, rendered.ThreadKey)
+	var postID string
+	switch {
+	case errors.Is(err, ErrNotFound):
+		threadID, err = h.OpenForumThread(r.Context(), wh.CommunityID, author, rendered.Subject, rendered.Markdown)
+		if err != nil {
+			h.Log.Error("webhooks: open forum thread", "err", err)
+			_ = h.Repo.Stamp(r.Context(), wh.ID, "error")
+			http.Error(w, "post failed", http.StatusInternalServerError)
+			return
+		}
+		if err := h.Repo.LinkThread(r.Context(), wh.ID, rendered.ThreadKey, threadID); err != nil {
+			h.Log.Warn("webhooks: link forum thread", "err", err)
+		}
+	case err != nil:
+		h.Log.Error("webhooks: thread link lookup", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	default:
+		if h.AddForumPost == nil {
+			http.Error(w, "forum routing unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		postID, err = h.AddForumPost(r.Context(), threadID, author, wh.AvatarURL, rendered.Markdown)
+		if err != nil {
+			h.Log.Error("webhooks: add forum post", "err", err)
+			_ = h.Repo.Stamp(r.Context(), wh.ID, "error")
+			http.Error(w, "post failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if h.NotifyForumThread != nil {
+		h.NotifyForumThread(wh.CommunityID, threadID)
+	}
+	_ = h.Repo.Stamp(r.Context(), wh.ID, "ok")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"thread_id": threadID, "post_id": postID})
 }
 
 // fanout mirrors the forum→chat bridge: refresh open chat tabs (Bus + NATS) and

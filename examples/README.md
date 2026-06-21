@@ -18,6 +18,13 @@ inbound URL is shown once on create — copy it then.
 - **`generic`** provider — `{"text": "..."}` **or** `{"content": "..."}`. Any
   other JSON (or non-JSON) is posted verbatim in a code block. This is the
   catch-all: Slack-outgoing, Discord, Matrix bridges, CI, scripts.
+  - **Forum-thread routing (optional):** add `"thread_key": "<stable id>"` and
+    the message lands in the **forum** instead of the chat channel. The first
+    message for a given `thread_key` opens a thread (titled by `"subject"`, or
+    the first line); later messages with the same key append posts. `"author"`
+    sets the far-side human's display name on the post. The response is
+    `{"thread_id": "...", "post_id": "..."}` so a bridge can store the reverse
+    mapping. Omit `thread_key` for the normal chat-bot behaviour.
 - **`github`** provider — point a GitHub repo/org webhook here (content-type
   `application/json`). `push` / `pull_request` / `issues` / `release` are
   formatted; set the GitHub webhook **secret** to the webhook's signing secret
@@ -35,6 +42,12 @@ curl -X POST -H 'Content-Type: application/json' \
 
 - **`slack`** / **`discord`** provider → `{"text": "[#channel] author: body"}`
 - **`generic`** provider → `{"community","channel","author","body_md","created_at"}`
+  - **Forum-thread relays** also carry the thread identity:
+    `{..., "thread_id", "subject", "thread_root", "message_id"}`. `thread_root`
+    is `true` for the message that opened the thread (then `message_id` is
+    omitted); `false` for replies (then `message_id` is the post id). Chat
+    relays omit all four keys. Use `thread_id` to group messages into one
+    external thread.
 
 Only human (`kind=user`) messages are relayed — bot/system/forward messages are
 not, so an inbound post never loops back out.
@@ -75,3 +88,26 @@ transformation function that emits `{"text": ...}`:
 // hookshot outbound transformation (JS)
 result = { text: `${data.sender}: ${data.content?.body ?? ''}` };
 ```
+
+### Thread sync (forumchat forum thread ↔ Matrix thread)
+
+forumchat speaks both halves of the thread contract (see the payload shapes
+above): outbound forum relays carry `thread_id` + `thread_root`, and the
+inbound `generic` endpoint routes a message into the forum when it carries
+`thread_key`. What forumchat does **not** ship is the piece that maps the two
+id-spaces, because that is inherently stateful and Matrix-side:
+
+- **forumchat → Matrix** needs a consumer that remembers
+  `forumchat thread_id → Matrix thread-root event` and posts each relay as an
+  `m.thread` reply under that root (creating the root on `thread_root: true`).
+- **Matrix → forumchat** needs a producer that sends a Matrix thread's
+  root-event id as `thread_key` (and the human's name as `author`), then stores
+  the `{thread_id}` forumchat returns so the reverse direction can find it.
+
+The **stock** `maubot-webhook` plugin and `matrix-hookshot` are stateless,
+template-only, and **m.thread-unaware** — they can mirror flat channel↔room
+traffic (above) but cannot map threads. True thread sync requires a small
+**custom, stateful maubot plugin** that holds the id↔event map and reads/writes
+the `thread_*` fields. forumchat's side of that contract is in place; the plugin
+is the remaining piece (not shipped here — a native Matrix Application Service
+bridge is the heavier alternative, still out of scope).

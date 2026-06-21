@@ -13,9 +13,18 @@ import (
 // Rendered is an adapter's output. Skip=true means "valid request, but nothing
 // worth posting" (health pings, empty bodies) — the handler returns 200 and
 // posts no message.
+//
+// ThreadKey, when non-empty, routes the message to the forum instead of the
+// chat channel: it is the external thread-root identifier (e.g. a Matrix
+// thread-root event id) that forumchat maps to a forum thread. Subject seeds a
+// newly opened thread; Author overrides the bot display name for this one
+// message (the human who spoke on the far side).
 type Rendered struct {
-	Markdown string
-	Skip     bool
+	Markdown  string
+	Skip      bool
+	ThreadKey string
+	Subject   string
+	Author    string
 }
 
 // Adapter turns an inbound webhook request into a chat-ready markdown body.
@@ -48,15 +57,25 @@ func (genericAdapter) Parse(_ http.Header, body []byte) (Rendered, error) {
 		return Rendered{Skip: true}, nil
 	}
 	var p struct {
-		Text    string `json:"text"`
-		Content string `json:"content"`
+		Text      string `json:"text"`
+		Content   string `json:"content"`
+		ThreadKey string `json:"thread_key"`
+		Subject   string `json:"subject"`
+		Author    string `json:"author"`
 	}
 	if err := json.Unmarshal(body, &p); err == nil {
+		meta := Rendered{
+			ThreadKey: strings.TrimSpace(p.ThreadKey),
+			Subject:   strings.TrimSpace(p.Subject),
+			Author:    strings.TrimSpace(p.Author),
+		}
 		if t := strings.TrimSpace(p.Text); t != "" {
-			return Rendered{Markdown: t}, nil
+			meta.Markdown = t
+			return meta, nil
 		}
 		if c := strings.TrimSpace(p.Content); c != "" {
-			return Rendered{Markdown: c}, nil
+			meta.Markdown = c
+			return meta, nil
 		}
 	}
 	// Not the expected JSON shape (or no text/content): post the raw payload

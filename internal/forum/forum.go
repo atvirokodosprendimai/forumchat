@@ -330,6 +330,11 @@ func (r *Repo) ListPosts(ctx context.Context, threadID string) ([]Post, error) {
 		}
 		if agentID.Valid {
 			p.AgentID = &agentID.String
+		}
+		// Bot identity overrides the member display whenever the row carries a
+		// bot_name — agent replies (agent_id set) and inbound-webhook posts
+		// (no agent_id, bot_name = the far-side human) both take this path.
+		if p.AgentID != nil || p.BotName != "" {
 			p.AuthorName, p.AuthorAvatar = p.BotName, p.BotAvatar
 		}
 		if del.Valid {
@@ -365,6 +370,10 @@ func (r *Repo) GetPost(ctx context.Context, id string) (Post, error) {
 	}
 	if agentID.Valid {
 		p.AgentID = &agentID.String
+	}
+	// See ListPosts: bot_name overrides the member display for agent replies
+	// and inbound-webhook posts alike.
+	if p.AgentID != nil || p.BotName != "" {
 		p.AuthorName, p.AuthorAvatar = p.BotName, p.BotAvatar
 	}
 	if del.Valid {
@@ -526,4 +535,81 @@ func (s *Service) CreatePost(ctx context.Context, in CreatePostInput) (Post, err
 
 func (s *Service) CanEditOrDeleteOwn(p Post, now time.Time) bool {
 	return now.Sub(p.CreatedAt) <= s.EditGrace
+}
+
+// CreateWebhookThread opens a forum thread on behalf of an inbound webhook
+// (e.g. a Matrix thread mirrored in). It is authored by the AgentBot sentinel
+// user — threads carry no denormalised bot identity, so the far-side human
+// name is surfaced in the opening body instead. subject seeds the title; when
+// empty it is derived from the first line of markdown.
+func (s *Service) CreateWebhookThread(ctx context.Context, communityID, author, subject, markdown string) (Thread, error) {
+	if strings.TrimSpace(markdown) == "" {
+		return Thread{}, ErrEmpty
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		subject = firstLineN(markdown, 200)
+	}
+	if subject == "" {
+		subject = "Conversation"
+	}
+	return s.CreateThread(ctx, CreateThreadInput{
+		CommunityID:  communityID,
+		AuthorID:     AgentBotUserID,
+		Subject:      subject,
+		BodyMarkdown: withAuthorPrefix(author, markdown),
+	})
+}
+
+// CreateWebhookPost appends an inbound webhook message to an existing thread as
+// a bot-authored post (author_id = AgentBot sentinel; botName/avatar give it
+// the far-side human's display identity). It bumps thread activity. The post
+// carries no agent_id, so it is not an AI reply and never re-triggers a
+// generation — this is the inbound echo guard.
+func (s *Service) CreateWebhookPost(ctx context.Context, threadID, botName, avatar, markdown string) (Post, error) {
+	if strings.TrimSpace(markdown) == "" {
+		return Post{}, ErrEmpty
+	}
+	html, err := render.RenderMarkdown(markdown)
+	if err != nil {
+		return Post{}, err
+	}
+	now := time.Now()
+	p := Post{
+		ID:           uuid.NewString(),
+		ThreadID:     threadID,
+		AuthorID:     AgentBotUserID,
+		BodyMarkdown: markdown,
+		BodyHTML:     html,
+		BotName:      botName,
+		BotAvatar:    avatar,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := s.Repo.InsertBotPost(ctx, p); err != nil {
+		return Post{}, err
+	}
+	if err := s.Repo.TouchThread(ctx, threadID, now); err != nil {
+		return Post{}, err
+	}
+	return p, nil
+}
+
+// withAuthorPrefix prepends a bold attribution line when author is set, so a
+// webhook-opened thread (whose row is owned by the sentinel) still shows who
+// spoke on the far side.
+func withAuthorPrefix(author, markdown string) string {
+	if author = strings.TrimSpace(author); author == "" {
+		return markdown
+	}
+	return "**" + author + "** (via webhook)\n\n" + markdown
+}
+
+// firstLineN returns the first line of s, trimmed to at most n bytes.
+func firstLineN(s string, n int) string {
+	line := strings.TrimSpace(firstLine(s))
+	if len(line) > n {
+		line = line[:n]
+	}
+	return line
 }
