@@ -4329,6 +4329,16 @@ button.ghost.danger { color: var(--danger); }
 .agent-config-toggle { flex-direction: row !important; align-items: center; gap: .5rem; }
 .agent-config-actions { display: flex; align-items: center; gap: .8rem; }
 .agent-config-status { color: var(--success); font-size: .85rem; }
+/* Chat-participation section of the agent admin form. */
+.agent-chat-fieldset {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: .75rem .85rem; display: flex; flex-direction: column; gap: .9rem;
+}
+.agent-chat-fieldset legend { font-size: .82rem; font-weight: 600; color: var(--fg-muted); padding: 0 .35rem; }
+.agent-chat-fields { display: flex; flex-direction: column; gap: .9rem; }
+.agent-chat-channels { display: flex; flex-direction: column; gap: .4rem; }
+.agent-chat-channels-label { font-size: .9rem; }
+.agent-chat-channels .agent-config-toggle { font-size: .88rem; }
 
 @media (max-width: 760px) {
   /* Single column, but keep the fixed viewport height so the page itself

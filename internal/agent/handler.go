@@ -40,8 +40,13 @@ type Handler struct {
 	// outbound webhook relay so this package needn't import chat. authorName
 	// credits the relayed message. Nil disables the share affordance.
 	ShareToChannel func(ctx context.Context, communityID, channelSlug, authorID, authorName, bodyMD string) (channelName string, err error)
-	// ListChannels lists the community's chat channels for the share dropdown.
+	// ListChannels lists the community's chat channels for the share dropdown
+	// and the chat-participation channel picker in the agent admin form.
 	ListChannels func(ctx context.Context, communityID string) []webtempl.ChannelView
+	// RosterBump, when set, wakes open chat presence rosters after an agent's
+	// chat-participation changes so a new/removed bot row appears live. Wired in
+	// main.go to *presence.Tracker.Bump.
+	RosterBump func(communityID string)
 	// SearchExternalRefs backs the $-reference autocomplete's non-agent results
 	// (forum subjects, projects, issues, discussions). Closure (wired in
 	// main.go) so this package needn't import forum/projects. Nil → only agent
@@ -867,7 +872,7 @@ func parseKVLines(s, sep string) map[string]string {
 // GetNewAgentForm (/admin/ai/new) patches a blank editor form.
 func (h *Handler) GetNewAgentForm(w http.ResponseWriter, r *http.Request) {
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), webtempl.AgentAdminView{}, ""))
+	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), h.formView(r.Context(), Agent{}), ""))
 }
 
 // GetEditAgentForm (/admin/ai/{id}/edit) patches the editor form for one agent.
@@ -878,21 +883,26 @@ func (h *Handler) GetEditAgentForm(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.AgentNotice("Agent not found."))
 		return
 	}
-	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), toAdminView(a), ""))
+	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), h.formView(r.Context(), a), ""))
 }
 
 type agentSignals struct {
-	AgentID      string `json:"ai_agent_id"`
-	Name         string `json:"ai_name"`
-	Provider     string `json:"ai_provider"`
-	BaseURL      string `json:"ai_base_url"`
-	Model        string `json:"ai_model"`
-	APIKey       string `json:"ai_api_key"`
-	SystemPrompt string `json:"ai_system_prompt"`
-	Vision       bool   `json:"ai_vision"`
-	ToolsEnabled bool   `json:"ai_tools"`
-	Enabled      bool   `json:"ai_enabled"`
-	Summarizer   bool   `json:"ai_summarizer"`
+	AgentID       string `json:"ai_agent_id"`
+	Name          string `json:"ai_name"`
+	Provider      string `json:"ai_provider"`
+	BaseURL       string `json:"ai_base_url"`
+	Model         string `json:"ai_model"`
+	APIKey        string `json:"ai_api_key"`
+	SystemPrompt  string `json:"ai_system_prompt"`
+	Vision        bool   `json:"ai_vision"`
+	ToolsEnabled  bool   `json:"ai_tools"`
+	Enabled       bool   `json:"ai_enabled"`
+	Summarizer    bool   `json:"ai_summarizer"`
+	InChat        bool   `json:"ai_in_chat"`
+	TriggerMode   string `json:"ai_trigger_mode"`
+	TriggerPrefix string `json:"ai_trigger_prefix"`
+	AvatarURL     string `json:"ai_avatar_url"`
+	Channels      string `json:"ai_channels"` // CSV of channel ids (Datastar can't round-trip arrays)
 }
 
 // PostSaveAgent (/admin/ai) creates or updates an agent, then re-renders the
@@ -913,7 +923,9 @@ func (h *Handler) PostSaveAgent(w http.ResponseWriter, r *http.Request) {
 		ID: strings.TrimSpace(in.AgentID), CommunityID: cid, Name: in.Name,
 		Provider: in.Provider, BaseURL: in.BaseURL, Model: in.Model,
 		SystemPrompt: in.SystemPrompt, Vision: in.Vision, ToolsEnabled: in.ToolsEnabled, Enabled: in.Enabled,
-		IsSummarizer: in.Summarizer, UpdatedBy: id.User.ID,
+		IsSummarizer:  in.Summarizer,
+		InChatEnabled: in.InChat, TriggerMode: in.TriggerMode, TriggerPrefix: in.TriggerPrefix,
+		AvatarURL: strings.TrimSpace(in.AvatarURL), UpdatedBy: id.User.ID,
 	}
 	// Preserve the stored key unless a new one was typed (the form never echoes
 	// the secret); load the existing row when editing.
@@ -927,13 +939,43 @@ func (h *Handler) PostSaveAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sse := render.NewSSE(w, r)
-	if _, err := h.Svc.SaveAgent(r.Context(), a); err != nil {
-		_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), toAdminView(a), saveErr(err)))
+	saved, err := h.Svc.SaveAgent(r.Context(), a)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), h.formView(r.Context(), a), saveErr(err)))
 		return
 	}
+	// Replace the agent's channel bindings (chat-agents). Empty CSV → no channels.
+	if err := h.Repo.SetAgentChannels(r.Context(), saved.ID, parseChannelCSV(in.Channels)); err != nil {
+		h.Log.Warn("agent: set channels", "agent", saved.ID, "err", err)
+	}
 	h.broadcast(r.Context(), "") // wake any agent pages so the picker refreshes
+	if h.RosterBump != nil {
+		h.RosterBump(cid) // wake open chat rosters so the bot row appears/disappears live
+	}
 	h.renderAdminList(r.Context(), sse)
-	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), webtempl.AgentAdminView{}, "Saved."))
+	_ = sse.PatchElementTempl(webtempl.AgentAdminForm(h.cslug(r.Context()), h.formView(r.Context(), Agent{}), "Saved."))
+}
+
+// parseChannelCSV splits the ai_channels signal (comma-separated channel ids)
+// into a trimmed, de-duplicated slice.
+func parseChannelCSV(csv string) []string {
+	if strings.TrimSpace(csv) == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, id := range strings.Split(csv, ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 // PostDeleteAgent (/admin/ai/{id}/delete) removes an agent (threads cascade).
@@ -1024,16 +1066,44 @@ func toMsgView(m Message, canShare bool) webtempl.AgentMsgView {
 
 func toAdminView(a Agent) webtempl.AgentAdminView {
 	return webtempl.AgentAdminView{
-		ID:           a.ID,
-		Name:         a.Name,
-		Provider:     a.Provider,
-		BaseURL:      a.BaseURL,
-		Model:        a.Model,
-		SystemPrompt: a.SystemPrompt,
-		Vision:       a.Vision,
-		ToolsEnabled: a.ToolsEnabled,
-		Enabled:      a.Enabled,
-		IsSummarizer: a.IsSummarizer,
-		APIKeySet:    strings.TrimSpace(a.APIKeyEnc) != "",
+		ID:            a.ID,
+		Name:          a.Name,
+		Provider:      a.Provider,
+		BaseURL:       a.BaseURL,
+		Model:         a.Model,
+		SystemPrompt:  a.SystemPrompt,
+		Vision:        a.Vision,
+		ToolsEnabled:  a.ToolsEnabled,
+		Enabled:       a.Enabled,
+		IsSummarizer:  a.IsSummarizer,
+		APIKeySet:     strings.TrimSpace(a.APIKeyEnc) != "",
+		InChatEnabled: a.InChatEnabled,
+		TriggerMode:   a.TriggerMode,
+		TriggerPrefix: a.TriggerPrefix,
+		AvatarURL:     a.AvatarURL,
 	}
+}
+
+// formView builds the admin form view-model: the agent's fields plus the
+// community's chat channels with the ones currently bound marked, so the
+// channel picker renders the right checked state.
+func (h *Handler) formView(ctx context.Context, a Agent) webtempl.AgentAdminView {
+	v := toAdminView(a)
+	if h.ListChannels == nil {
+		return v
+	}
+	bound := map[string]bool{}
+	if a.ID != "" {
+		if ids, err := h.Repo.ChannelIDsForAgent(ctx, a.ID); err == nil {
+			for _, id := range ids {
+				bound[id] = true
+			}
+		}
+	}
+	for _, ch := range h.ListChannels(ctx, h.cid(ctx)) {
+		v.Channels = append(v.Channels, webtempl.AgentChannelOption{
+			ID: ch.ID, Name: ch.Name, Bound: bound[ch.ID],
+		})
+	}
+	return v
 }

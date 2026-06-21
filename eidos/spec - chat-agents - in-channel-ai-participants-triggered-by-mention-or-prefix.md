@@ -1,6 +1,6 @@
 ---
 name: spec-chat-agents
-status: draft
+status: implemented
 type: spec
 tldr: Bring-your-own-agent for the live chat channel. The existing per-community `ai_agents` (name/model/system-prompt) become first-class chat participants — shown in the roster with a bot icon, @mentionable, triggered in-line by @mention OR a configurable line-prefix (default '.') OR every message ('all'), scoped to admin-assigned channels. The bot streams its answer as a live-typing `kind='bot'` bubble built from the last ~30 channel messages, reusing the agent runner/provider. Gated by AI_ENABLED + per-agent `in_chat_enabled`.
 ---
@@ -289,9 +289,9 @@ stays JOIN-free: the bot's identity is denormalised on the row.
 
 ## Future
 
-- {[?] Phase 1 — migration + `kind='bot'` render + roster bot entries + mention union (no generation yet; static bot identity).}
-- {[?] Phase 2 — matcher + Dispatch + channel-history build + runner adapter streaming the bubble; loop guard.}
-- {[?] Phase 3 — admin form (in_chat toggle, trigger mode/prefix, channel multi-select, avatar) + cache invalidation.}
+- {[x] Phase 1 — migration + `kind='bot'` render + roster bot entries + mention union (static bot identity).}
+- {[x] Phase 2 — matcher + Dispatch + channel-history build + runner streaming the bubble; loop guard.}
+- {[x] Phase 3 — admin form (in_chat toggle, trigger mode/prefix, channel multi-select, avatar) + roster Bump on save.}
 - {[?] reply_to_id parent prepended to context.}
 - {[?] Per-(member, agent) rate limit + abuse controls.}
 - {[?] Concurrent-trigger JetStream queue (vs drop).}

@@ -586,6 +586,8 @@ func run() error {
 		// between chat + agent). The loop guard lives in Dispatch (user-kind only).
 		chatAgentRunner := chatagents.NewRunner(chatRepo, chatBus, nc, 0, log)
 		chatHandler.Dispatch = chatagents.NewDispatcher(agentRepo, chatAgentRunner, log).Dispatch
+		// Admin form's channel picker + live roster refresh after a save.
+		agentHandler.RosterBump = presenceTracker.Bump
 	}
 	webtempl.AIEnabled = cfg.AIEnabled
 	webtempl.RAGEnabled = cfg.RAGEnabled

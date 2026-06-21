@@ -809,6 +809,51 @@ non-archived channel — **no membership table**, just a `channel_id` column.
   `channelID`. `PostSystem` is the exception (stays community-level, lands in
   `#general`).
 
+### 6.9 Chat-agents — `ai_agents` as in-channel `kind='bot'` participants (migration 00043)
+
+Spec: `eidos/spec - chat-agents - …`. Plan: `memory/plan - 2606211058 - …`. The
+community's existing **`ai_agents`** (the threaded-pane agents) can also join the
+live chat channel as bot participants: roster bot row, @mentionable, triggered
+in-line. Gated by `AI_ENABLED` + per-agent `ai_agents.in_chat_enabled`.
+
+- **`kind='bot'` is its own chat message kind** — distinct from webhooks'
+  `kind='webhook'`. Both reuse the denormalised `chat_messages.bot_name` /
+  `bot_avatar_url` columns; bot adds `bot_agent_id` (provenance) + `gen_status`
+  (streaming lifecycle `'' | generating | done | interrupted`). Unlike a webhook
+  bubble, a bot bubble IS a valid @mention target and shows a `▍` cursor while
+  generating. The `KindWebhook` identity branch in `chat.listBefore`/`ByID` was
+  widened to `KindWebhook || KindBot`.
+- **`internal/chatagents` is the seam** — it imports BOTH `chat` and `agent`
+  (so neither imports the other, like `projects.PostExtractFromChat`, §6.7).
+  `match.go` (pure trigger matcher, table-tested), `dispatch.go`
+  (`Dispatcher.Dispatch`), `runner.go` (streaming generation).
+- **The load-bearing safety rule is the loop guard:** `Dispatch` is a no-op
+  unless the triggering message is `kind='user'`. It's called ONLY from
+  `chat.PostSend` (the human path) via the `chatHandler.Dispatch` closure. So a
+  bot/webhook/system message can never trigger an agent — **no bot-to-bot in v1.**
+- **Trigger is per-agent:** `trigger_mode IN ('mention','prefix','both','all')`
+  + `trigger_prefix` (default `.`). Multiple prefix-agents in one channel must be
+  addressed `<prefix><name>` (the matcher's `multiPrefix` disambiguation).
+- **Streaming reuses the agent runner shape, not the runner itself:**
+  `chatagents.Runner` calls the exported `agent.NewProvider`, inserts a
+  placeholder `kind='bot'` row, and a 100ms `time.Ticker` rewrites `body_md` via
+  `chat.Repo.UpdateBotBody` + broadcasts the channel id on the chat Bus/NATS —
+  the existing chat fat-morph renders the growing bubble. One generation per
+  `(channel, agent)` (`active` map); boot sweep `chat.Repo.MarkBotGeneratingInterrupted`.
+- **Context = last ~30 non-bot channel messages** (no threads in chat): the
+  agent's own `bot_agent_id` messages → assistant turns, everyone else → user
+  turns prefixed with the display name; system = preamble + `system_prompt`.
+- **Roster + mention are community-wide, NOT channel-scoped** — deliberate
+  deviation from the spec, for consistency with the existing community-wide
+  member roster (`presence.Handler.Agents` closure injects always-online bot
+  rows; `chat.Handler.MentionAgents` closure unions agent names into
+  `/chat/mention`). Trigger dispatch IS channel-scoped (`ai_agent_channels`).
+- **Admin** in the existing agent editor (`web/templ/agent.templ`
+  `AgentAdminForm`): "Join the live chat" + avatar + trigger mode/prefix +
+  channel checkboxes (the channel set rides a CSV `ai_channels` signal because
+  Datastar can't round-trip arrays, §6.7). Save → `Repo.SetAgentChannels` +
+  `presence.Tracker.Bump` so open rosters refresh live.
+
 ---
 
 ## 6b. CQRS in this codebase — what writes and reads actually look like

@@ -2,6 +2,7 @@ package templ
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 )
@@ -69,6 +70,21 @@ type AgentAdminView struct {
 	Enabled      bool
 	IsSummarizer bool
 	APIKeySet    bool
+	// Chat participation (chat-agents): this agent joins the live chat channel
+	// as a kind='bot' participant when InChatEnabled, triggered per TriggerMode.
+	InChatEnabled bool
+	TriggerMode   string // mention | prefix | both | all
+	TriggerPrefix string
+	AvatarURL     string
+	Channels      []AgentChannelOption // community channels + which are bound
+}
+
+// AgentChannelOption is one channel checkbox in the agent admin form's
+// chat-participation channel picker.
+type AgentChannelOption struct {
+	ID    string
+	Name  string
+	Bound bool
 }
 
 // AgentPageData drives the whole /agent page.
@@ -694,6 +710,46 @@ templ AgentAdminForm(slug string, a AgentAdminView, status string) {
 			<input type="checkbox" data-bind="ai_enabled"/>
 			<span>Enabled (members can chat with this agent)</span>
 		</label>
+		<fieldset class="agent-chat-fieldset">
+			<legend>Chat participation</legend>
+			<label class="agent-config-toggle">
+				<input type="checkbox" data-bind="ai_in_chat"/>
+				<span>Join the live chat (appears in the roster, @mentionable as a bot)</span>
+			</label>
+			<div data-show="$ai_in_chat" class="agent-chat-fields">
+				<label>
+					<span>Avatar URL <span class="muted">(optional)</span></span>
+					<input type="text" data-bind="ai_avatar_url" placeholder="https://… (blank → 🤖)"/>
+				</label>
+				<label>
+					<span>Trigger</span>
+					<select data-bind="ai_trigger_mode">
+						<option value="mention">{ "@mention only" }</option>
+						<option value="prefix">Line prefix only</option>
+						<option value="both">Mention or prefix</option>
+						<option value="all">Every message (dedicated channel)</option>
+					</select>
+				</label>
+				<label data-show="$ai_trigger_mode === 'prefix' || $ai_trigger_mode === 'both'">
+					<span>Prefix <span class="muted">(line starting with this summons the bot)</span></span>
+					<input type="text" data-bind="ai_trigger_prefix" maxlength="3" placeholder="."/>
+				</label>
+				<div class="agent-chat-channels">
+					<span class="agent-chat-channels-label">Channels</span>
+					if len(a.Channels) == 0 {
+						<p class="muted">No channels yet.</p>
+					} else {
+						for _, ch := range a.Channels {
+							<label class="agent-config-toggle">
+								<input type="checkbox" value={ ch.ID } checked?={ ch.Bound }
+									data-on:change={ agentChannelToggleJS() }/>
+								<span>#{ ch.Name }</span>
+							</label>
+						}
+					}
+				</div>
+			</div>
+		</fieldset>
 		<div class="agent-config-actions">
 			<button type="button" class="agent-send" data-on:click={ "@post('/c/" + slug + "/admin/ai')" }>Save</button>
 			<button type="button" class="ghost" data-on:click="el.closest('#ai-agent-form').replaceChildren()">Cancel</button>
@@ -722,6 +778,14 @@ func agentFormSignals(a AgentAdminView) string {
 	if base == "" && a.ID == "" {
 		base = "http://localhost:11434"
 	}
+	mode := a.TriggerMode
+	if mode == "" {
+		mode = "mention"
+	}
+	prefix := a.TriggerPrefix
+	if prefix == "" {
+		prefix = "."
+	}
 	return `{"ai_agent_id":` + strconv.Quote(a.ID) +
 		`,"ai_name":` + strconv.Quote(a.Name) +
 		`,"ai_provider":` + strconv.Quote(prov) +
@@ -732,7 +796,32 @@ func agentFormSignals(a AgentAdminView) string {
 		`,"ai_tools":` + agentBoolStr(a.ToolsEnabled) +
 		`,"ai_enabled":` + agentBoolStr(a.Enabled) +
 		`,"ai_summarizer":` + agentBoolStr(a.IsSummarizer) +
+		`,"ai_in_chat":` + agentBoolStr(a.InChatEnabled) +
+		`,"ai_trigger_mode":` + strconv.Quote(mode) +
+		`,"ai_trigger_prefix":` + strconv.Quote(prefix) +
+		`,"ai_avatar_url":` + strconv.Quote(a.AvatarURL) +
+		`,"ai_channels":` + strconv.Quote(agentBoundChannelsCSV(a)) +
 		`,"ai_api_key":""}`
+}
+
+// agentBoundChannelsCSV joins the currently-bound channel ids into the CSV the
+// channel checkboxes maintain in the ai_channels signal.
+func agentBoundChannelsCSV(a AgentAdminView) string {
+	ids := make([]string, 0, len(a.Channels))
+	for _, ch := range a.Channels {
+		if ch.Bound {
+			ids = append(ids, ch.ID)
+		}
+	}
+	return strings.Join(ids, ",")
+}
+
+// agentChannelToggleJS adds/removes the checkbox's channel id from the
+// comma-separated ai_channels signal as the admin ticks channels.
+func agentChannelToggleJS() string {
+	return "$ai_channels = el.checked " +
+		"? ($ai_channels ? $ai_channels + ',' + el.value : el.value) " +
+		": $ai_channels.split(',').filter(function(x){return x && x !== el.value}).join(',')"
 }
 
 func agentBoolStr(b bool) string {

@@ -1,6 +1,6 @@
 ---
 name: plan-chat-agents
-status: active
+status: completed
 type: plan
 spec: spec - chat-agents - in-channel-ai-participants-triggered-by-mention-or-prefix
 tldr: Make per-community ai_agents first-class chat participants — roster bot icon, @mentionable, triggered per-agent by mention/prefix/both/all, scoped to admin-assigned channels, streaming kind='bot' bubble built from last ~30 channel messages. Reuses the agent runner/provider + webhook bot-identity columns. Gated by AI_ENABLED + per-agent in_chat_enabled.
@@ -84,19 +84,24 @@ Goal: `@nick hi` (or `.nick hi`) in a bound channel makes nick stream a reply.
 
 Goal: an admin toggles an agent into chat from the existing AI admin editor.
 
-1. [ ] `web/templ/agent.templ` admin section: **Participate in chat** checkbox
-   (`in_chat_enabled`), **Avatar URL**, **Trigger** select (mention|prefix|both|all)
-   + **prefix** input (shown when mode≠mention), **Channels** multi-select.
-2. [ ] `internal/agent` handler/service: persist the new `ai_agents` fields +
-   replace `ai_agent_channels` bindings in one tx.
-3. [ ] Invalidate the per-community roster/autocomplete agent cache + fire
-   `presence.Bump(communityID)` on any of these mutations so open chat tabs
-   re-render live.
-4. [ ] README env note (none new — reuse `AI_ENABLED`) + AGENTS.md `§` on
-   chat-agents (kind='bot', loop guard, seam package). Update CLAUDE.md if a new
-   gotcha surfaces.
-5. [ ] Verify: admin binds agent `nick` to `#general` with `trigger_mode=both`;
-   end-to-end from a fresh tab with no SQL seeding.
+1. [x] `web/templ/agent.templ` `AgentAdminForm`: "Join the live chat" checkbox
+   (`ai_in_chat`), **Avatar URL**, **Trigger** select (mention|prefix|both|all)
+   + **prefix** input (`data-show` when mode≠mention), **Channels** checkboxes
+   (CSV `ai_channels` signal — Datastar can't round-trip arrays). New view fields
+   `InChatEnabled/TriggerMode/TriggerPrefix/AvatarURL/Channels` + `AgentChannelOption`.
+   - => `@mention only` option label starts with `@` → templ read it as a component
+     call; wrapped as `{ "@mention only" }`.
+2. [x] `agent.Handler`: `agentSignals` + `PostSaveAgent` persist the new fields;
+   `parseChannelCSV` → `Repo.SetAgentChannels(saved.ID, ids)`. `formView` helper
+   populates the channel picker (reuses `ListChannels` + `ChannelIDsForAgent`).
+3. [x] No cache to invalidate (roster/mention closures read DB fresh each call);
+   instead `agentHandler.RosterBump = presenceTracker.Bump` fires on save so open
+   chat rosters re-render live.
+4. [x] AGENTS.md §6.9 (chat-agents: kind='bot', loop guard, seam package,
+   community-wide roster deviation). No new env (reuses `AI_ENABLED`).
+5. [x] Verify: `go build ./...` + `go test ./...` green (matcher + runner + sweep
+   + channel-binding query tests); app boots clean under `AI_ENABLED=true`,
+   `GET /` → 200, no panics. CSS added for the admin form + bot bubble/roster.
 
 ## Decisions (resolved with user 2026-06-21, see spec)
 
@@ -131,3 +136,8 @@ runner stub-Ollama, identity/render, roster, E2E smoke).
   `agent.NewProvider`, `chat.Repo.UpdateBotBody` / `MarkBotGeneratingInterrupted`.
   Tests: matcher matrix + stub-Ollama runner end-to-end + sweep — all green;
   `go build ./...` + `go test ./...` clean. Next: Phase 3 (admin form + cache invalidation).
+- 2606211128 — **Phase 3 complete → plan DONE.** Admin form (in-chat toggle,
+  avatar, trigger mode/prefix, channel checkboxes via CSV signal); `PostSaveAgent`
+  persists + `SetAgentChannels`; `RosterBump` on save. Added channel-binding query
+  test. AGENTS.md §6.9 + spec → `implemented`. Full build + test green; clean boot
+  under `AI_ENABLED`. Whole feature done across 3 phases on `task/spec-chat-agents`.
