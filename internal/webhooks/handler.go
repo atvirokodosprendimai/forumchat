@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -37,6 +39,11 @@ type Handler struct {
 	BaseURL       string
 	MaxBytes      int64
 	Log           *slog.Logger
+
+	// Uploads, if set, lets the inbound generic webhook accept media via
+	// multipart/form-data (a text field + file parts) — the bytes are stored
+	// and posted as chat attachments. nil disables inbound media (text only).
+	Uploads *uploads.Store
 
 	// Forum-routing seams (optional). When an inbound generic message carries a
 	// thread_key, it is mirrored into the forum instead of the chat channel:
@@ -60,6 +67,15 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 	wh, err := h.Repo.InboundByToken(r.Context(), token)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	// Media ingest: a generic webhook may POST multipart/form-data (a `text`
+	// field plus one or more `file` parts) to post images/files into the
+	// channel. Handled here (the adapter only sees JSON bytes).
+	if wh.Provider == "generic" && h.Uploads != nil &&
+		strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		h.postInboundMultipart(w, r, wh)
 		return
 	}
 
@@ -117,6 +133,89 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 // the bot identity), so it never relays back out — the inbound echo guard. The
 // response returns the forum thread/post ids so a stateful bridge can record
 // the reverse (forumchat -> external) mapping.
+// postInboundMultipart ingests a multipart/form-data inbound webhook: an
+// optional `text`/`content` field plus one or more `file` (or `files`) parts.
+// Each file is stored as an upload owned by a synthetic "webhook:<id>" owner
+// and the message is posted into the channel with those attachments. Enables an
+// external bridge (e.g. Matrix → forumchat) to deliver images.
+func (h *Handler) postInboundMultipart(w http.ResponseWriter, r *http.Request, wh Webhook) {
+	// Size to the upload cap (media), not the small JSON MaxBytes.
+	max := h.Uploads.MaxSize
+	if max <= 0 {
+		max = 1 << 20
+	}
+	if err := r.ParseMultipartForm(max + 1024); err != nil {
+		http.Error(w, "bad multipart: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	text := strings.TrimSpace(r.FormValue("text"))
+	if text == "" {
+		text = strings.TrimSpace(r.FormValue("content"))
+	}
+
+	// Uploads are FK'd to a real user; attribute webhook media to the webhook's
+	// creator. Without one we can't store files (text still posts).
+	owner := wh.CreatedBy
+	var ids []string
+	if r.MultipartForm != nil {
+		headers := append([]*multipart.FileHeader{}, r.MultipartForm.File["file"]...)
+		headers = append(headers, r.MultipartForm.File["files"]...)
+		if len(headers) > 0 && owner == "" {
+			h.Log.Warn("webhooks: inbound media skipped — webhook has no creator", "webhook", wh.ID)
+		}
+		for _, fh := range headers {
+			if owner == "" {
+				break
+			}
+			id, err := h.saveMultipartFile(r.Context(), owner, wh.CommunityID, fh)
+			if err != nil {
+				h.Log.Warn("webhooks: inbound media save", "err", err)
+				continue
+			}
+			ids = append(ids, id)
+		}
+	}
+
+	if text == "" && len(ids) == 0 {
+		_ = h.Repo.Stamp(r.Context(), wh.ID, "skip")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if _, err := h.Chat.PostBotWithAttachments(r.Context(), wh.CommunityID, wh.ChannelID, wh.Name, wh.AvatarURL, text, ids); err != nil {
+		h.Log.Error("webhooks: PostBotWithAttachments", "err", err)
+		_ = h.Repo.Stamp(r.Context(), wh.ID, "error")
+		http.Error(w, "post failed", http.StatusInternalServerError)
+		return
+	}
+	h.fanout(wh.CommunityID, wh.ChannelID)
+	_ = h.Repo.Stamp(r.Context(), wh.ID, "ok")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
+}
+
+// saveMultipartFile stores one multipart file part as an upload, sniffing the
+// MIME from the part's declared Content-Type and leading bytes.
+func (h *Handler) saveMultipartFile(ctx context.Context, owner, communityID string, fh *multipart.FileHeader) (string, error) {
+	f, err := fh.Open()
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	sniff := make([]byte, 512)
+	n, _ := f.Read(sniff)
+	sniff = sniff[:n]
+	if _, err := f.Seek(0, 0); err != nil {
+		return "", err
+	}
+	mimeType := uploads.MIMEFromHeader(fh.Header.Get("Content-Type"), sniff)
+	u, err := h.Uploads.Save(ctx, owner, communityID, mimeType, fh.Filename, f)
+	if err != nil {
+		return "", err
+	}
+	return u.ID, nil
+}
+
 func (h *Handler) postInboundForum(w http.ResponseWriter, r *http.Request, wh Webhook, rendered Rendered) {
 	author := rendered.Author
 	if author == "" {
