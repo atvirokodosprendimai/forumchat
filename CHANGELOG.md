@@ -161,3 +161,5 @@
 - 2026-06-21 `eccb092` docs(webhooks): add examples/ with maubot + integration configs
 - 2026-06-21 `3780746` chore(changelog): log webhooks examples commit
 - 2026-06-21 `1c0df0a` docs(readme): document webhooks + global read-only chat
+- 2026-06-21 `0a6088c` docs(spec): chat-agents — in-channel AI participants triggered by mention or prefix
+- 2026-06-21 `be8a8ad` docs(plan): chat-agents implementation plan (3 phases)

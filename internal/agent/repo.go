@@ -18,15 +18,19 @@ func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 // --- agents ---------------------------------------------------------------
 
 const agentCols = `id, community_id, name, provider, base_url, model, api_key_enc,
-	system_prompt, vision, tools_enabled, enabled, is_summarizer, position, COALESCE(updated_by,''), created_at, updated_at`
+	system_prompt, vision, tools_enabled, enabled, is_summarizer,
+	in_chat_enabled, trigger_mode, trigger_prefix, avatar_url,
+	position, COALESCE(updated_by,''), created_at, updated_at`
 
 func scanAgent(s interface {
 	Scan(dest ...any) error
 }) (Agent, error) {
 	var a Agent
-	var vision, tools, enabled, summarizer int
+	var vision, tools, enabled, summarizer, inChat int
 	err := s.Scan(&a.ID, &a.CommunityID, &a.Name, &a.Provider, &a.BaseURL, &a.Model, &a.APIKeyEnc,
-		&a.SystemPrompt, &vision, &tools, &enabled, &summarizer, &a.Position, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt)
+		&a.SystemPrompt, &vision, &tools, &enabled, &summarizer,
+		&inChat, &a.TriggerMode, &a.TriggerPrefix, &a.AvatarURL,
+		&a.Position, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -34,6 +38,7 @@ func scanAgent(s interface {
 	a.ToolsEnabled = tools != 0
 	a.Enabled = enabled != 0
 	a.IsSummarizer = summarizer != 0
+	a.InChatEnabled = inChat != 0
 	return a, nil
 }
 
@@ -132,10 +137,14 @@ func (r *Repo) CreateAgent(ctx context.Context, a Agent) error {
 	}
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO ai_agents (id, community_id, name, provider, base_url, model, api_key_enc,
-			system_prompt, vision, tools_enabled, enabled, is_summarizer, position, created_at, updated_at, updated_by)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			system_prompt, vision, tools_enabled, enabled, is_summarizer,
+			in_chat_enabled, trigger_mode, trigger_prefix, avatar_url,
+			position, created_at, updated_at, updated_by)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.CommunityID, a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc,
-		a.SystemPrompt, boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), boolToInt(a.IsSummarizer), a.Position, a.CreatedAt, a.UpdatedAt, updatedBy)
+		a.SystemPrompt, boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), boolToInt(a.IsSummarizer),
+		boolToInt(a.InChatEnabled), agentTriggerMode(a.TriggerMode), agentTriggerPrefix(a.TriggerPrefix), a.AvatarURL,
+		a.Position, a.CreatedAt, a.UpdatedAt, updatedBy)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
@@ -150,10 +159,13 @@ func (r *Repo) UpdateAgent(ctx context.Context, a Agent) error {
 	}
 	_, err := r.DB.ExecContext(ctx, `
 		UPDATE ai_agents SET name=?, provider=?, base_url=?, model=?, api_key_enc=?,
-			system_prompt=?, vision=?, tools_enabled=?, enabled=?, is_summarizer=?, updated_at=?, updated_by=?
+			system_prompt=?, vision=?, tools_enabled=?, enabled=?, is_summarizer=?,
+			in_chat_enabled=?, trigger_mode=?, trigger_prefix=?, avatar_url=?, updated_at=?, updated_by=?
 		WHERE id = ?`,
 		a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc, a.SystemPrompt,
-		boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), boolToInt(a.IsSummarizer), a.UpdatedAt, updatedBy, a.ID)
+		boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), boolToInt(a.IsSummarizer),
+		boolToInt(a.InChatEnabled), agentTriggerMode(a.TriggerMode), agentTriggerPrefix(a.TriggerPrefix), a.AvatarURL,
+		a.UpdatedAt, updatedBy, a.ID)
 	if err != nil {
 		return fmt.Errorf("update agent: %w", err)
 	}
@@ -164,6 +176,113 @@ func (r *Repo) UpdateAgent(ctx context.Context, a Agent) error {
 func (r *Repo) DeleteAgent(ctx context.Context, id string) error {
 	_, err := r.DB.ExecContext(ctx, `DELETE FROM ai_agents WHERE id = ?`, id)
 	return err
+}
+
+// agentTriggerMode normalises a trigger_mode to a known value, defaulting to
+// mention so the CHECK constraint never rejects an unset field.
+func agentTriggerMode(mode string) string {
+	switch mode {
+	case TriggerModeMention, TriggerModePrefix, TriggerModeBoth, TriggerModeAll:
+		return mode
+	default:
+		return TriggerModeMention
+	}
+}
+
+// agentTriggerPrefix defaults an empty prefix to ".".
+func agentTriggerPrefix(p string) string {
+	if p == "" {
+		return "."
+	}
+	return p
+}
+
+// --- chat participation ---------------------------------------------------
+
+// AgentsForChannel returns the enabled, chat-participating agents bound to a
+// channel — the set the roster, mention autocomplete, and trigger dispatch use.
+func (r *Repo) AgentsForChannel(ctx context.Context, communityID, channelID string) ([]Agent, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT `+agentCols+`
+		FROM ai_agents a
+		JOIN ai_agent_channels ac ON ac.agent_id = a.id
+		WHERE a.community_id = ? AND ac.channel_id = ?
+		  AND a.enabled = 1 AND a.in_chat_enabled = 1
+		ORDER BY a.position, a.name`, communityID, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("agents for channel: %w", err)
+	}
+	defer rows.Close()
+	var out []Agent
+	for rows.Next() {
+		a, err := scanAgent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ListInChatAgents returns every enabled, chat-participating agent in a
+// community — the roster's always-online bot set (channel-agnostic, mirroring
+// the community-wide member roster).
+func (r *Repo) ListInChatAgents(ctx context.Context, communityID string) ([]Agent, error) {
+	rows, err := r.DB.QueryContext(ctx, `SELECT `+agentCols+`
+		FROM ai_agents
+		WHERE community_id = ? AND enabled = 1 AND in_chat_enabled = 1
+		ORDER BY position, name`, communityID)
+	if err != nil {
+		return nil, fmt.Errorf("list in-chat agents: %w", err)
+	}
+	defer rows.Close()
+	var out []Agent
+	for rows.Next() {
+		a, err := scanAgent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan agent: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ChannelIDsForAgent returns the channel ids an agent is bound to.
+func (r *Repo) ChannelIDsForAgent(ctx context.Context, agentID string) ([]string, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT channel_id FROM ai_agent_channels WHERE agent_id = ?`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("channels for agent: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// SetAgentChannels replaces an agent's channel bindings in one transaction.
+func (r *Repo) SetAgentChannels(ctx context.Context, agentID string, channelIDs []string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM ai_agent_channels WHERE agent_id = ?`, agentID); err != nil {
+		return fmt.Errorf("clear agent channels: %w", err)
+	}
+	for _, cid := range channelIDs {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO ai_agent_channels (agent_id, channel_id) VALUES (?, ?)`,
+			agentID, cid); err != nil {
+			return fmt.Errorf("bind agent channel: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 // --- threads --------------------------------------------------------------

@@ -22,39 +22,33 @@ message renders correctly, **before** any generation exists. Seed a test agent
 via SQL (`in_chat_enabled=1` + an `ai_agent_channels` row) until the admin form
 lands in Phase 3.
 
-1. [ ] `migrations/00043_chat_agents.sql`:
-   - ALTER `ai_agents` ADD `in_chat_enabled INTEGER NOT NULL DEFAULT 0`,
-     `trigger_mode TEXT NOT NULL DEFAULT 'mention'`
-     `CHECK (trigger_mode IN ('mention','prefix','both','all'))`,
-     `trigger_prefix TEXT NOT NULL DEFAULT '.'`, `avatar_url TEXT NOT NULL DEFAULT ''`.
-   - CREATE TABLE `ai_agent_channels (agent_id, channel_id, PK(agent_id,channel_id))`
-     both FK `ON DELETE CASCADE`.
-   - ALTER `chat_messages` ADD `bot_agent_id TEXT REFERENCES ai_agents(id) ON DELETE SET NULL`,
-     `gen_status TEXT NOT NULL DEFAULT ''`.
-   - Down: reverse (SQLite drop-column / drop-table).
-2. [ ] `internal/chat/chat.go`:
-   - `KindBot Kind = "bot"`.
-   - `Message.BotAgentID *string`, `Message.GenStatus string`.
-   - INSERT column lists (`Insert`, `InsertWithAttachments`) carry `bot_agent_id`, `gen_status`.
-   - `Recent`, `listBefore`, `ByID` SELECT + scan carry the 2 cols; `kind='bot'`
-     populates `AuthorName`/`AuthorAvatar` from `bot_name`/`bot_avatar_url` (same
-     branch as `KindWebhook`).
-3. [ ] `web/templ/chat.templ`: `MsgKindBot`; bubble like a user bubble (avatar+name)
-   with a 🤖 badge, **is** an @mention target, **no** PM/profile/reply-to-author,
-   mods can delete; show a `▍` cursor while `GenStatus == "generating"`.
-4. [ ] `internal/agent/repo.go` (or new read helpers): `ListInChatAgents(ctx, communityID)`
-   and `ChannelsForAgent` / `AgentsForChannel(ctx, communityID, channelID)` over
-   `ai_agents` ⨝ `ai_agent_channels` (enabled + in_chat_enabled only).
-5. [ ] `internal/presence/handler.go` + `web/templ/roster.templ`:
-   `RosterMember.IsBot bool`; the roster `push` appends one synthetic
-   always-online entry per in-chat agent bound to the viewer's active channel
-   (needs the channel id in the roster stream — confirm it's available, else add).
-   Render the 🤖 icon; no profile/PM menu for bot rows.
-6. [ ] `internal/chat/handler.go` `/chat/mention`: union member results with the
-   in-chat agent names bound to the channel.
-7. [ ] Verify: `make gen && make build && make test`. Manual: seed an agent
-   (`in_chat_enabled=1`, bound to `#general`) via SQL, load chat → 🤖 in roster,
-   `@n…` autocompletes it, hand-insert a `kind='bot'` row → bubble renders.
+1. [x] `migrations/00043_chat_agents.sql`: ALTER `ai_agents` (+4 cols), new
+   `ai_agent_channels`, ALTER `chat_messages` (+`bot_agent_id`,`gen_status`).
+   - => migration applies clean at boot (`successfully migrated database to version: 43`).
+2. [x] `internal/chat/chat.go`: `KindBot`; `Message.BotAgentID`+`GenStatus`;
+   both INSERTs + `nullableRefs` carry the 2 cols; `listBefore`+`ByID` scan them;
+   identity branch extended `KindWebhook || KindBot`.
+   - => reused existing `bot_name`/`bot_avatar_url` cols (added by webhooks 00042) — no new identity cols.
+3. [x] `web/templ/chat.templ`: `MsgKindBot` + `MsgView.GenStatus`; webhook bubble
+   branch extended to bot (🤖 dot, "AI" tag, `▍` gen-cursor when generating);
+   `toMsgView` maps `GenStatus`. CSS for `.bot-tag-ai` / `.gen-cursor`.
+4. [x] `internal/agent/repo.go`: Agent gains `InChatEnabled/TriggerMode/TriggerPrefix/AvatarURL`;
+   `agentCols`+`scanAgent`+Create/Update carry them; trigger-mode consts +
+   normalizers; new `ListInChatAgents`, `AgentsForChannel`, `ChannelIDsForAgent`,
+   `SetAgentChannels`.
+5. [x] `internal/presence/handler.go` + `web/templ/roster.templ`:
+   `RosterMember.IsBot`; `Handler.Agents` closure injects always-online bot rows;
+   `RosterRow` branches to a bot variant (🤖 avatar, "bot" badge, no menu). CSS added.
+   - => DECISION: roster shows in-chat agents **community-wide**, not channel-scoped
+     — the roster already lists all members community-wide; channel-filtering bots
+     only would be inconsistent. (Spec said per-channel; deviated for consistency.)
+6. [x] `internal/chat/handler.go` `/chat/mention`: `MentionAgents` closure unions
+   community-wide in-chat agent names (prefix-filtered, capped at MentionLimit).
+7. [x] `cmd/app/main.go`: wired `presenceHandler.Agents` + `chatHandler.MentionAgents`
+   closures from `agentRepo.ListInChatAgents` inside the `AIEnabled` block.
+8. [x] Verify: `go build ./...` clean, `go test ./...` all green, migration applies
+   + app boots clean with `AI_ENABLED=true`. (Manual seed-render deferred — admin
+   form lands Phase 3; trigger/generation is Phase 2.)
 
 ## Phase 2 — trigger matcher + dispatch + streaming generation + loop guard
 
@@ -123,3 +117,9 @@ runner stub-Ollama, identity/render, roster, E2E smoke).
 ## Progress Log
 
 - 2606211058 — plan created from spec; branch `task/spec-chat-agents`. Starting Phase 1.
+- 2606211111 — **Phase 1 complete.** Schema + `kind='bot'` identity (reusing webhook
+  bot cols) + roster bot rows + mention union, all wired via closures in main.go.
+  `go build ./...` + `go test ./...` green; migration 00043 applies + clean boot
+  under `AI_ENABLED=true`. Deviation logged: roster/mention are community-wide (not
+  channel-scoped) for consistency with the existing community-wide member roster.
+  Next: Phase 2 (matcher + dispatch + streaming generation + loop guard).

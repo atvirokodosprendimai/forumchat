@@ -65,11 +65,27 @@ type Agent struct {
 	ToolsEnabled bool // agent may call MCP tools (internal search + connected servers)
 	Enabled      bool
 	IsSummarizer bool // this agent handles the chat /summary channel summary (one per community)
-	Position     int
-	UpdatedBy    string
-	CreatedAt    int64
-	UpdatedAt    int64
+	// InChatEnabled lets this agent participate in the live chat channels as a
+	// kind='bot' participant (roster bot icon, @mentionable, triggered in-line).
+	// Independent of Enabled (pane availability). TriggerMode / TriggerPrefix
+	// decide what summons it; AvatarURL is its chat display avatar.
+	InChatEnabled bool
+	TriggerMode   string // mention | prefix | both | all
+	TriggerPrefix string // line-prefix that summons it (default ".")
+	AvatarURL     string
+	Position      int
+	UpdatedBy     string
+	CreatedAt     int64
+	UpdatedAt     int64
 }
+
+// Trigger-mode values for an in-chat agent (Agent.TriggerMode).
+const (
+	TriggerModeMention = "mention" // @<name> word-boundaried
+	TriggerModePrefix  = "prefix"  // a line starts with TriggerPrefix
+	TriggerModeBoth    = "both"    // mention OR prefix
+	TriggerModeAll     = "all"     // every non-bot message in a bound channel
+)
 
 // Thread is one conversation, pinned to a single agent.
 type Thread struct {

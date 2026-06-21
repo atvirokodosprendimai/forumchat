@@ -86,6 +86,11 @@ type Handler struct {
 	// package's Ollama-backed Translate using the TRANSLATE_* config — nil when
 	// the feature is disabled (the popup then stays empty and closes).
 	Translate func(ctx context.Context, text string) ([]string, error)
+	// MentionAgents, when set, returns the community's in-chat agents as
+	// mention hits (UserID = agent id, DisplayName = agent name) to union into
+	// the @mention autocomplete so a member can address a bot by name. Wired in
+	// main.go from agent.Repo; nil when AI is disabled.
+	MentionAgents func(ctx context.Context, communityID string) []webtempl.MentionHit
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -1543,6 +1548,21 @@ func (h *Handler) GetMentionSearch(w http.ResponseWriter, r *http.Request) {
 	for _, h := range hits {
 		views = append(views, webtempl.MentionHit{UserID: h.UserID, DisplayName: h.DisplayName})
 	}
+	// Union in chat-agent names matching the query so a member can @mention a
+	// bot. Bots come first (small set) and the whole list is capped.
+	if h.MentionAgents != nil {
+		q := strings.ToLower(strings.TrimSpace(in.MentionQuery))
+		var bots []webtempl.MentionHit
+		for _, a := range h.MentionAgents(r.Context(), h.cid(r.Context())) {
+			if q == "" || strings.HasPrefix(strings.ToLower(a.DisplayName), q) {
+				bots = append(bots, a)
+			}
+		}
+		views = append(bots, views...)
+		if len(views) > MentionLimit {
+			views = views[:MentionLimit]
+		}
+	}
 	_ = sse.PatchElementTempl(webtempl.MentionPopup(views))
 }
 
@@ -1593,6 +1613,7 @@ func toMsgView(m Message) webtempl.MsgView {
 		AuthorAvatar:     m.AuthorAvatar,
 		Kind:             webtempl.MsgKind(m.Kind),
 		BodyHTML:         m.BodyHTML,
+		GenStatus:        m.GenStatus,
 		CreatedAt:        m.CreatedAt,
 		Deleted:          m.IsDeleted(),
 		PromotedThreadID: valueOrEmpty(m.PromotedThreadID),

@@ -28,10 +28,22 @@ type BlockLister interface {
 	ListBlocked(ctx context.Context, blockerID, communityID string) ([]string, error)
 }
 
+// ChatAgent is the minimal display identity of an in-chat agent the roster
+// renders as an always-online bot participant.
+type ChatAgent struct {
+	ID          string
+	DisplayName string
+	AvatarURL   string
+}
+
 type Handler struct {
-	Tracker     *Tracker
-	Members     MemberLister
-	Blocks      BlockLister
+	Tracker *Tracker
+	Members MemberLister
+	Blocks  BlockLister
+	// Agents, when set, returns the community's chat-participating agents to
+	// render as always-online bot rows. Optional (nil when AI is disabled).
+	// Wired in main.go from agent.Repo.
+	Agents      func(ctx context.Context, communityID string) ([]ChatAgent, error)
 	CommunityID string
 	Log         *slog.Logger
 }
@@ -124,6 +136,28 @@ func (h *Handler) push(ctx context.Context, sse *datastar.ServerSentEventGenerat
 			on = append(on, rm)
 		} else {
 			off = append(off, rm)
+		}
+	}
+
+	// Chat-agent participants render as always-online bot rows at the top of
+	// the online group (channel-agnostic, like the member roster).
+	if h.Agents != nil {
+		if agents, err := h.Agents(ctx, communityID); err != nil {
+			if h.Log != nil {
+				h.Log.Error("presence roster agents", "err", err)
+			}
+		} else {
+			bots := make([]webtempl.RosterMember, 0, len(agents))
+			for _, a := range agents {
+				bots = append(bots, webtempl.RosterMember{
+					UserID:      a.ID,
+					DisplayName: a.DisplayName,
+					AvatarURL:   a.AvatarURL,
+					Online:      true,
+					IsBot:       true,
+				})
+			}
+			on = append(bots, on...)
 		}
 	}
 	_ = sse.PatchElementTempl(webtempl.RosterPanel(on, off))

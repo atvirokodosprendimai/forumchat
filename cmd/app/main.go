@@ -555,6 +555,31 @@ func run() error {
 				return "", "", false
 			}
 		}
+		// Chat-agents: surface the community's in-chat agents in the roster
+		// (always-online bot rows) and in the @mention autocomplete, so a member
+		// can see and address a bot by name. Closures avoid a chat↔agent cycle.
+		presenceHandler.Agents = func(ctx context.Context, communityID string) ([]presence.ChatAgent, error) {
+			ags, err := agentRepo.ListInChatAgents(ctx, communityID)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]presence.ChatAgent, 0, len(ags))
+			for _, a := range ags {
+				out = append(out, presence.ChatAgent{ID: a.ID, DisplayName: a.Name, AvatarURL: a.AvatarURL})
+			}
+			return out, nil
+		}
+		chatHandler.MentionAgents = func(ctx context.Context, communityID string) []webtempl.MentionHit {
+			ags, err := agentRepo.ListInChatAgents(ctx, communityID)
+			if err != nil {
+				return nil
+			}
+			out := make([]webtempl.MentionHit, 0, len(ags))
+			for _, a := range ags {
+				out = append(out, webtempl.MentionHit{UserID: a.ID, DisplayName: a.Name})
+			}
+			return out
+		}
 	}
 	webtempl.AIEnabled = cfg.AIEnabled
 	webtempl.RAGEnabled = cfg.RAGEnabled

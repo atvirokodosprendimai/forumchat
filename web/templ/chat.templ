@@ -23,6 +23,7 @@ const (
 	MsgKindSystem         MsgKind = "system"
 	MsgKindThreadAnnounce MsgKind = "thread_announce"
 	MsgKindWebhook        MsgKind = "webhook"
+	MsgKindBot            MsgKind = "bot"
 )
 
 type ReplySnippet struct {
@@ -48,6 +49,9 @@ type MsgView struct {
 	AuthorAvatar     string
 	Kind             MsgKind
 	BodyHTML         string
+	// GenStatus is the streaming lifecycle of a MsgKindBot bubble
+	// ('' | generating | done | interrupted). Drives the typing cursor.
+	GenStatus        string
 	CreatedAt        time.Time
 	Deleted          bool
 	ReplyTo          *ReplySnippet
@@ -562,15 +566,21 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 		} else if m.Kind == MsgKindThreadAnnounce {
 			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
 			@templ.Raw(render.WrapUploadImages(m.BodyHTML))
-		} else if m.Kind == MsgKindWebhook {
+		} else if m.Kind == MsgKindWebhook || m.Kind == MsgKindBot {
 			<header class="meta">
 				if m.AuthorAvatar != "" {
 					<img class="bot-avatar" src={ m.AuthorAvatar } alt="" loading="lazy"/>
+				} else if m.Kind == MsgKindBot {
+					<span class="author-dot bot-dot" title={ m.AuthorName }>🤖</span>
 				} else {
 					<span class="author-dot bot-dot" title={ m.AuthorName }>⬡</span>
 				}
 				<strong>{ m.AuthorName }</strong>
-				<span class="bot-tag">bot</span>
+				if m.Kind == MsgKindBot {
+					<span class="bot-tag bot-tag-ai">AI</span>
+				} else {
+					<span class="bot-tag">bot</span>
+				}
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
 			</header>
 			<details class="msg-menu">
@@ -593,7 +603,12 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					}
 				</div>
 			</details>
-			<div class="body">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
+			<div class="body">
+				@templ.Raw(render.WrapUploadImages(m.BodyHTML))
+				if m.Kind == MsgKindBot && m.GenStatus == "generating" {
+					<span class="gen-cursor" aria-hidden="true">▍</span>
+				}
+			</div>
 		} else {
 			if showMeta {
 				<header class="meta">

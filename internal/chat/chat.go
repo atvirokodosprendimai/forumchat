@@ -23,6 +23,12 @@ const (
 	// display identity (BotName / BotAvatar) is denormalised onto the row
 	// so the hot read path needs no JOIN to the webhooks table.
 	KindWebhook Kind = "webhook"
+	// KindBot is a message posted by a chat-agent (an ai_agents row that
+	// participates in the channel). Like KindWebhook it has no author_id and
+	// carries a denormalised BotName / BotAvatar, but unlike a webhook it IS a
+	// valid @mention target. BotAgentID records which agent posted it and
+	// GenStatus tracks its streaming lifecycle.
+	KindBot Kind = "bot"
 )
 
 type Message struct {
@@ -35,11 +41,16 @@ type Message struct {
 	Kind         Kind
 	BodyMarkdown string
 	BodyHTML     string
-	// BotName / BotAvatar are the display identity of a KindWebhook
-	// message (empty for every other kind). Denormalised so the chat read
-	// path never joins the webhooks table.
-	BotName          string
-	BotAvatar        string
+	// BotName / BotAvatar are the display identity of a KindWebhook or
+	// KindBot message (empty for every other kind). Denormalised so the chat
+	// read path never joins the webhooks / ai_agents tables.
+	BotName   string
+	BotAvatar string
+	// BotAgentID is the ai_agents row that posted a KindBot message; nil for
+	// every other kind. GenStatus is the streaming lifecycle of a KindBot
+	// bubble ('' | 'generating' | 'done' | 'interrupted'), empty otherwise.
+	BotAgentID       *string
+	GenStatus        string
 	RefThreadID      *string
 	PromotedThreadID *string // thread that was created from this message via promote-chat
 	ReplyToID        *string
@@ -316,18 +327,18 @@ func (r *Repo) Insert(ctx context.Context, m Message) error {
 		}
 		m.ChannelID = ch.ID
 	}
-	authorID, refThread, replyTo, fwdFrom := m.nullableRefs()
+	authorID, refThread, replyTo, fwdFrom, botAgentID := m.nullableRefs()
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, bot_name, bot_avatar_url, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, m.BotName, m.BotAvatar, refThread, replyTo, fwdFrom, m.CreatedAt.Unix())
+		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, bot_name, bot_avatar_url, bot_agent_id, gen_status, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, m.BotName, m.BotAvatar, botAgentID, m.GenStatus, refThread, replyTo, fwdFrom, m.CreatedAt.Unix())
 	return err
 }
 
 // nullableRefs converts the message's optional foreign-key pointers into
 // sql.NullString for the INSERT statements. Shared by Insert and
 // InsertWithAttachments so the two write paths can't drift.
-func (m Message) nullableRefs() (authorID, refThread, replyTo, fwdFrom sql.NullString) {
+func (m Message) nullableRefs() (authorID, refThread, replyTo, fwdFrom, botAgentID sql.NullString) {
 	if m.AuthorID != nil {
 		authorID = sql.NullString{String: *m.AuthorID, Valid: true}
 	}
@@ -339,6 +350,9 @@ func (m Message) nullableRefs() (authorID, refThread, replyTo, fwdFrom sql.NullS
 	}
 	if m.ForwardedFromMsgID != nil {
 		fwdFrom = sql.NullString{String: *m.ForwardedFromMsgID, Valid: true}
+	}
+	if m.BotAgentID != nil {
+		botAgentID = sql.NullString{String: *m.BotAgentID, Valid: true}
 	}
 	return
 }
@@ -472,7 +486,8 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, ''),
 		       m.forwarded_from_msg_id,
 		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, ''),
-		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, '')
+		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, ''),
+		       m.bot_agent_id, COALESCE(m.gen_status, '')
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
 		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
@@ -496,20 +511,25 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		var kind string
 		var pID, pAuthor, pBody string
 		var fID, fSlug, fName, fAuthor, fBody string
-		var botName, botAvatar string
+		var botName, botAvatar, genStatus string
+		var botAgentID sql.NullString
 		if err := rows.Scan(&m.ID, &m.CommunityID, &m.ChannelID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
 			&ref, &promoted, &reply, &del, &created,
 			&m.AuthorName, &m.AuthorAvatar,
 			&pID, &pAuthor, &pBody,
 			&fwd, &fID, &fSlug, &fName, &fAuthor, &fBody,
-			&botName, &botAvatar); err != nil {
+			&botName, &botAvatar, &botAgentID, &genStatus); err != nil {
 			return nil, err
 		}
 		applyForward(&m, fwd, fID, fSlug, fName, fAuthor, fBody)
 		m.Kind = Kind(kind)
-		if m.Kind == KindWebhook {
+		if m.Kind == KindWebhook || m.Kind == KindBot {
 			m.BotName, m.BotAvatar = botName, botAvatar
 			m.AuthorName, m.AuthorAvatar = botName, botAvatar
+			m.GenStatus = genStatus
+			if botAgentID.Valid {
+				m.BotAgentID = &botAgentID.String
+			}
 		}
 		if aid.Valid {
 			m.AuthorID = &aid.String
@@ -544,7 +564,8 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, ''),
 		       m.forwarded_from_msg_id,
 		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, ''),
-		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, '')
+		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, ''),
+		       m.bot_agent_id, COALESCE(m.gen_status, '')
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
 		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
@@ -567,20 +588,25 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	var kind string
 	var pID, pAuthor, pBody string
 	var fID, fSlug, fName, fAuthor, fBody string
-	var botName, botAvatar string
+	var botName, botAvatar, genStatus string
+	var botAgentID sql.NullString
 	if err := rows.Scan(&m.ID, &m.CommunityID, &m.ChannelID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
 		&ref, &promoted, &reply, &del, &created,
 		&m.AuthorName, &m.AuthorAvatar,
 		&pID, &pAuthor, &pBody,
 		&fwd, &fID, &fSlug, &fName, &fAuthor, &fBody,
-		&botName, &botAvatar); err != nil {
+		&botName, &botAvatar, &botAgentID, &genStatus); err != nil {
 		return Message{}, err
 	}
 	applyForward(&m, fwd, fID, fSlug, fName, fAuthor, fBody)
 	m.Kind = Kind(kind)
-	if m.Kind == KindWebhook {
+	if m.Kind == KindWebhook || m.Kind == KindBot {
 		m.BotName, m.BotAvatar = botName, botAvatar
 		m.AuthorName, m.AuthorAvatar = botName, botAvatar
+		m.GenStatus = genStatus
+		if botAgentID.Valid {
+			m.BotAgentID = &botAgentID.String
+		}
 	}
 	if aid.Valid {
 		m.AuthorID = &aid.String
@@ -753,11 +779,11 @@ func (r *Repo) InsertWithAttachments(ctx context.Context, m Message, uploadIDs [
 	}
 	defer tx.Rollback()
 
-	authorID, refThread, replyTo, fwdFrom := m.nullableRefs()
+	authorID, refThread, replyTo, fwdFrom, botAgentID := m.nullableRefs()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, bot_name, bot_avatar_url, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, m.BotName, m.BotAvatar, refThread, replyTo, fwdFrom, m.CreatedAt.Unix()); err != nil {
+		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, bot_name, bot_avatar_url, bot_agent_id, gen_status, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, m.BotName, m.BotAvatar, botAgentID, m.GenStatus, refThread, replyTo, fwdFrom, m.CreatedAt.Unix()); err != nil {
 		return fmt.Errorf("insert chat_messages: %w", err)
 	}
 	now := time.Now().Unix()

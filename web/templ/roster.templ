@@ -13,6 +13,10 @@ type RosterMember struct {
 	Online       bool
 	Banned       bool
 	Blocked      bool // muted by the current viewer
+	// IsBot marks a chat-agent participant (ai_agents row). Bot rows render a
+	// 🤖 avatar + "bot" badge, are always shown online, and carry no
+	// moderation context-menu (a bot has no membership to act on).
+	IsBot bool
 }
 
 // RosterPanel renders the full community roster (online + offline) into
@@ -42,6 +46,25 @@ templ RosterPanel(online []RosterMember, offline []RosterMember) {
 }
 
 templ RosterRow(m RosterMember) {
+	if m.IsBot {
+		<li class="roster-row roster-row-bot" data-name={ m.DisplayName }>
+			<span class="roster-avatar roster-avatar-bot" title="Chat agent">
+				if m.AvatarURL != "" {
+					<img class="roster-avatar-img" src={ m.AvatarURL } alt="" loading="lazy"/>
+				} else {
+					🤖
+				}
+				<span class="roster-dot" aria-label="online"></span>
+			</span>
+			<span class="roster-name">{ m.DisplayName }</span>
+			<span class="roster-badge roster-badge-bot" title="AI agent">bot</span>
+		</li>
+	} else {
+		@rosterMemberRow(m)
+	}
+}
+
+templ rosterMemberRow(m RosterMember) {
 	<li class={ "roster-row", templ.KV("is-blocked", m.Blocked) }
 		data-user-id={ m.UserID }
 		data-membership-id={ m.MembershipID }
