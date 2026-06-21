@@ -43,6 +43,7 @@ templ TodosPage(d TodosPageData) {
 			<p class="muted">Items you saved from chat or forum, scoped to { d.Viewer.CommunityName }.</p>
 
 			<div class="forum-toolbar">
+				<button class="btn" data-on:click={ todoClickJS("manual", "") }>+ New todo</button>
 				<nav class="forum-filters">
 					<a class={ todosFilterClass("active", d.Status) } href={ templ.URL(todosFilterHref(d.Viewer.CommunitySlug, "active", d.Category)) }>Active</a>
 					<a class={ todosFilterClass("doing", d.Status) } href={ templ.URL(todosFilterHref(d.Viewer.CommunitySlug, "doing", d.Category)) }>Doing</a>
@@ -75,7 +76,7 @@ templ TodosList(slug string, rows []TodoRow) {
 			<div class="empty-state">
 				<div class="empty-icon" aria-hidden="true">☑</div>
 				<p><strong>No todos here yet.</strong></p>
-				<p>Add one from a chat message or forum post.</p>
+				<p>Hit <strong>+ New todo</strong>, or add one from a chat message or forum post.</p>
 			</div>
 		}
 		<ul class="todos-list">
@@ -93,7 +94,9 @@ templ TodoRowView(slug string, t TodoRow) {
 		if t.Category != "" {
 			<span class="badge">{ t.Category }</span>
 		}
-		<a class="link" href={ templ.URL(todoBacklinkHref(slug, t)) }>{ todoBacklinkLabel(t) }</a>
+		if t.SourceKind != "manual" {
+			<a class="link" href={ templ.URL(todoBacklinkHref(slug, t)) }>{ todoBacklinkLabel(t) }</a>
+		}
 		if t.Status != "doing" {
 			<button class="link"
 				data-on:click={ "@post('/c/" + slug + "/todos/" + t.ID + "/status?next=doing')" }>doing</button>

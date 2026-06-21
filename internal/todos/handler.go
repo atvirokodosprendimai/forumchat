@@ -30,9 +30,10 @@ type createSignals struct {
 	Note     string `json:"todo_note"`
 }
 
-// PostCreate persists a todo derived from a chat message or forum post. The
-// source is encoded in `todo_open_source` as `<kind>:<id>`. For chat we
-// snapshot body_md + source_day; for forum_post we also store thread_id.
+// PostCreate persists a todo. The source is encoded in `todo_open_source`:
+// "manual" for a standalone todo, or "<kind>:<id>" derived from a chat message
+// ("chat") or forum post ("forum_post"). For chat we snapshot body_md +
+// source_day; for forum_post we also store thread_id; manual keeps neither.
 func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
@@ -53,50 +54,58 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	if source == "" || title == "" {
 		return
 	}
-	kind, srcID, ok := splitSource(source)
-	if !ok {
-		return
-	}
 
 	t := Todo{
 		CommunityID: c.ID,
 		UserID:      id.User.ID,
-		SourceID:    srcID,
 		Title:       title,
 		Category:    strings.TrimSpace(in.Category),
 		Note:        strings.TrimSpace(in.Note),
 	}
-	switch kind {
-	case "chat":
-		if h.ChatRepo == nil {
+
+	if source == "manual" {
+		t.SourceKind = SourceManual
+	} else {
+		kind, srcID, ok := splitSource(source)
+		if !ok {
 			return
 		}
-		msg, err := h.ChatRepo.ByID(r.Context(), srcID)
-		if err != nil {
+		t.SourceID = srcID
+		switch kind {
+		case "chat":
+			if h.ChatRepo == nil {
+				return
+			}
+			msg, err := h.ChatRepo.ByID(r.Context(), srcID)
+			if err != nil {
+				return
+			}
+			t.SourceKind = SourceChat
+			t.BodySnapshot = msg.BodyMarkdown
+			t.SourceDay = msg.CreatedAt.Format("2006-01-02")
+		case "forum_post":
+			if h.Forum == nil {
+				return
+			}
+			p, err := h.Forum.GetPost(r.Context(), srcID)
+			if err != nil {
+				return
+			}
+			t.SourceKind = SourceForumPost
+			t.BodySnapshot = p.BodyMarkdown
+			t.SourceThreadID = p.ThreadID
+		default:
 			return
 		}
-		t.SourceKind = SourceChat
-		t.BodySnapshot = msg.BodyMarkdown
-		t.SourceDay = msg.CreatedAt.Format("2006-01-02")
-	case "forum_post":
-		if h.Forum == nil {
-			return
-		}
-		p, err := h.Forum.GetPost(r.Context(), srcID)
-		if err != nil {
-			return
-		}
-		t.SourceKind = SourceForumPost
-		t.BodySnapshot = p.BodyMarkdown
-		t.SourceThreadID = p.ThreadID
-	default:
-		return
 	}
 
 	if _, err := h.Repo.Create(r.Context(), t); err != nil {
 		h.Log.Error("todo create", "err", err)
 		return
 	}
+	// Refresh the list for a viewer who's on the todos page; idempotent no-op
+	// when added from a chat/forum page (no #todos-list in the DOM).
+	h.patchList(sse, r, id.User.ID, c.ID)
 	_ = sse.PatchSignals([]byte(`{"todo_open_source":"","todo_title":"","todo_category":"","todo_note":""}`))
 }
 
@@ -130,7 +139,7 @@ func (h *Handler) PostStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.patchList(w, r, id.User.ID, c.ID)
+	h.patchList(render.NewSSE(w, r), r, id.User.ID, c.ID)
 }
 
 // PostDelete removes the todo and patches the list. Path /c/{slug}/todos/{id}/delete.
@@ -146,13 +155,12 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.patchList(w, r, id.User.ID, c.ID)
+	h.patchList(render.NewSSE(w, r), r, id.User.ID, c.ID)
 }
 
 // patchList re-renders #todos-list using the current ?status & ?category
-// filter (or the defaults), then outer-morphs. Caller already wrote nothing
-// to w.
-func (h *Handler) patchList(w http.ResponseWriter, r *http.Request, userID, communityID string) {
+// filter (or the defaults), then outer-morphs onto the supplied stream.
+func (h *Handler) patchList(sse *datastar.ServerSentEventGenerator, r *http.Request, userID, communityID string) {
 	status := r.URL.Query().Get("status")
 	switch status {
 	case "open", "doing", "done", "all", "active":
@@ -169,7 +177,6 @@ func (h *Handler) patchList(w http.ResponseWriter, r *http.Request, userID, comm
 	for _, t := range rows {
 		views = append(views, todoToView(t))
 	}
-	sse := render.NewSSE(w, r)
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(webtempl.TodosList(c.Slug, views), datastar.WithModeOuter())
 }

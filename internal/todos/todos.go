@@ -27,6 +27,7 @@ type SourceKind string
 const (
 	SourceChat      SourceKind = "chat"
 	SourceForumPost SourceKind = "forum_post"
+	SourceManual    SourceKind = "manual" // standalone, no backlink
 )
 
 // Todo is the row a viewer sees on the todos page.
