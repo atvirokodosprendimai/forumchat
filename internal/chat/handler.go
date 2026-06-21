@@ -86,6 +86,11 @@ type Handler struct {
 	// package's Ollama-backed Translate using the TRANSLATE_* config — nil when
 	// the feature is disabled (the popup then stays empty and closes).
 	Translate func(ctx context.Context, text string) ([]string, error)
+	// NewPaste runs the /paste slash command: create a draft paste opened from
+	// the current channel and return its id ("" on failure) so the handler can
+	// redirect to /c/{slug}/pastes/{id}. Wired in main.go to pastes.Service — a
+	// closure to avoid a chat↔pastes import cycle (pastes imports chat).
+	NewPaste func(ctx context.Context, communityID, channelID, authorID string) string
 	// MentionAgents, when set, returns the community's in-chat agents as
 	// mention hits (UserID = agent id, DisplayName = agent name) to union into
 	// the @mention autocomplete so a member can address a bot by name. Wired in
@@ -916,6 +921,16 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		}
 		if views, err := h.loadRecentFor(r.Context(), chID, rid); err == nil {
 			_ = fatMorph(sse, views, isMod, rid, rname, h.cslug(r.Context()), ch.Slug)
+		}
+		return
+	}
+	// /paste — open a fresh paste page (big editor) for a long code / markdown /
+	// text snippet, then return. Creates a draft and redirects; the Save there
+	// posts the paste's link back into THIS channel and returns the author here.
+	if h.NewPaste != nil && isSlashCommand(body, "paste") {
+		_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
+		if pid := h.NewPaste(r.Context(), h.cid(r.Context()), ch.ID, id.User.ID); pid != "" {
+			_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/pastes/" + pid)
 		}
 		return
 	}

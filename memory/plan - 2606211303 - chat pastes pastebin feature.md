@@ -1,6 +1,6 @@
 ---
 title: chat pastes — pastebin/hastebin inside a community
-status: active
+status: completed
 created: 2026-06-21
 ---
 
@@ -99,3 +99,23 @@ Reuses existing seams (no new patterns):
 - `/paste` (and 📋 button) opens editor at `/c/{slug}/pastes/{pid}`.
 - Save posts a clickable paste link into the source channel and redirects back.
 - Paste link opens a read-only rendered view (code highlighted-class / markdown).
+
+## Progress Log
+
+- 2026-06-21 13:1x — Shipped all 4 phases on `task/chat-pastes`.
+  - => migration `00047_pastes.sql`; `internal/pastes/{pastes.go,handler.go,service_test.go}`;
+    `web/templ/pastes.templ`; CSS `.paste-*` in `app.css`; composer 📋 button.
+  - => `chat.Handler.NewPaste` closure + `/paste` slash branch in `PostSend`.
+  - => `main.go`: pastes handler + `PostToChat` closure (Send + Bus + NATS +
+    relay, modelled on agent share-to-channel) + routes under `/c/{slug}`.
+  - => render reuse: code → fence (fence-safe length) → `render.RenderMarkdown`;
+    markdown rendered directly. No new sanitizer.
+  - => chat message = `📋 **title**` + explicit `[url](url)` (label==href survives
+    the no-hidden-URLs rewrite; relative, no BASE_URL dependency).
+  - => signals page-local (`data-signals` on editor) — paste_body kept OUT of the
+    global InitialSignals bag.
+  - => verified: 5 service tests pass; full `go test ./...` + build clean; boot
+    applies migration cleanly; HTTP smoke = register → /paste & 📋 → editor →
+    save → link in #general + redirect → read-only `<pre class=language-go>` view.
+  - friction: draft orphans (navigate away without saving) left in place — empty,
+    unshared, harmless. No sweeper in MVP.

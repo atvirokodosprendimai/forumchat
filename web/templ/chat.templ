@@ -342,6 +342,8 @@ templ ChatComposer(slug, channelSlug string) {
 				📎
 				<input type="file" accept="*/*" multiple style="display:none"/>
 			</label>
+			<button type="button" class="btn ghost icon-btn" aria-label="New paste" title="New paste — long code, markdown, or text"
+				data-on:click={ "@post('/c/" + slug + "/pastes/new?channel=" + channelSlug + "')" }>📋</button>
 			<textarea
 				class="composer-text"
 				data-bind="body"
