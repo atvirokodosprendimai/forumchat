@@ -2,6 +2,7 @@ package chatagents_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,66 @@ func TestThreadRunnerStreamsReplyToDone(t *testing.T) {
 				status = bot.GenStatus
 			}
 			t.Fatalf("runner did not finish; bot status %q", status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestThreadRunnerUsesTools proves a tools-enabled forum bot runs the agentic
+// loop (internal search / MCP) and persists the tool trace as 🔧 chips.
+func TestThreadRunnerUsesTools(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrated(t)
+	c, _ := community.NewRepo(db).BootstrapOrFetch(ctx, "test", "Test")
+	u := auth.User{ID: uuid.NewString(), Email: "asker@x.test", PasswordHash: "x", Status: auth.StatusActive}
+	_ = auth.NewRepo(db).CreateUser(ctx, u)
+
+	srv := stubOllamaTools(t, "Based on search, run make deploy.")
+	a := agent.Agent{
+		ID: uuid.NewString(), CommunityID: c.ID, Name: "nick", Provider: "ollama",
+		BaseURL: srv.URL, Model: "m", Enabled: true, InChatEnabled: true, ToolsEnabled: true,
+	}
+	if err := agent.NewRepo(db).CreateAgent(ctx, a); err != nil {
+		t.Fatalf("agent: %v", err)
+	}
+
+	fRepo := forum.NewRepo(db)
+	agentID := a.ID
+	th, _ := forum.NewService(fRepo, time.Minute).CreateThread(ctx, forum.CreateThreadInput{
+		CommunityID: c.ID, AuthorID: u.ID, AgentID: &agentID,
+		Subject: "deploy?", BodyMarkdown: "@nick how do I deploy?",
+	})
+
+	toolCalled := false
+	runner := chatagents.NewThreadRunner(fRepo, forum.NewBus(), nil, 0, discard())
+	runner.Tools = func(ctx context.Context, ag agent.Agent) (agent.ToolSet, error) {
+		return stubToolSet{called: &toolCalled}, nil
+	}
+	runner.Generate(c.ID, th.ID, a)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		posts, _ := fRepo.ListPosts(ctx, th.ID)
+		var bot *forum.Post
+		for i := range posts {
+			if posts[i].IsBot() {
+				bot = &posts[i]
+			}
+		}
+		if bot != nil && bot.GenStatus == forum.GenDone {
+			if !toolCalled {
+				t.Fatal("tool was never called")
+			}
+			if bot.BodyMarkdown != "Based on search, run make deploy." {
+				t.Fatalf("answer wrong: %q", bot.BodyMarkdown)
+			}
+			if !strings.Contains(bot.ToolCalls, `"search"`) || !strings.Contains(bot.ToolCalls, `"internal"`) {
+				t.Fatalf("tool trace not persisted: %q", bot.ToolCalls)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("tool-loop generation did not finish")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

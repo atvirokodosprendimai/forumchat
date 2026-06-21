@@ -54,9 +54,11 @@ type PostView struct {
 	CanEdit      bool
 	TitleSnippet string
 	// IsBot marks an agent reply post; GenStatus drives the streaming cursor
-	// ('' | generating | done | interrupted).
+	// ('' | generating | done | interrupted). ToolCalls renders the 🔧 chips
+	// (internal search / MCP) the agent used, same as the agent pane.
 	IsBot     bool
 	GenStatus string
+	ToolCalls []AgentToolView
 }
 
 templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
@@ -302,6 +304,9 @@ templ ForumPost(slug, threadID string, p PostView) {
 						</button>
 					</div>
 				</details>
+			}
+			if len(p.ToolCalls) > 0 {
+				@AgentToolChips(p.ToolCalls)
 			}
 			<div class="body">
 				@templ.Raw(render.WrapUploadImages(p.BodyHTML))

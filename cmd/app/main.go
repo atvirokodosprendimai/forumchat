@@ -587,6 +587,7 @@ func run() error {
 		// seam over chat + agent + forum; the loop guard lives in Dispatch
 		// (user-kind only).
 		threadRunner := chatagents.NewThreadRunner(forumRepo, forumBus, nc, 0, log)
+		threadRunner.Tools = mcpMgr.Build // same internal-search + MCP tools as the agent pane
 		dispatcher := chatagents.NewDispatcher(agentRepo, forumHandler.CreateAgentThread, threadRunner, log)
 		chatHandler.Dispatch = func(ctx context.Context, t chat.AgentTrigger) {
 			dispatcher.Dispatch(ctx, chatagents.Trigger{

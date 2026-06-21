@@ -13,12 +13,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/agent"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
-	"github.com/atvirokodosprendimai/forumchat/internal/render"
 )
-
-// FlushInterval batches streamed tokens into one forum-thread re-render (same
-// cadence + rationale as agent.FlushInterval).
-const FlushInterval = 100 * time.Millisecond
 
 // DefaultContextLimit caps how many recent thread posts are replayed as the
 // model's conversation context (the opening thread body is always included).
@@ -29,10 +24,14 @@ const DefaultContextLimit = 40
 // + re-render on every broadcast. Detached from any request — a refresh resumes
 // live from the DB.
 type ThreadRunner struct {
-	Forum        *forum.Repo
-	Bus          *forum.Bus
-	NATS         *nats.Conn
-	Log          *slog.Logger
+	Forum *forum.Repo
+	Bus   *forum.Bus
+	NATS  *nats.Conn
+	Log   *slog.Logger
+	// Tools builds the per-generation tool set for a tools-enabled agent
+	// (internal FTS search + connected MCP servers) — wired in main.go to the
+	// same mcpx.Manager.Build the agent pane uses. nil → bots run without tools.
+	Tools        func(ctx context.Context, a agent.Agent) (agent.ToolSet, error)
 	ContextLimit int
 
 	mu     sync.Mutex
@@ -75,15 +74,25 @@ func (r *ThreadRunner) run(ctx context.Context, cancel context.CancelFunc, commu
 		r.Log.Warn("chatagents: provider", "agent", a.ID, "err", err)
 		return
 	}
-	msgs, err := r.buildHistory(ctx, threadID, a)
+	history, err := r.buildHistory(ctx, threadID, a)
 	if err != nil {
 		r.Log.Warn("chatagents: build thread history", "thread", threadID, "err", err)
 		return
 	}
-	if sp := strings.TrimSpace(a.SystemPrompt); sp != "" {
-		preamble := "You are \"" + a.Name + "\", answering in a forum thread. Each message is a " +
-			"prompt; reply concisely as the next post.\n\n" + sp
-		msgs = append([]agent.ChatMessage{{Role: agent.RoleSystem, Content: preamble}}, msgs...)
+	preamble := "You are \"" + a.Name + "\", answering in a forum thread. Each message is a " +
+		"prompt; reply concisely as the next post."
+	msgs := agent.BuildSystemHistory(a, preamble, history)
+
+	// Build the tool set for a tools-enabled agent (internal search + MCP) —
+	// the same machinery as the agent pane. Non-fatal on failure.
+	var tools agent.ToolSet
+	if a.ToolsEnabled && r.Tools != nil {
+		if ts, terr := r.Tools(ctx, a); terr != nil {
+			r.Log.Warn("chatagents: build tools", "thread", threadID, "err", terr)
+		} else if ts != nil {
+			tools = ts
+			defer tools.Close()
+		}
 	}
 
 	agentID := a.ID
@@ -111,64 +120,28 @@ func (r *ThreadRunner) run(ctx context.Context, cancel context.CancelFunc, commu
 	r.broadcast(communityID, threadID)
 	r.Log.Info("chatagents: thread generation start", "agent", a.ID, "thread", threadID, "model", a.Model)
 
-	var (
-		bufMu sync.Mutex
-		buf   strings.Builder
-		dirty bool
-	)
-	appendDelta := func(s string) error {
-		bufMu.Lock()
-		buf.WriteString(s)
-		dirty = true
-		bufMu.Unlock()
-		return ctx.Err()
-	}
-	persist := func(status string, force bool) {
-		bufMu.Lock()
-		text := buf.String()
-		had := dirty
-		dirty = false
-		bufMu.Unlock()
-		if !had && !force {
-			return
-		}
-		html, herr := render.RenderMarkdown(text)
-		if herr != nil {
-			html = ""
-		}
+	// Drive the shared agentic loop; each flush persists the post + tool trace
+	// and wakes the thread streams.
+	flush := func(md, html string, trace []agent.ToolResult, status, errStr string) {
 		wCtx, wCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := r.Forum.UpdateBotPostBody(wCtx, postID, text, html, status); err != nil {
+		if err := r.Forum.UpdateBotPostBody(wCtx, postID, md, html, agent.EncodeToolCalls(trace), forumGenStatus(status)); err != nil {
 			r.Log.Warn("chatagents: persist bot post", "thread", threadID, "err", err)
 		}
 		wCancel()
 		r.broadcast(communityID, threadID)
 	}
+	agent.Generate(ctx, prov, a, msgs, tools, r.Log, flush)
+}
 
-	ticker := time.NewTicker(FlushInterval)
-	defer ticker.Stop()
-
-	type outcome struct{ err error }
-	done := make(chan outcome, 1)
-	go func() {
-		_, err := prov.Stream(ctx, a.Model, msgs, nil, appendDelta)
-		done <- outcome{err}
-	}()
-	for {
-		select {
-		case <-ticker.C:
-			persist(forum.GenGenerating, false)
-		case o := <-done:
-			switch {
-			case ctx.Err() != nil:
-				persist(forum.GenInterrupted, true)
-			case o.err != nil:
-				r.Log.Warn("chatagents: thread generation failed", "thread", threadID, "err", o.err)
-				persist(forum.GenInterrupted, true)
-			default:
-				persist(forum.GenDone, true)
-			}
-			return
-		}
+// forumGenStatus maps an agent generation status onto the post's gen_status.
+func forumGenStatus(s string) string {
+	switch s {
+	case agent.StatusDone:
+		return forum.GenDone
+	case agent.StatusGenerating:
+		return forum.GenGenerating
+	default: // StatusError / StatusInterrupted — partial kept, no resume after restart
+		return forum.GenInterrupted
 	}
 }
 

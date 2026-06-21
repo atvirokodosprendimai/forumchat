@@ -54,6 +54,9 @@ type Post struct {
 	BotName   string
 	BotAvatar string
 	GenStatus string
+	// ToolCalls is the JSON-encoded tool trace of an agent reply (the agentic
+	// loop's internal-search / MCP calls); empty for everything else.
+	ToolCalls string
 	DeletedAt *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -300,7 +303,7 @@ func (r *Repo) ListPosts(ctx context.Context, threadID string) ([]Post, error) {
 		SELECT p.id, p.thread_id, p.author_id, p.quoted_post_id, p.body_md, p.body_html, p.deleted_at, p.created_at, p.updated_at,
 		       COALESCE(mb.display_name, ''),
 		       COALESCE(qp.body_html, ''), COALESCE(qmb.display_name, ''),
-		       p.agent_id, p.bot_name, p.bot_avatar_url, p.gen_status
+		       p.agent_id, p.bot_name, p.bot_avatar_url, p.gen_status, p.tool_calls
 		FROM posts p
 		LEFT JOIN threads th ON th.id = p.thread_id
 		LEFT JOIN memberships mb ON mb.user_id = p.author_id AND mb.community_id = th.community_id
@@ -319,7 +322,7 @@ func (r *Repo) ListPosts(ctx context.Context, threadID string) ([]Post, error) {
 		var del sql.NullInt64
 		var created, updated int64
 		if err := rows.Scan(&p.ID, &p.ThreadID, &p.AuthorID, &quoted, &p.BodyMarkdown, &p.BodyHTML, &del, &created, &updated, &p.AuthorName, &p.QuotedBody, &p.QuotedAuthor,
-			&agentID, &p.BotName, &p.BotAvatar, &p.GenStatus); err != nil {
+			&agentID, &p.BotName, &p.BotAvatar, &p.GenStatus, &p.ToolCalls); err != nil {
 			return nil, err
 		}
 		if quoted.Valid {
@@ -347,10 +350,10 @@ func (r *Repo) GetPost(ctx context.Context, id string) (Post, error) {
 	var created, updated int64
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT id, thread_id, author_id, quoted_post_id, body_md, body_html, deleted_at, created_at, updated_at,
-		       agent_id, bot_name, bot_avatar_url, gen_status
+		       agent_id, bot_name, bot_avatar_url, gen_status, tool_calls
 		FROM posts WHERE id = ?`, id).
 		Scan(&p.ID, &p.ThreadID, &p.AuthorID, &quoted, &p.BodyMarkdown, &p.BodyHTML, &del, &created, &updated,
-			&agentID, &p.BotName, &p.BotAvatar, &p.GenStatus)
+			&agentID, &p.BotName, &p.BotAvatar, &p.GenStatus, &p.ToolCalls)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Post{}, ErrNotFound
 	}
@@ -400,21 +403,21 @@ func (r *Repo) InsertBotPost(ctx context.Context, p Post) error {
 		agentID = *p.AgentID
 	}
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO posts (id, thread_id, author_id, body_md, body_html, agent_id, bot_name, bot_avatar_url, gen_status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.ThreadID, p.AuthorID, p.BodyMarkdown, p.BodyHTML, agentID, p.BotName, p.BotAvatar, p.GenStatus,
+		INSERT INTO posts (id, thread_id, author_id, body_md, body_html, agent_id, bot_name, bot_avatar_url, gen_status, tool_calls, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.ThreadID, p.AuthorID, p.BodyMarkdown, p.BodyHTML, agentID, p.BotName, p.BotAvatar, p.GenStatus, p.ToolCalls,
 		p.CreatedAt.Unix(), p.CreatedAt.Unix())
 	return err
 }
 
-// UpdateBotPostBody rewrites an agent reply post's body + streaming status as
-// the model streams (called every flush; the thread stream re-renders on the
-// broadcast that follows).
-func (r *Repo) UpdateBotPostBody(ctx context.Context, postID, md, html, genStatus string) error {
+// UpdateBotPostBody rewrites an agent reply post's body + tool trace + streaming
+// status as the model streams (called every flush; the thread stream re-renders
+// on the broadcast that follows).
+func (r *Repo) UpdateBotPostBody(ctx context.Context, postID, md, html, toolCalls, genStatus string) error {
 	_, err := r.DB.ExecContext(ctx, `
-		UPDATE posts SET body_md = ?, body_html = ?, gen_status = ?, updated_at = ?
+		UPDATE posts SET body_md = ?, body_html = ?, tool_calls = ?, gen_status = ?, updated_at = ?
 		WHERE id = ? AND agent_id IS NOT NULL`,
-		md, html, genStatus, time.Now().Unix(), postID)
+		md, html, toolCalls, genStatus, time.Now().Unix(), postID)
 	return err
 }
 

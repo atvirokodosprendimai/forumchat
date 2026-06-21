@@ -845,6 +845,17 @@ row, @mentionable, triggered in-line. Gated by `AI_ENABLED` + per-agent
   `dispatch.go` (the loop guard, unchanged) + `thread.go` (the streaming runner).
   `forum` stays agent-free: `OnAgentReply` passes the `agent_id` string and
   main.go loads + runs it.
+- **Tools/MCP work in threads (migration 00045), same as the pane.** The agentic
+  loop was extracted into shared `agent.Generate(ctx, prov, a, msgs, tools, log,
+  flush)` (+ `agent.BuildSystemHistory`, `agent.EncodeToolCalls`/`DecodeToolCalls`);
+  both `agent.Runner` (pane) and `chatagents.ThreadRunner` (forum) call it.
+  `ThreadRunner.Tools = mcpMgr.Build` (the SAME manager the pane uses), so a
+  `tools_enabled` agent gets internal FTS `search` + connected MCP servers. The
+  trace persists to `posts.tool_calls` (JSON) and renders the pane's
+  `AgentToolChips` 🔧 above the answer — `forum` decodes it into
+  `webtempl.AgentToolView` directly (the JSON field names match, so no agent
+  import). `agent.Generate` is the ONE place the model→tool→model loop lives;
+  don't re-implement it.
 - **Removed by the pivot:** `chatagents.Runner` (channel streaming) +
   `chat.Repo.UpdateBotBody`/`MarkBotGeneratingInterrupted`. The `kind='bot'` chat
   columns + bubble render are now **dormant** (kept, unused). Roster bot + mention

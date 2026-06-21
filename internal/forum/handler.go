@@ -2,6 +2,7 @@ package forum
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -148,9 +149,24 @@ func (h *Handler) loadPostViews(ctx context.Context, threadID, currentUserID str
 			TitleSnippet: render.AutoTitle(p.BodyMarkdown),
 			IsBot:        p.IsBot(),
 			GenStatus:    p.GenStatus,
+			ToolCalls:    decodeToolChips(p.ToolCalls),
 		})
 	}
 	return pv, nil
+}
+
+// decodeToolChips parses an agent reply post's JSON tool trace into the chip
+// view. The JSON (agent.EncodeToolCalls) field names match AgentToolView
+// case-insensitively, so forum needn't import agent. Empty / bad → nil.
+func decodeToolChips(s string) []webtempl.AgentToolView {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var out []webtempl.AgentToolView
+	if err := json.Unmarshal([]byte(s), &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 const ThreadLimit = 50
