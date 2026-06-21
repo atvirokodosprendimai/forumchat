@@ -466,7 +466,7 @@ func run() error {
 			}
 			return out
 		}
-		agentHandler.ShareToChannel = func(ctx context.Context, communityID, channelSlug, authorID, bodyMD string) (string, error) {
+		agentHandler.ShareToChannel = func(ctx context.Context, communityID, channelSlug, authorID, authorName, bodyMD string) (string, error) {
 			ch, err := chatRepo.ChannelBySlug(ctx, communityID, channelSlug)
 			if err != nil {
 				return "", err
@@ -484,6 +484,12 @@ func run() error {
 			if nc != nil && nc.IsConnected() {
 				_ = nc.Publish(natsx.ChatSubject(communityID), []byte(ch.ID))
 				_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+			}
+			// Relay to outbound webhooks — this is real member content landing in
+			// the channel, but it bypasses chat.PostSend (where the normal relay
+			// lives), so fire it here. No-op when webhooks are off.
+			if chatHandler.RelayOut != nil {
+				chatHandler.RelayOut(communityID, ch.ID, authorName, bodyMD, ch.Name)
 			}
 			return ch.Name, nil
 		}
@@ -717,6 +723,9 @@ func run() error {
 			Log:           log,
 		}
 		chatHandler.RelayOut = webhooks.NewRelay(whRepo, log).Dispatch
+		// Forum new-thread announcements land in #general — relay them too so
+		// external chat mirrors hear about new threads. Same Dispatch as chat.
+		forumHandler.RelayOut = chatHandler.RelayOut
 	}
 	webtempl.WebhooksEnabled = cfg.WebhooksEnabled
 

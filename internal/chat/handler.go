@@ -429,20 +429,27 @@ func (h *Handler) PostSearchPublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := id.Membership.DisplayName
-	var body string
+	var shared []webtempl.SearchResultView
 	if in.Idx >= 0 {
 		if in.Idx >= len(views) {
 			return
 		}
-		body = publishSearchHTML(name, query, views[in.Idx:in.Idx+1])
+		shared = views[in.Idx : in.Idx+1]
 	} else {
-		body = publishSearchHTML(name, query, views)
+		shared = views
 	}
-	if _, err := h.Svc.PostSystemHTMLToChannel(r.Context(), h.cid(r.Context()), ch.ID, body); err != nil {
+	if _, err := h.Svc.PostSystemHTMLToChannel(r.Context(), h.cid(r.Context()), ch.ID, publishSearchHTML(name, query, shared)); err != nil {
 		h.Log.Error("search publish", "err", err)
 		return
 	}
 	h.broadcastNewMsg(r.Context(), ch.ID)
+
+	// Relay to outbound webhooks. This bypasses chat.PostSend, so fire it here
+	// with a plain-text body (the channel message itself is trusted HTML, which
+	// Slack/Discord would render literally). No-op when webhooks are off.
+	if h.RelayOut != nil {
+		h.RelayOut(h.cid(r.Context()), ch.ID, name, publishSearchText(query, shared), ch.Name)
+	}
 
 	sse := render.NewSSE(w, r)
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
@@ -519,6 +526,31 @@ func publishSearchHTML(name, query string, views []webtempl.SearchResultView) st
 		b.WriteString("</a></li>")
 	}
 	b.WriteString("</ul>")
+	return b.String()
+}
+
+// publishSearchText renders the shared search results as a plain-text body for
+// the outbound webhook relay — "Title — url" per line. The relay credits the
+// sharer separately (author field), so this body omits the name. Kept parallel
+// to publishSearchHTML (which is the in-channel HTML); single- and all-result
+// share use the same shape (the caller slices to one).
+func publishSearchText(query string, views []webtempl.SearchResultView) string {
+	var b strings.Builder
+	b.WriteString("🔎 shared ")
+	if len(views) == 1 {
+		b.WriteString("a result")
+	} else {
+		b.WriteString("search results")
+	}
+	b.WriteString(" for “")
+	b.WriteString(query)
+	b.WriteString("”:")
+	for _, v := range views {
+		b.WriteString("\n• ")
+		b.WriteString(publishLinkText(v))
+		b.WriteString(" — ")
+		b.WriteString(v.URL)
+	}
 	return b.String()
 }
 
@@ -1017,6 +1049,19 @@ func (h *Handler) PostForward(w http.ResponseWriter, r *http.Request) {
 	// Wake the target channel's open streams + cross-page dots, then send
 	// the forwarder there so they see it land.
 	h.broadcastNewMsg(r.Context(), target.ID)
+
+	// Relay to outbound webhooks — forwarding lands real content in the target
+	// channel but bypasses chat.PostSend. The forwarded copy's own text is the
+	// optional note; fall back to a marker so an empty-note forward isn't a
+	// silent relay. No-op when webhooks are off.
+	if h.RelayOut != nil {
+		relayBody := strings.TrimSpace(in.Note)
+		if relayBody == "" {
+			relayBody = "↪ forwarded a message"
+		}
+		h.RelayOut(cid, target.ID, id.Membership.DisplayName, relayBody, target.Name)
+	}
+
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/chat/" + target.Slug)
 }
 

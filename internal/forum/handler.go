@@ -41,6 +41,11 @@ type Handler struct {
 	// in main.go to the push package's Sender so this package doesn't
 	// import push.
 	PushNotify    func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
+	// RelayOut, if non-nil, mirrors the chat thread-announce (a new forum
+	// thread surfaced in #general) to outbound webhooks so external chat
+	// mirrors hear about new threads. Wired in main.go to the same
+	// webhooks.Relay.Dispatch as chat. nil disables the relay (no-op).
+	RelayOut      func(communityID, channelID, authorName, bodyMD, channelName string)
 	CommunityID   string
 	CommunityName string
 	BaseURL       string
@@ -48,6 +53,22 @@ type Handler struct {
 }
 
 const PasteImageMaxBytes = 1 << 20
+
+// relayThreadAnnounce mirrors a new-thread announcement to outbound webhooks.
+// The announce row lands in #general; resolve it so the relay matches webhooks
+// bound to that channel. A clean text body (not the announce HTML) keeps
+// Slack/Discord output readable. No-op when the relay or chat repo is absent.
+func (h *Handler) relayThreadAnnounce(ctx context.Context, communityID, authorName, subject, link string) {
+	if h.RelayOut == nil || h.ChatRepo == nil {
+		return
+	}
+	ch, err := h.ChatRepo.DefaultChannel(ctx, communityID)
+	if err != nil {
+		h.Log.Warn("relay thread-announce: default channel", "err", err)
+		return
+	}
+	h.RelayOut(communityID, ch.ID, authorName, "📋 started a thread: "+subject+"\n"+link, ch.Name)
+}
 
 func (h *Handler) cid(ctx context.Context) string {
 	if c, ok := community.FromContext(ctx); ok {
@@ -217,6 +238,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.Log.Error("post thread-announce", "err", err)
 		} else {
+			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), id.Membership.DisplayName, t.Subject, link)
 			if h.ChatNewMsgBus != nil {
 				h.ChatNewMsgBus.Broadcast("")
 			}
@@ -609,6 +631,8 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		_, err := h.Chat.PostSystem(r.Context(), h.cid(r.Context()), announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("promote thread-announce", "err", err)
+		} else {
+			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), announceName, t.Subject, link)
 		}
 	}
 	// Refresh open chat tabs so the thread_announce shows up live,

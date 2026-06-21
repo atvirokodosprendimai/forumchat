@@ -348,9 +348,12 @@ directions, the push-driven mirror of the IMAP mailbox. Admin-curated at
 
 **Outbound** — community activity is relayed out:
 
-- Every **human** chat message (`kind='user'` only — bot/system/forward messages
-  are skipped, so an inbound post can't loop back out) in the chosen channel
-  (or all channels) is `POST`ed to the webhook's `target_url`.
+- Member-driven content landing in the chosen channel (or all channels) is
+  `POST`ed to the webhook's `target_url`: human chat sends, forwards, shared
+  content (agent answers via *Share to channel*, `/summary` and `/prompt`
+  results, `/search` results shared to chat), and forum **new-thread
+  announcements**. Inbound **bot** posts (`kind='webhook'`) are the one exclusion
+  — they're never relayed, so an inbound post can't loop back out.
   - `slack` / `discord` → `{"text": "[#channel] author: body"}`.
   - `generic` → `{"community", "channel", "author", "body_md", "created_at"}`.
 - Best-effort, fire-and-forget with a short timeout; non-2xx is logged and

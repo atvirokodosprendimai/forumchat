@@ -36,9 +36,10 @@ type Handler struct {
 	CommunityName string
 
 	// ShareToChannel posts an assistant answer into a community chat channel
-	// as the requesting member. Wired in main.go to chat's send+broadcast so
-	// this package needn't import chat. Nil disables the share affordance.
-	ShareToChannel func(ctx context.Context, communityID, channelSlug, authorID, bodyMD string) (channelName string, err error)
+	// as the requesting member. Wired in main.go to chat's send+broadcast +
+	// outbound webhook relay so this package needn't import chat. authorName
+	// credits the relayed message. Nil disables the share affordance.
+	ShareToChannel func(ctx context.Context, communityID, channelSlug, authorID, authorName, bodyMD string) (channelName string, err error)
 	// ListChannels lists the community's chat channels for the share dropdown.
 	ListChannels func(ctx context.Context, communityID string) []webtempl.ChannelView
 	// SearchExternalRefs backs the $-reference autocomplete's non-agent results
@@ -714,7 +715,7 @@ func (h *Handler) PostShareToChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := "🤖 **From the agent**\n\n" + msg.BodyMD
-	name, err := h.ShareToChannel(r.Context(), h.cid(r.Context()), channel, id.User.ID, body)
+	name, err := h.ShareToChannel(r.Context(), h.cid(r.Context()), channel, id.User.ID, id.Membership.DisplayName, body)
 	if err != nil {
 		h.Log.Warn("agent: share to channel", "err", err)
 		_ = sse.PatchElementTempl(webtempl.AgentNotice("Couldn't share to that channel."))
