@@ -3,6 +3,7 @@ package webhooks_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -11,6 +12,7 @@ import (
 	"net/textproto"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -18,6 +20,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/webhooks"
@@ -444,4 +447,128 @@ func TestPostInboundMultipart(t *testing.T) {
 	if m.Attachments[0].MIME != "image/png" {
 		t.Fatalf("attachment mime = %q, want image/png", m.Attachments[0].MIME)
 	}
+}
+
+// TestInboundForumThreadAnnounce drives the public /hooks/{token} endpoint with
+// a thread_key payload (the Matrix-thread mirror) and asserts the forum thread
+// it opens ALSO drops a thread_announce bubble in #general — the bridge piece
+// that was missing, so a thread was created silently with no chat trace. It
+// then posts a second message with the SAME thread_key and asserts it appends
+// to the same thread (no new thread) and does not re-announce.
+func TestInboundForumThreadAnnounce(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sqlite.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := sqlite.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	c, err := community.NewRepo(db).BootstrapOrFetch(ctx, "test", "Test")
+	if err != nil {
+		t.Fatalf("community: %v", err)
+	}
+	chatRepo := chat.NewRepo(db)
+	chatSvc := chat.NewService(chatRepo)
+	general, err := chatRepo.EnsureDefaultChannel(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("default channel: %v", err)
+	}
+
+	forumRepo := forum.NewRepo(db)
+	forumH := &forum.Handler{
+		Svc:      forum.NewService(forumRepo, 15*time.Minute),
+		Repo:     forumRepo,
+		Chat:     chatSvc,
+		ChatRepo: chatRepo,
+		BaseURL:  "http://localhost:8080",
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	whRepo := webhooks.NewRepo(db)
+	wh, err := webhooks.NewService(whRepo).Create(ctx, webhooks.CreateInput{
+		CommunityID: c.ID, Direction: webhooks.DirIn, Provider: "generic",
+		Name: "Bridge", ChannelID: general.ID,
+	})
+	if err != nil {
+		t.Fatalf("create webhook: %v", err)
+	}
+
+	h := &webhooks.Handler{
+		Repo:     whRepo,
+		Chat:     chatSvc,
+		ChatRepo: chatRepo,
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	// Wire the forum seams exactly as main.go does: open routes through the
+	// handler method (which announces to chat), append through the service.
+	h.OpenForumThread = func(ctx context.Context, communityID, author, subject, markdown string) (string, error) {
+		return forumH.OpenWebhookThread(ctx, communityID, "test", author, subject, markdown)
+	}
+	h.AddForumPost = func(ctx context.Context, threadID, author, avatar, markdown string) (string, error) {
+		p, err := forumH.Svc.CreateWebhookPost(ctx, threadID, author, avatar, markdown)
+		return p.ID, err
+	}
+
+	router := chi.NewRouter()
+	router.Post("/hooks/{token}", h.PostInbound)
+	post := func(body string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/hooks/"+wh.Token, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+	}
+
+	const key = "$matrix-thread-root"
+	post(`{"text":"THREADTEST root msg","subject":"reply in thread","author":"saint","thread_key":"` + key + `"}`)
+
+	if n := countRows(t, db, `SELECT COUNT(*) FROM threads WHERE community_id=?`, c.ID); n != 1 {
+		t.Fatalf("after root: want 1 forum thread, got %d", n)
+	}
+	if n := countAnnounce(t, ctx, chatRepo, general.ID); n != 1 {
+		t.Fatalf("after root: want 1 thread_announce in chat, got %d", n)
+	}
+
+	post(`{"text":"THREADTEST reply nested","author":"saint","thread_key":"` + key + `"}`)
+
+	if n := countRows(t, db, `SELECT COUNT(*) FROM threads WHERE community_id=?`, c.ID); n != 1 {
+		t.Fatalf("after reply: same thread_key must append, want 1 thread, got %d", n)
+	}
+	if n := countRows(t, db, `SELECT COUNT(*) FROM posts`); n != 1 {
+		t.Fatalf("after reply: want 1 appended post, got %d", n)
+	}
+	if n := countAnnounce(t, ctx, chatRepo, general.ID); n != 1 {
+		t.Fatalf("after reply: an append must not re-announce, want 1 announce, got %d", n)
+	}
+}
+
+func countRows(t *testing.T, db *sql.DB, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatalf("count query %q: %v", query, err)
+	}
+	return n
+}
+
+func countAnnounce(t *testing.T, ctx context.Context, chatRepo *chat.Repo, channelID string) int {
+	t.Helper()
+	msgs, err := chatRepo.Recent(ctx, channelID, 50)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	n := 0
+	for _, m := range msgs {
+		if m.Kind == chat.KindThreadAnnounce {
+			n++
+		}
+	}
+	return n
 }

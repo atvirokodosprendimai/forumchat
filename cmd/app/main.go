@@ -889,8 +889,13 @@ func run() error {
 		// appends to a forum thread instead of posting in the chat channel. The
 		// forum-side write goes through forum.Service (closures, no import cycle).
 		webhooksHandler.OpenForumThread = func(ctx context.Context, communityID, author, subject, markdown string) (string, error) {
-			t, err := forumHandler.Svc.CreateWebhookThread(ctx, communityID, author, subject, markdown)
-			return t.ID, err
+			// Resolve the slug for the chat thread_announce deep link; the
+			// inbound /hooks route carries no community in context.
+			slug := ""
+			if c, err := cRepo.ByID(ctx, communityID); err == nil {
+				slug = c.Slug
+			}
+			return forumHandler.OpenWebhookThread(ctx, communityID, slug, author, subject, markdown)
 		}
 		webhooksHandler.AddForumPost = func(ctx context.Context, threadID, author, avatar, markdown string) (string, error) {
 			p, err := forumHandler.Svc.CreateWebhookPost(ctx, threadID, author, avatar, markdown)

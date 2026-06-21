@@ -791,6 +791,43 @@ func (h *Handler) CreateAgentThread(ctx context.Context, communityID, slug, auth
 	return t.ID, nil
 }
 
+// OpenWebhookThread opens a forum thread for an inbound webhook carrying a
+// thread_key AND announces it back in chat — the piece the raw
+// Svc.CreateWebhookThread call was missing, so a Matrix-thread mirror created a
+// forum thread silently with no #general bubble. Modelled on CreateAgentThread
+// (the other detached chat→forum bridge): create via the service, post the
+// thread_announce system message, then wake open chat tabs (Bus + NATS).
+//
+// It deliberately does NOT relayThreadAnnounce: the thread was opened FROM an
+// inbound bridge, so echoing the announce back out would loop it to the
+// originating Matrix room. communityID/slug are explicit because the inbound
+// /hooks route runs with no community in context.
+func (h *Handler) OpenWebhookThread(ctx context.Context, communityID, slug, author, subject, markdown string) (string, error) {
+	t, err := h.Svc.CreateWebhookThread(ctx, communityID, author, subject, markdown)
+	if err != nil {
+		return "", err
+	}
+	if h.Chat != nil {
+		link := fmt.Sprintf("%s/c/%s/forum/%s", strings.TrimRight(h.BaseURL, "/"), slug, t.ID)
+		threadID := t.ID
+		announceHTML := buildThreadAnnounce(author, link, t.Subject, markdown)
+		if _, err := h.Chat.PostSystem(ctx, communityID, announceHTML, chat.KindThreadAnnounce, &threadID); err != nil {
+			h.Log.Error("webhook thread-announce", "err", err)
+		}
+	}
+	if h.ChatBus != nil {
+		h.ChatBus.Broadcast("")
+	}
+	if h.ChatNewMsgBus != nil {
+		h.ChatNewMsgBus.Broadcast("")
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.ChatSubject(communityID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+	}
+	return t.ID, nil
+}
+
 // buildThreadAnnounce returns the chat fan-out HTML for a new thread. When
 // the source body starts with an image (so the subject collapsed to
 // "(image)"), we render a thumbnail link instead of the literal label.
