@@ -737,18 +737,20 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	// Add the clicked reply as the thread's first post, attributed to its author
 	// (falling back to the promoter for a bot/webhook message), then link it to
 	// the thread so its own "→ thread" button redirects here.
+	var firstPost *Post
 	if replyChild != nil {
 		childAuthorID := id.User.ID
 		if replyChild.AuthorID != nil {
 			childAuthorID = *replyChild.AuthorID
 		}
-		if _, perr := h.Svc.CreatePost(r.Context(), CreatePostInput{
+		if p, perr := h.Svc.CreatePost(r.Context(), CreatePostInput{
 			ThreadID:     t.ID,
 			AuthorID:     childAuthorID,
 			BodyMarkdown: replyChild.BodyMarkdown,
 		}); perr != nil {
 			h.Log.Warn("promote: add reply post", "err", perr)
 		} else {
+			firstPost = &p
 			_, _ = h.ChatRepo.MarkPromoted(r.Context(), replyChild.ID, t.ID)
 		}
 	}
@@ -766,6 +768,17 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		} else {
 			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), announceName, t.ID, t.Subject, link)
 		}
+	}
+	// Mirror the promoted reply (the thread's first post) outbound too, tagged
+	// with the thread identity. Without this the webhook side would carry the
+	// thread-announce (root) plus later replies but silently drop the first
+	// post's content — the thread would mirror with one message missing.
+	if firstPost != nil && replyChild != nil {
+		replyName := replyChild.AuthorName
+		if replyName == "" {
+			replyName = id.Membership.DisplayName
+		}
+		h.relayForumReply(r.Context(), t, replyName, replyChild.BodyMarkdown, firstPost.ID)
 	}
 	// Refresh open chat tabs so the thread_announce shows up live,
 	// and ping cross-page event listeners so viewers on /forum etc
@@ -793,15 +806,25 @@ func (h *Handler) foldReplyIntoThread(w http.ResponseWriter, r *http.Request, id
 	if msg.AuthorID != nil {
 		authorID = *msg.AuthorID
 	}
-	if _, err := h.Svc.CreatePost(r.Context(), CreatePostInput{
+	post, err := h.Svc.CreatePost(r.Context(), CreatePostInput{
 		ThreadID:     threadID,
 		AuthorID:     authorID,
 		BodyMarkdown: msg.BodyMarkdown,
-	}); err != nil {
+	})
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	_, _ = h.ChatRepo.MarkPromoted(r.Context(), msg.ID, threadID)
+	// Mirror the folded reply outbound with the thread identity, exactly like a
+	// normal forum reply — otherwise the webhook side loses this message.
+	if th, gerr := h.Repo.GetThread(r.Context(), threadID); gerr == nil {
+		replyName := msg.AuthorName
+		if replyName == "" {
+			replyName = id.Membership.DisplayName
+		}
+		h.relayForumReply(r.Context(), th, replyName, msg.BodyMarkdown, post.ID)
+	}
 	h.BroadcastThreadID(h.cid(r.Context()), threadID)
 	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + threadID)

@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
@@ -18,6 +21,15 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 )
+
+type relayCall struct {
+	author   string
+	body     string
+	threadID string
+	postID   string
+	subject  string
+	root     bool
+}
 
 type promoteFixture struct {
 	h        *forum.Handler
@@ -28,6 +40,7 @@ type promoteFixture struct {
 	channel  string
 	userA    auth.User
 	userB    auth.User
+	relays   *[]relayCall
 }
 
 func setupPromote(t *testing.T) promoteFixture {
@@ -60,6 +73,7 @@ func setupPromote(t *testing.T) promoteFixture {
 		return u
 	}
 	forumRepo := forum.NewRepo(db)
+	relays := &[]relayCall{}
 	h := &forum.Handler{
 		Svc:         forum.NewService(forumRepo, 15*time.Minute),
 		Repo:        forumRepo,
@@ -68,10 +82,19 @@ func setupPromote(t *testing.T) promoteFixture {
 		CommunityID: c.ID,
 		BaseURL:     "http://localhost:8080",
 		Log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
+		// Capture outbound thread relays so tests can assert the webhook side
+		// mirrors the same messages as our side.
+		RelayThread: func(communityID, channelID, channelName, author, bodyMD, threadID, postID, subject string, root bool) {
+			*relays = append(*relays, relayCall{
+				author: author, body: bodyMD, threadID: threadID,
+				postID: postID, subject: subject, root: root,
+			})
+		},
 	}
 	return promoteFixture{
 		h: h, chatRepo: chatRepo, chatSvc: chatSvc, forumDB: forumRepo,
 		cID: c.ID, channel: general.ID, userA: mkUser("a@x.test"), userB: mkUser("b@x.test"),
+		relays: relays,
 	}
 }
 
@@ -96,6 +119,23 @@ func (f promoteFixture) promote(t *testing.T, promoter auth.User, msgID string) 
 	})
 	rec := httptest.NewRecorder()
 	f.h.PostPromoteChat(rec, req.WithContext(ctx))
+	return rec.Code
+}
+
+// reply drives PostReply as the given user posting body into threadID.
+func (f promoteFixture) reply(t *testing.T, replier auth.User, threadID, body string) int {
+	t.Helper()
+	payload := `{"body":` + strconv.Quote(body) + `,"quoted_post_id":"","image_data":""}`
+	req := httptest.NewRequest(http.MethodPost, "/c/test/forum/"+threadID+"/reply", strings.NewReader(payload))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", threadID)
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = auth.WithIdentity(ctx, auth.Identity{
+		User:       replier,
+		Membership: auth.Membership{UserID: replier.ID, CommunityID: f.cID, Role: auth.RoleMember, DisplayName: replier.Email},
+	})
+	rec := httptest.NewRecorder()
+	f.h.PostReply(rec, req.WithContext(ctx))
 	return rec.Code
 }
 
@@ -147,6 +187,59 @@ func TestPromoteReplyCarriesParent(t *testing.T) {
 	}
 	if posts[0].AuthorID != f.userB.ID {
 		t.Fatalf("post author = %q, want reply author %q", posts[0].AuthorID, f.userB.ID)
+	}
+}
+
+// The full scenario from the task: msg1, msg2 (a reply to msg1), promote msg2 →
+// thread with root(msg1) + post(msg2); then msg3 replied in the thread. Our
+// side has 3 messages and the webhook outgoing side must mirror all 3 — the
+// announce (root = msg1), the promoted reply (msg2) and the thread reply (msg3).
+// Regression: msg2 was created via Svc.CreatePost with no relay, so the webhook
+// side dropped it and saw only 2 messages.
+func TestPromoteReplyThreeMessagesRelayOutbound(t *testing.T) {
+	f := setupPromote(t)
+	a := f.send(t, f.userA.ID, "deploy plan?", nil)  // msg1
+	b := f.send(t, f.userB.ID, "ship friday", &a.ID) // msg2 (reply to msg1)
+
+	if code := f.promote(t, f.userB, b.ID); code != http.StatusOK {
+		t.Fatalf("promote status = %d", code)
+	}
+	threadID := f.promotedThread(t, b.ID)
+
+	if code := f.reply(t, f.userA, threadID, "what time?"); code != http.StatusOK { // msg3
+		t.Fatalf("reply status = %d", code)
+	}
+
+	relays := *f.relays
+	if len(relays) != 3 {
+		t.Fatalf("want 3 outbound relays (announce + 2 posts), got %d: %+v", len(relays), relays)
+	}
+	// Exactly one root (the announce, carrying msg1's subject); the other two are
+	// the promoted reply (msg2) and the thread reply (msg3), both tagged with the
+	// thread id and a non-empty post id.
+	var roots int
+	bodies := map[string]bool{}
+	for _, rc := range relays {
+		if rc.root {
+			roots++
+			if rc.subject != "deploy plan?" {
+				t.Errorf("announce subject = %q, want msg1 %q", rc.subject, "deploy plan?")
+			}
+			continue
+		}
+		if rc.threadID != threadID || rc.postID == "" {
+			t.Errorf("post relay missing thread/post identity: %+v", rc)
+		}
+		bodies[rc.body] = true
+	}
+	if roots != 1 {
+		t.Errorf("want exactly 1 root (announce) relay, got %d", roots)
+	}
+	if !bodies["ship friday"] {
+		t.Errorf("webhook side dropped the promoted reply (msg2 'ship friday')")
+	}
+	if !bodies["what time?"] {
+		t.Errorf("webhook side dropped the thread reply (msg3 'what time?')")
 	}
 }
 
