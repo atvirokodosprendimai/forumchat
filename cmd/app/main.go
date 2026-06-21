@@ -744,6 +744,21 @@ func run() error {
 	// back. Closure bridges chat → agent → chat without an import cycle. Only
 	// when the Agent feature is on.
 	if cfg.AIEnabled {
+		// relaySlash mirrors slash-command output (/resume, /prompt results) to
+		// any matching outbound webhooks. These are KindSystem messages, so the
+		// normal user-send relay path (chat handler) skips them — relay here
+		// explicitly so external integrations hear agent answers too. Never
+		// passes a KindWebhook body, so no echo loop. No-op when webhooks are off.
+		relaySlash := func(ctx context.Context, communityID, channelID, label, body string) {
+			if chatHandler.RelayOut == nil {
+				return
+			}
+			chName := ""
+			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
+				chName = ch.Name
+			}
+			chatHandler.RelayOut(communityID, channelID, label, body, chName)
+		}
 		chatHandler.Resume = func(ctx context.Context, communityID, channelID, requesterID, requesterName string) {
 			ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 			defer cancel()
@@ -761,6 +776,7 @@ func run() error {
 					_ = nc.Publish(natsx.ChatSubject(communityID), []byte(channelID))
 					_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
 				}
+				relaySlash(ctx, communityID, channelID, "/resume", body)
 			}
 
 			agents, _ := agentRepo.ListEnabledAgents(ctx, communityID)
@@ -826,6 +842,7 @@ func run() error {
 					_ = nc.Publish(natsx.ChatSubject(communityID), []byte(channelID))
 					_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
 				}
+				relaySlash(ctx, communityID, channelID, "/prompt", body)
 			}
 			agents, _ := agentRepo.ListEnabledAgents(ctx, communityID)
 			if len(agents) == 0 {

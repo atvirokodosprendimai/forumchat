@@ -110,7 +110,11 @@ message and, for every `direction='out'` webhook whose `channel_id` is NULL (all
 channels) or equals the message's channel, POSTs a JSON body to `target_url`:
 
 - Skips `kind IN ('webhook')` messages → **no echo loops** (an inbound bot post
-  must not trigger an outbound relay; outbound only relays human `kind='user'`).
+  must not trigger an outbound relay). Relays human `kind='user'` sends and
+  slash-command output (`/resume`, `/prompt` results, which post as
+  `kind='system'`) so external integrations hear agent answers too. The chat
+  handler's user-send path skips system messages, so the slash path relays
+  explicitly from `cmd/app/main.go`.
 - Payload shape by provider:
   - `slack` / `discord` → `{"text": "<author>: <body_md>"}` (both consume `text`;
     Discord also accepts it via compat). Channel + author name prefixed.

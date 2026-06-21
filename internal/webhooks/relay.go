@@ -31,8 +31,9 @@ func NewRelay(repo *Repo, log *slog.Logger) *Relay {
 // Dispatch fires-and-forgets the relay of one chat message. It detaches from
 // the request lifecycle (own background context) so a client disconnect doesn't
 // cancel delivery. Safe to call with no matching webhooks — it returns after
-// one cheap query. Only KindUser messages reach here (see chat handler wiring),
-// so an inbound bot post never triggers an outbound relay (no echo loop).
+// one cheap query. Callers pass KindUser sends and slash-command output
+// (/resume, /prompt) — never a KindWebhook bot post — so an inbound bot post
+// never triggers an outbound relay (no echo loop).
 func (r *Relay) Dispatch(communityID, channelID, authorName, bodyMD, channelName string) {
 	if r == nil || r.Repo == nil {
 		return
