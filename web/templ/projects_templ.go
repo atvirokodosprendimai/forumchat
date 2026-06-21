@@ -1929,7 +1929,7 @@ func ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) templ.Compo
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, "</header><form class=\"project-issue-add\" data-on:submit__prevent=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, "</header><form id=\"new-issue\" class=\"project-issue-add\" data-on:submit__prevent=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

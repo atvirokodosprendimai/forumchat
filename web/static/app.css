@@ -2951,6 +2951,110 @@ hr {
   color: var(--fg-muted);
   font-size: 0.88rem;
 }
+/* --- global /issues community → project picker --- */
+.issue-picker {
+  margin: 1rem 0 1.4rem;
+}
+.issue-picker-title {
+  margin: 0 0 0.15rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.issue-picker > .muted {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+}
+.issue-picker-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.issue-picker-community {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+.issue-picker-community[open] {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.issue-picker-community > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  padding: 0.7rem 1rem;
+  list-style: none;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.issue-picker-community > summary::-webkit-details-marker { display: none; }
+.issue-picker-community > summary::marker { content: ''; }
+.issue-picker-community > summary:hover { background: var(--surface-alt); }
+.issue-picker-community[open] > summary { background: var(--surface-alt); }
+.issue-picker-community .ipc-name {
+  font-weight: 600;
+  color: var(--fg);
+}
+.issue-picker-community .ipc-count {
+  font-size: 0.78rem;
+  color: var(--fg-subtle);
+  white-space: nowrap;
+}
+.ipc-empty {
+  margin: 0;
+  padding: 0.4rem 1rem 0.9rem;
+  font-size: 0.85rem;
+}
+.ipc-projects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.ipc-projects li { border-bottom: 1px solid var(--border-subtle); }
+.ipc-projects li:last-child { border-bottom: 0; }
+.ipc-project {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem;
+  text-decoration: none;
+  color: var(--fg);
+  transition: background var(--t-fast) var(--ease-out);
+}
+.ipc-project:hover { background: var(--surface-alt); }
+.ipc-project-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+.ipc-open {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.ipc-cta {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg-subtle);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.ipc-project:hover .ipc-cta,
+.ipc-project:focus-visible .ipc-cta { opacity: 1; color: var(--accent-strong); }
+@media (hover: none) {
+  .ipc-cta { opacity: 1; }
+}
 .inbox-pills {
   display: flex;
   flex-wrap: wrap;

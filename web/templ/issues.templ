@@ -1,6 +1,9 @@
 package templ
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // GlobalIssueRow is one row of the cross-community admin /issues page.
 // Fields mirror projects.GlobalIssueRow; the handler maps over.
@@ -16,10 +19,27 @@ type GlobalIssueRow struct {
 	CommunityName  string
 }
 
+// GlobalProjectPick is one active project the viewer can open an issue
+// against, shown under its community in the /issues picker.
+type GlobalProjectPick struct {
+	ProjectID    string
+	ProjectTitle string
+	OpenIssues   int
+}
+
+// GlobalCommunityGroup is one community the viewer administers plus its
+// active projects, for the community → project drill-down on /issues.
+type GlobalCommunityGroup struct {
+	CommunitySlug string
+	CommunityName string
+	Projects      []GlobalProjectPick
+}
+
 // GlobalIssuesPageData is the payload for the /issues page.
 type GlobalIssuesPageData struct {
-	Viewer Viewer
-	Rows   []GlobalIssueRow
+	Viewer      Viewer
+	Communities []GlobalCommunityGroup
+	Rows        []GlobalIssueRow
 }
 
 // GlobalIssuesPage renders /issues: a single table of recent issues
@@ -34,6 +54,7 @@ templ GlobalIssuesPage(d GlobalIssuesPageData) {
 				<h1>Issues</h1>
 				<p class="muted">Open issues across every community you administer. Newest activity first. Click a row to open the issue in its community.</p>
 			</header>
+			@globalIssuePicker(d.Communities)
 			<div class="inbox-toolbar">
 				<button
 					class="pill pill-pending"
@@ -81,4 +102,64 @@ templ GlobalIssuesPage(d GlobalIssuesPageData) {
 
 func globalIssueURL(r GlobalIssueRow) templ.SafeURL {
 	return templ.SafeURL("/c/" + r.CommunitySlug + "/projects/" + r.ProjectID + "/issues/" + r.IssueID)
+}
+
+// newIssueURL points at a project's issues tab, anchored to the create
+// form, so picking a project lands the user straight in the "open an
+// issue" composer for that community + project.
+func newIssueURL(slug, projectID string) templ.SafeURL {
+	return templ.SafeURL("/c/" + slug + "/projects/" + projectID + "/issues#new-issue")
+}
+
+// globalIssuePicker is the community → project drill-down: each community
+// is a collapsible group; expanding it lists its active projects, and
+// clicking a project routes to that project's create-issue composer.
+templ globalIssuePicker(groups []GlobalCommunityGroup) {
+	if len(groups) > 0 {
+		<section class="issue-picker" aria-label="Open an issue">
+			<h2 class="issue-picker-title">Open an issue</h2>
+			<p class="muted">Pick a community, then a project, to jump straight to its issue composer.</p>
+			<div class="issue-picker-groups">
+				for _, g := range groups {
+					<details class="issue-picker-community" open?={ len(groups) == 1 }>
+						<summary>
+							<span class="ipc-name">{ g.CommunityName }</span>
+							<span class="ipc-count">{ projectCountLabel(len(g.Projects)) }</span>
+						</summary>
+						if len(g.Projects) == 0 {
+							<p class="ipc-empty muted">No projects yet — create one in this community first.</p>
+						} else {
+							<ul class="ipc-projects">
+								for _, p := range g.Projects {
+									<li>
+										<a class="ipc-project" href={ newIssueURL(g.CommunitySlug, p.ProjectID) }>
+											<span class="ipc-project-title">{ p.ProjectTitle }</span>
+											if p.OpenIssues > 0 {
+												<span class="ipc-open" title="Open issues">{ openIssuesLabel(p.OpenIssues) }</span>
+											}
+											<span class="ipc-cta">+ New issue</span>
+										</a>
+									</li>
+								}
+							</ul>
+						}
+					</details>
+				}
+			</div>
+		</section>
+	}
+}
+
+func projectCountLabel(n int) string {
+	if n == 1 {
+		return "1 project"
+	}
+	return strconv.Itoa(n) + " projects"
+}
+
+func openIssuesLabel(n int) string {
+	if n == 1 {
+		return "1 open"
+	}
+	return strconv.Itoa(n) + " open"
 }

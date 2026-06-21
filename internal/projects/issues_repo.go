@@ -212,6 +212,68 @@ func (r *Repo) RecentIssuesAcrossCommunities(ctx context.Context, communityIDs [
 	return out, rows.Err()
 }
 
+// CommunityProjectRow is one (community, active-project) pair for the
+// global /issues "create an issue" picker. ProjectID is "" for a
+// community that has no active projects (LEFT JOIN), so the UI can still
+// list the community. OpenIssues counts the project's non-closed issues.
+type CommunityProjectRow struct {
+	CommunityID   string
+	CommunitySlug string
+	CommunityName string
+	ProjectID     string
+	ProjectTitle  string
+	OpenIssues    int
+}
+
+// ProjectsForCommunities returns every active (non-archived) project in
+// the given communities, each tagged with its community slug/name and
+// open-issue count, ordered by community name then most-recent project
+// activity. Communities with no active projects still yield one row (a
+// ProjectID == "" sentinel) so the picker can list them. Powers the
+// community → project drill-down on the global admin /issues page.
+func (r *Repo) ProjectsForCommunities(ctx context.Context, communityIDs []string) ([]CommunityProjectRow, error) {
+	if len(communityIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := ""
+	args := make([]any, 0, len(communityIDs))
+	for i, cid := range communityIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args = append(args, cid)
+	}
+	q := `
+		SELECT c.id, c.slug, c.name,
+		       COALESCE(p.id, ''), COALESCE(p.title, ''),
+		       COALESCE((SELECT COUNT(*) FROM project_issues i
+		                 WHERE i.project_id = p.id AND i.status != 'closed'), 0)
+		FROM communities c
+		LEFT JOIN projects p
+		       ON p.community_id = c.id AND p.archived_at IS NULL
+		WHERE c.id IN (` + placeholders + `)
+		ORDER BY c.name COLLATE NOCASE, p.updated_at DESC`
+
+	rows, err := r.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("projects for communities: %w", err)
+	}
+	defer rows.Close()
+	out := []CommunityProjectRow{}
+	for rows.Next() {
+		var row CommunityProjectRow
+		if err := rows.Scan(
+			&row.CommunityID, &row.CommunitySlug, &row.CommunityName,
+			&row.ProjectID, &row.ProjectTitle, &row.OpenIssues,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 // MaxIssueUpdatedAt returns the latest project_issues.updated_at across
 // the given communities, as a UnixMilli value. Used by the global
 // /issues stream as the baseline for "new since page load". Returns 0

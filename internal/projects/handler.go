@@ -1166,12 +1166,48 @@ func (h *Handler) GetGlobalIssues(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal", http.StatusInternalServerError)
 		return
 	}
+	picks, err := h.Repo.ProjectsForCommunities(r.Context(), cids)
+	if err != nil {
+		h.Log.Error("global issues: project picker", "err", err)
+		http.Error(w, "internal", http.StatusInternalServerError)
+		return
+	}
 	v := h.layoutViewer(r)
 	v.IsAdminOfAnyCommunity = true
 	_ = webtempl.GlobalIssuesPage(webtempl.GlobalIssuesPageData{
-		Viewer: v,
-		Rows:   toGlobalIssueViews(rows),
+		Viewer:      v,
+		Communities: groupCommunityProjects(picks),
+		Rows:        toGlobalIssueViews(rows),
 	}).Render(r.Context(), w)
+}
+
+// groupCommunityProjects collapses the flat (community, project) rows
+// from ProjectsForCommunities — already ordered by community — into one
+// group per community. Rows with an empty ProjectID (communities with no
+// active projects) yield a group with no projects.
+func groupCommunityProjects(rows []CommunityProjectRow) []webtempl.GlobalCommunityGroup {
+	var groups []webtempl.GlobalCommunityGroup
+	idx := make(map[string]int, len(rows))
+	for _, r := range rows {
+		i, ok := idx[r.CommunityID]
+		if !ok {
+			groups = append(groups, webtempl.GlobalCommunityGroup{
+				CommunitySlug: r.CommunitySlug,
+				CommunityName: r.CommunityName,
+			})
+			i = len(groups) - 1
+			idx[r.CommunityID] = i
+		}
+		if r.ProjectID == "" {
+			continue
+		}
+		groups[i].Projects = append(groups[i].Projects, webtempl.GlobalProjectPick{
+			ProjectID:    r.ProjectID,
+			ProjectTitle: r.ProjectTitle,
+			OpenIssues:   r.OpenIssues,
+		})
+	}
+	return groups
 }
 
 // GetGlobalIssuesStream is the SSE that powers the "X new — refresh"

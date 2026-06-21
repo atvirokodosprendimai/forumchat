@@ -624,7 +624,7 @@ templ ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) {
 						</button>
 					}
 				</header>
-				<form class="project-issue-add"
+				<form id="new-issue" class="project-issue-add"
 					data-on:submit__prevent={ "@post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues')" }>
 					<input type="text" maxlength="200" placeholder="Issue title"
 						data-bind="projects_issue_title" required/>
