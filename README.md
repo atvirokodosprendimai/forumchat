@@ -89,6 +89,7 @@ docker run -p 8080:8080 \
 - [AI assistant (Agent)](#ai-assistant-agent)
 - [Search — FTS5 + semantic (RAG)](#search--fts5--semantic-rag)
 - [Email ingest (mailbox)](#email-ingest-mailbox)
+- [Webhooks](#webhooks)
 - [Time accounting](#time-accounting)
 - [Video rooms](#video-rooms-webrtc-mesh)
 - [Push notifications + digest mode](#push-notifications--digest-mode)
@@ -109,6 +110,8 @@ docker run -p 8080:8080 \
 | Area              | What's there                                                                                                                                                     |
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Multi-community** | Communities are first-class. Every row is `community_id`-scoped. Public communities appear under `/explore`; private ones are invite-only. Platform super-admins (`SUPERADMIN_EMAILS`) get a global `/superadmin` dashboard + god-mode across every community. |
+| **Global read-only chat** | Platform super-admin only (`/superadmin/chat`). A live, cross-community feed of the latest 100 chat messages from **every** community and channel at once — newest-first, deep-linked back to source, soft-deleted rows included (god-mode). Read-only: it never writes. Streamed via the process-wide chat bus + the NATS `community.*.chat` wildcard. |
+| **Webhooks**        | Optional (`WEBHOOKS_ENABLED`). Per-community integrations both ways. **Inbound:** external systems `POST` to a secret `/hooks/<token>` URL and the payload posts as a named **bot** message (provider adapters: `generic` JSON `{text}`/`{content}`, or `github` push/PR/issue/release with HMAC verify). **Outbound:** human chat in a chosen channel is relayed as JSON to a `target_url` (`slack`/`discord`/`generic`). Matrix bridges via maubot/hookshot — see `examples/`. |
 | **Chat**            | Multiple realtime named text channels per community (Discord-style, `#general` is the undeletable default). Persistent (SQLite), live (NATS pub/sub + datastar SSE), auto-grow composer, mentions, image paste/drop, multi-file attachments, reply quote, forward-to-channel, per-channel unread dots. Extract any chat attachment into a project (as Docs or a new issue) so documents shared in chat aren't lost to scrollback. |
 | **Slash commands**  | In the chat composer: `/search` (personal fused search panel), `/resume` (AI recap of the channel → thread), `/prompt` (run a prompt → thread), `/translate` (live English-translation typeahead, source auto-detected). |
 | **AI assistant**    | Optional (`AI_ENABLED`). Per-community ChatGPT-style Agent: persistent threads + history, streaming answers (100 ms morph cadence), vision/image input, multiple named agents (provider/model/system-prompt each), in-thread model switch, resumable streams, `$`-reference autocomplete, share-thread-to-channel. Tool layer: internal full-text + `rag_search` + DB tools (list/get issues) + connectable MCP servers. Backed by your own Ollama. |
@@ -318,6 +321,48 @@ Filter management lives under `/c/{slug}/admin/mail-filters`; the inbox itself
 
 ---
 
+## Webhooks
+
+Optional, behind `WEBHOOKS_ENABLED=true`. Per-community integrations in both
+directions, the push-driven mirror of the IMAP mailbox. Admin-curated at
+`/c/{slug}/admin/webhooks`.
+
+**Inbound** — external systems push into a community:
+
+- `POST /hooks/<token>` is public and **session-less**; the token in the URL is
+  the only credential (like the guest `/lobby/{token}` routes). An unknown token
+  returns `404` (anti-enumeration), the body is capped by `WEBHOOKS_MAX_BYTES`
+  (1 MiB default), and the route is rate-limited per IP.
+- The matched webhook's **provider adapter** turns the body into a markdown
+  message posted as a named **bot** (its own name + avatar, Discord-style —
+  `kind='webhook'`, no `author_id`, identity denormalised onto the row so the
+  hot read path needs no JOIN). It then fans out exactly like the forum→chat
+  bridge, so open tabs morph live.
+  - `generic` — accepts `{"text": …}` or `{"content": …}`; any other JSON or raw
+    body is posted verbatim in a code block. Covers Slack-outgoing, Discord, CI,
+    Matrix bridges, scripts.
+  - `github` — formats `push` / `pull_request` / `issues` / `release`; set a
+    signing secret to verify `X-Hub-Signature-256` (HMAC-SHA256, `401` on
+    mismatch); `ping` is acknowledged with no message.
+
+**Outbound** — community activity is relayed out:
+
+- Every **human** chat message (`kind='user'` only — bot/system/forward messages
+  are skipped, so an inbound post can't loop back out) in the chosen channel
+  (or all channels) is `POST`ed to the webhook's `target_url`.
+  - `slack` / `discord` → `{"text": "[#channel] author: body"}`.
+  - `generic` → `{"community", "channel", "author", "body_md", "created_at"}`.
+- Best-effort, fire-and-forget with a short timeout; non-2xx is logged and
+  stamped on the row. No retry queue in v1.
+
+The admin page mints the inbound URL once on create (copy it then), with
+rotate-token / enable-disable / delete and a per-webhook health column. Matrix
+isn't a webhook itself; bridge it via maubot (forumchat→Matrix) or
+matrix-hookshot (Matrix→forumchat) — ready-to-edit configs in
+[`examples/`](examples/).
+
+---
+
 ## Time accounting
 
 Optional, behind `TIME_ENABLED=true`. Two independent pieces:
@@ -490,6 +535,14 @@ DB tables (numbered by migration): `projects` (00013), `project_issues`,
   value the handlers read via `community.FromContext`.
 - Per-user profile (display name + avatar) writes to **every** membership the
   user holds — the profile editor is "you", not "you in this community".
+- **Platform super-admin** (`SUPERADMIN_EMAILS`, comma-separated, immutable at
+  boot) is the one global role: a `/superadmin` dashboard (every community +
+  user, create/delete a community, disable/enable + system-ban accounts,
+  reindex all) plus a live **read-only global chat** at `/superadmin/chat` —
+  the latest 100 messages across every community and channel, deep-linked to
+  source, kept live over the process-wide chat bus + the `community.*.chat`
+  NATS wildcard. Super-admins reach any community's own `/admin` via membership
+  synthesis (no real membership needed).
 
 ---
 
@@ -705,7 +758,9 @@ addressed community) · *mod* / *admin* (role ladder).
 | GET    | `/issues`                           | session  | Cross-project issues across your communities.    |
 | GET    | `/journal`                          | session  | Personal work timer + journal (when `TIME_ENABLED`). |
 | POST   | `/timer/{start,stop,note}`          | session  | Timer lifecycle.                                 |
+| POST   | `/hooks/{token}`                    | none     | Inbound webhook receiver (token = secret; when `WEBHOOKS_ENABLED`). 404 on miss, rate-limited. |
 | GET    | `/superadmin`                       | super-admin | Global dashboard: all communities + all users. |
+| GET    | `/superadmin/chat`, `/superadmin/chat/stream` | super-admin | Read-only global chat across every community (latest 100, live SSE). |
 | POST   | `/superadmin/{community,user}/...`  | super-admin | Create/delete community, disable/enable + system-ban users, reindex all. |
 | GET    | `/sw.js`                            | none     | Service worker (scoped `/`, `Service-Worker-Allowed: /`). |
 | GET    | `/push/config`                      | none     | VAPID public key.                                |
@@ -758,6 +813,8 @@ addressed community) · *mod* / *admin* (role ladder).
 | GET    | `/projects[/...]`                   | member or guest | Projects feature (when enabled).            |
 | GET    | `/admin`                            | admin    | Community admin.                                 |
 | POST   | `/admin/{approve,reject,ban,unban,invite,invite/revoke,add-member,toggle-public}` | admin | |
+| GET/POST | `/admin/webhooks[/...]`           | admin    | Inbound + outbound webhook CRUD (when `WEBHOOKS_ENABLED`). |
+| GET/POST | `/admin/mail-filters[/...]`       | admin    | Per-community IMAP routing filters (when `MAILBOX_ENABLED`). |
 
 ---
 
