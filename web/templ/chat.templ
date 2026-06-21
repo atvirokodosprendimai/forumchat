@@ -150,6 +150,10 @@ templ ChatPage(d ChatPageData) {
 				// /search; sits outside #messages so the chat fat-morph never
 				// clobbers it. The slash handler outer-morphs this by id.
 				<div id="chat-search"></div>
+				// Stable slot for the agent rate-limit notice. Empty until a
+				// trigger is throttled; PostSend outer-morphs this id with the
+				// card, which self-dismisses while the slot id persists.
+				<div id="chat-agent-notice" class="agent-notice-slot"></div>
 				@ChatComposer(d.Viewer.CommunitySlug, d.ActiveSlug)
 			</div>
 			<aside id="presence" class="presence" data-init={ "@get('/c/" + d.Viewer.CommunitySlug + "/presence/stream', {openWhenHidden: true})" }>

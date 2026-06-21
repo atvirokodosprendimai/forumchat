@@ -1,0 +1,34 @@
+package templ
+
+import (
+	"strconv"
+	"time"
+)
+
+// rateLimitSecs renders a retry-after duration as a whole number of seconds,
+// rounded up, never below 1.
+func rateLimitSecs(retry time.Duration) string {
+	secs := int((retry + time.Second - 1) / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	return strconv.Itoa(secs)
+}
+
+// AgentRateLimitNotice renders a dismissible "rate limit reached" card into a
+// stable slot identified by slotID. The slot id must already exist on the page
+// (empty); this outer-morphs the slot so it contains the card. The card
+// self-removes after a few seconds — the empty slot stays in the DOM so a later
+// throttle can re-fill it. retry is roughly how long until the member's
+// per-minute budget frees up.
+templ AgentRateLimitNotice(slotID string, retry time.Duration) {
+	<div id={ slotID } class="agent-notice-slot">
+		<div class="agent-rate-notice" role="status" aria-live="polite" data-init="setTimeout(() => el.remove(), 8000)">
+			<span class="agent-rate-notice-icon" aria-hidden="true">⏳</span>
+			<span class="agent-rate-notice-text">
+				Rate limit reached — try again in { rateLimitSecs(retry) }s.
+			</span>
+			<button type="button" class="agent-rate-notice-x" aria-label="Dismiss" data-on:click="el.closest('.agent-rate-notice').remove()">✕</button>
+		</div>
+	</div>
+}

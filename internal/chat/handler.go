@@ -100,8 +100,11 @@ type Handler struct {
 	// chat-agents it triggers — each match opens a forum thread and streams the
 	// agent's reply there. Wired in main.go to chatagents; nil when AI is
 	// disabled. Called ONLY on the human user-send path — the loop guard that
-	// keeps a bot/webhook/system message from ever triggering an agent.
-	Dispatch func(ctx context.Context, t AgentTrigger)
+	// keeps a bot/webhook/system message from ever triggering an agent. Runs
+	// synchronously (matching + rate-limit gate are cheap; generation detaches
+	// inside the runner) so a throttled trigger can surface a notice on the
+	// open SSE. The result reports whether the trigger was rate-limited.
+	Dispatch func(ctx context.Context, t AgentTrigger) DispatchResult
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -136,6 +139,17 @@ type AgentTrigger struct {
 	AuthorName  string
 	Body        string
 	Kind        Kind
+	// IsSuperAdmin exempts the trigger from agent rate limits (platform
+	// super-admins are never throttled).
+	IsSuperAdmin bool
+}
+
+// DispatchResult reports the outcome of agent dispatch that the send handler
+// needs for UI: whether the trigger was rate-limited and, if so, how long
+// until the member's per-minute budget frees up.
+type DispatchResult struct {
+	RateLimited bool
+	RetryAfter  time.Duration
 }
 
 // RosterNotifier wakes open presence sidebars so per-viewer markers
@@ -999,19 +1013,25 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	h.broadcastNewMsg(r.Context(), ch.ID)
 
 	// Route to chat-agents: a bound agent @mentioned or prefix-triggered by
-	// this message opens a forum thread and answers there. Detached so a slow
-	// model never stalls the send; this is the only call into Dispatch, so a
-	// bot/system message can never trigger an agent (loop guard).
+	// this message opens a forum thread and answers there. Synchronous so a
+	// throttled trigger surfaces a notice on this SSE; the matching + gate are
+	// cheap and the model generation detaches inside the runner. This is the
+	// only call into Dispatch, so a bot/system message can never trigger an
+	// agent (loop guard).
 	if h.Dispatch != nil {
-		go h.Dispatch(context.Background(), AgentTrigger{
-			CommunityID: h.cid(r.Context()),
-			Slug:        h.cslug(r.Context()),
-			ChannelID:   ch.ID,
-			AuthorID:    id.User.ID,
-			AuthorName:  id.Membership.DisplayName,
-			Body:        body,
-			Kind:        KindUser,
+		res := h.Dispatch(r.Context(), AgentTrigger{
+			CommunityID:  h.cid(r.Context()),
+			Slug:         h.cslug(r.Context()),
+			ChannelID:    ch.ID,
+			AuthorID:     id.User.ID,
+			AuthorName:   id.Membership.DisplayName,
+			Body:         body,
+			Kind:         KindUser,
+			IsSuperAdmin: id.IsSuperAdmin,
 		})
+		if res.RateLimited {
+			_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("chat-agent-notice", res.RetryAfter))
+		}
 	}
 
 	// Relay to outbound webhooks (Slack/Discord/generic). Fire-and-forget;

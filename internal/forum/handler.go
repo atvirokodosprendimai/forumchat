@@ -57,13 +57,22 @@ type Handler struct {
 	// OnAgentReply, when set, is fired after a human reply lands in an
 	// agent-owned thread (thread.AgentID set) — the agent re-runs over the full
 	// thread history and streams the next post. Wired in main.go to chatagents;
-	// nil when AI is disabled. The thread's agent_id is passed; forum stays
-	// agent-free. A bot post never fires it (loop guard).
-	OnAgentReply  func(ctx context.Context, communityID, threadID, agentID string)
+	// nil when AI is disabled. The thread's agent_id plus the replier's id are
+	// passed (the latter for rate limiting); forum stays agent-free. Runs
+	// synchronously so a throttled reply can surface a notice; generation
+	// detaches inside the runner. A bot post never fires it (loop guard).
+	OnAgentReply  func(ctx context.Context, communityID, threadID, agentID, userID string, isSuperAdmin bool) AgentReplyResult
 	CommunityID   string
 	CommunityName string
 	BaseURL       string
 	Log           *slog.Logger
+}
+
+// AgentReplyResult reports whether an agent-thread reply was rate-limited, so
+// PostReply can surface a notice. The zero value means "not rate-limited".
+type AgentReplyResult struct {
+	RateLimited bool
+	RetryAfter  time.Duration
 }
 
 const PasteImageMaxBytes = 1 << 20
@@ -479,16 +488,20 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 
 	// One thread lookup serves two post-reply paths:
 	//   - agent threads (AgentID set): reply-as-prompt re-runs the agent over the
-	//     full history; it answers as the next post. Detached so a slow model
-	//     never stalls the reply. Bot posts are inserted via InsertBotPost, never
-	//     through PostReply, so they can't re-trigger.
+	//     full history; it answers as the next post. Synchronous so a throttled
+	//     reply can surface a notice; the model generation detaches inside the
+	//     runner. Bot posts are inserted via InsertBotPost, never through
+	//     PostReply, so they can't re-trigger.
 	//   - plain threads: mirror the human reply to outbound webhooks tagged with
 	//     the thread identity (Matrix-thread sync). Agent threads stay local.
 	if h.OnAgentReply != nil || h.RelayThread != nil {
 		if th, err := h.Repo.GetThread(r.Context(), threadID); err == nil {
 			switch {
 			case th.AgentID != nil && h.OnAgentReply != nil:
-				go h.OnAgentReply(context.Background(), h.cid(r.Context()), threadID, *th.AgentID)
+				res := h.OnAgentReply(r.Context(), h.cid(r.Context()), threadID, *th.AgentID, id.User.ID, id.IsSuperAdmin)
+				if res.RateLimited {
+					_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("thread-agent-notice", res.RetryAfter))
+				}
 			case th.AgentID == nil:
 				h.relayForumReply(r.Context(), th, id.Membership.DisplayName, body, post.ID)
 			}

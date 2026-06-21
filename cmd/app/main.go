@@ -26,6 +26,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/admin"
 	"github.com/atvirokodosprendimai/forumchat/internal/agent"
 	"github.com/atvirokodosprendimai/forumchat/internal/agent/mcpx"
+	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/bookmarks"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
@@ -590,23 +591,40 @@ func run() error {
 		// (user-kind only).
 		threadRunner := chatagents.NewThreadRunner(forumRepo, forumBus, nc, 0, log)
 		threadRunner.Tools = mcpMgr.Build // same internal-search + MCP tools as the agent pane
-		dispatcher := chatagents.NewDispatcher(agentRepo, forumHandler.CreateAgentThread, threadRunner, log)
-		chatHandler.Dispatch = func(ctx context.Context, t chat.AgentTrigger) {
-			dispatcher.Dispatch(ctx, chatagents.Trigger{
+		// Per-community agent prompt rate limiter, shared by both trigger
+		// surfaces (chat send + agent-thread reply). Limits come from the
+		// community row; super-admins bypass inside the Gate.
+		agentGate := agentlimit.NewGate(func(ctx context.Context, communityID string) (agentlimit.Limits, error) {
+			c, err := cRepo.ByID(ctx, communityID)
+			if err != nil {
+				return agentlimit.Limits{}, err
+			}
+			return agentlimit.Limits{PerUserMin: c.AgentRatePerUserMin, PerCommunityMin: c.AgentRatePerCommunityMin}, nil
+		})
+		dispatcher := chatagents.NewDispatcher(agentRepo, forumHandler.CreateAgentThread, threadRunner, agentGate, log)
+		chatHandler.Dispatch = func(ctx context.Context, t chat.AgentTrigger) chat.DispatchResult {
+			res := dispatcher.Dispatch(ctx, chatagents.Trigger{
 				CommunityID: t.CommunityID, Slug: t.Slug, ChannelID: t.ChannelID,
 				AuthorID: t.AuthorID, AuthorName: t.AuthorName, Body: t.Body, Kind: t.Kind,
+				IsSuperAdmin: t.IsSuperAdmin,
 			})
+			return chat.DispatchResult{RateLimited: res.RateLimited, RetryAfter: res.RetryAfter}
 		}
 		// Reply-as-prompt: a human reply in an agent thread re-runs the agent
 		// over the full thread history. forum stays agent-free — it hands us the
-		// thread's agent_id and we load + run it.
-		forumHandler.OnAgentReply = func(ctx context.Context, communityID, threadID, agentID string) {
+		// thread's agent_id (plus who replied) and we gate + load + run it.
+		forumHandler.OnAgentReply = func(ctx context.Context, communityID, threadID, agentID, userID string, isSuperAdmin bool) forum.AgentReplyResult {
+			if dec := agentGate.Check(ctx, communityID, userID, isSuperAdmin); !dec.Allowed {
+				log.Info("chatagents: thread reply rate limited", "community", communityID, "user", userID, "retry", dec.RetryAfter)
+				return forum.AgentReplyResult{RateLimited: true, RetryAfter: dec.RetryAfter}
+			}
 			a, err := agentRepo.AgentByID(ctx, agentID)
 			if err != nil {
 				log.Warn("chatagents: reply agent lookup", "agent", agentID, "err", err)
-				return
+				return forum.AgentReplyResult{}
 			}
 			threadRunner.Generate(communityID, threadID, a)
+			return forum.AgentReplyResult{}
 		}
 		// Admin form's channel picker + live roster refresh after a save.
 		agentHandler.RosterBump = presenceTracker.Bump

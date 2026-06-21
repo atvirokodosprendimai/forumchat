@@ -230,6 +230,9 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 				data-on:drop="window.fcDropImage(evt,'image_data')">
 				<h3>Reply</h3>
 				<div id="reply-error" class="error"></div>
+				// Stable slot for the agent rate-limit notice; PostReply
+				// outer-morphs this id when an agent-thread reply is throttled.
+				<div id="thread-agent-notice" class="agent-notice-slot"></div>
 				<input type="hidden" data-bind="quoted_post_id"/>
 				<div id="reply-quote-hint" class="muted" data-show="$_reply_quote_label">
 					Quoting <span data-text="$_reply_quote_label"></span>

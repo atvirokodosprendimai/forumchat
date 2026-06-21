@@ -4908,3 +4908,44 @@ button.ghost.danger { color: var(--danger); }
   .paste-lang { flex: 1 1 auto; }
   .paste-body { min-height: 44vh; }
 }
+
+/* ── Agent rate-limit notice ─────────────────────────────────────────── */
+/* A stable slot above the chat / forum composer; PostSend (or PostReply)
+   outer-morphs it with .agent-rate-notice when a member's agent triggers are
+   throttled. Empty slot collapses so it costs nothing when no notice is up. */
+.agent-notice-slot:empty { display: none; }
+.agent-rate-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.55rem 0.8rem;
+  background: var(--warning-soft, oklch(96% 0.05 75));
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
+  color: var(--fg);
+  font-size: 0.9rem;
+  box-shadow: var(--shadow-sm);
+  animation: agent-rate-notice-in 0.18s var(--ease-out);
+}
+.agent-rate-notice-icon { flex: none; }
+.agent-rate-notice-text { flex: 1 1 auto; }
+.agent-rate-notice-x {
+  flex: none;
+  background: transparent;
+  border: 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.2rem 0.3rem;
+  border-radius: var(--radius-sm);
+}
+.agent-rate-notice-x:hover { background: oklch(0% 0 0 / 0.06); color: var(--fg); }
+@keyframes agent-rate-notice-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-rate-notice { animation: none; }
+}
