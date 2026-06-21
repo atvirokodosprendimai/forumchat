@@ -15,6 +15,12 @@ type Community struct {
 	Name      string
 	IsPublic  bool
 	CreatedAt time.Time
+
+	// AgentRatePerUserMin / AgentRatePerCommunityMin cap AI-agent prompts per
+	// minute (0 = unlimited). Per-user is community-wide; per-community is all
+	// members combined. Only populated by BySlug / ByID.
+	AgentRatePerUserMin      int
+	AgentRatePerCommunityMin int
 }
 
 type Repo struct{ DB *sql.DB }
@@ -26,8 +32,10 @@ func (r *Repo) BySlug(ctx context.Context, slug string) (Community, error) {
 	var created int64
 	var isPublic int
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, slug, name, COALESCE(is_public,0), created_at FROM communities WHERE slug = ?`, slug).
-		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created)
+		SELECT id, slug, name, COALESCE(is_public,0), created_at,
+		       COALESCE(agent_rate_per_user_min,0), COALESCE(agent_rate_per_community_min,0)
+		FROM communities WHERE slug = ?`, slug).
+		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Community{}, sql.ErrNoRows
 	}
@@ -47,8 +55,10 @@ func (r *Repo) ByID(ctx context.Context, id string) (Community, error) {
 	var created int64
 	var isPublic int
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, slug, name, COALESCE(is_public,0), created_at FROM communities WHERE id = ?`, id).
-		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created)
+		SELECT id, slug, name, COALESCE(is_public,0), created_at,
+		       COALESCE(agent_rate_per_user_min,0), COALESCE(agent_rate_per_community_min,0)
+		FROM communities WHERE id = ?`, id).
+		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Community{}, sql.ErrNoRows
 	}
@@ -58,6 +68,21 @@ func (r *Repo) ByID(ctx context.Context, id string) (Community, error) {
 	c.IsPublic = isPublic != 0
 	c.CreatedAt = time.Unix(created, 0)
 	return c, nil
+}
+
+// SetAgentRateLimits updates a community's AI-agent prompt rate limits
+// (requests/minute, 0 = unlimited). Negative inputs are clamped to 0.
+func (r *Repo) SetAgentRateLimits(ctx context.Context, id string, perUserMin, perCommunityMin int) error {
+	if perUserMin < 0 {
+		perUserMin = 0
+	}
+	if perCommunityMin < 0 {
+		perCommunityMin = 0
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE communities SET agent_rate_per_user_min = ?, agent_rate_per_community_min = ? WHERE id = ?`,
+		perUserMin, perCommunityMin, id)
+	return err
 }
 
 // SetPublic flips the discoverability flag on a community.
