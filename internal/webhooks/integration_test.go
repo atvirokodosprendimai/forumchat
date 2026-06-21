@@ -1,13 +1,18 @@
 package webhooks_test
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/webhooks"
 )
 
@@ -156,5 +161,69 @@ func TestOutboundCreateValidation(t *testing.T) {
 	}
 	if wh.Token != "" {
 		t.Fatal("outbound webhook must not have a token")
+	}
+}
+
+// TestInboundMediaVertical exercises the inbound media data path: save an upload
+// under a synthetic webhook owner, post it as a KindWebhook message with no
+// body, and read the attachment back. This is what the multipart inbound handler
+// drives (Matrix → forumchat image bridge).
+func TestInboundMediaVertical(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sqlite.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := sqlite.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	c, err := community.NewRepo(db).BootstrapOrFetch(ctx, "test", "Test")
+	if err != nil {
+		t.Fatalf("community: %v", err)
+	}
+	chatRepo := chat.NewRepo(db)
+	chatSvc := chat.NewService(chatRepo)
+	general, err := chatRepo.EnsureDefaultChannel(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("default channel: %v", err)
+	}
+
+	// uploads.owner_id is FK'd to users; mint a real owner.
+	owner := auth.User{ID: uuid.NewString(), Email: "wh@x.test", PasswordHash: "x", Status: auth.StatusActive}
+	if err := auth.NewRepo(db).CreateUser(ctx, owner); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	store := uploads.NewStore(db, t.TempDir(), 1<<20, "sign-key")
+	u, err := store.Save(ctx, owner.ID, c.ID, "text/plain", "note.txt", bytes.NewReader([]byte("hello bytes")))
+	if err != nil {
+		t.Fatalf("save upload: %v", err)
+	}
+
+	// Empty body + one attachment must be allowed (image-only post).
+	m, err := chatSvc.PostBotWithAttachments(ctx, c.ID, general.ID, "Bridge", "", "", []string{u.ID})
+	if err != nil {
+		t.Fatalf("PostBotWithAttachments: %v", err)
+	}
+	if m.Kind != chat.KindWebhook {
+		t.Fatalf("kind = %q, want webhook", m.Kind)
+	}
+
+	byMsg, err := chatRepo.AttachmentsForMessages(ctx, []string{m.ID})
+	if err != nil {
+		t.Fatalf("AttachmentsForMessages: %v", err)
+	}
+	if got := len(byMsg[m.ID]); got != 1 {
+		t.Fatalf("attachments = %d, want 1", got)
+	}
+	if byMsg[m.ID][0].UploadID != u.ID {
+		t.Fatalf("attachment upload id = %q, want %q", byMsg[m.ID][0].UploadID, u.ID)
+	}
+
+	// Empty body + no attachments must still be rejected.
+	if _, err := chatSvc.PostBotWithAttachments(ctx, c.ID, general.ID, "Bridge", "", "", nil); err == nil {
+		t.Fatal("empty body + no attachments should error")
 	}
 }

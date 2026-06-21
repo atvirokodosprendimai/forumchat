@@ -824,6 +824,7 @@ func run() error {
 			BaseURL:       cfg.BaseURL,
 			MaxBytes:      cfg.WebhooksMaxBytes,
 			Log:           log,
+			Uploads:       uploadStore,
 		}
 		relay := webhooks.NewRelay(whRepo, log)
 		// Resolve a message's upload IDs into fetchable outbound attachments:

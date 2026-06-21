@@ -1151,6 +1151,42 @@ func (s *Service) PostBot(ctx context.Context, communityID, channelID, botName, 
 	return m, nil
 }
 
+// PostBotWithAttachments is PostBot with media: it links already-persisted
+// upload IDs to the KindWebhook message. The body may be empty when there is at
+// least one attachment (an image-only post). Ownership is not verified — the
+// uploads are saved by the inbound webhook itself (synthetic owner), not a user.
+func (s *Service) PostBotWithAttachments(ctx context.Context, communityID, channelID, botName, botAvatar, bodyMarkdown string, attachmentIDs []string) (Message, error) {
+	body := strings.TrimSpace(bodyMarkdown)
+	if body == "" && len(attachmentIDs) == 0 {
+		return Message{}, errors.New("empty webhook message")
+	}
+	html, err := render.RenderMarkdown(body)
+	if err != nil {
+		return Message{}, fmt.Errorf("render markdown: %w", err)
+	}
+	m := Message{
+		ID:           uuid.NewString(),
+		CommunityID:  communityID,
+		ChannelID:    channelID,
+		Kind:         KindWebhook,
+		BotName:      botName,
+		BotAvatar:    botAvatar,
+		BodyMarkdown: body,
+		BodyHTML:     html,
+		CreatedAt:    time.Now(),
+	}
+	if len(attachmentIDs) == 0 {
+		if err := s.Repo.Insert(ctx, m); err != nil {
+			return Message{}, fmt.Errorf("insert webhook message: %w", err)
+		}
+		return m, nil
+	}
+	if err := s.Repo.InsertWithAttachments(ctx, m, attachmentIDs); err != nil {
+		return Message{}, fmt.Errorf("insert webhook message with attachments: %w", err)
+	}
+	return m, nil
+}
+
 // PostSystemHTMLToChannel inserts a system message with pre-rendered, TRUSTED
 // bodyHTML into a SPECIFIC channel (PostSystem always lands in #general). The
 // caller is responsible for escaping any user-derived text — nothing here runs
