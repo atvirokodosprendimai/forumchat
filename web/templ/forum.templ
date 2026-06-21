@@ -177,90 +177,124 @@ templ NewThreadPage(v Viewer) {
 
 templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 	@Layout(t.Subject, v) {
-		<section>
-			<h1 data-show="!$_rename_open">
-				if t.IsResolved {
-					<span class="resolved-badge">✓ resolved</span>
+		<section class="thread-chat">
+			// Compact one-line header: back, subject + starter, and mod/owner
+			// actions tucked into a ⋯ menu instead of a row of link buttons.
+			<header class="thread-head">
+				<a class="thread-back" href={ templ.URL("/c/" + v.CommunitySlug + "/forum") } title="Back to threads">←</a>
+				<div class="thread-head-title" data-show="!$_rename_open">
+					if t.IsResolved {
+						<span class="resolved-badge">✓</span>
+					}
+					<strong>{ t.Subject }</strong>
+					<span class="muted thread-head-sub">· { t.AuthorName }</span>
+				</div>
+				if t.IsMod {
+					<div class="rename-row" data-show="$_rename_open">
+						<input type="text" data-bind="new_subject" maxlength="200"/>
+						<button class="btn"
+							data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/rename')" }>save</button>
+						<button class="btn ghost" data-on:click="$_rename_open=false">cancel</button>
+					</div>
 				}
-				{ t.Subject }
-			</h1>
-			if t.IsMod {
-				<div class="rename-row" data-show="$_rename_open">
-					<input type="text" data-bind="new_subject" maxlength="200"/>
-					<button class="btn"
-						data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/rename')" }>save</button>
-					<button class="btn ghost" data-on:click="$_rename_open=false">cancel</button>
-				</div>
-			}
-			<p class="muted"><a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>← Threads</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
+				if t.CanResolve || t.IsMod || t.CanEdit || t.IsAdmin {
+					<details class="msg-menu thread-head-menu">
+						<summary aria-label="Thread actions"><span class="msg-menu-dot"></span></summary>
+						<div class="msg-menu-list" role="menu">
+							<div class="msg-menu-handle" aria-hidden="true"></div>
+							if t.CanResolve {
+								if t.IsResolved {
+									<button class="msg-menu-item" role="menuitem"
+										data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/unresolve'); el.closest('details').open=false" }>
+										<span class="mi-icon">↺</span><span class="mi-label">Mark unresolved</span>
+									</button>
+								} else {
+									<button class="msg-menu-item" role="menuitem"
+										data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/resolve'); el.closest('details').open=false" }>
+										<span class="mi-icon">✓</span><span class="mi-label">Mark resolved</span>
+									</button>
+								}
+							}
+							if t.IsMod {
+								<button class="msg-menu-item" role="menuitem"
+									data-on:click={ "$_rename_open=true; $new_subject='" + jsString(t.Subject) + "'; el.closest('details').open=false" }>
+									<span class="mi-icon">✎</span><span class="mi-label">Rename</span>
+								</button>
+							}
+							if t.CanEdit || t.IsMod {
+								<button class="msg-menu-item danger" role="menuitem"
+									data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/delete'); el.closest('details').open=false" }>
+									<span class="mi-icon">✕</span><span class="mi-label">Delete thread</span>
+								</button>
+							}
+							if t.IsAdmin {
+								<button class="msg-menu-item danger" role="menuitem"
+									data-on:click={ "if (confirm('Hard-delete: this wipes the thread, every reply, and any uploaded images. Continue?')) { @post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/hard-delete') } el.closest('details').open=false" }>
+									<span class="mi-icon">⚠</span><span class="mi-label">Hard delete (admin)</span>
+								</button>
+							}
+						</div>
+					</details>
+				}
+			</header>
 
-			<article class="bubble">
-				<div class="body">@templ.Raw(render.RichHTML(t.BodyHTML))</div>
-				<div class="thread-actions">
-					if t.CanResolve {
-						if t.IsResolved {
-							<button class="link"
-								data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/unresolve')" }>mark unresolved</button>
-						} else {
-							<button class="link"
-								data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/resolve')" }>mark resolved</button>
-						}
-					}
-					if t.IsMod {
-						<button class="link"
-							data-on:click={ "$_rename_open=true; $new_subject='" + jsString(t.Subject) + "'" }>rename</button>
-					}
-					if t.CanEdit || t.IsMod {
-						<button class="link"
-							data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/delete')" }>delete thread</button>
-					}
-					if t.IsAdmin {
-						<button class="link danger"
-							data-on:click={ "if (confirm('Hard-delete: this wipes the thread, every reply, and any uploaded images. Continue?')) @post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/hard-delete')" }>hard delete (admin)</button>
-					}
-				</div>
-			</article>
-
-			<h2>Replies</h2>
-			@ThreadPosts(v.CommunitySlug, t.ID, posts)
+			// Chat-style feed: the thread root reads as the first bubble, the
+			// replies follow. #posts stays the SSE morph target (untouched).
+			<div class="thread-feed">
+				@threadRootBubble(t)
+				@ThreadPosts(v.CommunitySlug, t.ID, posts)
+			</div>
 			<div id={ "thread-stream-open-" + t.ID } data-init={ "@get('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/stream', {openWhenHidden: true})" }></div>
 
-			<section class="card"
+			// Slim, chat-like composer pinned to the bottom. Enter sends,
+			// Shift+Enter newlines; the textarea grows as you type.
+			<div class="thread-composer"
 				data-on:dragover="evt.preventDefault()"
 				data-on:drop="window.fcDropImage(evt,'image_data')">
-				<h3>Reply</h3>
 				<div id="reply-error" class="error"></div>
 				// Stable slot for the agent rate-limit notice; PostReply
 				// outer-morphs this id when an agent-thread reply is throttled.
 				<div id="thread-agent-notice" class="agent-notice-slot"></div>
 				<input type="hidden" data-bind="quoted_post_id"/>
-				<div id="reply-quote-hint" class="muted" data-show="$_reply_quote_label">
-					Quoting <span data-text="$_reply_quote_label"></span>
+				<div id="reply-quote-hint" class="muted reply-quote-hint" data-show="$_reply_quote_label">
+					↩ Quoting <span data-text="$_reply_quote_label"></span>
 					<button class="link" data-on:click="$quoted_post_id=''; $_reply_quote_label=''">clear</button>
-				</div>
-				<div class="field">
-					<label>Markdown body (paste, drop or attach image)</label>
-					<textarea data-bind="body" rows="4" maxlength="10000"
-						data-on:paste="window.fcPasteImage(evt,'image_data')"></textarea>
 				</div>
 				<input type="hidden" data-bind="image_data"/>
 				<div class="paste-preview" data-show="$image_data">
 					<img alt="attached image preview" data-attr:src="$image_data"/>
 					<button class="link" data-on:click="$image_data=''">remove image</button>
 				</div>
-				<div class="composer-actions">
-					<label class="btn ghost icon-btn">
-						📎 Attach image
+				<div class="thread-composer-bar">
+					<label class="icon-btn" title="Attach image" aria-label="Attach image">
+						📎
 						<input type="file" accept="image/*" style="display:none"
 							data-on:change="window.fcPickImage(evt,'image_data')"/>
 					</label>
-					<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/reply')" }>Reply</button>
+					<textarea data-bind="body" rows="1" maxlength="10000" placeholder="Write a reply…"
+						data-on:paste="window.fcPasteImage(evt,'image_data')"
+						data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'"
+						data-on:keydown={ "if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); @post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/reply')}" }></textarea>
+					<button class="thread-send" title="Send reply" aria-label="Send reply"
+						data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/" + t.ID + "/reply')" }>➤</button>
 				</div>
-			</section>
+			</div>
 			@ThreadScrollAnchor()
 			@TodoDialog(v.CommunitySlug)
 		</section>
 	}
+}
+
+// threadRootBubble renders the thread's opening message as the first chat
+// bubble in the feed, so a thread reads root → replies like a conversation.
+templ threadRootBubble(t ThreadView) {
+	<article class="bubble thread-root">
+		<header class="meta">
+			<strong>{ t.AuthorName }</strong>
+			<span class="muted">{ fmtTime(t.CreatedAt) }</span>
+		</header>
+		<div class="body">@templ.Raw(render.RichHTML(t.BodyHTML))</div>
+	</article>
 }
 
 // ThreadScrollAnchor re-mounts on every posts update (server patches it with

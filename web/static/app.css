@@ -624,6 +624,71 @@ label.icon-btn {
 .thread-actions { display: flex; gap: .75rem; margin-top: .35rem; flex-wrap: wrap; }
 .thread-actions .link.danger { color: #c4341c; }
 
+/* ── Chat-style thread page ──────────────────────────────────────────
+   A thread reads like a realtime chat: a compact header (mod actions in a
+   ⋯ menu), the root + replies as a tight bubble feed, and a slim composer
+   pinned to the bottom. The SSE morph target (#posts) and reply endpoint
+   are unchanged — this is layout only. */
+.thread-chat { display: flex; flex-direction: column; }
+
+.thread-head {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .15rem 0 .55rem; margin-bottom: .4rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.thread-back {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; border-radius: var(--radius-sm);
+  color: var(--fg); text-decoration: none; font-size: 1.1rem;
+}
+.thread-back:hover { background: var(--surface-alt); text-decoration: none; }
+.thread-head-title { min-width: 0; display: flex; align-items: baseline; gap: .4rem; overflow: hidden; }
+.thread-head-title > strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1.05rem; }
+.thread-head-sub { flex: 0 0 auto; font-size: .82rem; }
+/* The shared .msg-menu is absolute-positioned for bubbles; in the header it
+   sits inline at the far right (relative, so its dropdown anchors under the
+   ⋯ trigger rather than escaping to the page corner). */
+.thread-head-menu { position: relative; top: auto; right: auto; margin-left: auto; flex: 0 0 auto; }
+.thread-head .rename-row { flex: 1 1 auto; margin-bottom: 0; }
+
+.thread-feed { display: flex; flex-direction: column; padding-bottom: .25rem; }
+/* Compact the shared .bubble inside the feed so it reads like chat. */
+.thread-feed .bubble { margin: .2rem 0; padding: .5rem 2.5rem .5rem .8rem; }
+.thread-feed .bubble .meta { margin-bottom: .15rem; }
+.thread-root { border-left: 3px solid var(--accent); }
+
+/* Slim composer pinned to the bottom of the viewport while the feed scrolls. */
+.thread-composer {
+  position: sticky; bottom: 0; z-index: 5;
+  margin-top: .4rem; padding: .45rem 0 .55rem;
+  background: linear-gradient(to top, var(--bg) 72%, transparent);
+}
+.thread-composer-bar {
+  display: flex; align-items: flex-end; gap: .35rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: .25rem .35rem;
+  box-shadow: var(--shadow-sm);
+}
+.thread-composer-bar:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
+.thread-composer-bar textarea {
+  flex: 1 1 auto; resize: none; border: 0; background: transparent;
+  padding: .45rem .25rem; min-height: 1.4rem; max-height: 160px; line-height: 1.4;
+  font: inherit; outline: none; box-shadow: none;
+}
+.thread-composer-bar textarea:focus { border: 0; box-shadow: none; }
+.thread-composer-bar .icon-btn {
+  flex: 0 0 auto; align-self: flex-end;
+  background: transparent; border: 0; cursor: pointer;
+  font-size: 1.15rem; line-height: 1; padding: .35rem .4rem;
+}
+.thread-send {
+  flex: 0 0 auto; align-self: flex-end;
+  width: 2.1rem; height: 2.1rem; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 1rem;
+}
+.reply-quote-hint { font-size: .8rem; margin: 0 0 .35rem .2rem; }
+#thread-scroll-anchor { scroll-margin-block-end: 4.5rem; }
+
 .forum-toolbar {
   display: flex; gap: .75rem; align-items: center; flex-wrap: wrap;
   margin: .75rem 0;
