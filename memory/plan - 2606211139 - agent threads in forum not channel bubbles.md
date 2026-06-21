@@ -45,24 +45,19 @@ Branch: `task/agent-forum-threads`.
 
 ## Phase 1 — schema + forum bot-post identity (static)  `[no generation yet]`
 
-1. [ ] `migrations/00044_agent_forum_threads.sql`:
-   - `threads` ADD `agent_id TEXT REFERENCES ai_agents(id) ON DELETE SET NULL`
-     (marks an agent thread; thread is authored by the triggering human).
-   - `posts` ADD `agent_id TEXT REFERENCES ai_agents(id) ON DELETE SET NULL`,
-     `bot_name TEXT NOT NULL DEFAULT ''`, `bot_avatar_url TEXT NOT NULL DEFAULT ''`,
-     `gen_status TEXT NOT NULL DEFAULT ''`. (simple ADD COLUMN — triggers intact.)
-   - INSERT sentinel bot user (fixed id `agent-bot`, status disabled) for agent
-     posts' `author_id` FK.
-2. [ ] `internal/forum/forum.go`: `Thread.AgentID *string`; `Post.AgentID *string`
-   + `BotName/BotAvatar/GenStatus`; `CreateThread` insert carries `agent_id`;
-   post insert + `ListPosts`/`PostByID` scans carry the 4 cols; when `agent_id`
-   set, populate `AuthorName/AuthorAvatar` from bot fields.
-3. [ ] `web/templ/forum.templ` `PostView`: `IsBot` + `GenStatus`; bot post renders
-   🤖 + name + body + `▍` cursor while generating; suppress author affordances
-   (no quote/edit-by-author). Mirror chat's bubble (reuse `MsgKindBot` styling
-   tokens). Map in `loadPostViews`.
-4. [ ] Verify: `make gen && go build ./... && go test ./...`; migration applies +
-   boot clean; hand-insert a bot post → renders.
+1. [x] `migrations/00044_agent_forum_threads.sql`: threads +agent_id; posts
+   +agent_id/bot_name/bot_avatar_url/gen_status (ADD COLUMN, triggers intact);
+   sentinel bot user `agent-bot` (disabled) for agent posts' author_id FK.
+2. [x] `internal/forum/forum.go`: `Thread.AgentID`; `Post.AgentID/BotName/BotAvatar/
+   GenStatus` + `Post.IsBot()`; `CreateThread` insert + `CreateThreadInput.AgentID`;
+   all 3 thread SELECTs + `scanThread` carry `agent_id`; `ListPosts`+`GetPost`
+   scans carry the 4 post cols; agent_id set → AuthorName/Avatar from bot fields.
+   (CreatePost unchanged — new cols use schema defaults.)
+3. [x] `web/templ/forum.templ` `PostView` +IsBot/GenStatus/AuthorAvatar; `ForumPost`
+   bot branch (🤖 + AI tag + `▍` cursor, mod-only delete, no quote/todo); mapped
+   in `loadPostViews` (bot CanEdit = mod only). Reuses chat CSS tokens.
+4. [x] Verify: `make gen && go build ./...` clean; `go test ./...` green; migration
+   00044 applies + boot clean under AI_ENABLED, GET / → 200.
 
 ## Phase 2 — trigger → create thread + stream first reply; remove channel bubble
 

@@ -45,6 +45,7 @@ type ThreadView struct {
 type PostView struct {
 	ID           string
 	AuthorName   string
+	AuthorAvatar string
 	QuotedAuthor string
 	QuotedBody   string
 	BodyHTML     string
@@ -52,6 +53,10 @@ type PostView struct {
 	Deleted      bool
 	CanEdit      bool
 	TitleSnippet string
+	// IsBot marks an agent reply post; GenStatus drives the streaming cursor
+	// ('' | generating | done | interrupted).
+	IsBot     bool
+	GenStatus string
 }
 
 templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
@@ -275,6 +280,35 @@ templ ForumPost(slug, threadID string, p PostView) {
 	<article class="bubble" id={ "post-" + p.ID }>
 		if p.Deleted {
 			<div class="muted">[deleted]</div>
+		} else if p.IsBot {
+			<header class="meta">
+				if p.AuthorAvatar != "" {
+					<img class="bot-avatar" src={ p.AuthorAvatar } alt="" loading="lazy"/>
+				} else {
+					<span class="author-dot bot-dot" title={ p.AuthorName }>🤖</span>
+				}
+				<strong>{ p.AuthorName }</strong>
+				<span class="bot-tag bot-tag-ai">AI</span>
+				<span class="muted">{ fmtTime(p.CreatedAt) }</span>
+			</header>
+			if p.CanEdit {
+				<details class="msg-menu">
+					<summary aria-label="Actions"><span class="msg-menu-dot"></span></summary>
+					<div class="msg-menu-list" role="menu">
+						<div class="msg-menu-handle" aria-hidden="true"></div>
+						<button class="msg-menu-item danger" role="menuitem"
+							data-on:click={ "@post('/c/" + slug + "/forum/post/" + p.ID + "/delete')" }>
+							<span class="mi-icon">✕</span><span class="mi-label">Delete</span>
+						</button>
+					</div>
+				</details>
+			}
+			<div class="body">
+				@templ.Raw(render.WrapUploadImages(p.BodyHTML))
+				if p.GenStatus == "generating" {
+					<span class="gen-cursor" aria-hidden="true">▍</span>
+				}
+			</div>
 		} else {
 			<header class="meta">
 				<strong>{ p.AuthorName }</strong>

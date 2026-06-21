@@ -34,13 +34,13 @@ type Handler struct {
 	// hears a ping when a thread-announce row hits chat. Optional;
 	// nil-safe.
 	ChatNewMsgBus *chat.Bus
-	Bus      *Bus
-	NATS     *nats.Conn
-	Uploads  *uploads.Store
+	Bus           *Bus
+	NATS          *nats.Conn
+	Uploads       *uploads.Store
 	// PushNotify dispatches a web-push notification. Optional. Wired
 	// in main.go to the push package's Sender so this package doesn't
 	// import push.
-	PushNotify    func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
+	PushNotify func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
 	// RelayOut, if non-nil, mirrors the chat thread-announce (a new forum
 	// thread surfaced in #general) to outbound webhooks so external chat
 	// mirrors hear about new threads. Wired in main.go to the same
@@ -131,13 +131,17 @@ func (h *Handler) loadPostViews(ctx context.Context, threadID, currentUserID str
 		pv = append(pv, webtempl.PostView{
 			ID:           p.ID,
 			AuthorName:   p.AuthorName,
+			AuthorAvatar: p.AuthorAvatar,
 			QuotedAuthor: p.QuotedAuthor,
 			QuotedBody:   p.QuotedBody,
 			BodyHTML:     p.BodyHTML,
 			CreatedAt:    p.CreatedAt,
 			Deleted:      p.IsDeleted(),
-			CanEdit:      (p.AuthorID == currentUserID && now.Sub(p.CreatedAt) <= h.Svc.EditGrace) || isMod,
+			// Bot posts are deletable by mods only (no per-author edit grace).
+			CanEdit:      (!p.IsBot() && p.AuthorID == currentUserID && now.Sub(p.CreatedAt) <= h.Svc.EditGrace) || isMod,
 			TitleSnippet: render.AutoTitle(p.BodyMarkdown),
+			IsBot:        p.IsBot(),
+			GenStatus:    p.GenStatus,
 		})
 	}
 	return pv, nil

@@ -15,10 +15,13 @@ import (
 )
 
 type Thread struct {
-	ID             string
-	CommunityID    string
-	AuthorID       string
-	AuthorName     string
+	ID          string
+	CommunityID string
+	AuthorID    string
+	AuthorName  string
+	// AgentID, when set, marks this as an agent-owned thread: every member
+	// reply is a prompt and the agent answers as the next post.
+	AgentID        *string
 	Subject        string
 	BodyMarkdown   string
 	BodyHTML       string
@@ -34,19 +37,30 @@ func (t Thread) IsDeleted() bool  { return t.DeletedAt != nil }
 func (t Thread) IsResolved() bool { return t.ResolvedAt != nil }
 
 type Post struct {
-	ID            string
-	ThreadID      string
-	AuthorID      string
-	AuthorName    string
-	QuotedPostID  *string
-	QuotedBody    string // pre-rendered quote-of-source for inline render
-	QuotedAuthor  string
-	BodyMarkdown  string
-	BodyHTML      string
-	DeletedAt     *time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID           string
+	ThreadID     string
+	AuthorID     string
+	AuthorName   string
+	AuthorAvatar string
+	QuotedPostID *string
+	QuotedBody   string // pre-rendered quote-of-source for inline render
+	QuotedAuthor string
+	BodyMarkdown string
+	BodyHTML     string
+	// AgentID set → this post is an agent reply. BotName/BotAvatar are its
+	// denormalised display identity; GenStatus is the streaming lifecycle
+	// ('' | generating | done | interrupted).
+	AgentID   *string
+	BotName   string
+	BotAvatar string
+	GenStatus string
+	DeletedAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
+
+// IsBot reports whether this post is an agent reply.
+func (p Post) IsBot() bool { return p.AgentID != nil }
 
 func (p Post) IsDeleted() bool { return p.DeletedAt != nil }
 
@@ -57,10 +71,14 @@ func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 // --- threads ---
 
 func (r *Repo) CreateThread(ctx context.Context, t Thread) error {
+	var agentID any
+	if t.AgentID != nil {
+		agentID = *t.AgentID
+	}
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO threads (id, community_id, author_id, subject, body_md, body_html, last_activity_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.CommunityID, t.AuthorID, t.Subject, t.BodyMarkdown, t.BodyHTML,
+		INSERT INTO threads (id, community_id, author_id, subject, body_md, body_html, agent_id, last_activity_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.CommunityID, t.AuthorID, t.Subject, t.BodyMarkdown, t.BodyHTML, agentID,
 		t.CreatedAt.Unix(), t.CreatedAt.Unix(), t.CreatedAt.Unix())
 	return err
 }
@@ -85,7 +103,7 @@ func (r *Repo) ListThreadsFiltered(ctx context.Context, communityID, status, q s
 	args = append(args, limit)
 	query := `
 		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
-		       COALESCE(mb.display_name, '')
+		       COALESCE(mb.display_name, ''), t.agent_id
 		FROM threads t
 		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
 		WHERE ` + strings.Join(where, " AND ") + `
@@ -110,7 +128,7 @@ func (r *Repo) ListThreadsFiltered(ctx context.Context, communityID, status, q s
 func (r *Repo) ListThreads(ctx context.Context, communityID string, limit int) ([]Thread, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
-		       COALESCE(mb.display_name, '')
+		       COALESCE(mb.display_name, ''), t.agent_id
 		FROM threads t
 		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
 		WHERE t.community_id = ?
@@ -138,10 +156,13 @@ type scannable interface {
 func scanThread(s scannable) (Thread, error) {
 	var t Thread
 	var del, res sql.NullInt64
-	var resBy sql.NullString
+	var resBy, agentID sql.NullString
 	var act, created, updated int64
-	if err := s.Scan(&t.ID, &t.CommunityID, &t.AuthorID, &t.Subject, &t.BodyMarkdown, &t.BodyHTML, &del, &res, &resBy, &act, &created, &updated, &t.AuthorName); err != nil {
+	if err := s.Scan(&t.ID, &t.CommunityID, &t.AuthorID, &t.Subject, &t.BodyMarkdown, &t.BodyHTML, &del, &res, &resBy, &act, &created, &updated, &t.AuthorName, &agentID); err != nil {
 		return Thread{}, err
+	}
+	if agentID.Valid {
+		t.AgentID = &agentID.String
 	}
 	if del.Valid {
 		tt := time.Unix(del.Int64, 0)
@@ -164,7 +185,7 @@ func scanThread(s scannable) (Thread, error) {
 func (r *Repo) GetThread(ctx context.Context, id string) (Thread, error) {
 	row := r.DB.QueryRowContext(ctx, `
 		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
-		       COALESCE(mb.display_name, '')
+		       COALESCE(mb.display_name, ''), t.agent_id
 		FROM threads t
 		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
 		WHERE t.id = ?`, id)
@@ -278,7 +299,8 @@ func (r *Repo) ListPosts(ctx context.Context, threadID string) ([]Post, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT p.id, p.thread_id, p.author_id, p.quoted_post_id, p.body_md, p.body_html, p.deleted_at, p.created_at, p.updated_at,
 		       COALESCE(mb.display_name, ''),
-		       COALESCE(qp.body_html, ''), COALESCE(qmb.display_name, '')
+		       COALESCE(qp.body_html, ''), COALESCE(qmb.display_name, ''),
+		       p.agent_id, p.bot_name, p.bot_avatar_url, p.gen_status
 		FROM posts p
 		LEFT JOIN threads th ON th.id = p.thread_id
 		LEFT JOIN memberships mb ON mb.user_id = p.author_id AND mb.community_id = th.community_id
@@ -293,14 +315,19 @@ func (r *Repo) ListPosts(ctx context.Context, threadID string) ([]Post, error) {
 	var out []Post
 	for rows.Next() {
 		var p Post
-		var quoted sql.NullString
+		var quoted, agentID sql.NullString
 		var del sql.NullInt64
 		var created, updated int64
-		if err := rows.Scan(&p.ID, &p.ThreadID, &p.AuthorID, &quoted, &p.BodyMarkdown, &p.BodyHTML, &del, &created, &updated, &p.AuthorName, &p.QuotedBody, &p.QuotedAuthor); err != nil {
+		if err := rows.Scan(&p.ID, &p.ThreadID, &p.AuthorID, &quoted, &p.BodyMarkdown, &p.BodyHTML, &del, &created, &updated, &p.AuthorName, &p.QuotedBody, &p.QuotedAuthor,
+			&agentID, &p.BotName, &p.BotAvatar, &p.GenStatus); err != nil {
 			return nil, err
 		}
 		if quoted.Valid {
 			p.QuotedPostID = &quoted.String
+		}
+		if agentID.Valid {
+			p.AgentID = &agentID.String
+			p.AuthorName, p.AuthorAvatar = p.BotName, p.BotAvatar
 		}
 		if del.Valid {
 			t := time.Unix(del.Int64, 0)
@@ -315,13 +342,15 @@ func (r *Repo) ListPosts(ctx context.Context, threadID string) ([]Post, error) {
 
 func (r *Repo) GetPost(ctx context.Context, id string) (Post, error) {
 	var p Post
-	var quoted sql.NullString
+	var quoted, agentID sql.NullString
 	var del sql.NullInt64
 	var created, updated int64
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, thread_id, author_id, quoted_post_id, body_md, body_html, deleted_at, created_at, updated_at
+		SELECT id, thread_id, author_id, quoted_post_id, body_md, body_html, deleted_at, created_at, updated_at,
+		       agent_id, bot_name, bot_avatar_url, gen_status
 		FROM posts WHERE id = ?`, id).
-		Scan(&p.ID, &p.ThreadID, &p.AuthorID, &quoted, &p.BodyMarkdown, &p.BodyHTML, &del, &created, &updated)
+		Scan(&p.ID, &p.ThreadID, &p.AuthorID, &quoted, &p.BodyMarkdown, &p.BodyHTML, &del, &created, &updated,
+			&agentID, &p.BotName, &p.BotAvatar, &p.GenStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Post{}, ErrNotFound
 	}
@@ -330,6 +359,10 @@ func (r *Repo) GetPost(ctx context.Context, id string) (Post, error) {
 	}
 	if quoted.Valid {
 		p.QuotedPostID = &quoted.String
+	}
+	if agentID.Valid {
+		p.AgentID = &agentID.String
+		p.AuthorName, p.AuthorAvatar = p.BotName, p.BotAvatar
 	}
 	if del.Valid {
 		t := time.Unix(del.Int64, 0)
@@ -362,13 +395,16 @@ type Service struct {
 	EditGrace time.Duration
 }
 
-func NewService(repo *Repo, grace time.Duration) *Service { return &Service{Repo: repo, EditGrace: grace} }
+func NewService(repo *Repo, grace time.Duration) *Service {
+	return &Service{Repo: repo, EditGrace: grace}
+}
 
 type CreateThreadInput struct {
 	CommunityID  string
 	AuthorID     string
 	Subject      string
 	BodyMarkdown string
+	AgentID      *string // set → an agent-owned thread (the agent answers each reply)
 }
 
 func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (Thread, error) {
@@ -384,6 +420,7 @@ func (s *Service) CreateThread(ctx context.Context, in CreateThreadInput) (Threa
 		ID:             uuid.NewString(),
 		CommunityID:    in.CommunityID,
 		AuthorID:       in.AuthorID,
+		AgentID:        in.AgentID,
 		Subject:        in.Subject,
 		BodyMarkdown:   in.BodyMarkdown,
 		BodyHTML:       html,
