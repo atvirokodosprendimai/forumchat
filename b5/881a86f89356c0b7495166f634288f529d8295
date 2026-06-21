@@ -1,0 +1,40 @@
+internal/webhooks/relay.go
+  s_e9cea9680b5ec8::t_d707a78c182e0d 53,66-69,71
+  s_e9cea9680b5ec8::t_957543d6bb7e0f 20-33
+  s_e9cea9680b5ec8::t_a69e12edd8e6f2 102,112,118-124
+internal/webhooks/relay_test.go
+  s_e9cea9680b5ec8::t_e8337e2b422e41 1-59
+internal/forum/handler.go
+  s_e9cea9680b5ec8::t_f5fd28c67c9cf5 70
+  s_e9cea9680b5ec8::t_b0be1843b08db0 48
+cmd/app/main.go
+  s_e9cea9680b5ec8::t_df208c5b720a5e 492
+  s_e9cea9680b5ec8::t_ac18e1654ef27c 725-744
+  s_e9cea9680b5ec8::t_a534f94ff89758 789
+internal/uploads/handler_internal_test.go
+  s_e9cea9680b5ec8::t_16abbfa94646bd 1-59
+internal/chat/handler.go
+  s_e9cea9680b5ec8::t_91155c8a9bd492 451
+  s_e9cea9680b5ec8::t_6fe0cb9904d26b 945
+  s_e9cea9680b5ec8::t_68008f0f8281a8 53
+  s_e9cea9680b5ec8::t_0f795eaca968a6 1070
+internal/uploads/handler.go
+  s_e9cea9680b5ec8::t_084959de0b1c73 134-149
+  s_e9cea9680b5ec8::t_8e7abfa5e4a536 91,94-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "b5881a86f89356c0b7495166f634288f529d8295",
+  "prompts": {},
+  "sessions": {
+    "s_e9cea9680b5ec8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1180e190-95e3-4569-b80f-0f7349711aa9",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
