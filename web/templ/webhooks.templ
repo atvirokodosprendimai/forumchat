@@ -1,5 +1,10 @@
 package templ
 
+import (
+	"strconv"
+	"strings"
+)
+
 // WebhookRowView is one webhook rendered on the admin page. URL is the full
 // inbound endpoint (inbound only); TargetURL is the outbound destination.
 type WebhookRowView struct {
@@ -36,26 +41,33 @@ templ WebhooksPage(d WebhooksPageData) {
 	@Layout("Webhooks · "+d.Viewer.CommunityName, d.Viewer) {
 		<section class="webhooks"
 			data-signals="{wh_direction: 'in', wh_provider: 'generic', wh_name: '', wh_avatar: '', wh_channel: '', wh_secret: '', wh_target: '', wh_error: '', wh_new_url: ''}">
-			<header>
+			<header class="wh-head">
 				<h1>Webhooks</h1>
 				<p class="muted">
 					Let external systems post into this community (inbound) or relay chat
-					out to Slack/Discord (outbound). Inbound webhooks post as a named bot;
+					out to Slack / Discord (outbound). Inbound webhooks post as a named bot;
 					outbound relay sends human messages only.
 				</p>
 			</header>
 
-			<div class="wh-reveal" data-show="$wh_new_url !== ''">
-				<strong>New endpoint URL</strong> — copy it now, it won't be shown again:
-				<code data-text="$wh_new_url"></code>
-				<button type="button" class="ghost"
-					data-on:click="navigator.clipboard.writeText($wh_new_url); $toast_text='URL copied'">Copy</button>
-				<button type="button" class="ghost" data-on:click="$wh_new_url=''">Dismiss</button>
+			<div class="wh-callout wh-callout-ok" data-show="$wh_new_url !== ''">
+				<span class="wh-callout-icon">🔑</span>
+				<div class="wh-callout-body">
+					<strong>New endpoint URL</strong>
+					<p class="muted">Copy it now — it won't be shown again.</p>
+					<code class="wh-url" data-text="$wh_new_url"></code>
+				</div>
+				<div class="wh-callout-actions">
+					<button type="button" class="ghost"
+						data-on:click="navigator.clipboard.writeText($wh_new_url); $toast_text='URL copied'">Copy</button>
+					<button type="button" class="ghost" data-on:click="$wh_new_url=''">Dismiss</button>
+				</div>
 			</div>
 
-			<div class="wh-error" data-show="$wh_error !== ''">
-				<span data-text="$wh_error"></span>
-				<button type="button" class="ghost" data-on:click="$wh_error=''">×</button>
+			<div class="wh-callout wh-callout-error" data-show="$wh_error !== ''">
+				<span class="wh-callout-icon">⚠</span>
+				<span class="wh-callout-body" data-text="$wh_error"></span>
+				<button type="button" class="ghost" data-on:click="$wh_error=''">Dismiss</button>
 			</div>
 
 			@webhookForm(d)
@@ -66,45 +78,72 @@ templ WebhooksPage(d WebhooksPageData) {
 }
 
 templ webhookForm(d WebhooksPageData) {
-	<form class="wh-form" data-on:submit__prevent={ "@post('/c/" + d.Slug + "/admin/webhooks')" }>
-		<label>Direction</label>
-		<div class="radio-row">
-			<label><input type="radio" name="wh_dir" value="in" data-bind="wh_direction"/> Inbound (post into community)</label>
-			<label><input type="radio" name="wh_dir" value="out" data-bind="wh_direction"/> Outbound (relay chat out)</label>
+	<form class="card wh-form" data-on:submit__prevent={ "@post('/c/" + d.Slug + "/admin/webhooks')" }>
+		<div class="wh-form-head">
+			<h2>Create webhook</h2>
+			<p class="muted">Configure a new inbound or outbound integration.</p>
 		</div>
 
-		<label data-text="$wh_direction==='in' ? 'Bot name' : 'Label'">Bot name</label>
-		<input type="text" required placeholder="e.g. GitHub" data-bind="wh_name"/>
-
-		<label>Provider</label>
-		<select data-bind="wh_provider">
-			<option value="generic">generic (any JSON / Slack / Discord / Matrix bridge)</option>
-			<option value="github" data-show="$wh_direction==='in'">github (inbound only)</option>
-			<option value="slack" data-show="$wh_direction==='out'">slack (outbound only)</option>
-			<option value="discord" data-show="$wh_direction==='out'">discord (outbound only)</option>
-		</select>
-
-		<label data-text="$wh_direction==='in' ? 'Target channel' : 'Source channel'">Channel</label>
-		<select data-bind="wh_channel">
-			<option value="" data-show="$wh_direction==='out'">All channels</option>
-			for _, c := range d.Channels {
-				<option value={ c.ID }>#{ c.Name }</option>
-			}
-		</select>
-
-		<div data-show="$wh_direction==='in'">
-			<label>Bot avatar URL <span class="muted">(optional)</span></label>
-			<input type="url" placeholder="https://…/avatar.png" data-bind="wh_avatar"/>
-			<label>GitHub signing secret <span class="muted">(optional — verifies X-Hub-Signature-256)</span></label>
-			<input type="text" placeholder="shared secret" data-bind="wh_secret"/>
+		<div class="wh-field">
+			<span class="wh-label">Direction</span>
+			<div class="seg">
+				<label class="seg-opt">
+					<input type="radio" name="wh_dir" value="in" data-bind="wh_direction"/>
+					<span>Inbound</span>
+					<small>post into community</small>
+				</label>
+				<label class="seg-opt">
+					<input type="radio" name="wh_dir" value="out" data-bind="wh_direction"/>
+					<span>Outbound</span>
+					<small>relay chat out</small>
+				</label>
+			</div>
 		</div>
 
-		<div data-show="$wh_direction==='out'">
-			<label>Target URL</label>
+		<div class="wh-grid">
+			<label class="wh-field">
+				<span class="wh-label" data-text="$wh_direction==='in' ? 'Bot name' : 'Label'">Bot name</span>
+				<input type="text" required placeholder="e.g. GitHub" data-bind="wh_name"/>
+			</label>
+
+			<label class="wh-field">
+				<span class="wh-label">Provider</span>
+				<select data-bind="wh_provider">
+					<option value="generic">generic (any JSON / Slack / Discord / Matrix)</option>
+					<option value="github" data-show="$wh_direction==='in'">github (inbound only)</option>
+					<option value="slack" data-show="$wh_direction==='out'">slack (outbound only)</option>
+					<option value="discord" data-show="$wh_direction==='out'">discord (outbound only)</option>
+				</select>
+			</label>
+
+			<label class="wh-field">
+				<span class="wh-label" data-text="$wh_direction==='in' ? 'Target channel' : 'Source channel'">Channel</span>
+				<select data-bind="wh_channel">
+					<option value="" data-show="$wh_direction==='out'">All channels</option>
+					for _, c := range d.Channels {
+						<option value={ c.ID }>#{ c.Name }</option>
+					}
+				</select>
+			</label>
+		</div>
+
+		<div class="wh-grid" data-show="$wh_direction==='in'">
+			<label class="wh-field">
+				<span class="wh-label">Bot avatar URL <span class="muted">optional</span></span>
+				<input type="url" placeholder="https://…/avatar.png" data-bind="wh_avatar"/>
+			</label>
+			<label class="wh-field">
+				<span class="wh-label">GitHub signing secret <span class="muted">optional</span></span>
+				<input type="text" placeholder="verifies X-Hub-Signature-256" data-bind="wh_secret"/>
+			</label>
+		</div>
+
+		<label class="wh-field" data-show="$wh_direction==='out'">
+			<span class="wh-label">Target URL</span>
 			<input type="url" placeholder="https://hooks.slack.com/services/…" data-bind="wh_target"/>
-		</div>
+		</label>
 
-		<div class="form-actions">
+		<div class="wh-form-actions">
 			<button class="primary" type="submit">Create webhook</button>
 		</div>
 	</form>
@@ -113,48 +152,65 @@ templ webhookForm(d WebhooksPageData) {
 // WebhooksContent is the morph target (stable id) holding both tables. Patched
 // after every create / toggle / rotate / delete.
 templ WebhooksContent(d WebhooksPageData) {
-	<div id="webhooks-root">
-		<h2>Inbound</h2>
-		<table class="wh-table">
-			<thead>
-				<tr><th>Name</th><th>Provider</th><th>Channel</th><th>URL</th><th>Last</th><th></th></tr>
-			</thead>
-			<tbody>
-				if len(d.Inbound) == 0 {
-					<tr><td colspan="6" class="empty">No inbound webhooks yet.</td></tr>
-				} else {
-					for _, r := range d.Inbound {
-						@webhookInboundRow(r, d.Slug)
-					}
-				}
-			</tbody>
-		</table>
+	<div id="webhooks-root" class="wh-tables">
+		<div class="card wh-panel">
+			<div class="wh-panel-head">
+				<h2>Inbound</h2>
+				<span class="wh-count">{ strconv.Itoa(len(d.Inbound)) }</span>
+			</div>
+			if len(d.Inbound) == 0 {
+				<p class="wh-empty">No inbound webhooks yet.</p>
+			} else {
+				<div class="wh-table-wrap">
+					<table class="wh-table">
+						<thead>
+							<tr><th>Name</th><th>Provider</th><th>Channel</th><th>Endpoint</th><th>Last delivery</th><th></th></tr>
+						</thead>
+						<tbody>
+							for _, r := range d.Inbound {
+								@webhookInboundRow(r, d.Slug)
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</div>
 
-		<h2>Outbound</h2>
-		<table class="wh-table">
-			<thead>
-				<tr><th>Label</th><th>Provider</th><th>Channel</th><th>Target</th><th>Last</th><th></th></tr>
-			</thead>
-			<tbody>
-				if len(d.Outbound) == 0 {
-					<tr><td colspan="6" class="empty">No outbound webhooks yet.</td></tr>
-				} else {
-					for _, r := range d.Outbound {
-						@webhookOutboundRow(r, d.Slug)
-					}
-				}
-			</tbody>
-		</table>
+		<div class="card wh-panel">
+			<div class="wh-panel-head">
+				<h2>Outbound</h2>
+				<span class="wh-count">{ strconv.Itoa(len(d.Outbound)) }</span>
+			</div>
+			if len(d.Outbound) == 0 {
+				<p class="wh-empty">No outbound webhooks yet.</p>
+			} else {
+				<div class="wh-table-wrap">
+					<table class="wh-table">
+						<thead>
+							<tr><th>Label</th><th>Provider</th><th>Channel</th><th>Target</th><th>Last delivery</th><th></th></tr>
+						</thead>
+						<tbody>
+							for _, r := range d.Outbound {
+								@webhookOutboundRow(r, d.Slug)
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</div>
 	</div>
 }
 
 templ webhookInboundRow(r WebhookRowView, slug string) {
 	<tr class={ rowClass(r.Enabled) }>
-		<td>{ r.Name }</td>
-		<td><code>{ r.Provider }</code></td>
+		<td class="wh-name">
+			<span>{ r.Name }</span>
+			@enabledTag(r.Enabled)
+		</td>
+		<td><span class="wh-chip">{ r.Provider }</span></td>
 		<td>{ r.ChannelName }</td>
 		<td>
-			<button type="button" class="ghost" data-wh-url={ r.URL }
+			<button type="button" class="ghost wh-copy" data-wh-url={ r.URL }
 				title="Copy endpoint URL"
 				data-on:click="navigator.clipboard.writeText(el.dataset.whUrl); $toast_text='URL copied'">Copy URL</button>
 		</td>
@@ -169,8 +225,11 @@ templ webhookInboundRow(r WebhookRowView, slug string) {
 
 templ webhookOutboundRow(r WebhookRowView, slug string) {
 	<tr class={ rowClass(r.Enabled) }>
-		<td>{ r.Name }</td>
-		<td><code>{ r.Provider }</code></td>
+		<td class="wh-name">
+			<span>{ r.Name }</span>
+			@enabledTag(r.Enabled)
+		</td>
+		<td><span class="wh-chip">{ r.Provider }</span></td>
 		<td>{ r.ChannelName }</td>
 		<td class="wh-target"><code>{ r.TargetURL }</code></td>
 		<td>@webhookHealth(r)</td>
@@ -189,11 +248,20 @@ templ webhookToggleBtn(r WebhookRowView, slug string) {
 	}
 }
 
+templ enabledTag(enabled bool) {
+	if !enabled {
+		<span class="wh-tag wh-tag-off">disabled</span>
+	}
+}
+
 templ webhookHealth(r WebhookRowView) {
 	if r.LastStatus == "" {
-		<span class="muted">never</span>
+		<span class="wh-health"><span class="wh-dot wh-dot-none"></span>never</span>
 	} else {
-		<span class="muted">{ r.LastStatus } · { r.LastAt }</span>
+		<span class="wh-health">
+			<span class={ "wh-dot wh-dot-" + healthTone(r.LastStatus) }></span>
+			{ r.LastStatus } · { r.LastAt }
+		</span>
 	}
 }
 
@@ -202,4 +270,17 @@ func rowClass(enabled bool) string {
 		return "wh-row"
 	}
 	return "wh-row disabled"
+}
+
+// healthTone maps a stored last_status into a status colour. Inbound stamps
+// "ok" / "skip" / "error"; outbound stamps an HTTP code or "error" / "bad-url".
+func healthTone(status string) string {
+	switch {
+	case status == "ok" || strings.HasPrefix(status, "2"):
+		return "ok"
+	case status == "skip":
+		return "warn"
+	default:
+		return "bad"
+	}
 }
