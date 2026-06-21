@@ -377,7 +377,7 @@ templ GuestLayout(title string) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width,initial-scale=1"/>
 			<title>{ title } — forumchat</title>
-			<link rel="stylesheet" href={ "/static/app.css?v=" + AssetVer("app.css") }/>
+			@InlineStyle("app.css")
 			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 		</head>

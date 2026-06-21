@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -59,6 +60,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	"github.com/atvirokodosprendimai/forumchat/internal/webhooks"
 	"github.com/atvirokodosprendimai/forumchat/internal/worklog"
+	"github.com/atvirokodosprendimai/forumchat/web"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -186,17 +188,25 @@ func run() error {
 	})
 
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static"))))
+	staticFS, err := fs.Sub(web.Static, "static")
+	if err != nil {
+		return fmt.Errorf("static assets: %w", err)
+	}
+	// Every URL is content-hashed (?v=<sha>), so the cached copy can never go
+	// stale for a given URL — mark it immutable so the browser reuses it with
+	// zero revalidation. That kills the per-navigation re-fetch of app.css.
+	r.Handle("/static/*", http.StripPrefix("/static/", immutableStatic(http.FileServerFS(staticFS))))
 
 	// Serve the push service worker from the site root so it can claim
 	// the whole '/' scope. Without this, registering /static/sw.js
 	// confines its scope to /static/* and the push events never fire on
 	// app routes. Also set Service-Worker-Allowed for belt-and-braces.
+	// NOT immutable — a service worker must revalidate so updates land.
 	r.Get("/sw.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
 		w.Header().Set("Service-Worker-Allowed", "/")
 		w.Header().Set("Cache-Control", "no-cache")
-		http.ServeFile(w, r, "./web/static/sw.js")
+		http.ServeFileFS(w, r, staticFS, "sw.js")
 	})
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -1702,6 +1712,17 @@ func run() error {
 	}
 	log.Info("forumchat stopped")
 	return nil
+}
+
+// immutableStatic stamps a long-lived immutable Cache-Control on static asset
+// responses. Safe because every static URL carries a content hash (?v=<sha>):
+// when a file's bytes change its URL changes, so a cached entry can never be
+// wrong for the URL that produced it.
+func immutableStatic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func clockStream(w http.ResponseWriter, req *http.Request, nc *nats.Conn, log *slog.Logger) {
