@@ -19,12 +19,21 @@ import (
 // thread-root event id) that forumchat maps to a forum thread. Subject seeds a
 // newly opened thread; Author overrides the bot display name for this one
 // message (the human who spoke on the far side).
+//
+// MessageKey / ReplyToKey drive INLINE chat threading (the alternative to the
+// ThreadKey forum path). MessageKey is this message's own external id; forumchat
+// records it so a later message can target it. ReplyToKey is the external id of
+// an earlier message this one replies to — forumchat resolves it to the prior
+// chat message and posts this one as an inline reply under it. A message with no
+// ReplyToKey stays flat. Both are no-ops on the forum (ThreadKey) path.
 type Rendered struct {
-	Markdown  string
-	Skip      bool
-	ThreadKey string
-	Subject   string
-	Author    string
+	Markdown   string
+	Skip       bool
+	ThreadKey  string
+	Subject    string
+	Author     string
+	MessageKey string
+	ReplyToKey string
 }
 
 // Adapter turns an inbound webhook request into a chat-ready markdown body.
@@ -57,17 +66,21 @@ func (genericAdapter) Parse(_ http.Header, body []byte) (Rendered, error) {
 		return Rendered{Skip: true}, nil
 	}
 	var p struct {
-		Text      string `json:"text"`
-		Content   string `json:"content"`
-		ThreadKey string `json:"thread_key"`
-		Subject   string `json:"subject"`
-		Author    string `json:"author"`
+		Text       string `json:"text"`
+		Content    string `json:"content"`
+		ThreadKey  string `json:"thread_key"`
+		Subject    string `json:"subject"`
+		Author     string `json:"author"`
+		MessageKey string `json:"message_key"`
+		ReplyToKey string `json:"reply_to_key"`
 	}
 	if err := json.Unmarshal(body, &p); err == nil {
 		meta := Rendered{
-			ThreadKey: strings.TrimSpace(p.ThreadKey),
-			Subject:   strings.TrimSpace(p.Subject),
-			Author:    strings.TrimSpace(p.Author),
+			ThreadKey:  strings.TrimSpace(p.ThreadKey),
+			Subject:    strings.TrimSpace(p.Subject),
+			Author:     strings.TrimSpace(p.Author),
+			MessageKey: strings.TrimSpace(p.MessageKey),
+			ReplyToKey: strings.TrimSpace(p.ReplyToKey),
 		}
 		if t := strings.TrimSpace(p.Text); t != "" {
 			meta.Markdown = t

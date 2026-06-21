@@ -75,7 +75,7 @@ func TestInboundVertical(t *testing.T) {
 		t.Fatalf("InboundByToken mismatch: %+v", got)
 	}
 
-	if _, err := chatSvc.PostBot(ctx, c.ID, general.ID, got.Name, got.AvatarURL, "**alice** pushed 1 commit"); err != nil {
+	if _, err := chatSvc.PostBot(ctx, c.ID, general.ID, got.Name, got.AvatarURL, "**alice** pushed 1 commit", ""); err != nil {
 		t.Fatalf("PostBot: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func TestInboundMediaVertical(t *testing.T) {
 	}
 
 	// Empty body + one attachment must be allowed (image-only post).
-	m, err := chatSvc.PostBotWithAttachments(ctx, c.ID, general.ID, "Bridge", "", "", []string{u.ID})
+	m, err := chatSvc.PostBotWithAttachments(ctx, c.ID, general.ID, "Bridge", "", "", []string{u.ID}, "")
 	if err != nil {
 		t.Fatalf("PostBotWithAttachments: %v", err)
 	}
@@ -230,8 +230,107 @@ func TestInboundMediaVertical(t *testing.T) {
 	}
 
 	// Empty body + no attachments must still be rejected.
-	if _, err := chatSvc.PostBotWithAttachments(ctx, c.ID, general.ID, "Bridge", "", "", nil); err == nil {
+	if _, err := chatSvc.PostBotWithAttachments(ctx, c.ID, general.ID, "Bridge", "", "", nil, ""); err == nil {
 		t.Fatal("empty body + no attachments should error")
+	}
+}
+
+// TestInboundChatReplyThreading drives the public /hooks/{token} endpoint with
+// the inline-threading envelope a Matrix bridge sends: a root message carrying
+// its own message_key, then a reply carrying reply_to_key = the root's key. It
+// asserts the reply nests as an inline chat reply (reply_to_id set, quote
+// loaded) under the root — both staying in the channel — while an unknown key
+// degrades to a flat message. This is the option-1 path from issue #4.
+func TestInboundChatReplyThreading(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sqlite.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := sqlite.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	c, err := community.NewRepo(db).BootstrapOrFetch(ctx, "test", "Test")
+	if err != nil {
+		t.Fatalf("community: %v", err)
+	}
+	chatRepo := chat.NewRepo(db)
+	general, err := chatRepo.EnsureDefaultChannel(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("default channel: %v", err)
+	}
+
+	whRepo := webhooks.NewRepo(db)
+	wh, err := webhooks.NewService(whRepo).Create(ctx, webhooks.CreateInput{
+		CommunityID: c.ID, Direction: webhooks.DirIn, Provider: "generic",
+		Name: "Bridge", ChannelID: general.ID,
+	})
+	if err != nil {
+		t.Fatalf("create webhook: %v", err)
+	}
+
+	h := &webhooks.Handler{
+		Repo:     whRepo,
+		Chat:     chat.NewService(chatRepo),
+		ChatRepo: chatRepo,
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	router := chi.NewRouter()
+	router.Post("/hooks/{token}", h.PostInbound)
+
+	post := func(jsonBody string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/hooks/"+wh.Token, bytes.NewBufferString(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+	}
+
+	// Root, then a thread reply to it, then a standalone message with an unknown
+	// reply_to_key (must stay flat).
+	post(`{"text":"Deploy plan?","author":"alice","message_key":"evtA"}`)
+	post(`{"text":"ship friday","author":"bob","message_key":"evtB","reply_to_key":"evtA"}`)
+	post(`{"text":"lunch?","author":"carol","message_key":"evtC","reply_to_key":"ghost"}`)
+
+	msgs, err := chatRepo.Recent(ctx, general.ID, 10)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	byBody := make(map[string]chat.Message, len(msgs))
+	for _, m := range msgs {
+		byBody[m.BodyMarkdown] = m
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("want 3 messages, got %d", len(msgs))
+	}
+
+	root := byBody["Deploy plan?"]
+	if root.AuthorName != "alice" {
+		t.Fatalf("root author = %q, want alice (per-message author override)", root.AuthorName)
+	}
+	if root.ReplyToID != nil {
+		t.Fatalf("root must be flat, got reply_to_id %v", *root.ReplyToID)
+	}
+
+	reply := byBody["ship friday"]
+	if reply.ReplyToID == nil || *reply.ReplyToID != root.ID {
+		t.Fatalf("reply reply_to_id = %v, want root id %q", reply.ReplyToID, root.ID)
+	}
+	if reply.ReplyTo == nil || reply.ReplyTo.AuthorName != "alice" {
+		t.Fatalf("reply quote author = %+v, want alice", reply.ReplyTo)
+	}
+	if reply.ReplyTo.Snippet != "Deploy plan?" {
+		t.Fatalf("reply quote snippet = %q, want %q", reply.ReplyTo.Snippet, "Deploy plan?")
+	}
+
+	if orphan := byBody["lunch?"]; orphan.ReplyToID != nil {
+		t.Fatalf("unknown reply_to_key must stay flat, got reply_to_id %v", *orphan.ReplyToID)
 	}
 }
 

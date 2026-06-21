@@ -195,6 +195,39 @@ func (r *Repo) LinkThread(ctx context.Context, webhookID, externalKey, threadID 
 	return err
 }
 
+// MessageLink returns the chat message id previously linked to externalKey for
+// this inbound webhook, or ErrNotFound if the key has never been seen. It is the
+// chat-direction sibling of ThreadLink: external message id -> forumchat chat
+// message, used to resolve an inbound reply_to_key into an inline chat reply.
+func (r *Repo) MessageLink(ctx context.Context, webhookID, externalKey string) (string, error) {
+	if webhookID == "" || externalKey == "" {
+		return "", ErrNotFound
+	}
+	var messageID string
+	err := r.DB.QueryRowContext(ctx,
+		`SELECT message_id FROM webhook_message_links WHERE webhook_id = ? AND external_key = ?`,
+		webhookID, externalKey).Scan(&messageID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return messageID, err
+}
+
+// LinkMessage records that externalKey maps to messageID for this webhook so a
+// later inbound message can reply_to_key it. Idempotent: a redelivered message
+// with the same key is ignored rather than erroring on the primary key.
+func (r *Repo) LinkMessage(ctx context.Context, webhookID, externalKey, messageID string) error {
+	if webhookID == "" || externalKey == "" || messageID == "" {
+		return nil
+	}
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO webhook_message_links (webhook_id, external_key, message_id, created_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (webhook_id, external_key) DO NOTHING`,
+		webhookID, externalKey, messageID, time.Now().Unix())
+	return err
+}
+
 func nullable(s string) any {
 	if s == "" {
 		return nil

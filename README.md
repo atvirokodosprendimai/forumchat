@@ -380,12 +380,27 @@ homeserver**, no native bridge required:
   (`/hooks/<token>`); a one-line transform emits `{"text": …}` for a clean
   message.
 
-Flat channel ↔ room mirroring is fully working with stock plugins. Forum
-**thread ↔ Matrix `m.thread`** sync is half-built: forumchat already speaks both
-sides of the contract (`thread_id` / `thread_root` outbound, `thread_key`
-inbound), but mapping the two id-spaces needs a small stateful maubot plugin —
-see [`examples/README.md`](examples/README.md). A native Application Service
-bridge (federation, puppeting) is out of scope.
+Flat channel ↔ room mirroring is fully working with stock plugins. For
+**threads**, an inbound `generic` POST can carry inline-threading keys so a
+Matrix thread renders as a nested chat reply in the same channel (issue #4,
+option 1):
+
+- `message_key` — this message's own external id (e.g. the Matrix event id).
+  forumchat records `message_key → chat message` per webhook so a later reply
+  can target it.
+- `reply_to_key` — the external id of an earlier message this one replies to.
+  forumchat resolves it to the prior chat message and posts this one as an
+  **inline chat reply** under it; an unknown/absent key just posts flat.
+- `author` — the far-side speaker's name; rides the bot identity so a thread
+  reads `alice` / `bob`, not the webhook's label (same as the forum path).
+
+This keeps everything in the channel: root + replies form a visible thread,
+standalone messages stay flat. The alternative routes a message **out of** chat
+into a forum thread instead (`thread_key` / `subject` inbound, `thread_id` /
+`thread_root` outbound) — forumchat speaks both contracts. Either way the bridge
+is stateless on the forumchat side; mapping the two id-spaces lives in a small
+maubot plugin — see [`examples/README.md`](examples/README.md). A native
+Application Service bridge (federation, puppeting) is out of scope.
 
 ---
 

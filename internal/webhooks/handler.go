@@ -115,12 +115,20 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.Chat.PostBot(r.Context(), wh.CommunityID, wh.ChannelID, wh.Name, wh.AvatarURL, rendered.Markdown); err != nil {
+	// Inline chat threading: reply_to_key nests this message under a prior
+	// bridged chat message; message_key records this one so a later reply can
+	// target it. The far-side speaker's name (rendered.Author) rides the bot
+	// identity here, like the forum path, so a thread reads alice/bob/carol
+	// rather than the webhook's own label.
+	parentID := h.resolveReplyParent(r.Context(), wh.ID, rendered.ReplyToKey)
+	msg, err := h.Chat.PostBot(r.Context(), wh.CommunityID, wh.ChannelID, inboundAuthor(wh, rendered), wh.AvatarURL, rendered.Markdown, parentID)
+	if err != nil {
 		h.Log.Error("webhooks: PostBot", "err", err)
 		_ = h.Repo.Stamp(r.Context(), wh.ID, "error")
 		http.Error(w, "post failed", http.StatusInternalServerError)
 		return
 	}
+	h.linkInboundMessage(r.Context(), wh.ID, rendered.MessageKey, msg.ID)
 	h.fanout(wh.CommunityID, wh.ChannelID)
 	_ = h.Repo.Stamp(r.Context(), wh.ID, "ok")
 	w.WriteHeader(http.StatusOK)
@@ -152,6 +160,14 @@ func (h *Handler) postInboundMultipart(w http.ResponseWriter, r *http.Request, w
 	if text == "" {
 		text = strings.TrimSpace(r.FormValue("content"))
 	}
+	// Inline chat threading also works for media replies (same envelope as the
+	// JSON path, carried as form fields here).
+	replyToKey := strings.TrimSpace(r.FormValue("reply_to_key"))
+	messageKey := strings.TrimSpace(r.FormValue("message_key"))
+	botName := wh.Name
+	if author := strings.TrimSpace(r.FormValue("author")); author != "" {
+		botName = author
+	}
 
 	// Uploads are FK'd to a real user; attribute webhook media to the webhook's
 	// creator. Without one we can't store files (text still posts).
@@ -182,12 +198,15 @@ func (h *Handler) postInboundMultipart(w http.ResponseWriter, r *http.Request, w
 		return
 	}
 
-	if _, err := h.Chat.PostBotWithAttachments(r.Context(), wh.CommunityID, wh.ChannelID, wh.Name, wh.AvatarURL, text, ids); err != nil {
+	parentID := h.resolveReplyParent(r.Context(), wh.ID, replyToKey)
+	msg, err := h.Chat.PostBotWithAttachments(r.Context(), wh.CommunityID, wh.ChannelID, botName, wh.AvatarURL, text, ids, parentID)
+	if err != nil {
 		h.Log.Error("webhooks: PostBotWithAttachments", "err", err)
 		_ = h.Repo.Stamp(r.Context(), wh.ID, "error")
 		http.Error(w, "post failed", http.StatusInternalServerError)
 		return
 	}
+	h.linkInboundMessage(r.Context(), wh.ID, messageKey, msg.ID)
 	h.fanout(wh.CommunityID, wh.ChannelID)
 	_ = h.Repo.Stamp(r.Context(), wh.ID, "ok")
 	w.WriteHeader(http.StatusOK)
@@ -261,6 +280,46 @@ func (h *Handler) postInboundForum(w http.ResponseWriter, r *http.Request, wh We
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{"thread_id": threadID, "post_id": postID})
+}
+
+// inboundAuthor picks the display name for a bridged chat message: the far-side
+// speaker's name when the payload carries one, else the webhook's own name —
+// the same attribution the forum path uses, so flat and threaded bridged
+// messages name the actual person rather than the webhook label.
+func inboundAuthor(wh Webhook, rendered Rendered) string {
+	if rendered.Author != "" {
+		return rendered.Author
+	}
+	return wh.Name
+}
+
+// resolveReplyParent maps an inbound reply_to_key to a prior chat message id for
+// this webhook, or "" when the key is empty or unknown (post flat). A lookup
+// error other than "not found" is logged but still degrades to a flat post —
+// threading is best-effort, never a delivery failure.
+func (h *Handler) resolveReplyParent(ctx context.Context, webhookID, replyToKey string) string {
+	if replyToKey == "" {
+		return ""
+	}
+	id, err := h.Repo.MessageLink(ctx, webhookID, replyToKey)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			h.Log.Warn("webhooks: message link lookup", "err", err)
+		}
+		return ""
+	}
+	return id
+}
+
+// linkInboundMessage records message_key -> chat message id so a later inbound
+// reply_to_key can nest under it. No-op when the key is empty.
+func (h *Handler) linkInboundMessage(ctx context.Context, webhookID, messageKey, msgID string) {
+	if messageKey == "" {
+		return
+	}
+	if err := h.Repo.LinkMessage(ctx, webhookID, messageKey, msgID); err != nil {
+		h.Log.Warn("webhooks: link inbound message", "err", err)
+	}
 }
 
 // fanout mirrors the forum→chat bridge: refresh open chat tabs (Bus + NATS) and

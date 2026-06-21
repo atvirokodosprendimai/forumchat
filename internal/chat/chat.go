@@ -364,6 +364,15 @@ func (m Message) nullableRefs() (authorID, refThread, replyTo, fwdFrom, botAgent
 	return
 }
 
+// optRef returns a pointer to s, or nil when s is empty — for the optional
+// foreign-key fields (ReplyToID, etc.) that distinguish "unset" from "".
+func optRef(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 func (r *Repo) Recent(ctx context.Context, channelID string, limit int) ([]Message, error) {
 	msgs, err := r.listBefore(ctx, channelID, time.Now().Add(48*time.Hour), limit)
 	if err != nil {
@@ -490,7 +499,7 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
-		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, ''),
+		       COALESCE(p.id, ''), COALESCE(NULLIF(pmb.display_name, ''), p.bot_name, ''), COALESCE(p.body_md, ''),
 		       m.forwarded_from_msg_id,
 		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, ''),
 		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, ''),
@@ -568,7 +577,7 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
-		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, ''),
+		       COALESCE(p.id, ''), COALESCE(NULLIF(pmb.display_name, ''), p.bot_name, ''), COALESCE(p.body_md, ''),
 		       m.forwarded_from_msg_id,
 		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, ''),
 		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, ''),
@@ -1122,10 +1131,11 @@ func (s *Service) PostSystemMarkdown(ctx context.Context, communityID, channelID
 
 // PostBot inserts a KindWebhook message wearing an inbound webhook's bot
 // identity (botName / botAvatar) into a specific channel. bodyMarkdown is
-// rendered through the standard markdown pipeline; no author_id is set. The
-// caller (webhooks.Handler) is responsible for the chat fan-out, same as the
-// forum bridge.
-func (s *Service) PostBot(ctx context.Context, communityID, channelID, botName, botAvatar, bodyMarkdown string) (Message, error) {
+// rendered through the standard markdown pipeline; no author_id is set. When
+// replyToID is non-empty the message is posted as an inline reply under that
+// prior chat message (the bridged-thread path). The caller (webhooks.Handler)
+// is responsible for the chat fan-out, same as the forum bridge.
+func (s *Service) PostBot(ctx context.Context, communityID, channelID, botName, botAvatar, bodyMarkdown, replyToID string) (Message, error) {
 	body := strings.TrimSpace(bodyMarkdown)
 	if body == "" {
 		return Message{}, errors.New("empty webhook message")
@@ -1143,6 +1153,7 @@ func (s *Service) PostBot(ctx context.Context, communityID, channelID, botName, 
 		BotAvatar:    botAvatar,
 		BodyMarkdown: body,
 		BodyHTML:     html,
+		ReplyToID:    optRef(replyToID),
 		CreatedAt:    time.Now(),
 	}
 	if err := s.Repo.Insert(ctx, m); err != nil {
@@ -1155,7 +1166,7 @@ func (s *Service) PostBot(ctx context.Context, communityID, channelID, botName, 
 // upload IDs to the KindWebhook message. The body may be empty when there is at
 // least one attachment (an image-only post). Ownership is not verified — the
 // uploads are saved by the inbound webhook itself (synthetic owner), not a user.
-func (s *Service) PostBotWithAttachments(ctx context.Context, communityID, channelID, botName, botAvatar, bodyMarkdown string, attachmentIDs []string) (Message, error) {
+func (s *Service) PostBotWithAttachments(ctx context.Context, communityID, channelID, botName, botAvatar, bodyMarkdown string, attachmentIDs []string, replyToID string) (Message, error) {
 	body := strings.TrimSpace(bodyMarkdown)
 	if body == "" && len(attachmentIDs) == 0 {
 		return Message{}, errors.New("empty webhook message")
@@ -1173,6 +1184,7 @@ func (s *Service) PostBotWithAttachments(ctx context.Context, communityID, chann
 		BotAvatar:    botAvatar,
 		BodyMarkdown: body,
 		BodyHTML:     html,
+		ReplyToID:    optRef(replyToID),
 		CreatedAt:    time.Now(),
 	}
 	if len(attachmentIDs) == 0 {

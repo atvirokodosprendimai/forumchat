@@ -609,6 +609,12 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					}
 				</div>
 			</details>
+			if m.ReplyTo != nil {
+				<blockquote class="quote">
+					<span class="muted">{ m.ReplyTo.AuthorName } wrote:</span>
+					<div>{ m.ReplyTo.Snippet }</div>
+				</blockquote>
+			}
 			<div class="body">
 				@templ.Raw(render.RichHTML(m.BodyHTML))
 				if m.Kind == MsgKindBot && m.GenStatus == "generating" {
