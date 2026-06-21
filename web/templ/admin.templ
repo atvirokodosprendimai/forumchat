@@ -72,6 +72,14 @@ templ AdminPage(d AdminPageData) {
 				</section>
 			}
 
+			if WebhooksEnabled {
+				<section class="card narrow">
+					<h2>Webhooks</h2>
+					<p class="muted">Let external systems (GitHub, CI, Matrix bridges, anything that POSTs JSON) post into this community as a bot, or relay chat out to Slack/Discord.</p>
+					<a class="button" href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin/webhooks") }>Manage webhooks →</a>
+				</section>
+			}
+
 			if RAGEnabled {
 				<section class="card narrow">
 					<h2>Semantic index</h2>

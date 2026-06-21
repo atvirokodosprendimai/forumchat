@@ -53,6 +53,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/timebudget"
 	"github.com/atvirokodosprendimai/forumchat/internal/todos"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
+	"github.com/atvirokodosprendimai/forumchat/internal/webhooks"
 	"github.com/atvirokodosprendimai/forumchat/internal/worklog"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -699,6 +700,26 @@ func run() error {
 	forumHandler.PushNotify = pushNotifyFn
 	projectsHandler.PushNotify = pushNotifyFn
 
+	// ----- Webhooks (inbound bot messages + outbound chat relay) -----------
+	var webhooksHandler *webhooks.Handler
+	if cfg.WebhooksEnabled {
+		whRepo := webhooks.NewRepo(db)
+		webhooksHandler = &webhooks.Handler{
+			Repo:          whRepo,
+			Svc:           webhooks.NewService(whRepo),
+			Chat:          chatSvc,
+			ChatRepo:      chatRepo,
+			ChatBus:       chatBus,
+			ChatNewMsgBus: chatNewMsgBus,
+			NATS:          nc,
+			BaseURL:       cfg.BaseURL,
+			MaxBytes:      cfg.WebhooksMaxBytes,
+			Log:           log,
+		}
+		chatHandler.RelayOut = webhooks.NewRelay(whRepo, log).Dispatch
+	}
+	webtempl.WebhooksEnabled = cfg.WebhooksEnabled
+
 	// Wire the projects list for the chat extract-to-project modal.
 	// Closure to avoid an import cycle (chat package can't depend on
 	// projects). Empty slice when projects feature is disabled.
@@ -878,6 +899,16 @@ func run() error {
 			r.Post("/lobby/{token}/join", lobbiesHandler.PostGuestJoin)
 			r.Post("/lobby/{token}/send", lobbiesHandler.PostGuestSend)
 			r.Post("/lobby/{token}/upload", lobbiesHandler.PostGuestUpload)
+		})
+	}
+
+	// Public inbound webhook receiver — token-authed, no session/CSRF, like
+	// the guest lobby routes above. Behind a per-IP rate limit; the handler
+	// caps the body size.
+	if cfg.WebhooksEnabled && webhooksHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(httprate.LimitByIP(60, time.Minute))
+			r.Post("/hooks/{token}", webhooksHandler.PostInbound)
 		})
 	}
 
@@ -1186,6 +1217,13 @@ func run() error {
 				r.Post("/admin/mail-filters", mailboxHandler.PostCommunityFilterCreate)
 				r.Post("/admin/mail-filters/{id}/delete", mailboxHandler.PostCommunityFilterDelete)
 				r.Post("/admin/mail-filters/{id}/apply", mailboxHandler.PostCommunityFilterApply)
+			}
+			if cfg.WebhooksEnabled && webhooksHandler != nil {
+				r.Get("/admin/webhooks", webhooksHandler.GetAdmin)
+				r.Post("/admin/webhooks", webhooksHandler.PostCreate)
+				r.Post("/admin/webhooks/toggle", webhooksHandler.PostToggle)
+				r.Post("/admin/webhooks/rotate", webhooksHandler.PostRotate)
+				r.Post("/admin/webhooks/delete", webhooksHandler.PostDelete)
 			}
 			if cfg.AIEnabled {
 				r.Get("/admin/ai", agentHandler.GetAgents)

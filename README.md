@@ -617,6 +617,8 @@ boot fails fast on placeholder secrets.
 | Variable             | Default                                | Purpose                                                            |
 |----------------------|----------------------------------------|--------------------------------------------------------------------|
 | `PROJECTS_ENABLED`   | `false`                                | Mount `/c/{slug}/projects` and show the sidebar link.              |
+| `WEBHOOKS_ENABLED`   | `false`                                | Mount the public `POST /hooks/{token}` receiver, the per-community Admin → Webhooks page, and the outbound chat relay. Inbound payloads (generic JSON / GitHub) post as a named bot; outbound relays human chat to Slack/Discord/generic URLs. |
+| `WEBHOOKS_MAX_BYTES` | `1048576`                              | Max inbound webhook payload size (bytes). Default 1 MiB.            |
 | `GUEST_ACCESS_ENABLED` | `false`                              | Enable lobbies — tokenised guest-access URLs for outsiders.        |
 | `TIME_ENABLED`       | `false`                                | Mount the community budget page + personal timer/journal.          |
 | `AI_ENABLED`         | `false`                                | Mount `/c/{slug}/agent` (per-community AI chat) + the Admin → AI config page, and show the sidebar link. Each community still has its own `ai_configs.enabled` toggle on top of this. |

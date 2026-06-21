@@ -45,6 +45,11 @@ type Handler struct {
 	// the push package's Sender so this package doesn't import push.
 	// userIDs may be empty to broadcast across the whole community.
 	PushNotify func(ctx context.Context, communityID, kind string, userIDs []string, title, body, url string)
+	// RelayOut, if non-nil, fires-and-forgets a human chat message to any
+	// matching outbound webhooks. Wired in main.go to webhooks.Relay.Dispatch
+	// so this package doesn't import webhooks. Only the normal user-send path
+	// calls it — system / bot / forward messages are not relayed (no echo).
+	RelayOut func(communityID, channelID, authorName, bodyMD, channelName string)
 	// ListProjects, if non-nil, returns the active projects in the
 	// current community for the extract-to-project modal dropdown.
 	// Set in main.go to avoid an import cycle with internal/projects.
@@ -848,6 +853,12 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
 
 	h.broadcastNewMsg(r.Context(), ch.ID)
+
+	// Relay to outbound webhooks (Slack/Discord/generic). Fire-and-forget;
+	// the callback detaches from the request. Human messages only.
+	if h.RelayOut != nil {
+		h.RelayOut(h.cid(r.Context()), ch.ID, id.Membership.DisplayName, body, ch.Name)
+	}
 
 	// Fire-and-forget push notifications. Runs in the background so a
 	// slow push service doesn't make the chat send look stalled to the

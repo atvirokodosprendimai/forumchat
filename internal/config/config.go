@@ -127,6 +127,13 @@ type Config struct {
 	// metadata-only; bytes fetched on demand at "Move to project" click.
 	// MailboxSystemUserID is the synthetic users row credited as the
 	// author of auto-created project_issues from to_issue=true filters.
+	// Webhooks — per-community inbound (/hooks/<token>) and outbound (chat
+	// relay) integrations. Off by default: the public /hooks route isn't
+	// mounted, the admin page is hidden, and the outbound relay hook is nil.
+	// WebhooksMaxBytes caps inbound payload size.
+	WebhooksEnabled  bool  `env:"WEBHOOKS_ENABLED" envDefault:"false"`
+	WebhooksMaxBytes int64 `env:"WEBHOOKS_MAX_BYTES" envDefault:"1048576"` // 1 MiB
+
 	MailboxEnabled       bool          `env:"MAILBOX_ENABLED" envDefault:"false"`
 	MailboxHost          string        `env:"MAILBOX_HOST" envDefault:""`
 	MailboxPort          int           `env:"MAILBOX_PORT" envDefault:"993"`

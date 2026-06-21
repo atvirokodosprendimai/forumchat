@@ -19,18 +19,27 @@ const (
 	KindUser           Kind = "user"
 	KindSystem         Kind = "system"
 	KindThreadAnnounce Kind = "thread_announce"
+	// KindWebhook is an inbound-webhook message. It has no author_id; its
+	// display identity (BotName / BotAvatar) is denormalised onto the row
+	// so the hot read path needs no JOIN to the webhooks table.
+	KindWebhook Kind = "webhook"
 )
 
 type Message struct {
-	ID               string
-	CommunityID      string
-	ChannelID        string
-	AuthorID         *string
-	AuthorName       string
-	AuthorAvatar     string
-	Kind             Kind
-	BodyMarkdown     string
-	BodyHTML         string
+	ID           string
+	CommunityID  string
+	ChannelID    string
+	AuthorID     *string
+	AuthorName   string
+	AuthorAvatar string
+	Kind         Kind
+	BodyMarkdown string
+	BodyHTML     string
+	// BotName / BotAvatar are the display identity of a KindWebhook
+	// message (empty for every other kind). Denormalised so the chat read
+	// path never joins the webhooks table.
+	BotName          string
+	BotAvatar        string
 	RefThreadID      *string
 	PromotedThreadID *string // thread that was created from this message via promote-chat
 	ReplyToID        *string
@@ -309,9 +318,9 @@ func (r *Repo) Insert(ctx context.Context, m Message) error {
 	}
 	authorID, refThread, replyTo, fwdFrom := m.nullableRefs()
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, fwdFrom, m.CreatedAt.Unix())
+		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, bot_name, bot_avatar_url, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, m.BotName, m.BotAvatar, refThread, replyTo, fwdFrom, m.CreatedAt.Unix())
 	return err
 }
 
@@ -462,7 +471,8 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
 		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, ''),
 		       m.forwarded_from_msg_id,
-		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, '')
+		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, ''),
+		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, '')
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
 		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
@@ -486,15 +496,21 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		var kind string
 		var pID, pAuthor, pBody string
 		var fID, fSlug, fName, fAuthor, fBody string
+		var botName, botAvatar string
 		if err := rows.Scan(&m.ID, &m.CommunityID, &m.ChannelID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
 			&ref, &promoted, &reply, &del, &created,
 			&m.AuthorName, &m.AuthorAvatar,
 			&pID, &pAuthor, &pBody,
-			&fwd, &fID, &fSlug, &fName, &fAuthor, &fBody); err != nil {
+			&fwd, &fID, &fSlug, &fName, &fAuthor, &fBody,
+			&botName, &botAvatar); err != nil {
 			return nil, err
 		}
 		applyForward(&m, fwd, fID, fSlug, fName, fAuthor, fBody)
 		m.Kind = Kind(kind)
+		if m.Kind == KindWebhook {
+			m.BotName, m.BotAvatar = botName, botAvatar
+			m.AuthorName, m.AuthorAvatar = botName, botAvatar
+		}
 		if aid.Valid {
 			m.AuthorID = &aid.String
 		}
@@ -527,7 +543,8 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
 		       COALESCE(p.id, ''), COALESCE(pmb.display_name, ''), COALESCE(p.body_md, ''),
 		       m.forwarded_from_msg_id,
-		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, '')
+		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, ''),
+		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, '')
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
 		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
@@ -550,15 +567,21 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	var kind string
 	var pID, pAuthor, pBody string
 	var fID, fSlug, fName, fAuthor, fBody string
+	var botName, botAvatar string
 	if err := rows.Scan(&m.ID, &m.CommunityID, &m.ChannelID, &aid, &kind, &m.BodyMarkdown, &m.BodyHTML,
 		&ref, &promoted, &reply, &del, &created,
 		&m.AuthorName, &m.AuthorAvatar,
 		&pID, &pAuthor, &pBody,
-		&fwd, &fID, &fSlug, &fName, &fAuthor, &fBody); err != nil {
+		&fwd, &fID, &fSlug, &fName, &fAuthor, &fBody,
+		&botName, &botAvatar); err != nil {
 		return Message{}, err
 	}
 	applyForward(&m, fwd, fID, fSlug, fName, fAuthor, fBody)
 	m.Kind = Kind(kind)
+	if m.Kind == KindWebhook {
+		m.BotName, m.BotAvatar = botName, botAvatar
+		m.AuthorName, m.AuthorAvatar = botName, botAvatar
+	}
 	if aid.Valid {
 		m.AuthorID = &aid.String
 	}
@@ -732,9 +755,9 @@ func (r *Repo) InsertWithAttachments(ctx context.Context, m Message, uploadIDs [
 
 	authorID, refThread, replyTo, fwdFrom := m.nullableRefs()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, refThread, replyTo, fwdFrom, m.CreatedAt.Unix()); err != nil {
+		INSERT INTO chat_messages (id, community_id, channel_id, author_id, kind, body_md, body_html, bot_name, bot_avatar_url, ref_thread_id, reply_to_id, forwarded_from_msg_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.CommunityID, m.ChannelID, authorID, string(m.Kind), m.BodyMarkdown, m.BodyHTML, m.BotName, m.BotAvatar, refThread, replyTo, fwdFrom, m.CreatedAt.Unix()); err != nil {
 		return fmt.Errorf("insert chat_messages: %w", err)
 	}
 	now := time.Now().Unix()
@@ -1060,6 +1083,37 @@ func (s *Service) PostSystemMarkdown(ctx context.Context, communityID, channelID
 	}
 	if err := s.Repo.Insert(ctx, m); err != nil {
 		return Message{}, fmt.Errorf("insert system message: %w", err)
+	}
+	return m, nil
+}
+
+// PostBot inserts a KindWebhook message wearing an inbound webhook's bot
+// identity (botName / botAvatar) into a specific channel. bodyMarkdown is
+// rendered through the standard markdown pipeline; no author_id is set. The
+// caller (webhooks.Handler) is responsible for the chat fan-out, same as the
+// forum bridge.
+func (s *Service) PostBot(ctx context.Context, communityID, channelID, botName, botAvatar, bodyMarkdown string) (Message, error) {
+	body := strings.TrimSpace(bodyMarkdown)
+	if body == "" {
+		return Message{}, errors.New("empty webhook message")
+	}
+	html, err := render.RenderMarkdown(body)
+	if err != nil {
+		return Message{}, fmt.Errorf("render markdown: %w", err)
+	}
+	m := Message{
+		ID:           uuid.NewString(),
+		CommunityID:  communityID,
+		ChannelID:    channelID,
+		Kind:         KindWebhook,
+		BotName:      botName,
+		BotAvatar:    botAvatar,
+		BodyMarkdown: body,
+		BodyHTML:     html,
+		CreatedAt:    time.Now(),
+	}
+	if err := s.Repo.Insert(ctx, m); err != nil {
+		return Message{}, fmt.Errorf("insert webhook message: %w", err)
 	}
 	return m, nil
 }

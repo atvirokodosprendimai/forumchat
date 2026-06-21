@@ -155,6 +155,11 @@ var GuestAccessEnabled bool
 // community status) and the poll worker.
 var MailboxEnabled bool
 
+// WebhooksEnabled — instance-level webhooks flag. Gates the public
+// /hooks/{token} route, the per-community admin webhooks page + its link,
+// and the outbound relay hook.
+var WebhooksEnabled bool
+
 // TimeEnabled — instance-level time-accounting flag. Toggles both the
 // per-community "Budget" link and the global personal "Journal" link, and
 // gates the route mounts in main.go. Tables always exist so flipping the

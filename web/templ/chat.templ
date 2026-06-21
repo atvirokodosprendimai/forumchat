@@ -22,6 +22,7 @@ const (
 	MsgKindUser           MsgKind = "user"
 	MsgKindSystem         MsgKind = "system"
 	MsgKindThreadAnnounce MsgKind = "thread_announce"
+	MsgKindWebhook        MsgKind = "webhook"
 )
 
 type ReplySnippet struct {
@@ -561,6 +562,38 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 		} else if m.Kind == MsgKindThreadAnnounce {
 			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
 			@templ.Raw(render.WrapUploadImages(m.BodyHTML))
+		} else if m.Kind == MsgKindWebhook {
+			<header class="meta">
+				if m.AuthorAvatar != "" {
+					<img class="bot-avatar" src={ m.AuthorAvatar } alt="" loading="lazy"/>
+				} else {
+					<span class="author-dot bot-dot" title={ m.AuthorName }>⬡</span>
+				}
+				<strong>{ m.AuthorName }</strong>
+				<span class="bot-tag">bot</span>
+				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
+			</header>
+			<details class="msg-menu">
+				<summary aria-label="Actions"><span class="msg-menu-dot"></span></summary>
+				<div class="msg-menu-list" role="menu">
+					<div class="msg-menu-handle" aria-hidden="true"></div>
+					<button class="msg-menu-item" role="menuitem"
+						data-on:click={ "$_bm_open_msg = '" + m.ID + "'; el.closest('details').open=false" }>
+						<span class="mi-icon">★</span><span class="mi-label">Bookmark</span>
+					</button>
+					<button class="msg-menu-item" role="menuitem"
+						data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false" }>
+						<span class="mi-icon">☑</span><span class="mi-label">To-do</span>
+					</button>
+					if isMod {
+						<button class="msg-menu-item danger" role="menuitem"
+							data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>
+							<span class="mi-icon">✕</span><span class="mi-label">Delete</span>
+						</button>
+					}
+				</div>
+			</details>
+			<div class="body">@templ.Raw(render.WrapUploadImages(m.BodyHTML))</div>
 		} else {
 			if showMeta {
 				<header class="meta">

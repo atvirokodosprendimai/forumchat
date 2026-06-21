@@ -3862,6 +3862,30 @@ hr {
   margin-right: 0.1rem;
 }
 
+/* Inbound-webhook bot bubbles — avatar + name + "bot" tag in the meta. */
+.bot-avatar {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: 0 0 auto;
+  margin-right: 0.1rem;
+}
+.bot-dot {
+  background: #6b7280;
+}
+.bot-tag {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #e5e7eb;
+  color: #374151;
+  border-radius: 4px;
+  padding: 0.05rem 0.3rem;
+  margin-left: 0.1rem;
+}
+
 /* Chat read receipts — small stack of avatar initials under the
    viewer's most recent own message. Telegram-style. */
 .read-receipts {
