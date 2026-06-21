@@ -120,15 +120,17 @@ func EmbedYouTube(s string) string {
 	})
 }
 
-// ytFacade is the click-to-play thumbnail. id is [A-Za-z0-9_-]{11} (safe inside
-// the single-quoted Datastar expression — no escaping needed); href is the
-// already-escaped original URL, kept as a no-JS fallback that opens YouTube.
+// ytFacade is the click-to-play thumbnail. The thumbnail is a CSS
+// background-image on the anchor (not an <img>) so ambient message-body image
+// rules (e.g. `.body img { height:100px }`) can't distort it. id is
+// [A-Za-z0-9_-]{11} (safe inside the inline style URL and the single-quoted
+// Datastar expression — no escaping needed); href is the already-escaped
+// original URL, kept as a no-JS fallback that opens YouTube.
 func ytFacade(id, href string) string {
 	return `<a class="yt-embed" href="` + href + `" target="_blank" rel="noopener nofollow"` +
+		` style="background-image:url('https://i.ytimg.com/vi/` + id + `/hqdefault.jpg')"` +
 		` data-on:click="evt.preventDefault();$_yt_id='` + id + `';$_yt_open=true"` +
 		` aria-label="Play YouTube video">` +
-		`<img class="yt-embed-thumb" loading="lazy" alt="YouTube video"` +
-		` src="https://i.ytimg.com/vi/` + id + `/hqdefault.jpg"/>` +
 		`<span class="yt-embed-play" aria-hidden="true"></span></a>`
 }
 

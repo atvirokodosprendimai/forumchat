@@ -195,7 +195,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 			<p class="muted"><a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>← Threads</a> · started by <strong>{ t.AuthorName }</strong> · { fmtTime(t.CreatedAt) }</p>
 
 			<article class="bubble">
-				<div class="body">@templ.Raw(render.WrapUploadImages(t.BodyHTML))</div>
+				<div class="body">@templ.Raw(render.RichHTML(t.BodyHTML))</div>
 				<div class="thread-actions">
 					if t.CanResolve {
 						if t.IsResolved {
@@ -309,7 +309,7 @@ templ ForumPost(slug, threadID string, p PostView) {
 				@AgentToolChips(p.ToolCalls)
 			}
 			<div class="body">
-				@templ.Raw(render.WrapUploadImages(p.BodyHTML))
+				@templ.Raw(render.RichHTML(p.BodyHTML))
 				if p.GenStatus == "generating" {
 					<span class="gen-cursor" aria-hidden="true">▍</span>
 				}
@@ -345,7 +345,7 @@ templ ForumPost(slug, threadID string, p PostView) {
 					<div>@templ.Raw(p.QuotedBody)</div>
 				</blockquote>
 			}
-			<div class="body">@templ.Raw(render.WrapUploadImages(p.BodyHTML))</div>
+			<div class="body">@templ.Raw(render.RichHTML(p.BodyHTML))</div>
 		}
 	</article>
 }

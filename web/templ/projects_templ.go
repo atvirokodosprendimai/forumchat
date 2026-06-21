@@ -1479,7 +1479,7 @@ func ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVie
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(t.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = templ.Raw(render.RichHTML(t.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1670,7 +1670,7 @@ func ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVie
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(rr.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = templ.Raw(render.RichHTML(rr.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -2518,7 +2518,7 @@ func ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []ProjectI
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(i.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = templ.Raw(render.RichHTML(i.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -2858,7 +2858,7 @@ func ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []ProjectI
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(c.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = templ.Raw(render.RichHTML(c.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -3310,7 +3310,7 @@ func ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) templ.Compo
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(p.DescriptionHTML)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(render.RichHTML(p.DescriptionHTML)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -4001,7 +4001,7 @@ func ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentVi
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(c.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(render.RichHTML(c.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

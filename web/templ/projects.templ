@@ -456,7 +456,7 @@ templ ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVi
 				</header>
 				<div class="project-discussion-display" data-show="!$projects_discussion_edit_open">
 					if t.BodyHTML != "" {
-						<div class="project-discussion-body">@templ.Raw(render.WrapUploadImages(t.BodyHTML))</div>
+						<div class="project-discussion-body">@templ.Raw(render.RichHTML(t.BodyHTML))</div>
 					} else {
 						<p class="muted">No body.</p>
 					}
@@ -513,7 +513,7 @@ templ ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVi
 										}
 									</div>
 									<div class="project-discussion-reply-body"
-										data-show={ "$projects_discussion_reply_edit_id !== '" + rr.ID + "'" }>@templ.Raw(render.WrapUploadImages(rr.BodyHTML))</div>
+										data-show={ "$projects_discussion_reply_edit_id !== '" + rr.ID + "'" }>@templ.Raw(render.RichHTML(rr.BodyHTML))</div>
 									<textarea class="project-discussion-reply-edit-input"
 										rows="3"
 										data-show={ "$projects_discussion_reply_edit_id === '" + rr.ID + "'" }
@@ -759,7 +759,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 				</header>
 				<div class="project-issue-display" data-show="!$_projects_issue_edit_open">
 					if i.BodyHTML != "" {
-						<div class="project-issue-body">@templ.Raw(render.WrapUploadImages(i.BodyHTML))</div>
+						<div class="project-issue-body">@templ.Raw(render.RichHTML(i.BodyHTML))</div>
 					} else {
 						<p class="muted">No description.</p>
 					}
@@ -859,7 +859,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 									}
 								</div>
 								<div class="project-issue-comment-body"
-									data-show={ "$projects_issue_comment_edit_id !== '" + c.ID + "'" }>@templ.Raw(render.WrapUploadImages(c.BodyHTML))</div>
+									data-show={ "$projects_issue_comment_edit_id !== '" + c.ID + "'" }>@templ.Raw(render.RichHTML(c.BodyHTML))</div>
 								<textarea class="project-issue-comment-edit-input"
 									rows="3"
 									data-show={ "$projects_issue_comment_edit_id === '" + c.ID + "'" }
@@ -1003,7 +1003,7 @@ templ ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) {
 				}
 			</h1>
 			if p.DescriptionHTML != "" {
-				<div class="project-description">@templ.Raw(render.WrapUploadImages(p.DescriptionHTML))</div>
+				<div class="project-description">@templ.Raw(render.RichHTML(p.DescriptionHTML))</div>
 			} else {
 				<p class="project-description-empty muted">No description yet.</p>
 			}
@@ -1220,7 +1220,7 @@ templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentV
 						}
 					</div>
 					<div class="project-comment-body"
-						data-show={ "$projects_comment_edit_id !== '" + c.ID + "'" }>@templ.Raw(render.WrapUploadImages(c.BodyHTML))</div>
+						data-show={ "$projects_comment_edit_id !== '" + c.ID + "'" }>@templ.Raw(render.RichHTML(c.BodyHTML))</div>
 					<textarea class="project-comment-edit-input"
 						rows="3"
 						data-show={ "$projects_comment_edit_id === '" + c.ID + "'" }

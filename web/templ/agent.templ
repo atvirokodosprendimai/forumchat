@@ -250,7 +250,7 @@ templ AgentToolChips(calls []AgentToolView) {
 templ AgentBubble(slug, threadID string, m AgentMsgView) {
 	if m.IsUser {
 		<div class="agent-row user" id={ "agent-msg-" + m.ID }>
-			<div class="agent-bubble user">@templ.Raw(render.LinkNewTab(render.WrapUploadImages(m.BodyHTML)))</div>
+			<div class="agent-bubble user">@templ.Raw(render.LinkNewTab(render.RichHTML(m.BodyHTML)))</div>
 		</div>
 	} else if m.IsAssistant {
 		<div class="agent-row assistant" id={ "agent-msg-" + m.ID }>
@@ -262,7 +262,7 @@ templ AgentBubble(slug, threadID string, m AgentMsgView) {
 				if m.Generating && m.BodyHTML == "" {
 					<span class="agent-typing" aria-label="thinking"><span></span><span></span><span></span></span>
 				} else {
-					<div class="agent-body">@templ.Raw(render.LinkNewTab(render.WrapUploadImages(m.BodyHTML)))</div>
+					<div class="agent-body">@templ.Raw(render.LinkNewTab(render.RichHTML(m.BodyHTML)))</div>
 				}
 				if m.Generating {
 					<span class="agent-cursor" aria-hidden="true"></span>

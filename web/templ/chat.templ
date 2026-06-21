@@ -561,13 +561,13 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 		if m.Deleted {
 			if isMod {
 				<div class="muted">[deleted by mod] · { fmtTime(m.CreatedAt) }</div>
-				<div class="body deleted">@templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
+				<div class="body deleted">@templ.Raw(render.RichHTML(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
 			} else {
 				<div class="muted">[message removed]</div>
 			}
 		} else if m.Kind == MsgKindThreadAnnounce {
 			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
-			@templ.Raw(render.WrapUploadImages(m.BodyHTML))
+			@templ.Raw(render.RichHTML(m.BodyHTML))
 		} else if m.Kind == MsgKindWebhook || m.Kind == MsgKindBot {
 			<header class="meta">
 				if m.AuthorAvatar != "" {
@@ -606,7 +606,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 				</div>
 			</details>
 			<div class="body">
-				@templ.Raw(render.WrapUploadImages(m.BodyHTML))
+				@templ.Raw(render.RichHTML(m.BodyHTML))
 				if m.Kind == MsgKindBot && m.GenStatus == "generating" {
 					<span class="gen-cursor" aria-hidden="true">▍</span>
 				}
@@ -687,7 +687,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					}
 				</a>
 			}
-			<div class="body">@templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
+			<div class="body">@templ.Raw(render.RichHTML(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
 			if len(m.Attachments) > 0 {
 				@MessageAttachments(m.Attachments, isMod)
 			}

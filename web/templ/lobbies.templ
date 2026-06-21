@@ -243,7 +243,7 @@ templ LobbyMessage(m LobbyMsgView) {
 			<div class="muted">[deleted]</div>
 		} else {
 			<div class="body">
-				@templ.Raw(render.WrapUploadImages(m.BodyHTML))
+				@templ.Raw(render.RichHTML(m.BodyHTML))
 			</div>
 			<div class="muted" style="font-size:.75rem">{ m.AuthorKind } · { fmtTime(m.CreatedAt) }</div>
 		}

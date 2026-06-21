@@ -1325,7 +1325,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName))).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = templ.Raw(render.RichHTML(render.HighlightMentions(m.BodyHTML, viewerName))).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1357,7 +1357,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(m.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(render.RichHTML(m.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1515,7 +1515,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(m.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(render.RichHTML(m.BodyHTML)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1864,7 +1864,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templ.Raw(render.WrapUploadImages(render.HighlightMentions(m.BodyHTML, viewerName))).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ.Raw(render.RichHTML(render.HighlightMentions(m.BodyHTML, viewerName))).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
