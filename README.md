@@ -111,7 +111,7 @@ docker run -p 8080:8080 \
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Multi-community** | Communities are first-class. Every row is `community_id`-scoped. Public communities appear under `/explore`; private ones are invite-only. Platform super-admins (`SUPERADMIN_EMAILS`) get a global `/superadmin` dashboard + god-mode across every community. |
 | **Global read-only chat** | Platform super-admin only (`/superadmin/chat`). A live, cross-community feed of the latest 100 chat messages from **every** community and channel at once — newest-first, deep-linked back to source, soft-deleted rows included (god-mode). Read-only: it never writes. Streamed via the process-wide chat bus + the NATS `community.*.chat` wildcard. |
-| **Webhooks**        | Optional (`WEBHOOKS_ENABLED`). Per-community integrations both ways. **Inbound:** external systems `POST` to a secret `/hooks/<token>` URL and the payload posts as a named **bot** message (provider adapters: `generic` JSON `{text}`/`{content}`, or `github` push/PR/issue/release with HMAC verify). **Outbound:** human chat in a chosen channel is relayed as JSON to a `target_url` (`slack`/`discord`/`generic`). Matrix bridges via maubot/hookshot — see `examples/`. |
+| **Webhooks**        | Optional (`WEBHOOKS_ENABLED`). Per-community integrations both ways. **Inbound:** external systems `POST` to a secret `/hooks/<token>` URL and the payload posts as a named **bot** message (provider adapters: `generic` JSON `{text}`/`{content}`, or `github` push/PR/issue/release with HMAC verify). **Outbound:** human chat in a chosen channel is relayed as JSON to a `target_url` (`slack`/`discord`/`generic`). **Matrix / Synapse bridges work today** via maubot (forumchat→Matrix) + matrix-hookshot (Matrix→forumchat) — ready-to-edit configs in `examples/`. |
 | **Chat**            | Multiple realtime named text channels per community (Discord-style, `#general` is the undeletable default). Persistent (SQLite), live (NATS pub/sub + datastar SSE), auto-grow composer, mentions, image paste/drop, multi-file attachments, reply quote, forward-to-channel, per-channel unread dots. Extract any chat attachment into a project (as Docs or a new issue) so documents shared in chat aren't lost to scrollback. |
 | **Slash commands**  | In the chat composer: `/search` (personal fused search panel), `/summary` (AI recap of the channel in a personal panel, postable to the channel), `/prompt` (run a prompt → thread), `/translate` (live English-translation typeahead, source auto-detected). |
 | **AI assistant**    | Optional (`AI_ENABLED`). Per-community ChatGPT-style Agent: persistent threads + history, streaming answers (100 ms morph cadence), vision/image input, multiple named agents (provider/model/system-prompt each), in-thread model switch, resumable streams, `$`-reference autocomplete, share-thread-to-channel. Tool layer: internal full-text + `rag_search` + DB tools (list/get issues) + connectable MCP servers. Backed by your own Ollama. |
@@ -361,10 +361,31 @@ directions, the push-driven mirror of the IMAP mailbox. Admin-curated at
   stamped on the row. No retry queue in v1.
 
 The admin page mints the inbound URL once on create (copy it then), with
-rotate-token / enable-disable / delete and a per-webhook health column. Matrix
-isn't a webhook itself; bridge it via maubot (forumchat→Matrix) or
-matrix-hookshot (Matrix→forumchat) — ready-to-edit configs in
-[`examples/`](examples/).
+rotate-token / enable-disable / delete and a per-webhook health column.
+
+### Matrix / Synapse bridge
+
+Matrix isn't a webhook itself, so it rides the webhook boundary — and it
+**works today against a stock [Synapse](https://github.com/element-hq/synapse)
+homeserver**, no native bridge required:
+
+- **forumchat → Matrix** (off-the-shelf): an *outbound* `generic` webhook posts
+  each human chat message to a
+  [`maubot-webhook`](https://github.com/jkhsjdhjs/maubot-webhook) instance,
+  which relays it into a Matrix room. Ready-to-edit maubot config in
+  [`examples/maubot/`](examples/maubot/).
+- **Matrix → forumchat**: a
+  [matrix-hookshot](https://matrix-org.github.io/matrix-hookshot/latest/setup/webhooks.html)
+  *outbound* webhook on the room points at your inbound `generic` endpoint
+  (`/hooks/<token>`); a one-line transform emits `{"text": …}` for a clean
+  message.
+
+Flat channel ↔ room mirroring is fully working with stock plugins. Forum
+**thread ↔ Matrix `m.thread`** sync is half-built: forumchat already speaks both
+sides of the contract (`thread_id` / `thread_root` outbound, `thread_key`
+inbound), but mapping the two id-spaces needs a small stateful maubot plugin —
+see [`examples/README.md`](examples/README.md). A native Application Service
+bridge (federation, puppeting) is out of scope.
 
 ---
 
