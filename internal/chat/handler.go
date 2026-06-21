@@ -105,7 +105,14 @@ type Handler struct {
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
-	Roster        RosterNotifier
+	Roster RosterNotifier
+	// BaseURL is the public origin (e.g. https://chat.example.com) used to make
+	// a pasted (Ctrl+V) image's URL ABSOLUTE in the stored body_md, so a relayed
+	// bot (Matrix etc.) can fetch it — a host-relative /uploads/… path is
+	// unresolvable off-host. Empty → fall back to the relative URL (dev). Mirrors
+	// pastes.Handler.BaseURL. Attached images already relay absolute via the
+	// webhooks attachments array, so only the paste path needs this.
+	BaseURL       string
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
@@ -340,6 +347,19 @@ func (h *Handler) Welcome(ctx context.Context, communityID, displayName string) 
 		_ = h.NATS.Publish(natsx.ChatSubject(communityID), []byte(""))
 		_ = h.NATS.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
 	}
+}
+
+// absUploadURL prefixes a host-relative signed upload path (e.g.
+// "/uploads/ID?exp=…&sig=…") with baseURL so the URL embedded in a chat
+// message's body_md is absolute and a relayed bot can fetch it off-host.
+// baseURL is the public origin; empty → return signed unchanged (dev /
+// in-app, where the browser resolves the relative path fine). signed is
+// expected to already start with "/".
+func absUploadURL(baseURL, signed string) string {
+	if baseURL == "" {
+		return signed
+	}
+	return strings.TrimRight(baseURL, "/") + signed
 }
 
 // parseAttachmentIDs decodes the JSON-encoded `attachment_ids` signal
@@ -850,7 +870,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.Log.Warn("paste image", "err", err)
 		} else {
-			url := h.Uploads.SignedURL(u.ID, id.User.ID, 24*time.Hour)
+			url := absUploadURL(h.BaseURL, h.Uploads.SignedURL(u.ID, id.User.ID, 24*time.Hour))
 			imgMD := "[![](" + url + ")](" + url + ")"
 			if body == "" {
 				body = imgMD

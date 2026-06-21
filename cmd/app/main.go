@@ -234,6 +234,7 @@ func run() error {
 		NewMsgBus:     chatNewMsgBus,
 		Uploads:       uploadStore,
 		AuthRepo:      aRepo,
+		BaseURL:       cfg.BaseURL,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
