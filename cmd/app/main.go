@@ -162,6 +162,7 @@ func run() error {
 	r.Use(httpx.Recover(log))
 	r.Use(httpx.RequestLogger(log))
 	r.Use(newCompressor().Handler)
+	r.Use(htmlContentType)
 	r.Use(sessions.LoadAndSave)
 	r.Use(auth.Loader(sessions, aRepo, superAdmins))
 	// Stash the request path so the sidebar can mark the active link
@@ -1712,6 +1713,25 @@ func run() error {
 	}
 	log.Info("forumchat stopped")
 	return nil
+}
+
+// htmlContentType sets text/html on navigation requests (Accept: text/html)
+// before the handler writes, so the response compressor — which picks an
+// encoder at WriteHeader time — sees a compressible type and engages on full
+// pages. templ's Render otherwise leaves the type to Go's first-write content
+// sniffing, which runs too late for the compressor and left pages (now
+// carrying the inlined ~181KB app.css) shipping uncompressed.
+//
+// Scoped to text/html accepts so datastar SSE (text/event-stream) and asset
+// requests are untouched; any handler that sets its own type still overrides
+// this default before the first write.
+func htmlContentType(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Accept"), "text/html") {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // immutableStatic stamps a long-lived immutable Cache-Control on static asset
