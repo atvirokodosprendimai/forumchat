@@ -517,6 +517,15 @@ func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", err.Error()))
 		return
 	}
+	// Seed the undeletable #general channel: a runtime-created community is
+	// never seen by migration 00032 or the boot-time EnsureDefaultChannel, and
+	// this handler redirects straight into the community's chat — without a
+	// channel that first visit fails with "load channel: sql: no rows in
+	// result set".
+	if _, err := h.Chat.Repo.EnsureDefaultChannel(r.Context(), c.ID); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Could not seed default channel: "+err.Error()))
+		return
+	}
 	now := time.Now()
 	display := user.Email
 	if i := strings.IndexByte(display, '@'); i > 0 {

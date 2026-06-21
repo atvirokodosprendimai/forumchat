@@ -186,6 +186,15 @@ func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-cc-error", err.Error()))
 		return
 	}
+	// Seed the undeletable #general channel. Migration 00032 only backfills
+	// communities that existed at migration time and the boot-time
+	// EnsureDefaultChannel never sees a runtime-created community, so without
+	// this the new community has no channel and the first visit to its chat
+	// fails with "load channel: sql: no rows in result set".
+	if _, err := h.ChatRepo.EnsureDefaultChannel(r.Context(), c.ID); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-cc-error", "Could not seed default channel: "+err.Error()))
+		return
+	}
 	now := time.Now()
 	m := auth.Membership{
 		ID:          uuid.NewString(),

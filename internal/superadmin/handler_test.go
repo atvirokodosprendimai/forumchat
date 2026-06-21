@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 )
@@ -369,5 +370,41 @@ func TestPostDeleteCommunity_CorrectSlugCascades(t *testing.T) {
 	// the FK would "refuse"): the member row is gone too.
 	if _, err := aRepo.MembershipFor(context.Background(), uid, c.ID); !errors.Is(err, auth.ErrNotFound) {
 		t.Fatalf("membership must cascade-delete on community delete, got err: %v", err)
+	}
+}
+
+// TestPostCreateCommunity_SeedsDefaultChannel is the regression for the
+// "load channel: sql: no rows in result set" crash: a runtime-created
+// community must get its #general channel so the first chat visit resolves a
+// channel instead of erroring on an empty result set.
+func TestPostCreateCommunity_SeedsDefaultChannel(t *testing.T) {
+	h, aRepo, cRepo := newTestHandler(t)
+	chatRepo := chat.NewRepo(aRepo.DB)
+	h.ChatRepo = chatRepo
+	ctx := context.Background()
+
+	uid := uuid.NewString()
+	now := time.Now().Unix()
+	if _, err := aRepo.DB.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash, status, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+		uid, "founder@x.com", "h", "active", now, now); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	body := `{"sa_name":"Alpha","sa_slug":"alpha","sa_email":"founder@x.com"}`
+	req := httptest.NewRequest(http.MethodPost, "/superadmin/community/create", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	h.PostCreateCommunity(httptest.NewRecorder(), req)
+
+	c, err := cRepo.BySlug(ctx, "alpha")
+	if err != nil {
+		t.Fatalf("community must be created, got err: %v", err)
+	}
+	ch, err := chatRepo.DefaultChannel(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("new community must have a default channel, got err: %v", err)
+	}
+	if ch.Slug != "general" {
+		t.Fatalf("default channel slug = %q, want %q", ch.Slug, "general")
 	}
 }
