@@ -124,15 +124,16 @@ func (h *Handler) PostReport(w http.ResponseWriter, r *http.Request) {
 	h.flash(sse, "Thanks — your report was sent. We’ll reply here.", false)
 }
 
-// GetReportDetail renders one of the caller's own reports + its thread.
-// Anti-enumeration: a not-owned or unknown id is a 404, never a 403.
+// GetReportDetail renders one report + its thread. A reporter sees only
+// their own (anti-enumeration: a not-owned or unknown id is a 404, never
+// a 403); a super-admin sees any report and gets the status control.
 func (h *Handler) GetReportDetail(w http.ResponseWriter, r *http.Request) {
-	id, _, ok := caller(r)
+	id, aid, ok := caller(r)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	issue, ok := h.ownedIssue(r.Context(), chi.URLParam(r, "iid"), id.UserID)
+	issue, ok := h.accessibleIssue(r.Context(), chi.URLParam(r, "iid"), id.UserID, aid.IsSuperAdmin)
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -146,7 +147,64 @@ func (h *Handler) GetReportDetail(w http.ResponseWriter, r *http.Request) {
 		Report:   toReportRow(issue),
 		BodyHTML: issue.BodyHTML,
 		Comments: toCommentViews(comments, id.UserID),
+		IsAdmin:  aid.IsSuperAdmin,
 	}).Render(r.Context(), w)
+}
+
+// GetInbox is the super-admin triage view: ALL reports across every
+// tenant, newest activity first. Self-contained — does NOT depend on
+// PROJECTS_ENABLED or the per-community projects UI. Route is gated by
+// auth.RequireSuperAdmin.
+func (h *Handler) GetInbox(w http.ResponseWriter, r *http.Request) {
+	pid, err := h.findInboxProjectID(r.Context())
+	if err != nil {
+		h.Log.Error("support: inbox find project", "err", err)
+	}
+	var rows []webtempl.SupportReportRow
+	if pid != "" {
+		issues, err := h.Projects.ListIssues(r.Context(), pid, true) // includeClosed
+		if err != nil {
+			h.Log.Error("support: inbox list", "err", err)
+		}
+		rows = toAdminReportRows(issues)
+	}
+	_ = webtempl.SupportInboxPage(webtempl.SupportInboxPageData{
+		Viewer:  h.viewer(r),
+		Reports: rows,
+	}).Render(r.Context(), w)
+}
+
+type statusIn struct {
+	Status string `json:"report_status"`
+}
+
+// PostStatus changes a report's status. Super-admin only (route gated by
+// auth.RequireSuperAdmin); the status arrives as a ?to= query param.
+func (h *Handler) PostStatus(w http.ResponseWriter, r *http.Request) {
+	var in statusIn
+	_ = datastar.ReadSignals(r, &in) // tolerate empty body; we use the query param
+	id, aid, ok := caller(r)
+	if !ok || !aid.IsSuperAdmin {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	status := r.URL.Query().Get("to")
+	issue, owned := h.accessibleIssue(r.Context(), chi.URLParam(r, "iid"), id.UserID, true)
+
+	sse := render.NewSSE(w, r)
+	if !owned {
+		_ = sse.Redirect("/support-inbox")
+		return
+	}
+	if err := h.Issues.UpdateIssueStatus(r.Context(), issue.ProjectID, issue.ID, status, id); err != nil {
+		h.Log.Error("support: status", "err", err, "to", status)
+		return
+	}
+	fresh, err := h.Projects.IssueByID(r.Context(), issue.ID)
+	if err != nil {
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.SupportStatusBar(toReportRow(fresh), true), datastar.WithModeOuter())
 }
 
 type replyIn struct {
@@ -160,12 +218,12 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals", http.StatusBadRequest)
 		return
 	}
-	id, _, ok := caller(r)
+	id, aid, ok := caller(r)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	issue, owned := h.ownedIssue(r.Context(), chi.URLParam(r, "iid"), id.UserID)
+	issue, owned := h.accessibleIssue(r.Context(), chi.URLParam(r, "iid"), id.UserID, aid.IsSuperAdmin)
 
 	sse := render.NewSSE(w, r)
 	if !owned {
@@ -186,19 +244,26 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 
 // ----- internals ---------------------------------------------------------
 
-// ownedIssue loads an issue and asserts it is (a) authored by userID and
-// (b) in the support Inbox project. Either failing reads as not-found —
-// the load-bearing guard that keeps the inbox write-only.
-func (h *Handler) ownedIssue(ctx context.Context, iid, userID string) (projects.Issue, bool) {
-	if iid == "" || userID == "" {
+// accessibleIssue loads an issue and asserts it is in the support Inbox
+// project AND the caller may see it: a super-admin sees every report; any
+// other user sees only their own. Either failing reads as not-found — the
+// load-bearing guard that keeps the inbox write-only for reporters.
+func (h *Handler) accessibleIssue(ctx context.Context, iid, userID string, isSuperAdmin bool) (projects.Issue, bool) {
+	if iid == "" {
 		return projects.Issue{}, false
 	}
 	issue, err := h.Projects.IssueByID(ctx, iid)
-	if err != nil || issue.CreatorUserID != userID {
+	if err != nil {
 		return projects.Issue{}, false
 	}
 	pid, err := h.findInboxProjectID(ctx)
 	if err != nil || pid == "" || issue.ProjectID != pid {
+		return projects.Issue{}, false
+	}
+	if isSuperAdmin {
+		return issue, true
+	}
+	if userID == "" || issue.CreatorUserID != userID {
 		return projects.Issue{}, false
 	}
 	return issue, true
@@ -296,6 +361,19 @@ func toReportRow(i projects.Issue) webtempl.SupportReportRow {
 		CreatedAtUnix: i.CreatedAt.Unix(),
 		UpdatedAtUnix: i.UpdatedAt.Unix(),
 	}
+}
+
+// toAdminReportRows is the super-admin inbox mapping: same rows as the
+// reporter view but each carries the reporter's name (Reporter) so triage
+// shows who filed it.
+func toAdminReportRows(issues []projects.Issue) []webtempl.SupportReportRow {
+	out := make([]webtempl.SupportReportRow, 0, len(issues))
+	for _, i := range issues {
+		row := toReportRow(i)
+		row.Reporter = i.CreatorName
+		out = append(out, row)
+	}
+	return out
 }
 
 // toCommentViews maps non-deleted comments to the view model, flagging

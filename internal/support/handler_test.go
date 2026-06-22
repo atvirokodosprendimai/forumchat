@@ -95,23 +95,28 @@ func TestReadBackIsOwnerScoped(t *testing.T) {
 		t.Fatalf("B should see 1 own report, got %d", len(got))
 	}
 
-	// A owns A's issue; B does NOT (the write-only guard).
-	if _, ok := h.ownedIssue(ctx, aIssue.ID, "uA"); !ok {
+	// A owns A's issue; B does NOT (the write-only guard). A super-admin
+	// sees ANY report.
+	if _, ok := h.accessibleIssue(ctx, aIssue.ID, "uA", false); !ok {
 		t.Fatalf("A must own their own report")
 	}
-	if _, ok := h.ownedIssue(ctx, aIssue.ID, "uB"); ok {
+	if _, ok := h.accessibleIssue(ctx, aIssue.ID, "uB", false); ok {
 		t.Fatalf("B must NOT be able to open A's report")
 	}
 	// Symmetric.
-	if _, ok := h.ownedIssue(ctx, bIssue.ID, "uA"); ok {
+	if _, ok := h.accessibleIssue(ctx, bIssue.ID, "uA", false); ok {
 		t.Fatalf("A must NOT be able to open B's report")
+	}
+	// Super-admin bypass: B-as-superadmin can open A's report.
+	if _, ok := h.accessibleIssue(ctx, aIssue.ID, "uB", true); !ok {
+		t.Fatalf("super-admin must be able to open any report")
 	}
 }
 
-// ownedIssue must reject an issue that lives outside the support Inbox
-// project, even for its own creator — so a member's normal project issue
-// can never be reached through /report-issue.
-func TestOwnedIssueRejectsNonInboxProject(t *testing.T) {
+// accessibleIssue must reject an issue that lives outside the support
+// Inbox project, even for its own creator AND even for a super-admin — so
+// a normal project issue can never be reached through /report-issue.
+func TestAccessibleIssueRejectsNonInboxProject(t *testing.T) {
 	h, svc, _, _ := newTestHandler(t)
 	ctx := context.Background()
 
@@ -128,8 +133,11 @@ func TestOwnedIssueRejectsNonInboxProject(t *testing.T) {
 	// Force the Inbox project to exist so findInboxProjectID resolves.
 	fileReport(t, h, svc, "uA", "real report")
 
-	if _, ok := h.ownedIssue(ctx, iss.ID, "uA"); ok {
-		t.Fatalf("ownedIssue must reject an issue outside the Inbox project")
+	if _, ok := h.accessibleIssue(ctx, iss.ID, "uA", false); ok {
+		t.Fatalf("accessibleIssue must reject an issue outside the Inbox project")
+	}
+	if _, ok := h.accessibleIssue(ctx, iss.ID, "uA", true); ok {
+		t.Fatalf("even a super-admin must not reach a non-Inbox issue via the support surface")
 	}
 }
 

@@ -225,3 +225,25 @@ spec.
 - Phase 0 (spec) deferred — user chose "start coding". The cross-tenant
   isolation exception still warrants `eidos/spec - support-inbox`; left as the
   one open follow-up.
+- 2606220730 — **Phase 5 (super-admin read surface), added after user feedback:**
+  "as superadmin i see report issue, but cant find that secret support
+  community" + "in my global /issues i cant see those open issues". Root cause:
+  super-admin has NO membership in the support community → invisible everywhere
+  membership-gated (/issues uses AdminCommunityIDs; dashboard/explore too). Also
+  the original god-mode read path silently needed PROJECTS_ENABLED (the
+  /c/<slug>/projects/* routes).
+  - Fix: dedicated discoverable **`/support-inbox`** super-admin surface
+    (📨 nav link, RequireSuperAdmin) listing ALL reports with reporter name;
+    self-contained — does NOT need PROJECTS_ENABLED (uses projectsRepo/Svc
+    directly). `ownedIssue` → `accessibleIssue(…, isSuperAdmin)` bypass lets a
+    super-admin open/reply ANY report via the shared `/report-issue/{iid}`
+    detail; super-admin-only `POST /report-issue/{iid}/status` (?to=) with a
+    morphed `#support-status-bar`.
+  - Decision: deliberately do NOT fold the hidden community into `/issues` —
+    that picker is for *opening* issues into admined communities and would
+    expose/confuse. The dedicated surface is the read path.
+  - Verified end-to-end with Playwright two-context flow + **PROJECTS_ENABLED
+    off**: reporter files → admin inbox lists it (chip "tenant") → admin opens,
+    flips status→In progress (live morph), replies → reporter sees status +
+    admin reply (left bubble "admin", no status buttons). Tests updated
+    (accessibleIssue + super-admin bypass + non-Inbox rejection), all green.

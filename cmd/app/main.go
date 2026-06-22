@@ -1682,6 +1682,15 @@ func run() error {
 			r.Get("/report-issue/{iid}", supportHandler.GetReportDetail)
 			r.Post("/report-issue/{iid}/reply", supportHandler.PostReply)
 		})
+		// Super-admin triage view of the whole inbox + status control. Gated
+		// by RequireSuperAdmin so it's discoverable without leaking the hidden
+		// community into any member-facing surface.
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth)
+			r.Use(auth.RequireSuperAdmin)
+			r.Get("/support-inbox", supportHandler.GetInbox)
+			r.Post("/report-issue/{iid}/status", supportHandler.PostStatus)
+		})
 	}
 
 	// Platform super-admin surface — global god-mode over every community

@@ -5195,7 +5195,19 @@ button.ghost.danger { color: var(--danger); }
 }
 .support-report:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
 .support-report-title { flex: 1 1 auto; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.support-report-by { flex: 0 0 auto; font-size: .78rem; color: var(--fg-muted); background: var(--surface-alt); border: 1px solid var(--border-subtle); border-radius: var(--radius-pill); padding: .1rem .55rem; }
 .support-report-time { flex: 0 0 auto; font-size: .8rem; color: var(--fg-muted); }
+
+/* status bar on the detail page (pill + super-admin status buttons) */
+.support-status-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .35rem; }
+.support-status-actions { display: flex; gap: .35rem; flex-wrap: wrap; }
+.support-status-btn {
+  font: inherit; font-size: .76rem; cursor: pointer;
+  padding: .2rem .6rem; border-radius: var(--radius-pill);
+  color: var(--fg-muted); background: var(--surface); border: 1px solid var(--border-strong);
+  transition: border-color .12s, color .12s, background .12s;
+}
+.support-status-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 
 /* status chip — reused on the list and the detail header */
 .support-status {

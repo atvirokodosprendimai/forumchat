@@ -11,11 +11,14 @@ import (
 // Read by layout.templ to show the global "Report issue" nav link.
 var SupportInboxEnabled bool
 
-// SupportReportRow is one of the caller's own support reports.
+// SupportReportRow is one support report. Reporter is empty in the
+// reporter's own list and set (the author's name) in the super-admin
+// inbox so triage shows who filed it.
 type SupportReportRow struct {
 	IssueID       string
 	Title         string
 	Status        string
+	Reporter      string
 	CreatedAtUnix int64
 	UpdatedAtUnix int64
 }
@@ -34,12 +37,21 @@ type SupportReportPageData struct {
 	Reports []SupportReportRow
 }
 
-// SupportReportDetailData drives GET /report-issue/{iid}.
+// SupportInboxPageData drives the super-admin GET /support-inbox — ALL
+// reports across every tenant.
+type SupportInboxPageData struct {
+	Viewer  Viewer
+	Reports []SupportReportRow
+}
+
+// SupportReportDetailData drives GET /report-issue/{iid}. IsAdmin shows
+// the super-admin status control.
 type SupportReportDetailData struct {
 	Viewer   Viewer
 	Report   SupportReportRow
 	BodyHTML string
 	Comments []SupportCommentView
+	IsAdmin  bool
 }
 
 // SupportReportPage is the composer + the caller's own past reports.
@@ -79,12 +91,28 @@ templ SupportReportPage(d SupportReportPageData) {
 	}
 }
 
-// SupportMyReports is the caller's own report list. Stable id so the
-// create handler can outer-morph it after a new report lands.
+// SupportInboxPage is the super-admin triage view: every report across
+// all tenants. Reuses the report list (rows link to the shared detail
+// page, which a super-admin may open for any report).
+templ SupportInboxPage(d SupportInboxPageData) {
+	@Layout("Support inbox", d.Viewer) {
+		<section class="support">
+			<header class="support-head">
+				<h1>📨 Support inbox</h1>
+				<p class="muted">Every report filed from the “Report issue” button, across all communities. Only platform admins see this.</p>
+			</header>
+			@SupportMyReports(d.Reports)
+		</section>
+	}
+}
+
+// SupportMyReports is the report list. Stable id so the create handler can
+// outer-morph it after a new report lands. Reused by the reporter's own
+// page and the super-admin inbox (rows carry Reporter only in the latter).
 templ SupportMyReports(reports []SupportReportRow) {
 	<div id="support-my-reports" class="support-reports">
 		if len(reports) == 0 {
-			<p class="empty muted">No reports yet. Anything you send appears here.</p>
+			<p class="empty muted">No reports yet.</p>
 		} else {
 			<ul class="support-report-list">
 				for _, rep := range reports {
@@ -92,6 +120,9 @@ templ SupportMyReports(reports []SupportReportRow) {
 						<a class="support-report" href={ supportReportURL(rep.IssueID) }>
 							<span class={ "support-status", "status-" + rep.Status }>{ supportStatusLabel(rep.Status) }</span>
 							<span class="support-report-title">{ rep.Title }</span>
+							if rep.Reporter != "" {
+								<span class="support-report-by">{ rep.Reporter }</span>
+							}
 							<time class="support-report-time" datetime={ supportRFC(rep.UpdatedAtUnix) }>{ supportShort(rep.UpdatedAtUnix) }</time>
 						</a>
 					</li>
@@ -115,9 +146,9 @@ templ SupportFlash(msg string, isErr bool) {
 templ SupportReportDetailPage(d SupportReportDetailData) {
 	@Layout("Report · "+d.Report.Title, d.Viewer) {
 		<section class="support support-detail" data-signals="{report_reply:''}">
-			<a class="support-back" href="/report-issue">← All your reports</a>
+			<a class="support-back" href={ supportBackURL(d.IsAdmin) }>{ supportBackLabel(d.IsAdmin) }</a>
 			<header class="support-head">
-				<span class={ "support-status", "status-" + d.Report.Status }>{ supportStatusLabel(d.Report.Status) }</span>
+				@SupportStatusBar(d.Report, d.IsAdmin)
 				<h1>{ d.Report.Title }</h1>
 				<p class="muted support-report-time">Opened { supportShort(d.Report.CreatedAtUnix) }</p>
 			</header>
@@ -159,6 +190,44 @@ templ SupportThread(comments []SupportCommentView) {
 			}
 		}
 	</div>
+}
+
+// SupportStatusBar shows the status pill and, for super-admins, buttons
+// to move the report to any other status. Stable id so PostStatus can
+// outer-morph it after a change.
+templ SupportStatusBar(rep SupportReportRow, isAdmin bool) {
+	<div id="support-status-bar" class="support-status-bar">
+		<span class={ "support-status", "status-" + rep.Status }>{ supportStatusLabel(rep.Status) }</span>
+		if isAdmin {
+			<span class="support-status-actions">
+				for _, s := range supportStatuses() {
+					if s != rep.Status {
+						<button class="support-status-btn" data-on:click={ "@post('/report-issue/" + rep.IssueID + "/status?to=" + s + "')" }>
+							{ supportStatusLabel(s) }
+						</button>
+					}
+				}
+			</span>
+		}
+	</div>
+}
+
+func supportStatuses() []string {
+	return []string{"open", "triaged", "in_progress", "closed"}
+}
+
+func supportBackURL(isAdmin bool) templ.SafeURL {
+	if isAdmin {
+		return templ.SafeURL("/support-inbox")
+	}
+	return templ.SafeURL("/report-issue")
+}
+
+func supportBackLabel(isAdmin bool) string {
+	if isAdmin {
+		return "← Support inbox"
+	}
+	return "← All your reports"
 }
 
 func supportReportURL(iid string) templ.SafeURL {
