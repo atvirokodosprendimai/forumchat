@@ -560,6 +560,14 @@ DB tables (numbered by migration): `projects` (00013), `project_issues`,
   three flags are independent and compose (meant for short demo windows).
 - Two-step sign-in: email → password, **or** email-me-a-magic-link.
   Anti-enumeration by default (hit/miss responses are identical).
+- **Social login** (Google, Facebook via `markbates/goth`) when the matching
+  `*_CLIENT_ID`/`*_CLIENT_SECRET` are set — a "Continue with …" button appears
+  on the login + register cards. OAuth is a *login* method: an existing account
+  is matched by the provider's verified email and linked automatically; a
+  brand-new email only creates an account when `OPEN_REGISTRATION` is on
+  (otherwise the sign-in is refused), mirroring the invite gate on the password
+  path. Register the redirect URI `BASE_URL/auth/<provider>/callback` with the
+  provider. OAuth-only users have no password (magic-link still works).
 - Email verification is mandatory (unless `AUTO_VERIFY_EMAIL`); the `LogMailer`
   fallback writes the URL to stdout for dev convenience.
 - Membership has an **approval queue** (`memberships.approved_at`): verified
@@ -668,6 +676,8 @@ boot fails fast on placeholder secrets.
 | `OPEN_REGISTRATION_AUTO_APPROVE` | `false`                    | Auto-approve every new member at email-verification time (open **or** invite-based signups). Off → members land in the pending approval queue. Independent of `OPEN_REGISTRATION`. Flags load at boot — restart after changing. |
 | `AUTO_VERIFY_EMAIL`  | `false`                                | Skip email verification: registrants are activated and **signed in immediately**, no verify link. For short demo windows (turn on, record/invite, turn off). Combine with the two flags above for instant full access. Leave off normally — anyone can register with an unverifiable email. |
 | `SUPERADMIN_EMAILS`  | _(empty)_                              | Comma-separated email allowlist of **platform super-admins**. A signed-in user whose email matches (case-insensitive) gets god-mode across every community: enter any `/c/<slug>/admin` without a membership, set roles anywhere, plus the global `/superadmin` dashboard (all communities + all users). Immutable at runtime — change the env and restart. Empty = no super-admins. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | _(empty)_       | Enable "Continue with Google". Register `BASE_URL/auth/google/callback` as the OAuth redirect URI in the Google Cloud console. Both empty = button hidden, routes not mounted. |
+| `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET` | _(empty)_   | Enable "Continue with Facebook". Register `BASE_URL/auth/facebook/callback` as the Valid OAuth Redirect URI in the Meta app dashboard. Both empty = button hidden, routes not mounted. |
 
 ### Uploads
 

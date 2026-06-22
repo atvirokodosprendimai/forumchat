@@ -221,7 +221,7 @@ web/                          -- templ files, static assets
 
 ## Future
 
-- {[!] OAuth: Google then Facebook, linked to existing global user.}
+- {[x] OAuth: Google + Facebook via `markbates/goth`, linked to the existing global user by verified email. Shipped 2026-06-22 — a *login* method; new-account creation is gated by `OPEN_REGISTRATION`. See `internal/auth/oauth.go`, migration 00053.}
 - {[!] Multi-community UI: community picker, per-community navigation, invite per community.}
 - {[!] JetStream-backed chat with replay on reconnect.}
 - {[?] Trust levels and per-trust-level capabilities (Discourse-inspired).}

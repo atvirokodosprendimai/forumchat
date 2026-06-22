@@ -627,6 +627,46 @@ allowlist that grants god-mode across every community:
   *after* `render.NewSSE` (handlers.go), so its login cookie is dropped per
   §4.4 — unrelated to super-admin, but don't copy that ordering.
 
+## 5e. Social login (OAuth via goth)
+
+Google + Facebook sign-in (Jun 2026), `github.com/markbates/goth`. Lives
+entirely in `internal/auth`: `oauth.go` (provider setup), `oauth_handler.go`
+(HTTP), `Service.UpsertOAuthUser` + `finishOAuth` (service.go), the
+`user_identities` repo methods (repo.go), migration **00053**.
+
+- **It's a *login* method, not a registration bypass.** Resolution order in
+  `UpsertOAuthUser`: (1) known `(provider, provider_user_id)` → that user;
+  (2) existing local user with the same provider-verified email → **auto-link**
+  the identity and sign in; (3) brand-new email → create the account **only when
+  `OpenRegistration` is on**, else refuse with `ErrOAuthNoAccount`. New accounts
+  land in the approval queue unless `OpenRegistrationAutoApprove`. This mirrors
+  the invite gate on the password path.
+- **`user_identities(provider, provider_user_id) → user_id`** is the link table
+  (PK is the provider pair); cached email/name/avatar are refreshed on every
+  sign-in via `LinkIdentity`'s `ON CONFLICT … DO UPDATE`.
+- **OAuth-only users carry the `oauthSentinelHash` password_hash** — not a valid
+  bcrypt hash, so `CheckPassword` always returns false (password login disabled;
+  magic-link still works). `users.password_hash` is `NOT NULL`, hence the
+  sentinel rather than empty.
+- **gothic ≠ scs.** `SetupOAuth` points `gothic.Store` at a *separate*
+  short-lived `gorilla/sessions` cookie store that only holds the OAuth state
+  nonce across the redirect→callback round trip. The real, persistent session is
+  still the scs one minted in `finishOAuthLogin` (`PutLogin` + `commitSession` +
+  `http.Redirect`). These are **plain redirects, not SSE**, so the §4.4
+  datastar-flush cookie bug does not apply here.
+- **Routes `GET /auth/{provider}` + `/auth/{provider}/callback`** are mounted in
+  main.go **only when ≥1 provider has credentials** (`auth.SetupOAuth` returns
+  the enabled list; empty = OAuth off, no dead routes, no buttons). Provider is
+  selected via `chi.URLParam` → `gothic.GetContextWithProvider`.
+- **Buttons are plain `<a href="/auth/<provider>">`, not `@post`** — OAuth needs
+  a top-level browser redirect to the provider, which a datastar fetch can't do.
+  `web/templ` defines `OAuthButton` (leaf-package view model, §4.13); the handler
+  maps `auth.OAuthProvider → webtempl.OAuthButton` via `oauthButtons()` and
+  threads it through `LoginPage`/`LoginStep1`/`RegisterPage` (so `PostLoginBack`
+  must pass it too).
+- Enabled by `GOOGLE_CLIENT_ID`/`SECRET` + `FACEBOOK_CLIENT_ID`/`SECRET`; the
+  provider's redirect URI must be `BASE_URL/auth/<provider>/callback`.
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing
@@ -1293,7 +1333,8 @@ See `## Future` in
 `eidos/spec - forumchat - community web app with realtime chat and forum threads.md`.
 Highlights for whoever picks this up next:
 
-- OAuth (Google → Facebook), linked to the existing global user.
+- ~~OAuth (Google → Facebook), linked to the existing global user.~~ **Done**
+  (Jun 2026) — see §5e.
 - Multi-community UI (data model is already prepared).
 - JetStream-backed chat with replay on reconnect (drops the "if NATS dies you
   miss messages until refresh" weakness).
