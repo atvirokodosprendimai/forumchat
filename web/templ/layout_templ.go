@@ -500,14 +500,14 @@ func Layout(title string, v Viewer) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" data-class:nav-open=\"$_nav_open\" data-class:presence-open=\"$_presence_open\" data-on:click__window=\"document.querySelectorAll('details.msg-menu[open], details.topnav-menu[open]').forEach(d => d.contains(evt.target) || (d.open=false))\" data-on:keydown__window=\"if(evt.key==='Escape'){$_nav_open=false; $_presence_open=false; $_yt_open=false; $_yt_id=''; $_html_open=false; document.querySelectorAll('details.msg-menu[open], details.topnav-menu[open]').forEach(d => d.open=false)}\"><script src=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" data-init=\"document.querySelectorAll('[data-cloak]').forEach(e => e.removeAttribute('data-cloak'))\" data-class:nav-open=\"$_nav_open\" data-class:presence-open=\"$_presence_open\" data-on:click__window=\"document.querySelectorAll('details.msg-menu[open], details.topnav-menu[open]').forEach(d => d.contains(evt.target) || (d.open=false))\" data-on:keydown__window=\"if(evt.key==='Escape'){$_nav_open=false; $_presence_open=false; $_yt_open=false; $_yt_id=''; $_html_open=false; document.querySelectorAll('details.msg-menu[open], details.topnav-menu[open]').forEach(d => d.open=false)}\"><script src=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue("/static/nav.js?v=" + AssetVer("nav.js"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 402, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 403, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 		if templ_7745c5c3_Err != nil {
@@ -540,7 +540,7 @@ func Layout(title string, v Viewer) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/inbox"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 422, Col: 63}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 423, Col: 63}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 				if templ_7745c5c3_Err != nil {
@@ -563,7 +563,7 @@ func Layout(title string, v Viewer) templ.Component {
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/issues"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 425, Col: 65}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 426, Col: 65}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 				if templ_7745c5c3_Err != nil {
@@ -586,7 +586,7 @@ func Layout(title string, v Viewer) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/superadmin"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 428, Col: 73}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 429, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var13)
 				if templ_7745c5c3_Err != nil {
@@ -599,7 +599,7 @@ func Layout(title string, v Viewer) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/superadmin/chat"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 429, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 430, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
 				if templ_7745c5c3_Err != nil {
@@ -617,7 +617,7 @@ func Layout(title string, v Viewer) templ.Component {
 					var templ_7745c5c3_Var15 string
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/support-inbox"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 431, Col: 80}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 432, Col: 80}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 					if templ_7745c5c3_Err != nil {
@@ -636,7 +636,7 @@ func Layout(title string, v Viewer) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/messages"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 434, Col: 88}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 435, Col: 88}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 			if templ_7745c5c3_Err != nil {
@@ -657,7 +657,7 @@ func Layout(title string, v Viewer) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/explore"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 439, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 440, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 			if templ_7745c5c3_Err != nil {
@@ -675,7 +675,7 @@ func Layout(title string, v Viewer) templ.Component {
 				var templ_7745c5c3_Var18 string
 				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/report-issue"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 441, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 442, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 				if templ_7745c5c3_Err != nil {
@@ -698,7 +698,7 @@ func Layout(title string, v Viewer) templ.Component {
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/journal"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 444, Col: 67}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 445, Col: 67}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 				if templ_7745c5c3_Err != nil {
@@ -716,7 +716,7 @@ func Layout(title string, v Viewer) templ.Component {
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 446, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 447, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 			if templ_7745c5c3_Err != nil {
@@ -729,7 +729,7 @@ func Layout(title string, v Viewer) templ.Component {
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(initial(v.DisplayName))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 448, Col: 74}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 449, Col: 74}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
@@ -742,7 +742,7 @@ func Layout(title string, v Viewer) templ.Component {
 			var templ_7745c5c3_Var22 string
 			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(v.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 449, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 450, Col: 44}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 			if templ_7745c5c3_Err != nil {
@@ -779,7 +779,7 @@ func Layout(title string, v Viewer) templ.Component {
 				var templ_7745c5c3_Var23 string
 				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/c/" + v.CommunitySlug + "/chat/events', {openWhenHidden: true})")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 468, Col: 123}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 469, Col: 123}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 				if templ_7745c5c3_Err != nil {
@@ -792,7 +792,7 @@ func Layout(title string, v Viewer) templ.Component {
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue("/static/chat-events.js?v=" + AssetVer("chat-events.js"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 469, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 470, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 				if templ_7745c5c3_Err != nil {
@@ -808,7 +808,7 @@ func Layout(title string, v Viewer) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<div class=\"yt-lightbox\" style=\"display:none\" data-cloak data-show=\"$_yt_open\" data-on:click=\"$_yt_open=false;$_yt_id=''\"><div class=\"yt-lightbox-inner\" data-on:click=\"evt.stopPropagation()\"><button type=\"button\" class=\"yt-lightbox-close\" aria-label=\"Close video\" data-on:click=\"$_yt_open=false;$_yt_id=''\">✕</button> <iframe class=\"yt-lightbox-frame\" title=\"YouTube video player\" allow=\"autoplay; encrypted-media; picture-in-picture; fullscreen\" allowfullscreen data-attr:src=\"$_yt_open ? ('https://www.youtube-nocookie.com/embed/'+$_yt_id+'?autoplay=1&rel=0') : ''\"></iframe></div></div><div class=\"html-lightbox\" style=\"display:none\" data-cloak data-show=\"$_html_open\" data-on:click=\"$_html_open=false\"><div class=\"html-lightbox-inner\" data-on:click=\"evt.stopPropagation()\"><div class=\"html-lightbox-bar\"><span class=\"muted\">HTML preview — sandboxed</span> <button type=\"button\" class=\"html-lightbox-close\" aria-label=\"Close preview\" data-on:click=\"$_html_open=false\">✕</button></div><iframe id=\"fc-html-frame\" class=\"html-lightbox-frame\" title=\"HTML preview\" sandbox=\"allow-scripts allow-modals allow-popups allow-forms\" data-effect=\"if(!$_html_open){el.srcdoc=''}\"></iframe></div></div><footer class=\"site-footer\"><span class=\"muted\">Built by <a href=\"https://ituoga.lt\" target=\"_blank\" rel=\"noopener\">ituoga.lt</a> and Claude</span></footer></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<div class=\"yt-lightbox\" data-cloak data-show=\"$_yt_open\" data-on:click=\"$_yt_open=false;$_yt_id=''\"><div class=\"yt-lightbox-inner\" data-on:click=\"evt.stopPropagation()\"><button type=\"button\" class=\"yt-lightbox-close\" aria-label=\"Close video\" data-on:click=\"$_yt_open=false;$_yt_id=''\">✕</button> <iframe class=\"yt-lightbox-frame\" title=\"YouTube video player\" allow=\"autoplay; encrypted-media; picture-in-picture; fullscreen\" allowfullscreen data-attr:src=\"$_yt_open ? ('https://www.youtube-nocookie.com/embed/'+$_yt_id+'?autoplay=1&rel=0') : ''\"></iframe></div></div><div class=\"html-lightbox\" data-cloak data-show=\"$_html_open\" data-on:click=\"$_html_open=false\"><div class=\"html-lightbox-inner\" data-on:click=\"evt.stopPropagation()\"><div class=\"html-lightbox-bar\"><span class=\"muted\">HTML preview — sandboxed</span> <button type=\"button\" class=\"html-lightbox-close\" aria-label=\"Close preview\" data-on:click=\"$_html_open=false\">✕</button></div><iframe id=\"fc-html-frame\" class=\"html-lightbox-frame\" title=\"HTML preview\" sandbox=\"allow-scripts allow-modals allow-popups allow-forms\" data-effect=\"if(!$_html_open){el.srcdoc=''}\"></iframe></div></div><footer class=\"site-footer\"><span class=\"muted\">Built by <a href=\"https://ituoga.lt\" target=\"_blank\" rel=\"noopener\">ituoga.lt</a> and Claude</span></footer></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -852,7 +852,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(initial(v.CommunityName))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 536, Col: 75}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 537, Col: 75}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
@@ -865,7 +865,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(v.CommunityName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 537, Col: 48}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 538, Col: 48}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 			if templ_7745c5c3_Err != nil {
@@ -888,7 +888,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 					var templ_7745c5c3_Var28 templ.SafeURL
 					templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + c.Slug + "/chat"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 544, Col: 77}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 545, Col: 77}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 					if templ_7745c5c3_Err != nil {
@@ -901,7 +901,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 					var templ_7745c5c3_Var29 string
 					templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue(ariaPage(c.Slug == v.CommunitySlug))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 545, Col: 58}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 546, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 					if templ_7745c5c3_Err != nil {
@@ -914,7 +914,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 					var templ_7745c5c3_Var30 string
 					templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(initial(c.Name))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 546, Col: 83}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 547, Col: 83}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 					if templ_7745c5c3_Err != nil {
@@ -927,7 +927,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 					var templ_7745c5c3_Var31 string
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 547, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 548, Col: 47}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 					if templ_7745c5c3_Err != nil {
@@ -960,7 +960,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var32 templ.SafeURL
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/chat"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 560, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 561, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
@@ -973,7 +973,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var33 string
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/chat"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 560, Col: 121}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 561, Col: 121}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 			if templ_7745c5c3_Err != nil {
@@ -986,7 +986,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var34 templ.SafeURL
 			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/forum"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 561, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 562, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 			if templ_7745c5c3_Err != nil {
@@ -999,7 +999,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var35 string
 			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/forum"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 561, Col: 123}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 562, Col: 123}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 			if templ_7745c5c3_Err != nil {
@@ -1012,7 +1012,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var36 templ.SafeURL
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/rooms"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 562, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 563, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 			if templ_7745c5c3_Err != nil {
@@ -1025,7 +1025,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/rooms"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 562, Col: 123}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 563, Col: 123}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 			if templ_7745c5c3_Err != nil {
@@ -1038,7 +1038,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var38 templ.SafeURL
 			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/search"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 563, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 564, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 			if templ_7745c5c3_Err != nil {
@@ -1051,7 +1051,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var39 string
 			templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/search"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 563, Col: 125}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 564, Col: 125}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 			if templ_7745c5c3_Err != nil {
@@ -1069,7 +1069,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var40 templ.SafeURL
 				templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/agent"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 565, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 566, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 				if templ_7745c5c3_Err != nil {
@@ -1082,7 +1082,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var41 string
 				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/agent"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 565, Col: 124}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 566, Col: 124}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var41)
 				if templ_7745c5c3_Err != nil {
@@ -1100,7 +1100,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var42 string
 			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(ariaPage(topnavMoreActive(ctx, v.CommunitySlug)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 569, Col: 76}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 570, Col: 76}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 			if templ_7745c5c3_Err != nil {
@@ -1113,7 +1113,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var43 templ.SafeURL
 			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/bookmarks"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 574, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 575, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 			if templ_7745c5c3_Err != nil {
@@ -1126,7 +1126,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/bookmarks"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 574, Col: 132}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 575, Col: 132}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 			if templ_7745c5c3_Err != nil {
@@ -1139,7 +1139,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var45 templ.SafeURL
 			templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/todos"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 575, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 576, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 			if templ_7745c5c3_Err != nil {
@@ -1152,7 +1152,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var46 string
 			templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/todos"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 575, Col: 124}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 576, Col: 124}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var46)
 			if templ_7745c5c3_Err != nil {
@@ -1170,7 +1170,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var47 templ.SafeURL
 				templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/projects"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 577, Col: 64}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 578, Col: 64}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 				if templ_7745c5c3_Err != nil {
@@ -1183,7 +1183,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var48 string
 				templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/projects"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 577, Col: 131}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 578, Col: 131}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 				if templ_7745c5c3_Err != nil {
@@ -1202,7 +1202,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var49 templ.SafeURL
 				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/budget"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 580, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 581, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 				if templ_7745c5c3_Err != nil {
@@ -1215,7 +1215,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var50 string
 				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/budget"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 580, Col: 127}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 581, Col: 127}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var50)
 				if templ_7745c5c3_Err != nil {
@@ -1234,7 +1234,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var51 templ.SafeURL
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/lobbies"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 583, Col: 63}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 584, Col: 63}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 				if templ_7745c5c3_Err != nil {
@@ -1247,7 +1247,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var52 string
 				templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/lobbies"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 583, Col: 129}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 584, Col: 129}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var52)
 				if templ_7745c5c3_Err != nil {
@@ -1265,7 +1265,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var53 templ.SafeURL
 			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/history"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 585, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 586, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 			if templ_7745c5c3_Err != nil {
@@ -1278,7 +1278,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/history"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 585, Col: 128}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 586, Col: 128}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
 			if templ_7745c5c3_Err != nil {
@@ -1291,7 +1291,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var55 templ.SafeURL
 			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/notifications"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 586, Col: 68}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 587, Col: 68}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 			if templ_7745c5c3_Err != nil {
@@ -1304,7 +1304,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var56 string
 			templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/notifications"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 586, Col: 140}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 587, Col: 140}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var56)
 			if templ_7745c5c3_Err != nil {
@@ -1322,7 +1322,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var57 templ.SafeURL
 				templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + v.CommunitySlug + "/admin"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 588, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 589, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 				if templ_7745c5c3_Err != nil {
@@ -1335,7 +1335,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 				var templ_7745c5c3_Var58 string
 				templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/c/"+v.CommunitySlug+"/admin"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 588, Col: 125}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 589, Col: 125}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var58)
 				if templ_7745c5c3_Err != nil {
@@ -1358,7 +1358,7 @@ func CommunityTopNav(v Viewer) templ.Component {
 			var templ_7745c5c3_Var59 string
 			templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.ResolveAttributeValue(navActive(ctx, "/"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 595, Col: 69}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 596, Col: 69}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var59)
 			if templ_7745c5c3_Err != nil {
@@ -1413,7 +1413,7 @@ func Hello(communityName string) templ.Component {
 			var templ_7745c5c3_Var62 string
 			templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(communityName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 603, Col: 33}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 604, Col: 33}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 			if templ_7745c5c3_Err != nil {
@@ -1473,7 +1473,7 @@ func Home(v Viewer) templ.Component {
 			var templ_7745c5c3_Var65 string
 			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(v.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 618, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 619, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 			if templ_7745c5c3_Err != nil {
@@ -1486,7 +1486,7 @@ func Home(v Viewer) templ.Component {
 			var templ_7745c5c3_Var66 string
 			templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(v.CommunityName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 619, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 620, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 			if templ_7745c5c3_Err != nil {
@@ -1534,7 +1534,7 @@ func ClockFragment(now string) templ.Component {
 		var templ_7745c5c3_Var68 string
 		templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.JoinStringErrs(now)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 630, Col: 22}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/layout.templ`, Line: 631, Col: 22}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var68))
 		if templ_7745c5c3_Err != nil {

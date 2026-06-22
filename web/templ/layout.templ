@@ -394,6 +394,7 @@ templ Layout(title string, v Viewer) {
 		</head>
 		<body
 			data-signals={ InitialSignals }
+			data-init="document.querySelectorAll('[data-cloak]').forEach(e => e.removeAttribute('data-cloak'))"
 			data-class:nav-open="$_nav_open"
 			data-class:presence-open="$_presence_open"
 			data-on:click__window="document.querySelectorAll('details.msg-menu[open], details.topnav-menu[open]').forEach(d => d.contains(evt.target) || (d.open=false))"
@@ -484,7 +485,7 @@ templ Layout(title string, v Viewer) {
 			// render.EmbedYouTube sets $_yt_id + $_yt_open on click; the iframe src
 			// is bound to the signal so the player loads only while open and clears
 			// on close (stops playback). youtube-nocookie for privacy.
-			<div class="yt-lightbox" style="display:none" data-cloak data-show="$_yt_open"
+			<div class="yt-lightbox" data-cloak data-show="$_yt_open"
 				data-on:click="$_yt_open=false;$_yt_id=''">
 				<div class="yt-lightbox-inner" data-on:click="evt.stopPropagation()">
 					<button type="button" class="yt-lightbox-close" aria-label="Close video"
@@ -501,7 +502,7 @@ templ Layout(title string, v Viewer) {
 			// window.fcPreviewCode, then flips $_html_open. sandbox WITHOUT
 			// allow-same-origin keeps agent HTML isolated from the app origin; the
 			// data-effect blanks srcdoc on close so any script/audio stops.
-			<div class="html-lightbox" style="display:none" data-cloak data-show="$_html_open"
+			<div class="html-lightbox" data-cloak data-show="$_html_open"
 				data-on:click="$_html_open=false">
 				<div class="html-lightbox-inner" data-on:click="evt.stopPropagation()">
 					<div class="html-lightbox-bar">

@@ -8,11 +8,17 @@
 // left with the one thing datastar can't express declaratively:
 //
 // `[data-cloak] { display: none !important }` is the FOUC guard for initial
-// page render. The body's data-init strips it once at mount — but server SSE
-// patches (PatchElementTempl etc.) ship new HTML that re-injects data-cloak.
-// Without a re-stripper, those patched elements stay invisible forever. We
-// watch the document for node insertions AND data-cloak attribute changes and
-// strip it everywhere.
+// page render. The INITIAL strip is owned by datastar's data-init on <body>
+// (layout.templ) — not this file — because data-init cannot fire until datastar
+// has loaded, so the cloak stays (hiding the element) for the whole CDN-load
+// window and is removed in the same hydration pass that applies data-show. No
+// gap, no flash. (Stripping here on DOMContentLoaded raced datastar: nav.js is
+// a local defer script and ran first, unhiding fixed full-screen lightboxes
+// ~0.5s before data-show could take over.)
+//
+// This file only re-strips data-cloak that server SSE patches (PatchElementTempl
+// etc.) re-inject — those land after datastar is already up, so there's no race.
+// Without a re-stripper, patched elements would stay invisible forever.
 (() => {
   function stripCloak(root) {
     if (!root) return;
@@ -24,7 +30,6 @@
     }
   }
   function bootCloakStripper() {
-    stripCloak(document.body);
     const mo = new MutationObserver((records) => {
       for (const r of records) {
         if (r.type === 'attributes' && r.attributeName === 'data-cloak') {
