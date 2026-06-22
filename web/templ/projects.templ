@@ -130,6 +130,11 @@ type ProjectAttachmentView struct {
 	Category  string // common / api_docs / design / other / ...
 	CreatedAt time.Time
 	CanDelete bool
+	// URL is a signed, inline-served upload URL (Content-Disposition:
+	// inline) used to embed previewable kinds — image / video / audio /
+	// pdf — directly in the Docs tab. Non-previewable kinds ignore it and
+	// link to the download endpoint instead.
+	URL string
 	// MovePeers are the OTHER active projects in the community the
 	// viewer can re-parent this attachment into. Empty when the move
 	// dropdown should be hidden.
@@ -1133,12 +1138,8 @@ templ projectAttachmentsByCategory(slug, projectID string, atts []ProjectAttachm
 			</header>
 			<ul class="project-attachments">
 				for _, a := range grp.Items {
-					<li class="project-attachment">
-						<a class="project-attachment-link"
-							href={ templ.URL("/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/download") }>
-							<span class="project-attachment-name">{ a.Filename }</span>
-							<span class="project-attachment-size muted">{ humanBytes(a.SizeBytes) }</span>
-						</a>
+					<li class={ "project-attachment", templ.KV("project-attachment-embed", isEmbeddableMIME(a.MIME)) }>
+						@projectAttachmentBody(slug, projectID, a)
 						if a.CanDelete && !isGuest {
 							<button class="btn ghost project-attachment-delete"
 								title="Delete this attachment"
@@ -1149,6 +1150,66 @@ templ projectAttachmentsByCategory(slug, projectID string, atts []ProjectAttachm
 			</ul>
 		</div>
 	}
+}
+
+// projectAttachmentBody renders the file itself. Previewable kinds embed
+// inline (image / video / audio / pdf) using the signed inline URL;
+// everything else is a download chip with a type icon. Mirrors the chat
+// bubble's MessageAttachment shape, scoped to project Docs styling.
+templ projectAttachmentBody(slug, projectID string, a ProjectAttachmentView) {
+	if isImageMIME(a.MIME) {
+		<a class="project-attachment-media project-attachment-image"
+			href={ templ.URL(a.URL) } target="_blank" rel="noopener" title={ a.Filename }>
+			<img loading="lazy" alt={ a.Filename } src={ a.URL }/>
+			<span class="project-attachment-cap muted">{ a.Filename } · { humanBytes(a.SizeBytes) }</span>
+		</a>
+	} else if isVideoMIME(a.MIME) {
+		<div class="project-attachment-media project-attachment-video">
+			<video controls preload="metadata" src={ a.URL }></video>
+			@projectAttachmentMeta(slug, projectID, a, "🎬")
+		</div>
+	} else if isAudioMIME(a.MIME) {
+		<div class="project-attachment-media project-attachment-audio">
+			<audio controls preload="metadata" src={ a.URL }></audio>
+			@projectAttachmentMeta(slug, projectID, a, "🎵")
+		</div>
+	} else if a.MIME == "application/pdf" {
+		<div class="project-attachment-media project-attachment-pdf">
+			<iframe src={ a.URL } title={ a.Filename } loading="lazy"></iframe>
+			@projectAttachmentMeta(slug, projectID, a, "📕")
+		</div>
+	} else {
+		<a class="project-attachment-link"
+			href={ templ.URL("/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/download") }>
+			<span class="att-icon" aria-hidden="true">{ fileIcon(a.MIME) }</span>
+			<span class="project-attachment-name">{ a.Filename }</span>
+			<span class="project-attachment-size muted">{ humanBytes(a.SizeBytes) }</span>
+		</a>
+	}
+}
+
+// projectAttachmentMeta is the filename + size + download strip shown
+// under an embedded video / audio / pdf preview. The download link uses
+// the download endpoint so the file saves under its original name.
+templ projectAttachmentMeta(slug, projectID string, a ProjectAttachmentView, icon string) {
+	<div class="project-attachment-meta">
+		<span class="att-icon" aria-hidden="true">{ icon }</span>
+		<span class="project-attachment-name">{ a.Filename }</span>
+		<span class="project-attachment-size muted">{ humanBytes(a.SizeBytes) }</span>
+		<a class="project-attachment-dl"
+			href={ templ.URL("/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/download") }>⬇ Download</a>
+	</div>
+}
+
+// isVideoMIME / isAudioMIME / isEmbeddableMIME classify a MIME for the
+// inline-preview branches. Kept as slice checks to match the existing
+// isImageMIME helper and avoid a strings import.
+func isVideoMIME(mime string) bool { return len(mime) >= 6 && mime[:6] == "video/" }
+
+func isAudioMIME(mime string) bool { return len(mime) >= 6 && mime[:6] == "audio/" }
+
+func isEmbeddableMIME(mime string) bool {
+	return isImageMIME(mime) || isVideoMIME(mime) || isAudioMIME(mime) || mime == "application/pdf"
 }
 
 // AttachmentGroup is one bucket rendered by projectAttachmentsByCategory.

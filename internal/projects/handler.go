@@ -245,7 +245,7 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 		if err != nil {
 			h.Log.Error("projects attachments load", "err", err, "id", pid)
 		}
-		data.Attachments = toAttachmentViews(atts, p.CreatorUserID, caller.UserID, isAdmin)
+		data.Attachments = h.toAttachmentViews(atts, p.CreatorUserID, caller.UserID, isAdmin)
 	}
 	// MovePeers feeds the per-attachment + per-issue "Move to project"
 	// pickers. Built once per page render — every active project in
@@ -1029,13 +1029,19 @@ func (h *Handler) pushAttachments(r *http.Request, sse *datastar.ServerSentEvent
 	id, _ := auth.FromContext(r.Context())
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectAttachmentsFragment(c.Slug, pid, toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role == auth.RoleAdmin), false),
+		webtempl.ProjectAttachmentsFragment(c.Slug, pid, h.toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role == auth.RoleAdmin), false),
 		datastar.WithSelector("#proj-attachments"),
 		datastar.WithModeOuter(),
 	)
 }
 
-func toAttachmentViews(atts []Attachment, creatorID, viewerID string, viewerIsAdmin bool) []webtempl.ProjectAttachmentView {
+// toAttachmentViews maps stored attachments to view models. It mints a
+// signed, inline-served upload URL per row (via SignedURL → the /uploads
+// handler sets Content-Disposition: inline) so the Docs tab can embed
+// previewable kinds — image / video / audio / pdf — instead of only
+// offering a download. Non-previewable kinds fall back to the download
+// chip in the template.
+func (h *Handler) toAttachmentViews(atts []Attachment, creatorID, viewerID string, viewerIsAdmin bool) []webtempl.ProjectAttachmentView {
 	out := make([]webtempl.ProjectAttachmentView, 0, len(atts))
 	for _, a := range atts {
 		canDelete := viewerIsAdmin || a.UploaderID == viewerID || creatorID == viewerID
@@ -1047,6 +1053,7 @@ func toAttachmentViews(atts []Attachment, creatorID, viewerID string, viewerIsAd
 			Category:  a.Category,
 			CreatedAt: a.CreatedAt,
 			CanDelete: canDelete,
+			URL:       h.Uploads.SignedURL(a.UploadID, viewerID, 24*time.Hour),
 		})
 	}
 	return out
