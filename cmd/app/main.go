@@ -189,6 +189,33 @@ func run() error {
 			next.ServeHTTP(w, req.WithContext(webtempl.WithCurrentPath(req.Context(), req.URL.Path)))
 		})
 	})
+	// Stash the viewer's switchable communities for the top-bar switcher
+	// dropdown (one-click swap). Only approved, non-banned memberships are
+	// listed — those are the ones a click can actually enter. Leaf-package
+	// rule (§4.13): web/templ reads the list off ctx, the mapping lives here.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			id, ok := auth.FromContext(req.Context())
+			if !ok {
+				next.ServeHTTP(w, req)
+				return
+			}
+			rows, err := cRepo.ListForUser(req.Context(), id.User.ID)
+			if err != nil {
+				next.ServeHTTP(w, req)
+				return
+			}
+			comms := make([]webtempl.TopNavCommunity, 0, len(rows))
+			for _, row := range rows {
+				if !row.IsApproved || row.IsBanned {
+					continue
+				}
+				comms = append(comms, webtempl.TopNavCommunity{Slug: row.Community.Slug, Name: row.Community.Name})
+			}
+			ctx := context.WithValue(req.Context(), webtempl.TopNavCommunitiesCtxKey(), comms)
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
 
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

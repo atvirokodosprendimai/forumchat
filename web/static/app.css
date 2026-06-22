@@ -2219,6 +2219,32 @@ img.thread-announce-img {
 .topnav-pop > a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-strong); }
 .topnav-pop .sb-icon { width: 1.2rem; text-align: center; flex: 0 0 1.2rem; }
 
+/* Community switcher dropdown — the list of communities the viewer can
+   enter in one click, above the "All communities" / "Explore" links. */
+.topnav-pop-switcher { min-width: 14rem; max-height: min(70vh, 24rem); overflow-y: auto; }
+.topnav-pop-label {
+  padding: .25rem .6rem .35rem;
+  font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.topnav-comm-item {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .4rem .5rem;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.topnav-comm-item:hover { background: var(--surface-alt); text-decoration: none; }
+.topnav-comm-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent-strong); }
+.topnav-ava-sm { width: 1.45rem; height: 1.45rem; font-size: .72rem; flex: 0 0 1.45rem; }
+.topnav-comm-name { overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; }
+.topnav-comm-check { color: var(--accent-strong); font-size: .8rem; flex: 0 0 auto; }
+.topnav-pop-sep {
+  height: 1px; margin: .35rem .3rem;
+  background: var(--border-subtle);
+}
+
 /* Communities chip — shown when no community is in scope, so the bar keeps
    its height on dashboard / explore / messages (no shift on entering one). */
 .topnav-chip {

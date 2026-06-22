@@ -43,6 +43,30 @@ func IsSuperAdmin(ctx context.Context) bool {
 // without an import cycle. Read by IsSuperAdmin above.
 func SuperAdminCtxKey() any { return superAdminCtxKey }
 
+// TopNavCommunity is one entry in the top-bar community switcher — the
+// communities the viewer can enter in one click. web/templ is a leaf package
+// (§4.13), so the handler side builds these and stashes them on ctx under
+// TopNavCommunitiesCtxKey rather than importing the community package.
+type TopNavCommunity struct {
+	Slug string
+	Name string
+}
+
+type topNavCommunitiesCtxKeyType struct{}
+
+var topNavCommunitiesCtxKey = topNavCommunitiesCtxKeyType{}
+
+// TopNavCommunities reads the viewer's switchable communities stashed by the
+// middleware in main.go. Powers the switcher dropdown in CommunityTopNav.
+func TopNavCommunities(ctx context.Context) []TopNavCommunity {
+	v, _ := ctx.Value(topNavCommunitiesCtxKey).([]TopNavCommunity)
+	return v
+}
+
+// TopNavCommunitiesCtxKey is exported so a non-leaf package can stash the list
+// under the same key TopNavCommunities reads from (leaf package — §4.13).
+func TopNavCommunitiesCtxKey() any { return topNavCommunitiesCtxKey }
+
 // currentPathCtxKey carries the request path so the sidebar can mark the
 // active link server-side (was a client DOM-walk in nav.js). Set by a
 // middleware in main.go on every request.
@@ -513,7 +537,21 @@ templ CommunityTopNav(v Viewer) {
 					<span class="topnav-comm">{ v.CommunityName }</span>
 					<span class="topnav-caret" aria-hidden="true">▾</span>
 				</summary>
-				<div class="topnav-pop">
+				<div class="topnav-pop topnav-pop-switcher">
+					if comms := TopNavCommunities(ctx); len(comms) > 0 {
+						<div class="topnav-pop-label">Switch community</div>
+						for _, c := range comms {
+							<a class="topnav-comm-item" href={ templ.URL("/c/" + c.Slug + "/chat") }
+								aria-current={ ariaPage(c.Slug == v.CommunitySlug) }>
+								<span class="topnav-ava topnav-ava-sm" aria-hidden="true">{ initial(c.Name) }</span>
+								<span class="topnav-comm-name">{ c.Name }</span>
+								if c.Slug == v.CommunitySlug {
+									<span class="topnav-comm-check" aria-hidden="true">✓</span>
+								}
+							</a>
+						}
+						<div class="topnav-pop-sep" role="separator"></div>
+					}
 					<a href="/"><span class="sb-icon" aria-hidden="true">🏠</span>All communities</a>
 					<a href="/explore"><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
 				</div>
