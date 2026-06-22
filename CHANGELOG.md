@@ -180,3 +180,4 @@
 - 2026-06-22 `d6a9f8a` fix(projects): unique signal per share-to-chat composer
 - 2026-06-22 `73bf9e6` docs(changelog): record share-to-chat signal fix
 - 2026-06-22 `9600840` fix(forum): re-sync thread stream while an agent reply is generating
+- 2026-06-22 `98b7c5f` docs(changelog): record forum thread stream resync fix
