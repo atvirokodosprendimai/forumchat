@@ -29,10 +29,19 @@ func TestDownloadableCode_HTMLBlock(t *testing.T) {
 		`data-mime="text/html"`,
 		`data-on:click="window.fcDownloadCode(el)"`,
 		`Download .html`,
+		`window.fcPreviewCode(el);$_html_open=true`, // HTML blocks get a sandboxed preview
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
+	}
+}
+
+func TestDownloadableCode_PreviewOnlyForHTML(t *testing.T) {
+	t.Parallel()
+	out := render.DownloadableCode(renderMD(t, "```go\nfmt.Println(\"hi\")\n```"))
+	if strings.Contains(out, "fcPreviewCode") {
+		t.Errorf("non-HTML block should not get a preview button:\n%s", out)
 	}
 }
 

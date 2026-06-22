@@ -309,7 +309,8 @@ const InitialSignals = `{
 	"tb_note":"",
 	"worklog_note":"",
 	"_yt_open":false,
-	"_yt_id":""
+	"_yt_id":"",
+	"_html_open":false
 }`
 
 templ Layout(title string, v Viewer) {
@@ -350,7 +351,7 @@ templ Layout(title string, v Viewer) {
 			data-class:nav-open="$_nav_open"
 			data-class:presence-open="$_presence_open"
 			data-on:click__window="document.querySelectorAll('details.msg-menu[open]').forEach(d => d.contains(evt.target) || (d.open=false))"
-			data-on:keydown__window="if(evt.key==='Escape'){$_nav_open=false; $_presence_open=false; $_yt_open=false; $_yt_id=''; document.querySelectorAll('details.msg-menu[open]').forEach(d => d.open=false)}"
+			data-on:keydown__window="if(evt.key==='Escape'){$_nav_open=false; $_presence_open=false; $_yt_open=false; $_yt_id=''; $_html_open=false; document.querySelectorAll('details.msg-menu[open]').forEach(d => d.open=false)}"
 		>
 			<script src={ "/static/nav.js?v=" + AssetVer("nav.js") } defer></script>
 			<header class="topbar">
@@ -468,6 +469,26 @@ templ Layout(title string, v Viewer) {
 					<iframe class="yt-lightbox-frame" title="YouTube video player"
 						allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
 						data-attr:src="$_yt_open ? ('https://www.youtube-nocookie.com/embed/'+$_yt_id+'?autoplay=1&rel=0') : ''"></iframe>
+				</div>
+			</div>
+			// HTML preview lightbox — a single global sandboxed iframe outside any
+			// morph target, so opening it never disturbs chat/agent streams. The
+			// "👁 Preview" button on an HTML code block (render.DownloadableCode)
+			// loads the block's raw source into #fc-html-frame via
+			// window.fcPreviewCode, then flips $_html_open. sandbox WITHOUT
+			// allow-same-origin keeps agent HTML isolated from the app origin; the
+			// data-effect blanks srcdoc on close so any script/audio stops.
+			<div class="html-lightbox" data-cloak data-show="$_html_open"
+				data-on:click="$_html_open=false">
+				<div class="html-lightbox-inner" data-on:click="evt.stopPropagation()">
+					<div class="html-lightbox-bar">
+						<span class="muted">HTML preview — sandboxed</span>
+						<button type="button" class="html-lightbox-close" aria-label="Close preview"
+							data-on:click="$_html_open=false">✕</button>
+					</div>
+					<iframe id="fc-html-frame" class="html-lightbox-frame" title="HTML preview"
+						sandbox="allow-scripts allow-modals allow-popups allow-forms"
+						data-effect="if(!$_html_open){el.srcdoc=''}"></iframe>
 				</div>
 			</div>
 			<footer class="site-footer">

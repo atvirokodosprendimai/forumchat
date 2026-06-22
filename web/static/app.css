@@ -2484,21 +2484,53 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 .codeblock { margin: .6rem 0; max-width: 100%; }
 .codeblock > pre { margin: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .codeblock-bar {
-  display: flex; justify-content: flex-end;
-  background: oklch(96% 0.008 260);
-  border: 1px solid var(--border-subtle);
-  border-top: none;
+  display: flex; justify-content: flex-end; gap: .4rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  padding: .25rem .4rem;
+  padding: .35rem .45rem;
 }
-.codeblock-dl {
-  font: inherit; font-size: .72rem; line-height: 1;
-  color: var(--fg-muted); background: transparent;
-  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
-  padding: .3rem .55rem; cursor: pointer;
+.codeblock-dl, .codeblock-prev {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font: inherit; font-size: .74rem; font-weight: 600; line-height: 1;
+  color: var(--fg); background: var(--surface);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: .35rem .6rem; cursor: pointer;
   transition: color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out);
 }
-.codeblock-dl:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.codeblock-dl:hover, .codeblock-prev:hover { color: var(--accent-fg); border-color: var(--accent); background: var(--accent); }
+/* Inside a paste the figure is the whole card — flatten the pre's bottom so it
+   reads as one unit with the bar (the standalone .paste-rendered pre rule
+   re-rounds all corners otherwise). */
+.paste-rendered .codeblock { margin: 0; }
+.paste-rendered .codeblock > pre { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+
+/* Sandboxed HTML preview lightbox (layout.templ #fc-html-frame). */
+.html-lightbox {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: oklch(20% 0.02 260 / 0.55); backdrop-filter: blur(2px);
+  padding: clamp(.5rem, 3vw, 2rem);
+}
+.html-lightbox-inner {
+  display: flex; flex-direction: column;
+  width: min(1000px, 100%); height: min(80vh, 100%);
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-md);
+}
+.html-lightbox-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .5rem .75rem; border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-2); font-size: .8rem;
+}
+.html-lightbox-close {
+  font: inherit; font-size: 1rem; line-height: 1; cursor: pointer;
+  color: var(--fg-muted); background: transparent; border: none; padding: .15rem .4rem;
+  border-radius: var(--radius-sm);
+}
+.html-lightbox-close:hover { color: var(--fg); background: var(--surface-2); }
+.html-lightbox-frame { flex: 1 1 auto; width: 100%; border: none; background: #fff; }
 
 /* Tables — modern */
 table {

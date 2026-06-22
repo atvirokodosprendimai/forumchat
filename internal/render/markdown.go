@@ -216,11 +216,18 @@ func DownloadableCode(s string) string {
 			lang = sub[1]
 		}
 		ext, mime := codeExt(lang)
+		bar := ""
+		// HTML blocks also get a "Preview" that runs the code in the global
+		// sandboxed iframe overlay (web/templ/layout.templ). fcPreviewCode reads
+		// the code textContent; $_html_open shows the overlay.
+		if ext == "html" {
+			bar += `<button type="button" class="codeblock-prev"` +
+				` data-on:click="window.fcPreviewCode(el);$_html_open=true">👁 Preview</button>`
+		}
+		bar += `<button type="button" class="codeblock-dl" data-ext="` + ext + `" data-mime="` + mime + `"` +
+			` data-on:click="window.fcDownloadCode(el)">⬇ Download .` + ext + `</button>`
 		return `<figure class="codeblock">` + m +
-			`<figcaption class="codeblock-bar">` +
-			`<button type="button" class="codeblock-dl" data-ext="` + ext + `" data-mime="` + mime + `"` +
-			` data-on:click="window.fcDownloadCode(el)">⬇ Download .` + ext + `</button>` +
-			`</figcaption></figure>`
+			`<figcaption class="codeblock-bar">` + bar + `</figcaption></figure>`
 	})
 }
 
