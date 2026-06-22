@@ -3,6 +3,8 @@ package templ
 import (
 	"strconv"
 	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
 )
 
 // PasteView is the leaf-package view model for one paste (no domain import).
@@ -100,14 +102,18 @@ templ pasteView(d PastePageData) {
 			<div class="paste-meta">
 				<span class="paste-lang-badge">{ d.Paste.Language }</span>
 				<span class="muted">{ d.Paste.CreatedAt.Format("2006-01-02 15:04") }</span>
-				<button class="link" data-on:click="navigator.clipboard.writeText(document.getElementById('paste-raw').value)">Copy</button>
+				<button class="link" data-on:click="window.fcToggleSource(el)">&lt;/&gt; Source</button>
+				if render.LooksLikeHTML(d.Paste.Body) {
+					<button class="link" data-on:click="window.fcPreviewSource(el);$_html_open=true">👁 Preview</button>
+				}
+				<button class="link" data-on:click="navigator.clipboard.writeText(el.closest('.paste-card').querySelector('.body-source code').textContent)">Copy</button>
 				<a class="link" href={ templ.URL("/c/" + d.Slug + "/chat") }>Back to chat</a>
 			</div>
 		</div>
 		<div class="paste-rendered">
-			@templ.Raw(d.Paste.BodyHTML)
+			@templ.Raw(render.RichHTML(d.Paste.BodyHTML))
 		</div>
-		<textarea id="paste-raw" hidden>{ d.Paste.Body }</textarea>
+		<pre class="body-source" aria-hidden="true"><code>{ d.Paste.Body }</code></pre>
 	</div>
 }
 

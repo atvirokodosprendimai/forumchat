@@ -2510,7 +2510,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
   font-family: var(--font-mono); font-size: .82em; line-height: 1.5;
   white-space: pre-wrap; word-break: break-word;
 }
-.show-source .body, .show-source .agent-body { display: none; }
+.show-source .body, .show-source .agent-body, .show-source .paste-rendered { display: none; }
 .show-source .body-source { display: block; }
 .body-tools { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
 /* Inside a paste the figure is the whole card — flatten the pre's bottom so it

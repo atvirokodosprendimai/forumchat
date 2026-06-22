@@ -42,7 +42,7 @@ window.fcPreviewCode = function (btn) {
 // The raw markdown lives in a hidden <pre class="body-source"> sibling of the
 // rendered body. fcSourceHost finds the enclosing bubble that owns both.
 function fcSourceHost(btn) {
-  return btn.closest('.agent-bubble, article');
+  return btn.closest('.agent-bubble, article, .paste-card');
 }
 function fcSourceText(btn) {
   const host = fcSourceHost(btn);
