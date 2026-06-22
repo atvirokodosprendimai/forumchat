@@ -178,3 +178,4 @@
 - 2026-06-22 `3829049` feat(projects): add status, completion date, assignee to project todos (data layer)
 - 2026-06-22 `56520f2` feat(projects): wire status/assignee/dates into todo UI
 - 2026-06-22 `d6a9f8a` fix(projects): unique signal per share-to-chat composer
+- 2026-06-22 `73bf9e6` docs(changelog): record share-to-chat signal fix
