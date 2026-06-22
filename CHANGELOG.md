@@ -177,3 +177,4 @@
 - 2026-06-22 `d49d318` fix(projects): redirect to Issues tab after create, not detail page
 - 2026-06-22 `3829049` feat(projects): add status, completion date, assignee to project todos (data layer)
 - 2026-06-22 `56520f2` feat(projects): wire status/assignee/dates into todo UI
+- 2026-06-22 `d6a9f8a` fix(projects): unique signal per share-to-chat composer
