@@ -174,3 +174,4 @@
 - 2026-06-21 `7f84d80` feat(forum): promoting a chat reply carries its parent into the thread
 - 2026-06-21 `aa1d0e3` feat(forum): chat-style thread page with slim composer
 - 2026-06-22 `1358a63` feat(auth): add Google + Facebook login via goth
+- 2026-06-22 `d49d318` fix(projects): redirect to Issues tab after create, not detail page
