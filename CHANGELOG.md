@@ -175,3 +175,5 @@
 - 2026-06-21 `aa1d0e3` feat(forum): chat-style thread page with slim composer
 - 2026-06-22 `1358a63` feat(auth): add Google + Facebook login via goth
 - 2026-06-22 `d49d318` fix(projects): redirect to Issues tab after create, not detail page
+- 2026-06-22 `3829049` feat(projects): add status, completion date, assignee to project todos (data layer)
+- 2026-06-22 `56520f2` feat(projects): wire status/assignee/dates into todo UI
