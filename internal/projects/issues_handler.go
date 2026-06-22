@@ -628,14 +628,16 @@ func (h *Handler) PostCreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := h.composeBodyWithImage(r, c.ID, h.uploaderOwnerID(r, pid, id), in.BodyImage, in.Body)
-	i, err := h.Svc.CreateIssue(r.Context(), pid, in.Title, body, id)
-	if err != nil {
+	if _, err := h.Svc.CreateIssue(r.Context(), pid, in.Title, body, id); err != nil {
 		h.Log.Warn("projects issue create", "err", err, "project", pid)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Land back on the Issues tab (list + fresh create form) so the user can
+	// immediately file another. The detail page has no create form, which
+	// forced a manual tab-click / refresh to open the next issue.
 	sse := render.NewSSE(w, r)
-	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues/" + i.ID)
+	_ = sse.Redirect("/c/" + c.Slug + "/projects/" + pid + "/issues")
 }
 
 // PostIssueStatus moves the workflow forward. Member-only.
