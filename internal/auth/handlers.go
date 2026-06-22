@@ -44,6 +44,9 @@ type Handler struct {
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
+	// OAuthProviders are the enabled social-login providers (empty = OAuth off).
+	// Rendered as "Continue with …" buttons on the login + register pages.
+	OAuthProviders []OAuthProvider
 }
 
 type chiMux interface {
@@ -81,7 +84,7 @@ func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/register-as-admin", http.StatusSeeOther)
 		return
 	}
-	_ = webtempl.RegisterPage(h.Svc.OpenRegistration).Render(r.Context(), w)
+	_ = webtempl.RegisterPage(h.Svc.OpenRegistration, h.oauthButtons()).Render(r.Context(), w)
 }
 
 // --- register-as-admin (zero-users bootstrap) ---
@@ -223,7 +226,7 @@ func (h *Handler) GetVerify(w http.ResponseWriter, r *http.Request) {
 // --- login ---
 
 func (h *Handler) GetLogin(w http.ResponseWriter, r *http.Request) {
-	_ = webtempl.LoginPage().Render(r.Context(), w)
+	_ = webtempl.LoginPage(h.oauthButtons()).Render(r.Context(), w)
 }
 
 type loginSignals struct {
@@ -296,7 +299,7 @@ func (h *Handler) PostLoginCheck(w http.ResponseWriter, r *http.Request) {
 // a mistyped address without losing the email signal.
 func (h *Handler) PostLoginBack(w http.ResponseWriter, r *http.Request) {
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchElementTempl(webtempl.LoginStep1())
+	_ = sse.PatchElementTempl(webtempl.LoginStep1(h.oauthButtons()))
 }
 
 // PostLoginMagic mails a one-shot sign-in link to the address from the

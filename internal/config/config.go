@@ -72,6 +72,19 @@ type Config struct {
 	// an unverifiable email.
 	AutoVerifyEmail bool `env:"AUTO_VERIFY_EMAIL" envDefault:"false"`
 
+	// OAuth (markbates/goth). Set a provider's client id + secret to light up
+	// its "Continue with …" button on the login/register pages; leave either
+	// empty (default) and that provider stays off. The redirect URI registered
+	// with the provider must be BASE_URL + /auth/<provider>/callback — e.g.
+	// http://localhost:8080/auth/google/callback. OAuth is a *login* method:
+	// existing accounts are matched by verified email and linked automatically;
+	// a brand-new email only creates an account when OPEN_REGISTRATION is on
+	// (otherwise the sign-in is refused), mirroring the email/password path.
+	GoogleClientID       string `env:"GOOGLE_CLIENT_ID" envDefault:""`
+	GoogleClientSecret   string `env:"GOOGLE_CLIENT_SECRET" envDefault:""`
+	FacebookClientID     string `env:"FACEBOOK_CLIENT_ID" envDefault:""`
+	FacebookClientSecret string `env:"FACEBOOK_CLIENT_SECRET" envDefault:""`
+
 	PresenceTTL time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`
 	EditGrace   time.Duration `env:"EDIT_GRACE" envDefault:"15m"`
 

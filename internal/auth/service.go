@@ -358,6 +358,155 @@ func (s *Service) ConsumeMagicLink(ctx context.Context, token, communityID strin
 	return LoginResult{User: u, Membership: m}, nil
 }
 
+// OAuthInput is the slice of a provider profile UpsertOAuthUser needs.
+type OAuthInput struct {
+	Provider       string
+	ProviderUserID string
+	Email          string
+	Name           string
+	AvatarURL      string
+}
+
+// UpsertOAuthUser resolves a provider sign-in to a LoginResult. Resolution
+// order:
+//  1. a known (provider, provider_user_id) → that user (the fast path for
+//     returning users).
+//  2. an existing local user with the same (provider-verified) email → link
+//     the identity and sign in.
+//  3. a brand-new email → create the account, but only when OpenRegistration
+//     is on; otherwise refuse with ErrOAuthNoAccount. This mirrors the invite
+//     gate on the email/password path — OAuth is a login method, not a way to
+//     bypass closed registration.
+//
+// New accounts are created active (the provider verified the email) and join
+// the bootstrap community via finishOAuth, landing in the approval queue unless
+// OpenRegistrationAutoApprove is set.
+func (s *Service) UpsertOAuthUser(ctx context.Context, in OAuthInput) (LoginResult, error) {
+	in.Email = normEmail(in.Email)
+	if in.Email == "" {
+		return LoginResult{}, ErrOAuthNoEmail
+	}
+
+	// 1. Returning user — identity already linked.
+	if uid, err := s.Repo.UserIDByIdentity(ctx, in.Provider, in.ProviderUserID); err == nil {
+		u, err := s.Repo.UserByID(ctx, uid)
+		if err != nil {
+			return LoginResult{}, err
+		}
+		return s.finishOAuth(ctx, u, in)
+	} else if !errors.Is(err, ErrNotFound) {
+		return LoginResult{}, err
+	}
+
+	// 2. Existing local account with the same email — link by verified email.
+	if u, err := s.Repo.UserByEmail(ctx, in.Email); err == nil {
+		if u.Status == StatusDisabled {
+			return LoginResult{}, ErrBanned
+		}
+		if err := s.Repo.LinkIdentity(ctx, nil, identityFrom(in, u.ID)); err != nil {
+			return LoginResult{}, err
+		}
+		return s.finishOAuth(ctx, u, in)
+	} else if !errors.Is(err, ErrNotFound) {
+		return LoginResult{}, err
+	}
+
+	// 3. Brand-new email — only self-onboard when open registration is on.
+	if !s.OpenRegistration {
+		return LoginResult{}, ErrOAuthNoAccount
+	}
+	userID := uuid.NewString()
+	tx, err := s.Repo.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	defer tx.Rollback()
+	now := time.Now().Unix()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO users (id, email, password_hash, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		userID, in.Email, oauthSentinelHash, string(StatusActive), now, now,
+	); err != nil {
+		if isUniqueViolation(err) {
+			return LoginResult{}, ErrEmailTaken
+		}
+		return LoginResult{}, fmt.Errorf("insert oauth user: %w", err)
+	}
+	if err := s.Repo.LinkIdentity(ctx, tx, identityFrom(in, userID)); err != nil {
+		return LoginResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return LoginResult{}, err
+	}
+	u, err := s.Repo.UserByID(ctx, userID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	return s.finishOAuth(ctx, u, in)
+}
+
+func identityFrom(in OAuthInput, userID string) OAuthIdentity {
+	return OAuthIdentity{
+		Provider:       in.Provider,
+		ProviderUserID: in.ProviderUserID,
+		UserID:         userID,
+		Email:          in.Email,
+		Name:           in.Name,
+		AvatarURL:      in.AvatarURL,
+	}
+}
+
+// finishOAuth activates a pending user, ensures a membership in the bootstrap
+// community (creating one — seeded with the provider's display name + avatar —
+// when absent), and returns the LoginResult. Disabled / banned accounts are
+// refused with ErrBanned.
+func (s *Service) finishOAuth(ctx context.Context, u User, in OAuthInput) (LoginResult, error) {
+	if u.Status == StatusDisabled {
+		return LoginResult{}, ErrBanned
+	}
+	if u.Status == StatusPending || u.Status == StatusInvited {
+		if err := s.Repo.ActivateUser(ctx, u.ID); err != nil {
+			return LoginResult{}, err
+		}
+		u.Status = StatusActive
+	}
+	m, err := s.Repo.MembershipFor(ctx, u.ID, s.CommunityID)
+	if err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			return LoginResult{}, err
+		}
+		name := strings.TrimSpace(in.Name)
+		if name == "" {
+			name = localPart(u.Email)
+		}
+		m = Membership{
+			ID:          uuid.NewString(),
+			UserID:      u.ID,
+			CommunityID: s.CommunityID,
+			DisplayName: name,
+			AvatarURL:   in.AvatarURL,
+			Role:        RoleMember,
+		}
+		if s.OpenRegistrationAutoApprove {
+			t := time.Now()
+			m.ApprovedAt = &t
+		}
+		if err := s.Repo.CreateMembership(ctx, nil, m); err != nil {
+			if !isUniqueViolation(err) {
+				return LoginResult{}, err
+			}
+			// Raced with a concurrent sign-in that created the row — re-read it.
+			if m, err = s.Repo.MembershipFor(ctx, u.ID, s.CommunityID); err != nil {
+				return LoginResult{}, err
+			}
+		}
+	}
+	if m.IsBanned(time.Now()) {
+		return LoginResult{}, ErrBanned
+	}
+	return LoginResult{User: u, Membership: m}, nil
+}
+
 func (s *Service) Login(ctx context.Context, email, password, communityID string) (LoginResult, error) {
 	u, err := s.Repo.UserByEmail(ctx, email)
 	if err != nil {

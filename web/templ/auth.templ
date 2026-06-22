@@ -1,9 +1,53 @@
 package templ
 
+// OAuthButton is a single enabled social-login provider, rendered as a
+// "Continue with <Label>" link. Defined here (not in internal/auth) because
+// web/templ is a leaf package — handlers map auth.OAuthProvider → OAuthButton.
+type OAuthButton struct {
+	Provider string // URL segment / goth key ("google")
+	Label    string // human label ("Google")
+}
+
+// OAuthOptions renders the divider + provider buttons shared by the login and
+// register cards. Renders nothing when no providers are configured. The links
+// are plain navigations (not @post): OAuth needs a real top-level redirect to
+// the provider, which datastar's fetch can't perform.
+templ OAuthOptions(buttons []OAuthButton) {
+	if len(buttons) > 0 {
+		<div class="login-divider"><span>or</span></div>
+		<div class="oauth-buttons">
+			for _, b := range buttons {
+				<a class={ "btn", "oauth", "oauth-" + b.Provider } href={ templ.SafeURL("/auth/" + b.Provider) }>
+					@oauthIcon(b.Provider)
+					<span>Continue with { b.Label }</span>
+				</a>
+			}
+		</div>
+	}
+}
+
+// oauthIcon renders the provider's brand glyph. Kept inline (no asset fetch)
+// and decorative — aria-hidden since the adjacent label carries the meaning.
+templ oauthIcon(provider string) {
+	switch provider {
+		case "google":
+			<svg class="oauth-icon" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
+				<path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"></path>
+				<path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"></path>
+				<path fill="#FBBC05" d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3-2.33z"></path>
+				<path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3 2.33C4.68 5.16 6.66 3.58 9 3.58z"></path>
+			</svg>
+		case "facebook":
+			<svg class="oauth-icon" viewBox="0 0 18 18" width="18" height="18" aria-hidden="true">
+				<path fill="#1877F2" d="M18 9a9 9 0 1 0-10.41 8.89v-6.29H5.31V9h2.28V7.02c0-2.25 1.34-3.5 3.4-3.5.98 0 2.01.18 2.01.18v2.22h-1.13c-1.12 0-1.47.69-1.47 1.4V9h2.5l-.4 2.6h-2.1v6.29A9 9 0 0 0 18 9z"></path>
+			</svg>
+	}
+}
+
 // RegisterPage shows the self-signup form. When openReg is true the invite
 // code is optional and tucked behind a disclosure so the default form is just
 // email + password; otherwise the invite field is shown and required.
-templ RegisterPage(openReg bool) {
+templ RegisterPage(openReg bool, oauth []OAuthButton) {
 	@Layout("Register", Viewer{}) {
 		<section class="card narrow">
 			<h1>Create your account</h1>
@@ -28,6 +72,7 @@ templ RegisterPage(openReg bool) {
 				</div>
 			}
 			<button data-on:click="@post('/register')">Register</button>
+			@OAuthOptions(oauth)
 			<p class="muted">Have an account? <a href="/login">Sign in</a>.</p>
 		</section>
 	}
@@ -75,15 +120,15 @@ templ RegisterDoneFragment(email string) {
 // only for the email. Submitting morphs #login-card into LoginStep2
 // (password OR magic-link choice) — server-driven so the page state is
 // authoritative. The card div has stable id so SSE patches replace it.
-templ LoginPage() {
+templ LoginPage(oauth []OAuthButton) {
 	@Layout("Sign in", Viewer{}) {
 		<div id="login-card">
-			@LoginStep1()
+			@LoginStep1(oauth)
 		</div>
 	}
 }
 
-templ LoginStep1() {
+templ LoginStep1(oauth []OAuthButton) {
 	<section id="login-card" class="card narrow">
 		<h1>Sign in</h1>
 		<div id="auth-error" class="error"></div>
@@ -93,6 +138,7 @@ templ LoginStep1() {
 				data-on:keydown="evt.key==='Enter' && (evt.preventDefault(), @post('/login/check'))"/>
 		</div>
 		<button data-on:click="@post('/login/check')">Continue</button>
+		@OAuthOptions(oauth)
 		<p class="muted">No account? <a href="/register">Register with invite code</a>.</p>
 	</section>
 }

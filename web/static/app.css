@@ -3163,6 +3163,40 @@ hr {
   background: var(--border-subtle);
 }
 
+/* OAuth / social login buttons — neutral surface like .ghost, brand glyph on
+   the left, label centered. Stacked full-width on the auth cards. */
+.oauth-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
+}
+.btn.oauth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .6rem;
+  width: 100%;
+  background: var(--surface);
+  color: var(--fg);
+  border-color: var(--border);
+  box-shadow: var(--shadow-xs);
+  font-weight: 600;
+  text-decoration: none;
+}
+.btn.oauth:hover {
+  background: var(--surface-alt);
+  border-color: var(--border-strong);
+  color: var(--fg);
+  box-shadow: var(--shadow-sm);
+}
+.btn.oauth .oauth-icon {
+  flex: 0 0 auto;
+  display: block;
+}
+/* Facebook is a single-color glyph; give it a touch of brand on hover. */
+.btn.oauth-facebook:hover { border-color: #1877F2; }
+.btn.oauth-google:hover { border-color: var(--border-strong); }
+
 /* Reduced motion — respect user preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

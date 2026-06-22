@@ -150,13 +150,27 @@ func run() error {
 	auth.LoaderLog = log
 	// Persistent sessions in SQLite so users stay signed in across restarts.
 	sessions.Store = auth.NewSQLStore(ctx, db)
+	// Social login (goth). Returns the configured providers; empty = OAuth off.
+	oauthProviders := auth.SetupOAuth(auth.OAuthConfig{
+		BaseURL:              cfg.BaseURL,
+		Secure:               cfg.IsProd(),
+		SessionKey:           cfg.SessionKey,
+		GoogleClientID:       cfg.GoogleClientID,
+		GoogleClientSecret:   cfg.GoogleClientSecret,
+		FacebookClientID:     cfg.FacebookClientID,
+		FacebookClientSecret: cfg.FacebookClientSecret,
+	})
+	if len(oauthProviders) > 0 {
+		log.Info("oauth login enabled", "providers", len(oauthProviders))
+	}
 	authHandler := &auth.Handler{
-		Svc:           svc,
-		Repo:          aRepo,
-		Sessions:      sessions,
-		CommunityID:   bootCommunity.ID,
-		CommunityName: bootCommunity.Name,
-		Log:           log,
+		Svc:            svc,
+		Repo:           aRepo,
+		Sessions:       sessions,
+		CommunityID:    bootCommunity.ID,
+		CommunityName:  bootCommunity.Name,
+		Log:            log,
+		OAuthProviders: oauthProviders,
 	}
 
 	r := chi.NewRouter()
@@ -232,6 +246,12 @@ func run() error {
 	r.Get("/login/magic", authHandler.GetLoginMagic)
 	r.Get("/verify", authHandler.GetVerify)
 	r.Post("/logout", authHandler.PostLogout)
+	// OAuth (goth) — begin + provider callback. Mounted only when at least one
+	// provider has credentials, so unconfigured installs expose no dead routes.
+	if len(oauthProviders) > 0 {
+		r.Get("/auth/{provider}", authHandler.GetOAuthBegin)
+		r.Get("/auth/{provider}/callback", authHandler.GetOAuthCallback)
+	}
 
 	uploadStore := uploads.NewStore(db, cfg.UploadsDir, cfg.UploadsMaxSize, cfg.UploadsSignKey)
 	uploadHandler := &uploads.Handler{

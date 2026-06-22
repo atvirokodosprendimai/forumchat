@@ -57,6 +57,57 @@ func (r *Repo) UserByID(ctx context.Context, id string) (User, error) {
 	return scanUser(row)
 }
 
+// --- oauth identities ---
+
+// OAuthIdentity links an external provider account to a local user. The cached
+// email/name/avatar are refreshed on every sign-in.
+type OAuthIdentity struct {
+	Provider       string
+	ProviderUserID string
+	UserID         string
+	Email          string
+	Name           string
+	AvatarURL      string
+}
+
+// UserIDByIdentity returns the local user id linked to a provider account, or
+// ErrNotFound when no link exists yet.
+func (r *Repo) UserIDByIdentity(ctx context.Context, provider, providerUserID string) (string, error) {
+	var uid string
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT user_id FROM user_identities
+		WHERE provider = ? AND provider_user_id = ?`, provider, providerUserID).Scan(&uid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return uid, nil
+}
+
+// LinkIdentity records (or refreshes) a provider↔user link. Idempotent: a
+// repeated link for the same (provider, provider_user_id) updates the cached
+// email/name/avatar. Pass tx to enlist in a transaction, or nil to run alone.
+func (r *Repo) LinkIdentity(ctx context.Context, tx *sql.Tx, id OAuthIdentity) error {
+	const q = `
+		INSERT INTO user_identities (provider, provider_user_id, user_id, email, name, avatar_url, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(provider, provider_user_id) DO UPDATE SET
+			email = excluded.email, name = excluded.name, avatar_url = excluded.avatar_url`
+	args := []any{id.Provider, id.ProviderUserID, id.UserID, normEmail(id.Email), id.Name, id.AvatarURL, time.Now().Unix()}
+	var err error
+	if tx != nil {
+		_, err = tx.ExecContext(ctx, q, args...)
+	} else {
+		_, err = r.DB.ExecContext(ctx, q, args...)
+	}
+	if err != nil {
+		return fmt.Errorf("link identity: %w", err)
+	}
+	return nil
+}
+
 func (r *Repo) ActivateUser(ctx context.Context, id string) error {
 	res, err := r.DB.ExecContext(ctx, `
 		UPDATE users SET status = ?, updated_at = ? WHERE id = ?`,
