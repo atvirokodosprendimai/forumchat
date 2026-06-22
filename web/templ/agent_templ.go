@@ -877,7 +877,7 @@ func AgentBubble(slug, threadID string, m AgentMsgView) templ.Component {
 				}
 			}
 			if !m.Generating && render.LooksLikeHTML(m.BodyMD) {
-				templ_7745c5c3_Err = SourceTools(m.BodyMD, "agent-reply.html").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = SourceTools(m.BodyMD, "agent-reply.html", render.IsHTMLDocument(m.BodyMD)).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

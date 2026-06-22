@@ -2512,7 +2512,16 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 }
 .show-source .body, .show-source .agent-body, .show-source .paste-rendered { display: none; }
 .show-source .body-source { display: block; }
-.body-tools { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
+.body-tools { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; align-items: center; }
+.html-artifact-hint {
+  margin: .5rem 0 .15rem; padding: .6rem .75rem;
+  background: var(--accent-soft); border: 1px solid var(--accent-ring);
+  border-radius: var(--radius-sm); font-size: .82rem; color: var(--fg);
+}
+.src-btn.primary {
+  color: var(--accent-fg); background: var(--accent); border-color: var(--accent);
+}
+.src-btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--accent-fg); }
 /* Inside a paste the figure is the whole card — flatten the pre's bottom so it
    reads as one unit with the bar (the standalone .paste-rendered pre rule
    re-rounds all corners otherwise). */

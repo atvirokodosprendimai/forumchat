@@ -353,7 +353,7 @@ templ ForumPost(slug, threadID string, p PostView) {
 				}
 			</div>
 			if p.GenStatus != "generating" && render.LooksLikeHTML(p.BodyMD) {
-				@SourceTools(p.BodyMD, "agent-reply.html")
+				@SourceTools(p.BodyMD, "agent-reply.html", render.IsHTMLDocument(p.BodyMD))
 			}
 		} else {
 			<header class="meta">

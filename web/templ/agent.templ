@@ -275,7 +275,7 @@ templ AgentBubble(slug, threadID string, m AgentMsgView) {
 					<p class="agent-stopped">■ stopped</p>
 				}
 				if !m.Generating && render.LooksLikeHTML(m.BodyMD) {
-					@SourceTools(m.BodyMD, "agent-reply.html")
+					@SourceTools(m.BodyMD, "agent-reply.html", render.IsHTMLDocument(m.BodyMD))
 				}
 				<div class="agent-bubble-actions">
 					if m.Interrupted || m.Errored {

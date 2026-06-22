@@ -61,6 +61,32 @@ func TestDownloadableCode_NonCodeUntouched(t *testing.T) {
 	}
 }
 
+func TestIsHTMLDocument(t *testing.T) {
+	t.Parallel()
+	docs := []string{
+		"<!DOCTYPE html>\n<html lang=\"lt\">...",
+		"intro text\n\n<!doctype html>\n<head>",
+		"<html><body>x</body></html>",
+		"```html\n<!DOCTYPE html><html></html>\n```",
+	}
+	notDocs := []string{
+		"",
+		"<div class=\"box\">a snippet, not a document</div>",
+		"<style>body{}</style>",
+		"plain prose mentioning html",
+	}
+	for _, s := range docs {
+		if !render.IsHTMLDocument(s) {
+			t.Errorf("IsHTMLDocument(%q) = false, want true", s)
+		}
+	}
+	for _, s := range notDocs {
+		if render.IsHTMLDocument(s) {
+			t.Errorf("IsHTMLDocument(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestLooksLikeHTML(t *testing.T) {
 	t.Parallel()
 	html := []string{

@@ -14,11 +14,18 @@ import "strconv"
 // into the global sandboxed iframe (#fc-html-frame); fcDownloadSource saves it.
 // No per-message signals — the toggle is plain DOM, so it composes with the chat
 // fat-morph (the class just resets on morph, which is fine).
-templ SourceTools(rawMD, filename string) {
+templ SourceTools(rawMD, filename string, fullDoc bool) {
+	if fullDoc {
+		<p class="html-artifact-hint">🌐 This reply is a full HTML page — the inline view can’t show it. Open the live preview or download the file.</p>
+	}
 	<pre class="body-source" aria-hidden="true"><code>{ rawMD }</code></pre>
 	<div class="body-tools">
+		if fullDoc {
+			<button type="button" class="src-btn primary" data-on:click="window.fcPreviewSource(el);$_html_open=true">👁 Open preview</button>
+		} else {
+			<button type="button" class="src-btn" data-on:click="window.fcPreviewSource(el);$_html_open=true">👁 Preview</button>
+		}
 		<button type="button" class="src-btn" data-on:click="window.fcToggleSource(el)">&lt;/&gt; Source</button>
-		<button type="button" class="src-btn" data-on:click="window.fcPreviewSource(el);$_html_open=true">👁 Preview</button>
 		<button type="button" class="src-btn" data-on:click={ "window.fcDownloadSource(el," + strconv.Quote(filename) + ")" }>⬇ Download</button>
 	</div>
 }

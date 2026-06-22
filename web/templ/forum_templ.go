@@ -1070,7 +1070,7 @@ func ForumPost(slug, threadID string, p PostView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if p.GenStatus != "generating" && render.LooksLikeHTML(p.BodyMD) {
-				templ_7745c5c3_Err = SourceTools(p.BodyMD, "agent-reply.html").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = SourceTools(p.BodyMD, "agent-reply.html", render.IsHTMLDocument(p.BodyMD)).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

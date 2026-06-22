@@ -164,6 +164,17 @@ func LooksLikeHTML(s string) bool {
 	return looksHTMLRE.MatchString(s)
 }
 
+// htmlDocRE matches the opening of a standalone HTML document.
+var htmlDocRE = regexp.MustCompile(`(?i)<(?:!doctype\s+html|html[\s>])`)
+
+// IsHTMLDocument reports whether raw source contains a full standalone HTML
+// document (a <!doctype html> or <html> root) — fenced or not. Such a reply
+// can't be shown inline at all (goldmark drops the raw tags), so the UI offers
+// a prominent sandboxed preview instead.
+func IsHTMLDocument(s string) bool {
+	return s != "" && htmlDocRE.MatchString(s)
+}
+
 // codeBlockRE matches a full fenced code block as emitted by goldmark +
 // bluemonday: `<pre><code[ class="language-XXX"]>…</code></pre>`. goldmark
 // escapes `<` to `&lt;` inside code, so the body never contains a literal
