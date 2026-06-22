@@ -141,7 +141,87 @@ func ytFacade(id, href string) string {
 // rewriting stay caller-specific wrappers around this (they need extra args /
 // only apply on some surfaces).
 func RichHTML(s string) string {
-	return EmbedYouTube(WrapUploadImages(s))
+	return DownloadableCode(EmbedYouTube(WrapUploadImages(s)))
+}
+
+// codeBlockRE matches a full fenced code block as emitted by goldmark +
+// bluemonday: `<pre><code[ class="language-XXX"]>…</code></pre>`. goldmark
+// escapes `<` to `&lt;` inside code, so the body never contains a literal
+// `</code>` and the non-greedy capture is unambiguous. Group 1 is the language
+// token (possibly absent); the body is left in place via the full match.
+var codeBlockRE = regexp.MustCompile(`(?s)<pre><code(?: class="language-([\w.+#-]+)")?>.*?</code></pre>`)
+
+// codeExt maps a fenced-block language token to a download filename extension
+// and MIME type. Unknown or absent languages fall back to a plain .txt file.
+func codeExt(lang string) (ext, mime string) {
+	switch strings.ToLower(lang) {
+	case "html", "htm", "xhtml":
+		return "html", "text/html"
+	case "js", "javascript", "mjs":
+		return "js", "text/javascript"
+	case "ts", "typescript":
+		return "ts", "text/plain"
+	case "jsx":
+		return "jsx", "text/plain"
+	case "tsx":
+		return "tsx", "text/plain"
+	case "go", "golang":
+		return "go", "text/plain"
+	case "py", "python":
+		return "py", "text/x-python"
+	case "css":
+		return "css", "text/css"
+	case "json":
+		return "json", "application/json"
+	case "xml":
+		return "xml", "application/xml"
+	case "yaml", "yml":
+		return "yml", "text/yaml"
+	case "sql":
+		return "sql", "application/sql"
+	case "sh", "bash", "shell", "zsh":
+		return "sh", "text/x-shellscript"
+	case "md", "markdown":
+		return "md", "text/markdown"
+	case "toml":
+		return "toml", "text/plain"
+	case "rs", "rust":
+		return "rs", "text/plain"
+	case "java":
+		return "java", "text/x-java"
+	case "c":
+		return "c", "text/x-c"
+	case "cpp", "c++", "cc":
+		return "cpp", "text/x-c"
+	default:
+		return "txt", "text/plain"
+	}
+}
+
+// DownloadableCode appends a "download" affordance to the end of every fenced
+// code block in already-sanitized body HTML. It runs at DISPLAY time (after
+// bluemonday), so the injected <figure>/<button> and its Datastar
+// data-on:click are trusted output — same contract as EmbedYouTube /
+// WrapUploadImages. The button reads the adjacent code's textContent and saves
+// it as a file client-side (web/static/codeblock.js): no server round-trip, and
+// the affordance survives the chat fat-morph because it is part of the morphed
+// fragment.
+func DownloadableCode(s string) string {
+	if s == "" || !strings.Contains(s, "<pre><code") {
+		return s
+	}
+	return codeBlockRE.ReplaceAllStringFunc(s, func(m string) string {
+		lang := ""
+		if sub := codeBlockRE.FindStringSubmatch(m); len(sub) == 2 {
+			lang = sub[1]
+		}
+		ext, mime := codeExt(lang)
+		return `<figure class="codeblock">` + m +
+			`<figcaption class="codeblock-bar">` +
+			`<button type="button" class="codeblock-dl" data-ext="` + ext + `" data-mime="` + mime + `"` +
+			` data-on:click="window.fcDownloadCode(el)">⬇ Download .` + ext + `</button>` +
+			`</figcaption></figure>`
+	})
 }
 
 var (

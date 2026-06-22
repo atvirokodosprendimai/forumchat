@@ -2478,6 +2478,28 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
   font-size: .9em;
 }
 
+/* Fenced code block + its download bar (render.DownloadableCode). The figure
+   groups the <pre> with a footer bar so the pre's own radius/border read as one
+   card; the bar sits flush at the bottom. */
+.codeblock { margin: .6rem 0; max-width: 100%; }
+.codeblock > pre { margin: 0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.codeblock-bar {
+  display: flex; justify-content: flex-end;
+  background: oklch(96% 0.008 260);
+  border: 1px solid var(--border-subtle);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: .25rem .4rem;
+}
+.codeblock-dl {
+  font: inherit; font-size: .72rem; line-height: 1;
+  color: var(--fg-muted); background: transparent;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  padding: .3rem .55rem; cursor: pointer;
+  transition: color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out);
+}
+.codeblock-dl:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
 /* Tables — modern */
 table {
   border-collapse: separate;
