@@ -5,7 +5,12 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN go tool templ generate
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/forumchat ./cmd/app \
+# VERSION is injected by CI on tagged builds (see .github/workflows/docker.yml).
+# Defaults to "dev" for a plain `docker build` so the footer never shows blank.
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X github.com/atvirokodosprendimai/forumchat/web/templ.Version=${VERSION}" \
+      -o /out/forumchat ./cmd/app \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/forumchat-cli ./cmd/cli \
  && mkdir -p /out/data
 

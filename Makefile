@@ -1,5 +1,10 @@
 .PHONY: tidy gen build run dev up down logs test fmt vet lint-mailbox
 
+# Build version stamped into the footer. Falls back to "dev" outside a git tag.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION_PKG := github.com/atvirokodosprendimai/forumchat/web/templ
+VERSION_LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION)
+
 tidy:
 	go mod tidy
 
@@ -7,7 +12,7 @@ gen:
 	go tool templ generate
 
 build: gen
-	CGO_ENABLED=0 go build -o bin/forumchat ./cmd/app
+	CGO_ENABLED=0 go build -ldflags="$(VERSION_LDFLAGS)" -o bin/forumchat ./cmd/app
 
 run: gen
 	go run ./cmd/app

@@ -212,6 +212,13 @@ var WebhooksEnabled bool
 // flag never needs a schema migration.
 var TimeEnabled bool
 
+// Version is the build version shown in the footer. It defaults to "dev" for
+// local builds and is overridden at link time on tagged CI builds via
+// -ldflags "-X github.com/atvirokodosprendimai/forumchat/web/templ.Version=<tag>".
+// web/templ is a leaf package (AGENTS.md §4.13), so the version lives here
+// directly rather than being threaded through every Layout call site.
+var Version = "dev"
+
 // InitialSignals — global signal bag rendered on every page.
 // Every data-bind / data-on-click POST sees these as their starting state.
 const InitialSignals = `{
@@ -517,6 +524,7 @@ templ Layout(title string, v Viewer) {
 			</div>
 			<footer class="site-footer">
 				<span class="muted">Built by <a href="https://ituoga.lt" target="_blank" rel="noopener">ituoga.lt</a> and Claude</span>
+				<span class="fc-version" title="Build version">{ Version }</span>
 			</footer>
 		</body>
 	</html>

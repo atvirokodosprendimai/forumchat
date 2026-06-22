@@ -357,6 +357,12 @@ button.link:hover, .link-button:hover {
 }
 .site-footer a { color: var(--fg-muted); text-decoration: none; }
 .site-footer a:hover { color: var(--accent); text-decoration: underline; }
+.site-footer .fc-version {
+  margin-left: .5rem; padding-left: .5rem;
+  border-left: 1px solid var(--border-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .72rem; color: var(--fg-subtle); opacity: .8;
+}
 .error { color: var(--danger); font-size: .92em; min-height: 1.2em; }
 .success { color: var(--success); font-size: .92em; min-height: 1.2em; }
 
