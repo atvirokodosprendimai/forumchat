@@ -393,21 +393,9 @@ func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 	sse := render.NewSSE(w, r)
 
-	push := func() error {
-		pv, err := h.loadPostViews(r.Context(), threadID, id.User.ID, isMod)
-		if err != nil {
-			return nil
-		}
-		if err := sse.PatchElementTempl(
-			webtempl.ThreadPosts(h.cslug(r.Context()), threadID, pv),
-			datastar.WithModeOuter(),
-		); err != nil {
-			return err
-		}
-		return sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
-	}
-	_ = push()
-
+	// Subscribe BEFORE the initial render so a broadcast landing between first
+	// paint and subscription isn't lost — the buffered channel holds it.
+	// Mirrors the agent pane (internal/agent/handler.go GetStream).
 	local, unsubscribe := h.Bus.Subscribe(threadID)
 	defer unsubscribe()
 
@@ -423,21 +411,65 @@ func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var generating bool
+	push := func() error {
+		pv, err := h.loadPostViews(r.Context(), threadID, id.User.ID, isMod)
+		if err != nil {
+			return nil
+		}
+		generating = anyGenerating(pv)
+		if err := sse.PatchElementTempl(
+			webtempl.ThreadPosts(h.cslug(r.Context()), threadID, pv),
+			datastar.WithModeOuter(),
+		); err != nil {
+			return err
+		}
+		return sse.PatchElementTempl(webtempl.ThreadScrollAnchor(), datastar.WithModeReplace())
+	}
+	if err := push(); err != nil {
+		return
+	}
+
+	// Belt-and-braces re-sync: while an agent reply is generating, re-render
+	// every interval even if a 100ms streaming broadcast was coalesced into the
+	// buffered channel or missed. Without this, a connection opened BEFORE the
+	// reply only catches the terminal broadcast — the placeholder + token stream
+	// never paint (a fresh connection works because its initial push catches the
+	// live state). Event-driven stays the fast path; this is the fallback.
+	resync := time.NewTicker(400 * time.Millisecond)
+	defer resync.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case <-local:
-		case _, ok := <-natsCh:
-			if !ok {
+		case _, alive := <-natsCh:
+			if !alive {
 				natsCh = nil
 				continue
+			}
+		case <-resync.C:
+			if !generating {
+				continue // idle thread — don't re-render for nothing
 			}
 		}
 		if err := push(); err != nil {
 			return
 		}
 	}
+}
+
+// anyGenerating reports whether any post in the thread is a bot reply still
+// streaming (gen_status="generating"), so the stream keeps re-syncing until the
+// answer is complete.
+func anyGenerating(pv []webtempl.PostView) bool {
+	for _, p := range pv {
+		if p.GenStatus == GenGenerating {
+			return true
+		}
+	}
+	return false
 }
 
 type replySignals struct {
