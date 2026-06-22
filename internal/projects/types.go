@@ -23,16 +23,39 @@ type Project struct {
 // IsArchived reports whether the project is currently archived.
 func (p Project) IsArchived() bool { return p.ArchivedAt != nil }
 
-// Todo is one row inside a project's checklist.
+// Project-todo status constants. `done` mirrors the legacy `done`
+// column (kept in sync on every write) so index-card counts and the
+// checkbox toggle stay valid.
+const (
+	TodoStatusTodo       = "todo"
+	TodoStatusInProgress = "in_progress"
+	TodoStatusDone       = "done"
+)
+
+// TodoStatuses is the canonical order shown in the per-row status select.
+var TodoStatuses = []string{TodoStatusTodo, TodoStatusInProgress, TodoStatusDone}
+
+// ValidTodoStatus reports whether s is one of the known statuses.
+func ValidTodoStatus(s string) bool {
+	return s == TodoStatusTodo || s == TodoStatusInProgress || s == TodoStatusDone
+}
+
+// Todo is one row inside a project's checklist. Beyond the original
+// body+done checkbox it carries an agile-ish status, a completion stamp,
+// and an optional assignee (with a display-name snapshot for rendering).
 type Todo struct {
-	ID         string
-	ProjectID  string
-	Body       string
-	Done       bool
-	SortOrder  int
-	CreatedBy  string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID             string
+	ProjectID      string
+	Body           string
+	Done           bool
+	Status         string
+	SortOrder      int
+	CreatedBy      string
+	AssigneeUserID string
+	AssigneeName   string // snapshot from the membership roster; "" when unassigned
+	CompletedAt    *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // Attachment links an uploads row to a project. Files themselves live

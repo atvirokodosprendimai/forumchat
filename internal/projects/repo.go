@@ -192,28 +192,54 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 
 // ListTodos returns a project's checklist in sort_order, then create
 // order, ascending.
+// todoSelect is the shared column list + joins for loading a Todo with
+// its assignee display-name snapshot. Both ListTodos and TodoByID use it
+// so the scan order stays in lockstep (see scanTodo).
+const todoSelect = `
+	SELECT t.id, t.project_id, t.body, t.done, t.status, t.sort_order, t.created_by,
+	       COALESCE(t.assignee_user_id, ''), COALESCE(am.display_name, ''),
+	       t.completed_at, t.created_at, t.updated_at
+	FROM project_todos t
+	JOIN projects p ON p.id = t.project_id
+	LEFT JOIN memberships am ON am.user_id = t.assignee_user_id AND am.community_id = p.community_id`
+
+// rowScanner is satisfied by both *sql.Row and *sql.Rows.
+type rowScanner interface{ Scan(dest ...any) error }
+
+// scanTodo reads one row in the todoSelect column order.
+func scanTodo(s rowScanner) (Todo, error) {
+	var t Todo
+	var done int
+	var completed sql.NullInt64
+	var cAt, uAt int64
+	if err := s.Scan(&t.ID, &t.ProjectID, &t.Body, &done, &t.Status, &t.SortOrder,
+		&t.CreatedBy, &t.AssigneeUserID, &t.AssigneeName, &completed, &cAt, &uAt); err != nil {
+		return Todo{}, err
+	}
+	t.Done = done == 1
+	if completed.Valid {
+		ct := time.UnixMilli(completed.Int64).UTC()
+		t.CompletedAt = &ct
+	}
+	t.CreatedAt = time.UnixMilli(cAt).UTC()
+	t.UpdatedAt = time.UnixMilli(uAt).UTC()
+	return t, nil
+}
+
 func (r *Repo) ListTodos(ctx context.Context, projectID string) ([]Todo, error) {
-	rows, err := r.DB.QueryContext(ctx, `
-		SELECT id, project_id, body, done, sort_order, created_by, created_at, updated_at
-		FROM project_todos
-		WHERE project_id = ?
-		ORDER BY sort_order ASC, created_at ASC`, projectID)
+	rows, err := r.DB.QueryContext(ctx, todoSelect+`
+		WHERE t.project_id = ?
+		ORDER BY t.sort_order ASC, t.created_at ASC`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list todos: %w", err)
 	}
 	defer rows.Close()
 	var out []Todo
 	for rows.Next() {
-		var t Todo
-		var done int
-		var cAt, uAt int64
-		if err := rows.Scan(&t.ID, &t.ProjectID, &t.Body, &done, &t.SortOrder,
-			&t.CreatedBy, &cAt, &uAt); err != nil {
+		t, err := scanTodo(rows)
+		if err != nil {
 			return nil, err
 		}
-		t.Done = done == 1
-		t.CreatedAt = time.UnixMilli(cAt).UTC()
-		t.UpdatedAt = time.UnixMilli(uAt).UTC()
 		out = append(out, t)
 	}
 	return out, rows.Err()
@@ -241,12 +267,25 @@ func (r *Repo) InsertTodo(ctx context.Context, t Todo) error {
 	if t.Done {
 		done = 1
 	}
+	status := t.Status
+	if status == "" {
+		status = TodoStatusTodo
+	}
 	_, err := r.DB.ExecContext(ctx, `
-		INSERT INTO project_todos (id, project_id, body, done, sort_order, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.ProjectID, t.Body, done, t.SortOrder, t.CreatedBy,
+		INSERT INTO project_todos (id, project_id, body, done, status, sort_order, created_by, assignee_user_id, completed_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.ProjectID, t.Body, done, status, t.SortOrder, t.CreatedBy,
+		nullStr(t.AssigneeUserID), millisOrNil(t.CompletedAt),
 		t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli())
 	return err
+}
+
+// millisOrNil maps a nil time to SQL NULL, else to epoch millis.
+func millisOrNil(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UnixMilli()
 }
 
 // UpdateTodoBody changes the text and bumps updated_at.
@@ -257,12 +296,56 @@ func (r *Repo) UpdateTodoBody(ctx context.Context, id, body string, now time.Tim
 	return err
 }
 
-// ToggleTodoDone flips the done flag for one row and bumps updated_at.
+// ToggleTodoDone flips between done and todo (the quick checkbox path),
+// keeping status + completed_at in sync. The CASE expressions read the
+// pre-update `done` value, so entering done stamps completed_at and
+// leaving it clears the stamp.
 func (r *Repo) ToggleTodoDone(ctx context.Context, id string, now time.Time) error {
-	_, err := r.DB.ExecContext(ctx,
-		`UPDATE project_todos SET done = CASE done WHEN 0 THEN 1 ELSE 0 END, updated_at = ? WHERE id = ?`,
-		now.UnixMilli(), id)
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE project_todos SET
+			done = CASE done WHEN 0 THEN 1 ELSE 0 END,
+			status = CASE done WHEN 0 THEN 'done' ELSE 'todo' END,
+			completed_at = CASE done WHEN 0 THEN ? ELSE NULL END,
+			updated_at = ?
+		WHERE id = ?`, now.UnixMilli(), now.UnixMilli(), id)
 	return err
+}
+
+// SetTodoStatus sets an explicit status, syncing the done mirror and the
+// completion stamp: entering 'done' stamps completed_at, any other status
+// clears it.
+func (r *Repo) SetTodoStatus(ctx context.Context, id, status string, now time.Time) error {
+	done := 0
+	var completed any
+	if status == TodoStatusDone {
+		done = 1
+		completed = now.UnixMilli()
+	}
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE project_todos SET status = ?, done = ?, completed_at = ?, updated_at = ?
+		WHERE id = ?`, status, done, completed, now.UnixMilli(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SetTodoAssignee assigns a member, or unassigns when assigneeUserID is
+// empty.
+func (r *Repo) SetTodoAssignee(ctx context.Context, id, assigneeUserID string, now time.Time) error {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE project_todos SET assignee_user_id = ?, updated_at = ? WHERE id = ?`,
+		nullStr(assigneeUserID), now.UnixMilli(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteTodo removes a row outright.
@@ -273,21 +356,7 @@ func (r *Repo) DeleteTodo(ctx context.Context, id string) error {
 
 // TodoByID loads one row.
 func (r *Repo) TodoByID(ctx context.Context, id string) (Todo, error) {
-	var t Todo
-	var done int
-	var cAt, uAt int64
-	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, project_id, body, done, sort_order, created_by, created_at, updated_at
-		FROM project_todos WHERE id = ?`, id).Scan(
-		&t.ID, &t.ProjectID, &t.Body, &done, &t.SortOrder,
-		&t.CreatedBy, &cAt, &uAt)
-	if err != nil {
-		return Todo{}, err
-	}
-	t.Done = done == 1
-	t.CreatedAt = time.UnixMilli(cAt).UTC()
-	t.UpdatedAt = time.UnixMilli(uAt).UTC()
-	return t, nil
+	return scanTodo(r.DB.QueryRowContext(ctx, todoSelect+` WHERE t.id = ?`, id))
 }
 
 // ActivityEvent is one entry in the audit panel.

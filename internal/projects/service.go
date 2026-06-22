@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	ErrEmptyTitle = errors.New("projects: title required")
-	ErrNotFound   = errors.New("projects: not found")
-	ErrForbidden  = errors.New("projects: forbidden")
+	ErrEmptyTitle    = errors.New("projects: title required")
+	ErrNotFound      = errors.New("projects: not found")
+	ErrForbidden     = errors.New("projects: forbidden")
+	ErrInvalidStatus = errors.New("projects: invalid todo status")
 )
 
 // Service composes Repo + Bus + uploads.Store into the business-level
@@ -139,6 +140,7 @@ func (s *Service) AddTodo(ctx context.Context, projectID, creatorID, body string
 		ID:        uuid.NewString(),
 		ProjectID: projectID,
 		Body:      body,
+		Status:    TodoStatusTodo,
 		SortOrder: maxOrder + 1,
 		CreatedBy: creatorID,
 		CreatedAt: now,
@@ -171,6 +173,28 @@ func (s *Service) UpdateTodoBody(ctx context.Context, projectID, todoID, body st
 func (s *Service) ToggleTodo(ctx context.Context, projectID, todoID string) error {
 	if err := s.Repo.ToggleTodoDone(ctx, todoID, time.Now().UTC()); err != nil {
 		return fmt.Errorf("toggle todo: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
+	return nil
+}
+
+// SetTodoStatus moves a todo to an explicit status and publishes.
+func (s *Service) SetTodoStatus(ctx context.Context, projectID, todoID, status string) error {
+	if !ValidTodoStatus(status) {
+		return ErrInvalidStatus
+	}
+	if err := s.Repo.SetTodoStatus(ctx, todoID, status, time.Now().UTC()); err != nil {
+		return fmt.Errorf("set todo status: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
+	return nil
+}
+
+// AssignTodo assigns a member to a todo, or unassigns when assigneeUserID
+// is empty, then publishes.
+func (s *Service) AssignTodo(ctx context.Context, projectID, todoID, assigneeUserID string) error {
+	if err := s.Repo.SetTodoAssignee(ctx, todoID, assigneeUserID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("assign todo: %w", err)
 	}
 	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
 	return nil
