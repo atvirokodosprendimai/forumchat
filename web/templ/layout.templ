@@ -80,6 +80,28 @@ func navActive(ctx context.Context, href string) string {
 	return "false"
 }
 
+// ariaPage maps a bool to the aria-current attribute value ("page" when the
+// link is the current location, else the valid ARIA "false"). Lets the top-nav
+// "More" dropdown summary light up when one of its hidden items is active.
+func ariaPage(active bool) string {
+	if active {
+		return "page"
+	}
+	return "false"
+}
+
+// topnavMoreActive reports whether the current request path falls under one of
+// the community routes tucked into the top-nav "More" dropdown, so the dropdown
+// summary can show as active even while its items are collapsed.
+func topnavMoreActive(ctx context.Context, slug string) bool {
+	for _, seg := range []string{"bookmarks", "todos", "projects", "budget", "lobbies", "history", "notifications", "admin"} {
+		if navActive(ctx, "/c/"+slug+"/"+seg) == "page" {
+			return true
+		}
+	}
+	return false
+}
+
 type Viewer struct {
 	IsAuthed      bool
 	DisplayName   string
@@ -350,8 +372,8 @@ templ Layout(title string, v Viewer) {
 			data-signals={ InitialSignals }
 			data-class:nav-open="$_nav_open"
 			data-class:presence-open="$_presence_open"
-			data-on:click__window="document.querySelectorAll('details.msg-menu[open]').forEach(d => d.contains(evt.target) || (d.open=false))"
-			data-on:keydown__window="if(evt.key==='Escape'){$_nav_open=false; $_presence_open=false; $_yt_open=false; $_yt_id=''; $_html_open=false; document.querySelectorAll('details.msg-menu[open]').forEach(d => d.open=false)}"
+			data-on:click__window="document.querySelectorAll('details.msg-menu[open], details.topnav-menu[open]').forEach(d => d.contains(evt.target) || (d.open=false))"
+			data-on:keydown__window="if(evt.key==='Escape'){$_nav_open=false; $_presence_open=false; $_yt_open=false; $_yt_id=''; $_html_open=false; document.querySelectorAll('details.msg-menu[open], details.topnav-menu[open]').forEach(d => d.open=false)}"
 		>
 			<script src={ "/static/nav.js?v=" + AssetVer("nav.js") } defer></script>
 			<header class="topbar">
@@ -362,6 +384,9 @@ templ Layout(title string, v Viewer) {
 					<span class="hamburger-bar"></span>
 				</button>
 				<a href="/" class="brand">forumchat</a>
+				if v.IsAuthed {
+					@CommunityTopNav(v)
+				}
 			</header>
 			<div class="nav-overlay" data-on:click="$_nav_open = false"></div>
 			<aside class="sidebar">
@@ -395,32 +420,6 @@ templ Layout(title string, v Viewer) {
 							<a href="/journal" aria-current={ navActive(ctx, "/journal") }><span class="sb-icon" aria-hidden="true">⏱</span>Journal</a>
 						}
 						<a href="/" aria-current={ navActive(ctx, "/") }><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
-						if v.CommunitySlug != "" {
-							<h3 class="sidebar-group">{ v.CommunityName }</h3>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/search") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/search") }><span class="sb-icon" aria-hidden="true">🔍</span>Search</a>
-							if AIEnabled {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/agent") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/agent") }><span class="sb-icon" aria-hidden="true">🤖</span>Agent</a>
-							}
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Threads</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/rooms") }><span class="sb-icon" aria-hidden="true">🎥</span>Rooms</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/bookmarks") }><span class="sb-icon" aria-hidden="true">★</span>Bookmarks</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/todos") }><span class="sb-icon" aria-hidden="true">☑</span>Todos</a>
-							if ProjectsEnabled {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/projects") }><span class="sb-icon" aria-hidden="true">📂</span>Projects</a>
-							}
-							if TimeEnabled {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/budget") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/budget") }><span class="sb-icon" aria-hidden="true">📊</span>Budget</a>
-							}
-							if GuestAccessEnabled && (v.Role == "admin" || v.Role == "moderator") {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/lobbies") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/lobbies") }><span class="sb-icon" aria-hidden="true">🚪</span>Lobbies</a>
-							}
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
-							<a href={ templ.URL("/c/" + v.CommunitySlug + "/notifications") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/notifications") }><span class="sb-icon" aria-hidden="true">🔔</span>Notifications</a>
-							if v.Role == "admin" {
-								<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
-							}
-						}
 						<a href="/profile" class="sidebar-profile">
 							<span class="sb-avatar" aria-hidden="true">{ initial(v.DisplayName) }</span>
 							<span class="sb-name">{ v.DisplayName }</span>
@@ -496,6 +495,68 @@ templ Layout(title string, v Viewer) {
 			</footer>
 		</body>
 	</html>
+}
+
+// CommunityTopNav renders the persistent top-bar context strip. When the
+// viewer is inside a community it shows a switcher chip (community name → all
+// communities), the primary community pills, and a "More" dropdown for the
+// long tail. Outside a community it shows a single "Communities" chip so the
+// bar keeps its height on every page — entering a community never shifts the
+// layout. ctx is the implicit templ context, used by navActive for active
+// highlighting (server-rendered, no client DOM walk).
+templ CommunityTopNav(v Viewer) {
+	if v.CommunitySlug != "" {
+		<div class="topnav">
+			<details class="topnav-menu topnav-switcher">
+				<summary>
+					<span class="topnav-ava" aria-hidden="true">{ initial(v.CommunityName) }</span>
+					<span class="topnav-comm">{ v.CommunityName }</span>
+					<span class="topnav-caret" aria-hidden="true">▾</span>
+				</summary>
+				<div class="topnav-pop">
+					<a href="/"><span class="sb-icon" aria-hidden="true">🏠</span>All communities</a>
+					<a href="/explore"><span class="sb-icon" aria-hidden="true">🔭</span>Explore</a>
+				</div>
+			</details>
+			<nav class="topnav-pills" aria-label="Community navigation">
+				<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
+				<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Threads</a>
+				<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/rooms") }><span class="sb-icon" aria-hidden="true">🎥</span>Rooms</a>
+				<a href={ templ.URL("/c/" + v.CommunitySlug + "/search") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/search") }><span class="sb-icon" aria-hidden="true">🔍</span>Search</a>
+				if AIEnabled {
+					<a href={ templ.URL("/c/" + v.CommunitySlug + "/agent") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/agent") }><span class="sb-icon" aria-hidden="true">🤖</span>Agent</a>
+				}
+			</nav>
+			<details class="topnav-menu topnav-more">
+				<summary aria-current={ ariaPage(topnavMoreActive(ctx, v.CommunitySlug)) }>
+					<span class="topnav-more-label">More</span>
+					<span class="topnav-caret" aria-hidden="true">▾</span>
+				</summary>
+				<div class="topnav-pop">
+					<a href={ templ.URL("/c/" + v.CommunitySlug + "/bookmarks") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/bookmarks") }><span class="sb-icon" aria-hidden="true">★</span>Bookmarks</a>
+					<a href={ templ.URL("/c/" + v.CommunitySlug + "/todos") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/todos") }><span class="sb-icon" aria-hidden="true">☑</span>Todos</a>
+					if ProjectsEnabled {
+						<a href={ templ.URL("/c/" + v.CommunitySlug + "/projects") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/projects") }><span class="sb-icon" aria-hidden="true">📂</span>Projects</a>
+					}
+					if TimeEnabled {
+						<a href={ templ.URL("/c/" + v.CommunitySlug + "/budget") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/budget") }><span class="sb-icon" aria-hidden="true">📊</span>Budget</a>
+					}
+					if GuestAccessEnabled && (v.Role == "admin" || v.Role == "moderator") {
+						<a href={ templ.URL("/c/" + v.CommunitySlug + "/lobbies") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/lobbies") }><span class="sb-icon" aria-hidden="true">🚪</span>Lobbies</a>
+					}
+					<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
+					<a href={ templ.URL("/c/" + v.CommunitySlug + "/notifications") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/notifications") }><span class="sb-icon" aria-hidden="true">🔔</span>Notifications</a>
+					if v.Role == "admin" {
+						<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
+					}
+				</div>
+			</details>
+		</div>
+	} else {
+		<div class="topnav">
+			<a href="/" class="topnav-chip" aria-current={ navActive(ctx, "/") }><span class="sb-icon" aria-hidden="true">🏠</span>Communities</a>
+		</div>
+	}
 }
 
 templ Hello(communityName string) {

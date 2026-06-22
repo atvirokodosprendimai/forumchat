@@ -107,9 +107,6 @@ code, kbd, pre, samp { font-family: var(--font-mono); font-size: .9em; }
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
 }
-.topbar nav { display: flex; gap: .9rem; align-items: center; flex-wrap: wrap; }
-.topbar nav a, .topbar nav .ghost { color: var(--fg-muted); font-weight: 500; }
-.topbar nav a:hover { color: var(--fg); text-decoration: none; }
 
 main {
   padding: 1.25rem;
@@ -2075,7 +2072,15 @@ img.thread-announce-img {
      centred max-width — content is now fluid-width and fills the
      post-sidebar viewport. Inner blocks (.chat-layout, .forum-list,
      etc.) cap themselves where readability needs it. */
-  body > .topbar { display: none; }
+  /* Desktop keeps the topbar as a persistent context bar (community nav).
+     Its content is padded past the fixed sidebar; the mobile hamburger +
+     wordmark are dropped (the sidebar carries the brand on desktop). */
+  body > .topbar { padding-left: var(--sb-width); }
+  body > .topbar .topbar-hamburger,
+  body > .topbar > .brand { display: none; }
+  /* An empty bar (unauthenticated pages have no .topnav) collapses so login
+     and register don't show a stray strip. */
+  body > .topbar:not(:has(.topnav)) { display: none; }
   body > main { margin-left: var(--sb-width); width: calc(100% - var(--sb-width)); max-width: none; }
   body > .site-footer { margin-left: var(--sb-width); }
   body > .nav-overlay { display: none !important; }
@@ -2099,6 +2104,165 @@ img.thread-announce-img {
   body.nav-open .nav-overlay { opacity: 1; pointer-events: auto; }
 }
 
+/* ===== Top-bar community context nav ===================================== */
+/* The persistent strip inside .topbar. Holds the community switcher chip,
+   the primary community pills, and a "More" dropdown for the long tail.
+   Mirrors the sidebar link language but laid out horizontally so entering a
+   community fills the always-present bar instead of growing the sidebar. */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Switcher chip — community avatar + name + caret → all-communities popover.
+   More dropdown is pinned at the end (outside the scrolling pills, so its
+   popover is never clipped by the pills' overflow-x scroll container). */
+.topnav-switcher,
+.topnav-more { flex: 0 0 auto; }
+.topnav-switcher > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .3rem .5rem .3rem .35rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--fg);
+  max-width: 13rem;
+}
+.topnav-switcher > summary:hover { background: var(--surface-alt); border-color: var(--border); }
+.topnav-ava {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; flex: 0 0 22px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: var(--accent-fg);
+  font-size: .72rem; font-weight: 700;
+}
+.topnav-comm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topnav-caret { font-size: .68rem; color: var(--fg-muted); flex: 0 0 auto; }
+
+/* Pills row — horizontally scrollable on overflow, divider off the switcher. */
+.topnav-pills {
+  display: flex;
+  align-items: center;
+  gap: .15rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-left: .4rem;
+  margin-left: .2rem;
+  border-left: 1px solid var(--border-subtle);
+}
+.topnav-pills::-webkit-scrollbar { display: none; }
+.topnav-pills > a,
+.topnav-more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .4rem .6rem;
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background-color var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+.topnav-pills > a:hover,
+.topnav-more > summary:hover { background: var(--surface-alt); color: var(--fg); text-decoration: none; }
+.topnav-pills > a[aria-current="page"],
+.topnav-more > summary[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.topnav-pills .sb-icon { opacity: .85; font-size: .95rem; }
+
+/* Dropdown popovers (switcher + More) share the same card styling. */
+.topnav-menu { position: relative; }
+.topnav-menu > summary { list-style: none; }
+.topnav-menu > summary::-webkit-details-marker { display: none; }
+.topnav-pop {
+  position: absolute;
+  top: calc(100% + .35rem);
+  right: 0;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  padding: .4rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 60;
+}
+.topnav-switcher .topnav-pop { left: 0; right: auto; }
+.topnav-pop > a {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .5rem .6rem;
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.topnav-pop > a:hover { background: var(--surface-alt); color: var(--fg); text-decoration: none; }
+.topnav-pop > a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-strong); }
+.topnav-pop .sb-icon { width: 1.2rem; text-align: center; flex: 0 0 1.2rem; }
+
+/* Communities chip — shown when no community is in scope, so the bar keeps
+   its height on dashboard / explore / messages (no shift on entering one). */
+.topnav-chip {
+  display: inline-flex; align-items: center; gap: .45rem;
+  padding: .4rem .7rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface);
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.topnav-chip:hover { background: var(--surface-alt); color: var(--fg); text-decoration: none; }
+
+@media (max-width: 899px) {
+  /* Mobile: drop the redundant wordmark (the switcher carries community
+     context). Row 1 = hamburger + switcher + More; row 2 = the pills, which
+     WRAP rather than scroll so the dropdown popovers are never clipped. */
+  .topbar > .brand { display: none; }
+  .topnav {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+    row-gap: .4rem;
+  }
+  .topnav-switcher { order: 0; }
+  .topnav-more { order: 1; margin-left: auto; }
+  /* Pills become a single horizontally-scrollable strip on their own row
+     (Slack/Discord pattern) — shorter than wrapping, and safe because both
+     dropdowns (switcher + More) live outside this scroll container. A right
+     fade hints there's more to swipe. */
+  .topnav-pills {
+    order: 2;
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    border-left: none;
+    padding-left: 0;
+    margin-left: 0;
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  }
+  .topnav-pills > a { padding: .4rem .5rem; gap: .35rem; }
+}
+
 /* ===== Mobile presence right-drawer ====================================== */
 /* Mirrors the left-nav drawer pattern but for the chat presence panel.
    Desktop (>=900px) keeps the panel inline; mobile slides it in from
@@ -2106,11 +2270,11 @@ img.thread-announce-img {
 
 .presence-fab {
   position: fixed;
-  /* Top-right corner, anchored just below the mobile topbar (~56px),
-     so it never overlaps the composer regardless of textarea height.
-     A bottom-anchored FAB collided with the Send button as the
-     composer textarea grew. */
-  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  /* Top-right corner, anchored just below the two-row mobile topbar
+     (hamburger/switcher row + community pills row, ~108px), so it never
+     overlaps the composer regardless of textarea height. A bottom-anchored
+     FAB collided with the Send button as the composer textarea grew. */
+  top: calc(env(safe-area-inset-top, 0px) + 150px);
   right: .75rem;
   width: 40px;
   height: 40px;
