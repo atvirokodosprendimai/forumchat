@@ -487,7 +487,7 @@ templ ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVi
 								data-on:click={ "confirm('Delete this thread?') && @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/discussions/" + t.ID + "/delete')" }>Delete</button>
 						}
 					</div>
-					@ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/discussions/"+t.ID+"/share-to-chat", "I've added a new doc — ")
+					@ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/discussions/"+t.ID+"/share-to-chat", "I've added a new doc — ", "share_msg_discussion")
 				</div>
 				<div class="project-discussion-edit" data-show="$projects_discussion_edit_open">
 					<label>
@@ -821,7 +821,7 @@ templ ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []Project
 							</button>
 						}
 					</div>
-					@ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/issues/"+i.ID+"/share-to-chat", "Quick update on this issue — ")
+					@ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/issues/"+i.ID+"/share-to-chat", "Quick update on this issue — ", "share_msg_issue")
 				</div>
 				<div class="project-issue-edit" data-show="$_projects_issue_edit_open">
 					<label>
@@ -1040,7 +1040,7 @@ templ ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) {
 							data-on:click={ "confirm('Hard-delete this project? Documents and comments are gone.') && @post('/c/" + slug + "/projects/" + p.ID + "/delete')" }>Delete</button>
 					}
 				</div>
-				@ShareToChatRow("/c/"+slug+"/projects/"+p.ID+"/share-to-chat", "I've updated the project — ")
+				@ShareToChatRow("/c/"+slug+"/projects/"+p.ID+"/share-to-chat", "I've updated the project — ", "share_msg_project")
 			}
 		</div>
 		<div class="project-header-edit" data-show="$projects_edit_header">

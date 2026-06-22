@@ -1543,7 +1543,7 @@ func ProjectDiscussionThreadPage(d ProjectPageData, t ProjectDiscussionThreadVie
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/discussions/"+t.ID+"/share-to-chat", "I've added a new doc — ").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/discussions/"+t.ID+"/share-to-chat", "I've added a new doc — ", "share_msg_discussion").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -2744,7 +2744,7 @@ func ProjectIssuePage(d ProjectPageData, i ProjectIssueView, comments []ProjectI
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/issues/"+i.ID+"/share-to-chat", "Quick update on this issue — ").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = ShareToChatRow("/c/"+d.CommunitySlug+"/projects/"+d.Project.ID+"/issues/"+i.ID+"/share-to-chat", "Quick update on this issue — ", "share_msg_issue").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -3406,7 +3406,7 @@ func ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) templ.Compo
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = ShareToChatRow("/c/"+slug+"/projects/"+p.ID+"/share-to-chat", "I've updated the project — ").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = ShareToChatRow("/c/"+slug+"/projects/"+p.ID+"/share-to-chat", "I've updated the project — ", "share_msg_project").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -84,13 +84,6 @@ type projectSignals struct {
 	CommentEdit  string   `json:"projects_comment_edit"`
 }
 
-// shareChatSignals is read on the per-resource share-to-chat POSTs.
-// One shared field name (`share_message`) is enough because each page
-// renders its own composer with its own POST URL — the form below the
-// project / issue / discussion just sends what the user typed.
-type shareChatSignals struct {
-	Message string `json:"share_message"`
-}
 
 // GetIndex renders /c/{slug}/projects: active projects on top, archived
 // collapsed under an expandable section. Empty-state when the community
@@ -1402,7 +1395,11 @@ func toGridRows(rows []IndexRow) []webtempl.ProjectsGridRow {
 // (with the user's optional one-liner), insert + broadcast, clear the
 // composer signal so the user can immediately type the next update.
 
-func (h *Handler) postShareCore(w http.ResponseWriter, r *http.Request, kind, emoji, title, link string) {
+// postShareCore handles the per-resource share-to-chat POSTs. sig is the
+// signal name the calling surface bound its composer to (unique per
+// surface so co-rendered composers don't sync — see ShareToChatRow); we
+// read just that field, then clear it and patch its own status div.
+func (h *Handler) postShareCore(w http.ResponseWriter, r *http.Request, kind, emoji, title, link, sig string) {
 	if h.ChatRepo == nil || h.ChatBus == nil {
 		http.Error(w, "chat sharing not available", http.StatusServiceUnavailable)
 		return
@@ -1418,12 +1415,13 @@ func (h *Handler) postShareCore(w http.ResponseWriter, r *http.Request, kind, em
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
-	var in shareChatSignals
+	var in map[string]any
 	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	msgText := strings.TrimSpace(in.Message)
+	typed, _ := in[sig].(string)
+	msgText := strings.TrimSpace(typed)
 	if len(msgText) > 800 {
 		msgText = msgText[:800]
 	}
@@ -1457,8 +1455,8 @@ func (h *Handler) postShareCore(w http.ResponseWriter, r *http.Request, kind, em
 	h.ChatBus.Broadcast("")
 
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchSignals([]byte(`{"share_message":""}`))
-	_ = sse.PatchElementTempl(webtempl.SuccessFragment("share-status", "Shared to chat."))
+	_ = sse.PatchSignals([]byte(`{"` + sig + `":""}`))
+	_ = sse.PatchElementTempl(webtempl.SuccessFragment("share-status-"+sig, "Shared to chat."))
 }
 
 func (h *Handler) PostShareProjectToChat(w http.ResponseWriter, r *http.Request) {
@@ -1474,7 +1472,7 @@ func (h *Handler) PostShareProjectToChat(w http.ResponseWriter, r *http.Request)
 	c, _ := community.FromContext(r.Context())
 	scheme, host := publicSchemeHost(r)
 	link := scheme + "://" + host + "/c/" + c.Slug + "/projects/" + p.ID
-	h.postShareCore(w, r, "Project", "📂", p.Title, link)
+	h.postShareCore(w, r, "Project", "📂", p.Title, link, "share_msg_project")
 }
 
 func (h *Handler) PostShareIssueToChat(w http.ResponseWriter, r *http.Request) {
@@ -1495,7 +1493,7 @@ func (h *Handler) PostShareIssueToChat(w http.ResponseWriter, r *http.Request) {
 	c, _ := community.FromContext(r.Context())
 	scheme, host := publicSchemeHost(r)
 	link := scheme + "://" + host + "/c/" + c.Slug + "/projects/" + pid + "/issues/" + iss.ID
-	h.postShareCore(w, r, "Issue", "🐞", iss.Title, link)
+	h.postShareCore(w, r, "Issue", "🐞", iss.Title, link, "share_msg_issue")
 }
 
 func (h *Handler) PostShareDiscussionToChat(w http.ResponseWriter, r *http.Request) {
@@ -1516,7 +1514,7 @@ func (h *Handler) PostShareDiscussionToChat(w http.ResponseWriter, r *http.Reque
 	c, _ := community.FromContext(r.Context())
 	scheme, host := publicSchemeHost(r)
 	link := scheme + "://" + host + "/c/" + c.Slug + "/projects/" + pid + "/discussions/" + dis.ID
-	h.postShareCore(w, r, "Doc", "📝", dis.Subject, link)
+	h.postShareCore(w, r, "Doc", "📝", dis.Subject, link, "share_msg_discussion")
 }
 
 func htmlEscProj(s string) string {
