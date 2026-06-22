@@ -303,18 +303,29 @@ func (r *Repo) RecentActivity(ctx context.Context, projectID string, limit int) 
 	if limit <= 0 {
 		limit = 30
 	}
+	// Todos report updated_at (not created_at) so a status toggle or body
+	// edit surfaces as fresh activity, not just creation. Discussions
+	// contribute both new threads and new replies (replies joined back to
+	// their thread to filter by project); deleted rows are excluded.
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT * FROM (
 			SELECT 'comment'    AS kind, created_at AS at FROM project_comments     WHERE project_id = ? AND deleted_at IS NULL
 			UNION ALL
 			SELECT 'attachment' AS kind, created_at AS at FROM project_attachments  WHERE project_id = ?
 			UNION ALL
-			SELECT 'todo'       AS kind, created_at AS at FROM project_todos        WHERE project_id = ?
+			SELECT 'todo'       AS kind, updated_at AS at FROM project_todos        WHERE project_id = ?
+			UNION ALL
+			SELECT 'discussion' AS kind, created_at AS at FROM project_discussion_threads WHERE project_id = ? AND deleted_at IS NULL
+			UNION ALL
+			SELECT 'discussion' AS kind, r.created_at AS at
+				FROM project_discussion_replies r
+				JOIN project_discussion_threads t ON t.id = r.thread_id
+				WHERE t.project_id = ? AND r.deleted_at IS NULL AND t.deleted_at IS NULL
 			UNION ALL
 			SELECT 'project'    AS kind, updated_at AS at FROM projects             WHERE id = ?
 		)
 		ORDER BY at DESC LIMIT ?`,
-		projectID, projectID, projectID, projectID, limit)
+		projectID, projectID, projectID, projectID, projectID, projectID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("activity: %w", err)
 	}

@@ -4566,7 +4566,9 @@ func activityLabel(kind string) string {
 	case "attachment":
 		return "📎 file added"
 	case "todo":
-		return "✓ todo added"
+		return "✓ todo updated"
+	case "discussion":
+		return "🗣 discussion activity"
 	case "project":
 		return "✎ project edited"
 	}
@@ -4659,7 +4661,7 @@ func projectCard(slug string, row ProjectsGridRow) templ.Component {
 		var templ_7745c5c3_Var207 templ.SafeURL
 		templ_7745c5c3_Var207, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + slug + "/projects/" + row.ID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1394, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1396, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var207))
 		if templ_7745c5c3_Err != nil {
@@ -4672,7 +4674,7 @@ func projectCard(slug string, row ProjectsGridRow) templ.Component {
 		var templ_7745c5c3_Var208 string
 		templ_7745c5c3_Var208, templ_7745c5c3_Err = templ.JoinStringErrs(row.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1395, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1397, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var208))
 		if templ_7745c5c3_Err != nil {
@@ -4690,7 +4692,7 @@ func projectCard(slug string, row ProjectsGridRow) templ.Component {
 			var templ_7745c5c3_Var209 string
 			templ_7745c5c3_Var209, templ_7745c5c3_Err = templ.JoinStringErrs(row.Preview)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1397, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1399, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var209))
 			if templ_7745c5c3_Err != nil {
@@ -4713,7 +4715,7 @@ func projectCard(slug string, row ProjectsGridRow) templ.Component {
 			var templ_7745c5c3_Var210 string
 			templ_7745c5c3_Var210, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(row.TodoDone))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1401, Col: 81}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1403, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var210))
 			if templ_7745c5c3_Err != nil {
@@ -4726,7 +4728,7 @@ func projectCard(slug string, row ProjectsGridRow) templ.Component {
 			var templ_7745c5c3_Var211 string
 			templ_7745c5c3_Var211, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(row.TodoTotal))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1401, Col: 113}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1403, Col: 113}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var211))
 			if templ_7745c5c3_Err != nil {
@@ -4745,7 +4747,7 @@ func projectCard(slug string, row ProjectsGridRow) templ.Component {
 			var templ_7745c5c3_Var212 string
 			templ_7745c5c3_Var212, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(row.AttachmentCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1404, Col: 93}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1406, Col: 93}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var212))
 			if templ_7745c5c3_Err != nil {
@@ -4764,7 +4766,7 @@ func projectCard(slug string, row ProjectsGridRow) templ.Component {
 			var templ_7745c5c3_Var213 string
 			templ_7745c5c3_Var213, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(row.CommentCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1407, Col: 93}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1409, Col: 93}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var213))
 			if templ_7745c5c3_Err != nil {
@@ -4782,7 +4784,7 @@ func projectCard(slug string, row ProjectsGridRow) templ.Component {
 		var templ_7745c5c3_Var214 string
 		templ_7745c5c3_Var214, templ_7745c5c3_Err = templ.JoinStringErrs(row.UpdatedAt.Local().Format("2006-01-02 15:04"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1409, Col: 104}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/projects.templ`, Line: 1411, Col: 104}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var214))
 		if templ_7745c5c3_Err != nil {
