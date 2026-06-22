@@ -1638,6 +1638,8 @@ func run() error {
 				r.Post("/{id}/todo", projectsHandler.PostTodoAdd)
 				r.Post("/{id}/todo/{tid}", projectsHandler.PostTodoEdit)
 				r.Post("/{id}/todo/{tid}/toggle", projectsHandler.PostTodoToggle)
+				r.Post("/{id}/todo/{tid}/status", projectsHandler.PostTodoStatus)
+				r.Post("/{id}/todo/{tid}/assign", projectsHandler.PostTodoAssign)
 				r.Post("/{id}/todo/{tid}/delete", projectsHandler.PostTodoDelete)
 				r.Post("/{id}/todo/reorder", projectsHandler.PostTodoReorder)
 				r.Post("/{id}/attachment", projectsHandler.PostAttachmentUpload)

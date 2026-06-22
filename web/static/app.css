@@ -1553,12 +1553,40 @@ img.thread-announce-img {
   align-items: center;
   padding: .25rem 0;
 }
+.project-todo { flex-wrap: wrap; }
 .project-todo-done .project-todo-body { text-decoration: line-through; opacity: .6; }
-.project-todo-body { flex: 1; cursor: text; }
-.project-todo-edit-input { flex: 1; }
+.project-todo-body { flex: 1; min-width: 8rem; cursor: text; }
+.project-todo-edit-input { flex: 1; min-width: 8rem; }
 .project-todo-delete { padding: 0 .4rem; }
 .project-todo-add { display: flex; gap: .5rem; }
 .project-todo-add input { flex: 1; }
+
+/* agile controls: compact status + assignee selects, completion meta */
+.project-todo-status,
+.project-todo-assignee {
+  flex: 0 0 auto; font-size: .76rem; padding: .22rem .4rem;
+  border-radius: var(--radius-pill); border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--fg-muted); cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+.project-todo-status { font-weight: 600; }
+.project-todo-status.status-in_progress { color: oklch(55% 0.16 70); border-color: oklch(72% 0.14 70); }
+.project-todo-status.status-done        { color: var(--success); border-color: var(--success); }
+.project-todo-assignee-set { color: var(--accent); border-color: var(--accent); }
+.project-todo-meta { flex: 0 0 auto; font-size: .72rem; white-space: nowrap; }
+
+/* read-only chips shown to guests */
+.project-todo-status-chip {
+  flex: 0 0 auto; font-size: .68rem; font-weight: 600; letter-spacing: .02em;
+  padding: .14rem .45rem; border-radius: var(--radius-pill); color: #fff; white-space: nowrap;
+}
+.project-todo-status-chip.status-todo        { background: oklch(58% 0.18 250); }
+.project-todo-status-chip.status-in_progress { background: oklch(65% 0.18 70); }
+.project-todo-status-chip.status-done        { background: var(--success); }
+.project-todo-assignee-chip {
+  flex: 0 0 auto; font-size: .72rem; color: var(--accent);
+  background: var(--accent-soft); padding: .12rem .4rem; border-radius: var(--radius-pill);
+}
 
 .project-dropzone {
   border: 2px dashed var(--border);

@@ -73,13 +73,15 @@ func (h *Handler) SetCommunityLookup(fn commLookupFn) { h.commLookup = fn }
 // projectSignals carries the editable values posted from the project
 // page. One bag for everything so we don't need a struct per endpoint.
 type projectSignals struct {
-	Title       string   `json:"projects_title"`
-	Description string   `json:"projects_desc"`
-	TodoBody    string   `json:"projects_todo_body"`
-	TodoEdit    string   `json:"projects_todo_edit"`
-	TodoOrder   []string `json:"projects_todo_order"`
-	CommentBody string   `json:"projects_comment_body"`
-	CommentEdit string   `json:"projects_comment_edit"`
+	Title        string   `json:"projects_title"`
+	Description  string   `json:"projects_desc"`
+	TodoBody     string   `json:"projects_todo_body"`
+	TodoEdit     string   `json:"projects_todo_edit"`
+	TodoStatus   string   `json:"projects_todo_status"`
+	TodoAssignee string   `json:"projects_todo_assignee"`
+	TodoOrder    []string `json:"projects_todo_order"`
+	CommentBody  string   `json:"projects_comment_body"`
+	CommentEdit  string   `json:"projects_comment_edit"`
 }
 
 // shareChatSignals is read on the per-resource share-to-chat POSTs.
@@ -239,6 +241,9 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 			h.Log.Error("projects todos load", "err", err, "id", pid)
 		}
 		data.Todos = toTodoViews(todos)
+		if !isGuest {
+			data.TodoMembers = h.memberOptions(r.Context(), c.ID)
+		}
 	}
 	if want.Atts {
 		atts, err := h.Repo.ListAttachments(r.Context(), p.ID)
@@ -437,6 +442,50 @@ func (h *Handler) PostTodoToggle(w http.ResponseWriter, r *http.Request) {
 	tid := chi.URLParam(r, "tid")
 	if err := h.Svc.ToggleTodo(r.Context(), pid, tid); err != nil {
 		h.Log.Warn("projects todo toggle", "err", err, "project", pid, "todo", tid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostTodoStatus sets the explicit status (todo|in_progress|done) of one
+// todo. Like toggle/delete it returns 204 and lets the per-project SSE
+// stream re-render #proj-todos.
+func (h *Handler) PostTodoStatus(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	tid := chi.URLParam(r, "tid")
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.Svc.SetTodoStatus(r.Context(), pid, tid, in.TodoStatus); err != nil {
+		h.Log.Warn("projects todo status", "err", err, "project", pid, "todo", tid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostTodoAssign assigns a member to a todo (empty value = unassign).
+func (h *Handler) PostTodoAssign(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	tid := chi.URLParam(r, "tid")
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.Svc.AssignTodo(r.Context(), pid, tid, in.TodoAssignee); err != nil {
+		h.Log.Warn("projects todo assign", "err", err, "project", pid, "todo", tid)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -1066,20 +1115,51 @@ func (h *Handler) pushTodos(r *http.Request, sse *datastar.ServerSentEventGenera
 	}
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos), false),
+		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos), h.memberOptions(r.Context(), c.ID), false),
 		datastar.WithSelector("#proj-todos"),
 		datastar.WithModeOuter(),
 	)
 }
 
+// memberOptions builds the assignee dropdown's options from the
+// community membership roster. Returns nil when AuthRepo is unwired or
+// the lookup fails — the template then renders an unassignable list.
+func (h *Handler) memberOptions(ctx context.Context, communityID string) []webtempl.ProjectMemberOption {
+	if h.AuthRepo == nil {
+		return nil
+	}
+	members, err := h.AuthRepo.ListMembers(ctx, communityID)
+	if err != nil {
+		h.Log.Warn("projects member options", "err", err, "community", communityID)
+		return nil
+	}
+	out := make([]webtempl.ProjectMemberOption, 0, len(members))
+	for _, m := range members {
+		out = append(out, webtempl.ProjectMemberOption{ID: m.UserID, Name: m.DisplayName})
+	}
+	return out
+}
+
 func toTodoViews(ts []Todo) []webtempl.ProjectTodoView {
 	out := make([]webtempl.ProjectTodoView, 0, len(ts))
 	for _, t := range ts {
-		out = append(out, webtempl.ProjectTodoView{
-			ID:   t.ID,
-			Body: t.Body,
-			Done: t.Done,
-		})
+		status := t.Status
+		if status == "" {
+			status = TodoStatusTodo
+		}
+		v := webtempl.ProjectTodoView{
+			ID:           t.ID,
+			Body:         t.Body,
+			Done:         t.Done,
+			Status:       status,
+			AssigneeID:   t.AssigneeUserID,
+			AssigneeName: t.AssigneeName,
+			CreatedLabel: t.CreatedAt.Local().Format("Jan 2"),
+		}
+		if t.CompletedAt != nil {
+			v.CompletedLabel = t.CompletedAt.Local().Format("Jan 2")
+		}
+		out = append(out, v)
 	}
 	return out
 }

@@ -52,6 +52,7 @@ type ProjectPageData struct {
 	CommunityName string
 	Project       ProjectView
 	Todos         []ProjectTodoView
+	TodoMembers   []ProjectMemberOption // assignee dropdown options; nil for guests
 	Attachments   []ProjectAttachmentView
 	Comments      []ProjectCommentView
 	Activity      []ProjectActivityView
@@ -116,9 +117,20 @@ type ProjectShareView struct {
 
 // ProjectTodoView is one checklist row.
 type ProjectTodoView struct {
+	ID             string
+	Body           string
+	Done           bool
+	Status         string // todo | in_progress | done
+	AssigneeID     string // "" when unassigned
+	AssigneeName   string // display-name snapshot; "" when unassigned
+	CreatedLabel   string // preformatted created date, e.g. "Jun 22"
+	CompletedLabel string // preformatted completion date; "" when not done
+}
+
+// ProjectMemberOption is one entry in the todo assignee dropdown.
+type ProjectMemberOption struct {
 	ID   string
-	Body string
-	Done bool
+	Name string
 }
 
 // ProjectAttachmentView is one attachment row.
@@ -316,7 +328,7 @@ templ projectSharePanel(slug, projectID string, s ProjectShareView) {
 templ ProjectTodosPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Todos", d.Viewer) {
 		@projectShell(d, "todos") {
-			@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos, d.IsGuestViewer)
+			@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos, d.TodoMembers, d.IsGuestViewer)
 		}
 	}
 }
@@ -999,7 +1011,7 @@ func fileLabel(mime string) string {
 // can only read).
 templ ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) {
 	<section id="proj-header" class="project-header"
-		data-signals={ "{projects_edit_header:false,projects_title:'" + jsQuoteAttr(p.Title) + "',projects_desc:'" + jsQuoteAttr(p.DescriptionMD) + "',projects_todo_body:'',projects_todo_edit:'',projects_todo_edit_id:'',projects_comment_body:'',projects_comment_edit:'',projects_comment_edit_id:''}" }>
+		data-signals={ "{projects_edit_header:false,projects_title:'" + jsQuoteAttr(p.Title) + "',projects_desc:'" + jsQuoteAttr(p.DescriptionMD) + "',projects_todo_body:'',projects_todo_edit:'',projects_todo_edit_id:'',projects_todo_status:'',projects_todo_assignee:'',projects_comment_body:'',projects_comment_edit:'',projects_comment_edit_id:''}" }>
 		<div class="project-header-display" data-show="!$projects_edit_header">
 			<h1 class="project-title">
 				{ p.Title }
@@ -1052,18 +1064,26 @@ templ ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) {
 // ProjectTodosFragment renders the entire checklist panel. SSE morphs
 // this whole `<section id="proj-todos">` on every add/edit/toggle/delete/
 // reorder event. `isGuest` hides every write affordance.
-templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView, isGuest bool) {
+templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView, members []ProjectMemberOption, isGuest bool) {
 	<section id="proj-todos" class="project-panel project-panel-todos">
 		<h3>Checklist</h3>
 		<ul class="project-todos">
 			for _, t := range todos {
-				<li class={ "project-todo", templ.KV("project-todo-done", t.Done) } data-todo-id={ t.ID }>
+				<li class={ "project-todo", "project-todo-status-" + t.Status, templ.KV("project-todo-done", t.Done) } data-todo-id={ t.ID }>
 					if isGuest {
-						<input type="checkbox" checked?={ t.Done } disabled/>
+						<span class={ "project-todo-status-chip", "status-" + t.Status }>{ projectTodoStatusLabel(t.Status) }</span>
 						<span class="project-todo-body">{ t.Body }</span>
+						if t.AssigneeName != "" {
+							<span class="project-todo-assignee-chip" title="Assigned">{ "@" + t.AssigneeName }</span>
+						}
 					} else {
-						<input type="checkbox" checked?={ t.Done }
-							data-on:change={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/toggle')" }/>
+						<select class={ "project-todo-status", "status-" + t.Status }
+							title="Status"
+							data-on:change={ "$projects_todo_status = el.value; @post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/status')" }>
+							<option value="todo" selected?={ t.Status == "todo" }>To do</option>
+							<option value="in_progress" selected?={ t.Status == "in_progress" }>In progress</option>
+							<option value="done" selected?={ t.Status == "done" }>Done</option>
+						</select>
 						<span class="project-todo-body"
 							data-on:dblclick={ "$projects_todo_edit_id = '" + t.ID + "'; $projects_todo_edit = '" + jsQuoteAttr(t.Body) + "'" }
 							data-show={ "$projects_todo_edit_id !== '" + t.ID + "'" }>{ t.Body }</span>
@@ -1072,10 +1092,24 @@ templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView, isGu
 							data-bind="projects_todo_edit"
 							data-on:keydown={ "evt.key === 'Enter' && (@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "'), $projects_todo_edit_id = '')" }
 							data-on:blur="$projects_todo_edit_id = ''"/>
+						<select class={ "project-todo-assignee", templ.KV("project-todo-assignee-set", t.AssigneeID != "") }
+							title="Assignee"
+							data-on:change={ "$projects_todo_assignee = el.value; @post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/assign')" }>
+							<option value="" selected?={ t.AssigneeID == "" }>Unassigned</option>
+							for _, m := range members {
+								<option value={ m.ID } selected?={ t.AssigneeID == m.ID }>{ m.Name }</option>
+							}
+						</select>
 						<button class="btn ghost project-todo-delete"
 							title="Delete this todo"
 							data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/todo/" + t.ID + "/delete')" }>×</button>
 					}
+					<span class="project-todo-meta muted">
+						created { t.CreatedLabel }
+						if t.CompletedLabel != "" {
+							· done { t.CompletedLabel }
+						}
+					</span>
 				</li>
 			}
 		</ul>
@@ -1262,6 +1296,18 @@ func categoryLabel(c string) string {
 		return "Other"
 	default:
 		return c
+	}
+}
+
+// projectTodoStatusLabel maps a project-todo status to its human label.
+func projectTodoStatusLabel(s string) string {
+	switch s {
+	case "in_progress":
+		return "In progress"
+	case "done":
+		return "Done"
+	default:
+		return "To do"
 	}
 }
 
