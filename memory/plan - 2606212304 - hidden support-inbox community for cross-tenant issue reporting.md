@@ -82,8 +82,14 @@ spec.
 
 ## Phases
 
-### Phase 0 — spec the exception (status: open)
-0.1 [ ] `/eidos:spec support-inbox` — write
+### Phase 0 — spec the exception (status: completed)
+0.1 [x] `/eidos:spec support-inbox` — wrote
+    `eidos/spec - support-inbox - hidden-cross-tenant-write-only-issue-inbox.md`
+    (status: shipped) capturing the single hidden community, env slug, write-only
+    -via-no-membership guarantee, own-reports read-back, super-admin-only full
+    read via `/support-inbox`, and the deliberate isolation exception. Original
+    action text follows.
+    [original] `/eidos:spec support-inbox` — write
     `eidos/spec - support-inbox - hidden-cross-tenant-write-only-issue-inbox.md`
     capturing: the single hidden community, env slug, write-only guarantee via
     no-membership, own-reports read-back, super-admin-only full read, and the
