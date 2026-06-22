@@ -144,6 +144,26 @@ func RichHTML(s string) string {
 	return DownloadableCode(EmbedYouTube(WrapUploadImages(s)))
 }
 
+// looksHTMLRE matches a structural HTML tag in RAW markdown source — the tags
+// an agent emits when it writes a page/snippet. Deliberately excludes prose-common
+// inline tags (<p>, <a>, <em>) to avoid false positives on normal text.
+var looksHTMLRE = regexp.MustCompile(`(?i)<(?:!doctype|html|head|body|style|link|meta|div|section|main|article|nav|header|footer|aside|table|thead|tbody|tr|td|form|input|button|svg|canvas|script|iframe|ul|ol|h[1-6])[\s/>]`)
+
+// LooksLikeHTML reports whether raw markdown source contains HTML the user would
+// want to view/download as a file — either a ```html fence or bare structural
+// HTML tags. Used to gate the "view source / download / preview" affordance on
+// agent output, whose raw body is the only complete copy (goldmark drops bare
+// raw HTML at render time, so the rendered view alone can be lossy).
+func LooksLikeHTML(s string) bool {
+	if s == "" {
+		return false
+	}
+	if strings.Contains(strings.ToLower(s), "```html") {
+		return true
+	}
+	return looksHTMLRE.MatchString(s)
+}
+
 // codeBlockRE matches a full fenced code block as emitted by goldmark +
 // bluemonday: `<pre><code[ class="language-XXX"]>…</code></pre>`. goldmark
 // escapes `<` to `&lt;` inside code, so the body never contains a literal

@@ -28,6 +28,7 @@ type AgentMsgView struct {
 	ID          string
 	Role        string
 	BodyHTML    string
+	BodyMD      string // raw source — drives the view-source / download / preview tools
 	Status      string
 	Error       string
 	IsUser      bool
@@ -156,7 +157,7 @@ func AgentPage(d AgentPageData) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(agentPageSignals(d))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 113, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 114, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
@@ -188,7 +189,7 @@ func AgentPage(d AgentPageData) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(d.Active.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 123, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 124, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -206,7 +207,7 @@ func AgentPage(d AgentPageData) templ.Component {
 					var templ_7745c5c3_Var5 string
 					templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.Slug + "/agent/" + d.Active.ID + "/agent')")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 127, Col: 145}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 128, Col: 145}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 					if templ_7745c5c3_Err != nil {
@@ -224,7 +225,7 @@ func AgentPage(d AgentPageData) templ.Component {
 						var templ_7745c5c3_Var6 string
 						templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.ID)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 129, Col: 31}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 130, Col: 31}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 						if templ_7745c5c3_Err != nil {
@@ -247,7 +248,7 @@ func AgentPage(d AgentPageData) templ.Component {
 						var templ_7745c5c3_Var7 string
 						templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(a.Name)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 130, Col: 20}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 131, Col: 20}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 						if templ_7745c5c3_Err != nil {
@@ -261,7 +262,7 @@ func AgentPage(d AgentPageData) templ.Component {
 							var templ_7745c5c3_Var8 string
 							templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(" 👁")
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 132, Col: 22}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 133, Col: 22}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 							if templ_7745c5c3_Err != nil {
@@ -285,7 +286,7 @@ func AgentPage(d AgentPageData) templ.Component {
 					var templ_7745c5c3_Var9 string
 					templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(d.ActiveAgentName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 138, Col: 34}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 139, Col: 34}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 					if templ_7745c5c3_Err != nil {
@@ -311,7 +312,7 @@ func AgentPage(d AgentPageData) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue("confirm('Delete this conversation?') && @post('/c/" + d.Slug + "/agent/" + d.Active.ID + "/delete')")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 146, Col: 125}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 147, Col: 125}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 				if templ_7745c5c3_Err != nil {
@@ -340,7 +341,7 @@ func AgentPage(d AgentPageData) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/c/" + d.Slug + "/agent/" + d.Active.ID + "/stream', {openWhenHidden: true})")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 152, Col: 129}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 153, Col: 129}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 				if templ_7745c5c3_Err != nil {
@@ -369,7 +370,7 @@ func AgentPage(d AgentPageData) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue("/static/paste.js?v=" + AssetVer("paste.js"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 162, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 163, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 			if templ_7745c5c3_Err != nil {
@@ -382,7 +383,7 @@ func AgentPage(d AgentPageData) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.ResolveAttributeValue("/static/agent-refs.js?v=" + AssetVer("agent-refs.js"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 163, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 164, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var13)
 			if templ_7745c5c3_Err != nil {
@@ -442,7 +443,7 @@ func AgentSidebar(d AgentPageData) templ.Component {
 				var templ_7745c5c3_Var15 string
 				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 175, Col: 26}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 176, Col: 26}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 				if templ_7745c5c3_Err != nil {
@@ -455,7 +456,7 @@ func AgentSidebar(d AgentPageData) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(a.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 175, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 176, Col: 37}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -478,7 +479,7 @@ func AgentSidebar(d AgentPageData) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.Slug + "/agent/new')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 183, Col: 83}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 184, Col: 83}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
@@ -507,7 +508,7 @@ func AgentSidebar(d AgentPageData) templ.Component {
 			var templ_7745c5c3_Var19 templ.SafeURL
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + d.Slug + "/agent/" + t.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 191, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 192, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 			if templ_7745c5c3_Err != nil {
@@ -541,7 +542,7 @@ func AgentSidebar(d AgentPageData) templ.Component {
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(t.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 195, Col: 52}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 196, Col: 52}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
@@ -681,7 +682,7 @@ func AgentToolChips(calls []AgentToolView) templ.Component {
 			var templ_7745c5c3_Var25 string
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.Args)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 235, Col: 27}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 236, Col: 27}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 			if templ_7745c5c3_Err != nil {
@@ -709,7 +710,7 @@ func AgentToolChips(calls []AgentToolView) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 241, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 242, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
@@ -722,7 +723,7 @@ func AgentToolChips(calls []AgentToolView) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(c.Server)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 242, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 243, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 			if templ_7745c5c3_Err != nil {
@@ -735,7 +736,7 @@ func AgentToolChips(calls []AgentToolView) templ.Component {
 			var templ_7745c5c3_Var28 string
 			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(c.Result)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 244, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 245, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 			if templ_7745c5c3_Err != nil {
@@ -783,7 +784,7 @@ func AgentBubble(slug, threadID string, m AgentMsgView) templ.Component {
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue("agent-msg-" + m.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 252, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 253, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
 			if templ_7745c5c3_Err != nil {
@@ -809,7 +810,7 @@ func AgentBubble(slug, threadID string, m AgentMsgView) templ.Component {
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue("agent-msg-" + m.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 256, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 257, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 			if templ_7745c5c3_Err != nil {
@@ -858,7 +859,7 @@ func AgentBubble(slug, threadID string, m AgentMsgView) templ.Component {
 				var templ_7745c5c3_Var32 string
 				templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(m.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 271, Col: 41}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 272, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 				if templ_7745c5c3_Err != nil {
@@ -875,6 +876,12 @@ func AgentBubble(slug, threadID string, m AgentMsgView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
+			if !m.Generating && render.LooksLikeHTML(m.BodyMD) {
+				templ_7745c5c3_Err = SourceTools(m.BodyMD, "agent-reply.html").Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "<div class=\"agent-bubble-actions\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -887,7 +894,7 @@ func AgentBubble(slug, threadID string, m AgentMsgView) templ.Component {
 				var templ_7745c5c3_Var33 string
 				templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/agent/" + threadID + "/regenerate')")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 278, Col: 113}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 282, Col: 113}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 				if templ_7745c5c3_Err != nil {
@@ -906,7 +913,7 @@ func AgentBubble(slug, threadID string, m AgentMsgView) templ.Component {
 				var templ_7745c5c3_Var34 string
 				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.ResolveAttributeValue("$agent_share_msg_id='" + m.ID + "'; $_agent_share_open=true")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 281, Col: 114}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 285, Col: 114}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var34)
 				if templ_7745c5c3_Err != nil {
@@ -985,7 +992,7 @@ func AgentComposer(slug, threadID string, vision bool) templ.Component {
 		var templ_7745c5c3_Var36 string
 		templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.ResolveAttributeValue("window.fcAgentEditorInput && window.fcAgentEditorInput(el, '" + slug + "')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 319, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 323, Col: 96}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var36)
 		if templ_7745c5c3_Err != nil {
@@ -998,7 +1005,7 @@ func AgentComposer(slug, threadID string, vision bool) templ.Component {
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.ResolveAttributeValue("window.fcAgentEditorKeydown && window.fcAgentEditorKeydown(evt, el, '" + slug + "', '" + threadID + "')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 320, Col: 127}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 324, Col: 127}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var37)
 		if templ_7745c5c3_Err != nil {
@@ -1011,7 +1018,7 @@ func AgentComposer(slug, threadID string, vision bool) templ.Component {
 		var templ_7745c5c3_Var38 string
 		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/c/" + slug + "/agent/refs')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 330, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 334, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var38)
 		if templ_7745c5c3_Err != nil {
@@ -1024,7 +1031,7 @@ func AgentComposer(slug, threadID string, vision bool) templ.Component {
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.ResolveAttributeValue("($agent_body.trim()||$agent_image_data) && @post('/c/" + slug + "/agent/" + threadID + "/send')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 337, Col: 118}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 341, Col: 118}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 		if templ_7745c5c3_Err != nil {
@@ -1037,7 +1044,7 @@ func AgentComposer(slug, threadID string, vision bool) templ.Component {
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/agent/" + threadID + "/stop')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 343, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 347, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 		if templ_7745c5c3_Err != nil {
@@ -1089,7 +1096,7 @@ func AgentRefResults(slug string, refs []AgentRefView) templ.Component {
 			var templ_7745c5c3_Var42 string
 			templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.ResolveAttributeValue(ref.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 358, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 362, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var42)
 			if templ_7745c5c3_Err != nil {
@@ -1102,7 +1109,7 @@ func AgentRefResults(slug string, refs []AgentRefView) templ.Component {
 			var templ_7745c5c3_Var43 string
 			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(ref.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 358, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 362, Col: 89}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 			if templ_7745c5c3_Err != nil {
@@ -1115,7 +1122,7 @@ func AgentRefResults(slug string, refs []AgentRefView) templ.Component {
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(ref.Kind)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 358, Col: 112}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 362, Col: 112}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 			if templ_7745c5c3_Err != nil {
@@ -1128,7 +1135,7 @@ func AgentRefResults(slug string, refs []AgentRefView) templ.Component {
 			var templ_7745c5c3_Var45 string
 			templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(agentRefIcon(ref.Kind))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 359, Col: 76}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 363, Col: 76}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 			if templ_7745c5c3_Err != nil {
@@ -1141,7 +1148,7 @@ func AgentRefResults(slug string, refs []AgentRefView) templ.Component {
 			var templ_7745c5c3_Var46 string
 			templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(ref.Title)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 360, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 364, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 			if templ_7745c5c3_Err != nil {
@@ -1231,7 +1238,7 @@ func AgentEmptyState(slug string, anyVision bool) templ.Component {
 		var templ_7745c5c3_Var48 string
 		templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.ResolveAttributeValue("if(evt.key==='Enter' && !evt.shiftKey){evt.preventDefault(); if($agent_body.trim()||$agent_image_data){@post('/c/" + slug + "/agent/new')}}")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 411, Col: 164}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 415, Col: 164}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var48)
 		if templ_7745c5c3_Err != nil {
@@ -1244,7 +1251,7 @@ func AgentEmptyState(slug string, anyVision bool) templ.Component {
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.ResolveAttributeValue("($agent_body.trim()||$agent_image_data) && @post('/c/" + slug + "/agent/new')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 415, Col: 141}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 419, Col: 141}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 		if templ_7745c5c3_Err != nil {
@@ -1292,7 +1299,7 @@ func AgentShareDialog(slug, threadID string, channels []ChannelView) templ.Compo
 			var templ_7745c5c3_Var51 string
 			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.Slug)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 431, Col: 26}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 435, Col: 26}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var51)
 			if templ_7745c5c3_Err != nil {
@@ -1305,7 +1312,7 @@ func AgentShareDialog(slug, threadID string, channels []ChannelView) templ.Compo
 			var templ_7745c5c3_Var52 string
 			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 431, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 435, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 			if templ_7745c5c3_Err != nil {
@@ -1323,7 +1330,7 @@ func AgentShareDialog(slug, threadID string, channels []ChannelView) templ.Compo
 		var templ_7745c5c3_Var53 string
 		templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue("$agent_share_channel && @post('/c/" + slug + "/agent/" + threadID + "/share')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 436, Col: 125}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 440, Col: 125}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 		if templ_7745c5c3_Err != nil {
@@ -1371,7 +1378,7 @@ func AgentSetupBanner(slug string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var55 templ.SafeURL
 			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + slug + "/admin/ai"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 446, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 450, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 			if templ_7745c5c3_Err != nil {
@@ -1424,7 +1431,7 @@ func AgentNotice(msg string) templ.Component {
 		var templ_7745c5c3_Var57 string
 		templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 456, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 460, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 		if templ_7745c5c3_Err != nil {
@@ -1581,7 +1588,7 @@ func AgentAdminPage(v Viewer, slug string, agents []AgentAdminView, servers []MC
 			var templ_7745c5c3_Var62 string
 			templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/c/" + slug + "/admin/ai/new')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 505, Col: 97}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 509, Col: 97}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var62)
 			if templ_7745c5c3_Err != nil {
@@ -1656,7 +1663,7 @@ func AgentMCPList(slug string, servers []MCPServerView) templ.Component {
 			var templ_7745c5c3_Var64 string
 			templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(m.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 536, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 540, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 			if templ_7745c5c3_Err != nil {
@@ -1669,7 +1676,7 @@ func AgentMCPList(slug string, servers []MCPServerView) templ.Component {
 			var templ_7745c5c3_Var65 string
 			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(m.Transport)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 537, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 541, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 			if templ_7745c5c3_Err != nil {
@@ -1682,7 +1689,7 @@ func AgentMCPList(slug string, servers []MCPServerView) templ.Component {
 			var templ_7745c5c3_Var66 string
 			templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(m.Target)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 537, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 541, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 			if templ_7745c5c3_Err != nil {
@@ -1710,7 +1717,7 @@ func AgentMCPList(slug string, servers []MCPServerView) templ.Component {
 			var templ_7745c5c3_Var67 string
 			templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/ai/mcp/" + m.ID + "/toggle')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 547, Col: 111}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 551, Col: 111}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var67)
 			if templ_7745c5c3_Err != nil {
@@ -1738,7 +1745,7 @@ func AgentMCPList(slug string, servers []MCPServerView) templ.Component {
 			var templ_7745c5c3_Var68 string
 			templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.ResolveAttributeValue("confirm('Disconnect MCP server “" + m.Name + "”?') && @post('/c/" + slug + "/admin/ai/mcp/" + m.ID + "/delete')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 554, Col: 182}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 558, Col: 182}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var68)
 			if templ_7745c5c3_Err != nil {
@@ -1787,7 +1794,7 @@ func AgentMCPForm(slug string) templ.Component {
 		var templ_7745c5c3_Var70 string
 		templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.ResolveAttributeValue(mcpFormSignals())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 564, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 568, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var70)
 		if templ_7745c5c3_Err != nil {
@@ -1800,7 +1807,7 @@ func AgentMCPForm(slug string) templ.Component {
 		var templ_7745c5c3_Var71 string
 		templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/ai/mcp')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 602, Col: 99}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 606, Col: 99}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var71)
 		if templ_7745c5c3_Err != nil {
@@ -1852,7 +1859,7 @@ func AgentMCPStatus(status string) templ.Component {
 		var templ_7745c5c3_Var73 string
 		templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(status)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 611, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 615, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 		if templ_7745c5c3_Err != nil {
@@ -1944,7 +1951,7 @@ func AgentCard(slug string, a AgentAdminView) templ.Component {
 		var templ_7745c5c3_Var76 string
 		templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(a.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 633, Col: 19}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 637, Col: 19}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 		if templ_7745c5c3_Err != nil {
@@ -1957,7 +1964,7 @@ func AgentCard(slug string, a AgentAdminView) templ.Component {
 		var templ_7745c5c3_Var77 string
 		templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(a.Provider)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 634, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 638, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 		if templ_7745c5c3_Err != nil {
@@ -1970,7 +1977,7 @@ func AgentCard(slug string, a AgentAdminView) templ.Component {
 		var templ_7745c5c3_Var78 string
 		templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(a.Model)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 634, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 638, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 		if templ_7745c5c3_Err != nil {
@@ -2016,7 +2023,7 @@ func AgentCard(slug string, a AgentAdminView) templ.Component {
 		var templ_7745c5c3_Var79 string
 		templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/c/" + slug + "/admin/ai/" + a.ID + "/edit')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 653, Col: 102}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 657, Col: 102}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var79)
 		if templ_7745c5c3_Err != nil {
@@ -2029,7 +2036,7 @@ func AgentCard(slug string, a AgentAdminView) templ.Component {
 		var templ_7745c5c3_Var80 string
 		templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.ResolveAttributeValue("confirm('Delete agent “" + a.Name + "”? Its conversations are removed too.') && @post('/c/" + slug + "/admin/ai/" + a.ID + "/delete')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 654, Col: 202}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 658, Col: 202}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var80)
 		if templ_7745c5c3_Err != nil {
@@ -2074,7 +2081,7 @@ func AgentAdminForm(slug string, a AgentAdminView, status string) templ.Componen
 		var templ_7745c5c3_Var82 string
 		templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.ResolveAttributeValue(agentFormSignals(a))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 663, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 667, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var82)
 		if templ_7745c5c3_Err != nil {
@@ -2102,7 +2109,7 @@ func AgentAdminForm(slug string, a AgentAdminView, status string) templ.Componen
 		var templ_7745c5c3_Var83 string
 		templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.ResolveAttributeValue(agentKeyPlaceholder(a.APIKeySet))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 707, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 711, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var83)
 		if templ_7745c5c3_Err != nil {
@@ -2115,7 +2122,7 @@ func AgentAdminForm(slug string, a AgentAdminView, status string) templ.Componen
 		var templ_7745c5c3_Var84 string
 		templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs("@mention only")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 727, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 731, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 		if templ_7745c5c3_Err != nil {
@@ -2139,7 +2146,7 @@ func AgentAdminForm(slug string, a AgentAdminView, status string) templ.Componen
 				var templ_7745c5c3_Var85 string
 				templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.ResolveAttributeValue(ch.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 744, Col: 44}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 748, Col: 44}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var85)
 				if templ_7745c5c3_Err != nil {
@@ -2162,7 +2169,7 @@ func AgentAdminForm(slug string, a AgentAdminView, status string) templ.Componen
 				var templ_7745c5c3_Var86 string
 				templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.ResolveAttributeValue(agentChannelToggleJS())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 745, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 749, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var86)
 				if templ_7745c5c3_Err != nil {
@@ -2175,7 +2182,7 @@ func AgentAdminForm(slug string, a AgentAdminView, status string) templ.Componen
 				var templ_7745c5c3_Var87 string
 				templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(ch.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 746, Col: 24}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 750, Col: 24}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 				if templ_7745c5c3_Err != nil {
@@ -2194,7 +2201,7 @@ func AgentAdminForm(slug string, a AgentAdminView, status string) templ.Componen
 		var templ_7745c5c3_Var88 string
 		templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/ai')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 754, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 758, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var88)
 		if templ_7745c5c3_Err != nil {
@@ -2212,7 +2219,7 @@ func AgentAdminForm(slug string, a AgentAdminView, status string) templ.Componen
 			var templ_7745c5c3_Var89 string
 			templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(status)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 757, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agent.templ`, Line: 761, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 			if templ_7745c5c3_Err != nil {

@@ -20,6 +20,7 @@ type AgentMsgView struct {
 	ID          string
 	Role        string
 	BodyHTML    string
+	BodyMD      string // raw source — drives the view-source / download / preview tools
 	Status      string
 	Error       string
 	IsUser      bool
@@ -272,6 +273,9 @@ templ AgentBubble(slug, threadID string, m AgentMsgView) {
 				}
 				if m.Interrupted {
 					<p class="agent-stopped">■ stopped</p>
+				}
+				if !m.Generating && render.LooksLikeHTML(m.BodyMD) {
+					@SourceTools(m.BodyMD, "agent-reply.html")
 				}
 				<div class="agent-bubble-actions">
 					if m.Interrupted || m.Errored {

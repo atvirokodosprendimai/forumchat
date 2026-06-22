@@ -37,3 +37,32 @@ window.fcPreviewCode = function (btn) {
   if (!code) return;
   window.fcOpenHtmlPreview(code.textContent || '');
 };
+
+// ── Whole-message raw source (SourceTools) ──────────────────────────────────
+// The raw markdown lives in a hidden <pre class="body-source"> sibling of the
+// rendered body. fcSourceHost finds the enclosing bubble that owns both.
+function fcSourceHost(btn) {
+  return btn.closest('.agent-bubble, article');
+}
+function fcSourceText(btn) {
+  const host = fcSourceHost(btn);
+  const code = host && host.querySelector('.body-source code');
+  return code ? (code.textContent || '') : '';
+}
+
+// fcToggleSource swaps the bubble between the rendered view and its raw source.
+window.fcToggleSource = function (btn) {
+  const host = fcSourceHost(btn);
+  if (!host) return;
+  const on = host.classList.toggle('show-source');
+  btn.innerHTML = on ? 'Rendered' : '&lt;/&gt; Source';
+};
+
+window.fcPreviewSource = function (btn) {
+  window.fcOpenHtmlPreview(fcSourceText(btn));
+};
+
+window.fcDownloadSource = function (btn, filename) {
+  const mime = /\.html?$/i.test(filename || '') ? 'text/html' : 'text/markdown';
+  window.fcDownloadText(fcSourceText(btn), filename || 'source.txt', mime);
+};

@@ -187,6 +187,7 @@ func (h *Handler) loadPostViews(ctx context.Context, threadID, currentUserID str
 			QuotedAuthor: p.QuotedAuthor,
 			QuotedBody:   p.QuotedBody,
 			BodyHTML:     p.BodyHTML,
+			BodyMD:       p.BodyMarkdown,
 			CreatedAt:    p.CreatedAt,
 			Deleted:      p.IsDeleted(),
 			// Bot posts are deletable by mods only (no per-author edit grace).

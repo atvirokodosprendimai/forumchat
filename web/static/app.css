@@ -2491,7 +2491,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   padding: .35rem .45rem;
 }
-.codeblock-dl, .codeblock-prev {
+.codeblock-dl, .codeblock-prev, .src-btn {
   display: inline-flex; align-items: center; gap: .3rem;
   font: inherit; font-size: .74rem; font-weight: 600; line-height: 1;
   color: var(--fg); background: var(--surface);
@@ -2499,7 +2499,20 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
   padding: .35rem .6rem; cursor: pointer;
   transition: color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out);
 }
-.codeblock-dl:hover, .codeblock-prev:hover { color: var(--accent-fg); border-color: var(--accent); background: var(--accent); }
+.codeblock-dl:hover, .codeblock-prev:hover, .src-btn:hover { color: var(--accent-fg); border-color: var(--accent); background: var(--accent); }
+
+/* Whole-message raw-source toggle (SourceTools). The raw <pre> is hidden until
+   .show-source is flipped onto the enclosing bubble, swapping rendered ↔ source. */
+.body-source {
+  display: none; margin: .4rem 0 0; max-width: 100%; overflow: auto;
+  background: var(--surface-sunken); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); padding: .7rem .85rem;
+  font-family: var(--font-mono); font-size: .82em; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+.show-source .body, .show-source .agent-body { display: none; }
+.show-source .body-source { display: block; }
+.body-tools { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
 /* Inside a paste the figure is the whole card — flatten the pre's bottom so it
    reads as one unit with the bar (the standalone .paste-rendered pre rule
    re-rounds all corners otherwise). */

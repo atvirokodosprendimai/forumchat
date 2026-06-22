@@ -61,6 +61,32 @@ func TestDownloadableCode_NonCodeUntouched(t *testing.T) {
 	}
 }
 
+func TestLooksLikeHTML(t *testing.T) {
+	t.Parallel()
+	html := []string{
+		"```html\n<div>hi</div>\n```",
+		"<!doctype html><html></html>",
+		"<style>body{color:red}</style>\n<div class=\"box\">x</div>",
+		"Here is a page:\n<section><h1>Title</h1></section>",
+	}
+	notHTML := []string{
+		"",
+		"just a normal sentence about HTML and CSS",
+		"a list:\n- one\n- two",
+		"inline `code` and a [link](https://x.dev)",
+	}
+	for _, s := range html {
+		if !render.LooksLikeHTML(s) {
+			t.Errorf("LooksLikeHTML(%q) = false, want true", s)
+		}
+	}
+	for _, s := range notHTML {
+		if render.LooksLikeHTML(s) {
+			t.Errorf("LooksLikeHTML(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestRichHTML_WiresDownloadButton(t *testing.T) {
 	t.Parallel()
 	out := render.RichHTML(renderMD(t, "```go\nfmt.Println(\"hi\")\n```"))

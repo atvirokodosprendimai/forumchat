@@ -1047,6 +1047,7 @@ func toMsgView(m Message, canShare bool) webtempl.AgentMsgView {
 		ID:          m.ID,
 		Role:        m.Role,
 		BodyHTML:    m.BodyHTML,
+		BodyMD:      m.BodyMD,
 		Status:      m.Status,
 		Error:       m.Error,
 		IsUser:      m.Role == RoleUser,

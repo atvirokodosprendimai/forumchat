@@ -1,0 +1,24 @@
+package templ
+
+import "strconv"
+
+// SourceTools renders the "view source / preview / download" affordance for a
+// message whose raw markdown source contains HTML (gated by render.LooksLikeHTML
+// at the call site). It exists because the rendered HTML view can be lossy —
+// goldmark drops bare raw HTML — so the raw source is the only complete copy of
+// what an agent wrote.
+//
+// The raw source rides in a hidden <pre class="body-source"> sibling of the
+// rendered .body / .agent-body. fcToggleSource flips a .show-source class on the
+// enclosing bubble to swap rendered ↔ source; fcPreviewSource loads the raw HTML
+// into the global sandboxed iframe (#fc-html-frame); fcDownloadSource saves it.
+// No per-message signals — the toggle is plain DOM, so it composes with the chat
+// fat-morph (the class just resets on morph, which is fine).
+templ SourceTools(rawMD, filename string) {
+	<pre class="body-source" aria-hidden="true"><code>{ rawMD }</code></pre>
+	<div class="body-tools">
+		<button type="button" class="src-btn" data-on:click="window.fcToggleSource(el)">&lt;/&gt; Source</button>
+		<button type="button" class="src-btn" data-on:click="window.fcPreviewSource(el);$_html_open=true">👁 Preview</button>
+		<button type="button" class="src-btn" data-on:click={ "window.fcDownloadSource(el," + strconv.Quote(filename) + ")" }>⬇ Download</button>
+	</div>
+}

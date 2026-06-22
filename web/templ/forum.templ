@@ -49,6 +49,7 @@ type PostView struct {
 	QuotedAuthor string
 	QuotedBody   string
 	BodyHTML     string
+	BodyMD       string // raw source — drives the agent view-source / download / preview tools
 	CreatedAt    time.Time
 	Deleted      bool
 	CanEdit      bool
@@ -351,6 +352,9 @@ templ ForumPost(slug, threadID string, p PostView) {
 					<span class="gen-cursor" aria-hidden="true">▍</span>
 				}
 			</div>
+			if p.GenStatus != "generating" && render.LooksLikeHTML(p.BodyMD) {
+				@SourceTools(p.BodyMD, "agent-reply.html")
+			}
 		} else {
 			<header class="meta">
 				<strong>{ p.AuthorName }</strong>
