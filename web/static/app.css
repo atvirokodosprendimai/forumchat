@@ -3196,6 +3196,7 @@ hr {
 /* Facebook is a single-color glyph; give it a touch of brand on hover. */
 .btn.oauth-facebook:hover { border-color: #1877F2; }
 .btn.oauth-google:hover { border-color: var(--border-strong); }
+.btn.oauth-github:hover { border-color: var(--fg); }
 
 /* Reduced motion — respect user preference */
 @media (prefers-reduced-motion: reduce) {

@@ -84,6 +84,8 @@ type Config struct {
 	GoogleClientSecret   string `env:"GOOGLE_CLIENT_SECRET" envDefault:""`
 	FacebookClientID     string `env:"FACEBOOK_CLIENT_ID" envDefault:""`
 	FacebookClientSecret string `env:"FACEBOOK_CLIENT_SECRET" envDefault:""`
+	GitHubClientID       string `env:"GITHUB_CLIENT_ID" envDefault:""`
+	GitHubClientSecret   string `env:"GITHUB_CLIENT_SECRET" envDefault:""`
 
 	PresenceTTL time.Duration `env:"PRESENCE_TTL" envDefault:"30s"`
 	EditGrace   time.Duration `env:"EDIT_GRACE" envDefault:"15m"`

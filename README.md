@@ -560,7 +560,7 @@ DB tables (numbered by migration): `projects` (00013), `project_issues`,
   three flags are independent and compose (meant for short demo windows).
 - Two-step sign-in: email → password, **or** email-me-a-magic-link.
   Anti-enumeration by default (hit/miss responses are identical).
-- **Social login** (Google, Facebook via `markbates/goth`) when the matching
+- **Social login** (Google, Facebook, GitHub via `markbates/goth`) when the matching
   `*_CLIENT_ID`/`*_CLIENT_SECRET` are set — a "Continue with …" button appears
   on the login + register cards. OAuth is a *login* method: an existing account
   is matched by the provider's verified email and linked automatically; a
@@ -678,6 +678,7 @@ boot fails fast on placeholder secrets.
 | `SUPERADMIN_EMAILS`  | _(empty)_                              | Comma-separated email allowlist of **platform super-admins**. A signed-in user whose email matches (case-insensitive) gets god-mode across every community: enter any `/c/<slug>/admin` without a membership, set roles anywhere, plus the global `/superadmin` dashboard (all communities + all users). Immutable at runtime — change the env and restart. Empty = no super-admins. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | _(empty)_       | Enable "Continue with Google". Register `BASE_URL/auth/google/callback` as the OAuth redirect URI in the Google Cloud console. Both empty = button hidden, routes not mounted. |
 | `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET` | _(empty)_   | Enable "Continue with Facebook". Register `BASE_URL/auth/facebook/callback` as the Valid OAuth Redirect URI in the Meta app dashboard. Both empty = button hidden, routes not mounted. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | _(empty)_       | Enable "Continue with GitHub". Set the Authorization callback URL to `BASE_URL/auth/github/callback` in the GitHub OAuth App settings. The `user:email` scope is requested automatically so private primary emails are fetched. Both empty = button hidden, routes not mounted. |
 
 ### Uploads
 

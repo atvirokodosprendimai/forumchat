@@ -41,11 +41,17 @@ func (h *Handler) GetOAuthCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) finishOAuthLogin(w http.ResponseWriter, r *http.Request, provider string, gu goth.User) {
+	// GitHub (and some providers) leave Name empty — fall back to the login /
+	// nickname so the membership display name isn't just the email localpart.
+	name := gu.Name
+	if name == "" {
+		name = gu.NickName
+	}
 	res, err := h.Svc.UpsertOAuthUser(r.Context(), OAuthInput{
 		Provider:       provider,
 		ProviderUserID: gu.UserID,
 		Email:          gu.Email,
-		Name:           gu.Name,
+		Name:           name,
 		AvatarURL:      gu.AvatarURL,
 	})
 	if err != nil {
@@ -90,6 +96,8 @@ func providerLabel(name string) string {
 		return "Google"
 	case "facebook":
 		return "Facebook"
+	case "github":
+		return "GitHub"
 	default:
 		return name
 	}

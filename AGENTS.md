@@ -629,10 +629,19 @@ allowlist that grants god-mode across every community:
 
 ## 5e. Social login (OAuth via goth)
 
-Google + Facebook sign-in (Jun 2026), `github.com/markbates/goth`. Lives
+Google + Facebook + GitHub sign-in (Jun 2026), `github.com/markbates/goth`. Lives
 entirely in `internal/auth`: `oauth.go` (provider setup), `oauth_handler.go`
 (HTTP), `Service.UpsertOAuthUser` + `finishOAuth` (service.go), the
 `user_identities` repo methods (repo.go), migration **00053**.
+
+Adding a provider = one block in `SetupOAuth` (`goth.New(...)` + append an
+`OAuthProvider`), one `providerLabel` case, one `oauthIcon` SVG case in
+`auth.templ`, and the config/env fields. **GitHub needs the `user:email`
+scope** — goth only fetches the primary email via `/user/emails` (for users
+whose profile email is private) when the scope includes `user` or `user:email`;
+without it those users return empty `Email` → `ErrOAuthNoEmail`. GitHub's
+profile `Name` is often empty, so `finishOAuthLogin` falls back to `NickName`
+(the login) for the membership display name.
 
 - **It's a *login* method, not a registration bypass.** Resolution order in
   `UpsertOAuthUser`: (1) known `(provider, provider_user_id)` → that user;
@@ -664,7 +673,7 @@ entirely in `internal/auth`: `oauth.go` (provider setup), `oauth_handler.go`
   maps `auth.OAuthProvider → webtempl.OAuthButton` via `oauthButtons()` and
   threads it through `LoginPage`/`LoginStep1`/`RegisterPage` (so `PostLoginBack`
   must pass it too).
-- Enabled by `GOOGLE_CLIENT_ID`/`SECRET` + `FACEBOOK_CLIENT_ID`/`SECRET`; the
+- Enabled by `GOOGLE_`/`FACEBOOK_`/`GITHUB_CLIENT_ID`+`SECRET`; the
   provider's redirect URI must be `BASE_URL/auth/<provider>/callback`.
 
 ## 6. Chat — the fat-morph pattern

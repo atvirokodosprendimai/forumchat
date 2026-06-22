@@ -5,6 +5,7 @@ import (
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
 	"github.com/markbates/goth/providers/facebook"
+	"github.com/markbates/goth/providers/github"
 	"github.com/markbates/goth/providers/google"
 )
 
@@ -31,6 +32,8 @@ type OAuthConfig struct {
 	GoogleClientSecret   string
 	FacebookClientID     string
 	FacebookClientSecret string
+	GitHubClientID       string
+	GitHubClientSecret   string
 }
 
 // SetupOAuth registers every goth provider that has credentials and points
@@ -56,6 +59,15 @@ func SetupOAuth(cfg OAuthConfig) []OAuthProvider {
 			cfg.FacebookClientID, cfg.FacebookClientSecret,
 			cfg.BaseURL+"/auth/facebook/callback", "email"))
 		enabled = append(enabled, OAuthProvider{Name: "facebook", Label: "Facebook"})
+	}
+	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" {
+		// "user:email" is required for goth to fetch the primary email via
+		// /user/emails when the GitHub profile email is private — without it
+		// private-email users come back with no email and the sign-in fails.
+		provs = append(provs, github.New(
+			cfg.GitHubClientID, cfg.GitHubClientSecret,
+			cfg.BaseURL+"/auth/github/callback", "user:email"))
+		enabled = append(enabled, OAuthProvider{Name: "github", Label: "GitHub"})
 	}
 	if len(provs) == 0 {
 		return nil

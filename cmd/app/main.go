@@ -159,6 +159,8 @@ func run() error {
 		GoogleClientSecret:   cfg.GoogleClientSecret,
 		FacebookClientID:     cfg.FacebookClientID,
 		FacebookClientSecret: cfg.FacebookClientSecret,
+		GitHubClientID:       cfg.GitHubClientID,
+		GitHubClientSecret:   cfg.GitHubClientSecret,
 	})
 	if len(oauthProviders) > 0 {
 		log.Info("oauth login enabled", "providers", len(oauthProviders))
