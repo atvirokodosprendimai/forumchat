@@ -7,6 +7,7 @@ import (
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/netguard"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -56,6 +57,18 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+	// SSRF guard: tenant-supplied outbound URLs must not target internal hosts
+	// (the platform dials them). Self-host is exempt — it legitimately uses
+	// localhost daemons.
+	if h.Cfg.SAAS {
+		for _, u := range []string{in.TranslateBaseURL, in.RAGEmbedBaseURL, in.RAGQdrantURL} {
+			if blocked, reason := netguard.BlockedURL(u); blocked {
+				sse := render.NewSSE(w, r)
+				_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-settings-error", "Rejected URL — "+reason))
+				return
+			}
+		}
 	}
 	s, err := h.Communities.Settings(r.Context(), c.ID)
 	if err != nil {

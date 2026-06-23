@@ -87,6 +87,7 @@ templ OwnerSettingsForm(d OwnerSettingsData) {
 			<p class="muted">Changing the model or vector size requires a reindex (it rebuilds this community's collection at the new size).</p>
 			<button class="secondary" data-on:click={ "@post('/c/" + d.CommunitySlug + "/admin/reindex')" }>Reindex this community</button>
 		</div>
+		<div id="owner-settings-error"></div>
 		<div class="row">
 			<button data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings')" }>Save settings</button>
 			if d.Saved {
