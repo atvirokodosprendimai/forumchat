@@ -1,8 +1,12 @@
 # forumchat — SaaS (multi-tenant) docker-compose example.
 #
-# Brings up the SaaS PLATFORM dependencies (storage + messaging only):
+# Brings up the SaaS PLATFORM: Caddy at the edge (the ONLY service with host
+# ports — 80/443, auto-HTTPS) reverse-proxying your domain to the app, plus the
+# storage + messaging dependencies (all internal-only):
 # Qdrant (per-community vector search), Garage (S3-compatible object storage),
 # NATS (pub/sub fan-out) and Mailpit (dev SMTP catcher).
+#
+# Edge: cp Caddyfile.example Caddyfile and set your domain + ACME email.
 #
 # There is NO LLM/Ollama service: AI agents, RAG embeddings and /translate are
 # BYO PER COMMUNITY (each owner sets its own host + model + keys at
@@ -25,6 +29,22 @@
 # tokens) are interpolated from .env via ${...}.
 
 services:
+  # ── Edge: the ONLY service with host ports. Terminates TLS (auto Let's Encrypt)
+  # and reverse-proxies your domain to app:8080. Everything else is internal. ──
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      app: { condition: service_started }
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro   # cp Caddyfile.example Caddyfile, set your domain
+      - ./data/caddy/data:/data               # ACME certs (persist!)
+      - ./data/caddy/config:/config
+    restart: unless-stopped
+
   app:
     image: ghcr.io/atvirokodosprendimai/forumchat:latest
     # To build from this checkout instead of pulling the published image:
@@ -78,8 +98,9 @@ services:
       garage-init: { condition: service_completed_successfully }
     volumes:
       - ./data/app:/data
-    ports:
-      - "8080:8080"
+    # No host ports — Caddy reverse-proxies to app:8080 on the internal network.
+    expose:
+      - "8080"
     restart: unless-stopped
 
   # ── Vector store: per-community Qdrant collections (forumchat_<communityID>) ──
@@ -91,9 +112,7 @@ services:
     #   QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY}"
     volumes:
       - ./data/qdrant:/qdrant/storage
-    ports:
-      - "6333:6333"   # REST (the app talks here)
-      - "6334:6334"   # gRPC (optional)
+    # Internal only — reached as qdrant:6333 over the compose network.
     restart: unless-stopped
 
   # ── Object storage: Garage (S3-compatible) ──────────────────────────────────
@@ -106,9 +125,7 @@ services:
     volumes:
       - ./data/garage/meta:/var/lib/garage/meta
       - ./data/garage/data:/var/lib/garage/data
-    ports:
-      - "3900:3900"   # S3 API
-      # - "3903:3903" # admin API (kept internal; used by garage-init)
+    # Internal only — S3 API reached as garage:3900, admin as garage:3903.
     healthcheck:
       test: ["CMD", "/garage", "status"]
       interval: 5s
@@ -172,9 +189,7 @@ services:
     command: ["-js", "-sd", "/data", "-m", "8222"]
     volumes:
       - ./data/nats:/data
-    ports:
-      - "4222:4222"
-      - "8222:8222"   # monitoring
+    # Internal only — reached as nats:4222 over the compose network.
     restart: unless-stopped
 
   # NOTE: there is intentionally NO Ollama / LLM service here. AI agents, RAG
@@ -184,12 +199,11 @@ services:
   # run Ollama separately and point a community's settings (or RAG_EMBED_BASEURL
   # in .env) at it; the cost is then yours by choice.
 
-  # ── Dev SMTP catcher (UI on :8025). Replace with a real relay for prod. ──────
+  # ── Dev SMTP catcher. Internal only; browse caught mail via Caddy at
+  # mail.<your-domain> (see Caddyfile.example) or `docker compose port`. ────────
   mailpit:
     image: axllent/mailpit:latest
-    ports:
-      - "1025:1025"
-      - "8025:8025"
+    # Internal only — app sends to mailpit:1025; web UI is mailpit:8025.
     restart: unless-stopped
 
 configs:
@@ -222,7 +236,8 @@ configs:
 #
 # PERMISSIONS: the app image runs as nonroot (uid 65532). On Linux, pre-create
 # its dir with that owner so it can write the SQLite db + upload scratch:
-#   mkdir -p ./data/app ./data/qdrant ./data/garage/meta ./data/garage/data ./data/nats
+#   mkdir -p ./data/app ./data/qdrant ./data/garage/meta ./data/garage/data \
+#            ./data/nats ./data/caddy/data ./data/caddy/config
 #   sudo chown -R 65532:65532 ./data/app
 # (On Docker Desktop / macOS the bind-mount layer handles this automatically.)
 # The other services run as root and create their dirs on first start.

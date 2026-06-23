@@ -942,7 +942,8 @@ data/                          # SQLite db + vapid.json + rag/ store (auto-creat
 migrations/                    # (legacy mount point; real migrations live under internal/storage/sqlite/migrations)
 Dockerfile
 compose.yml.example                # single-tenant (self-host) stack: app + nats + mailpit + coturn
-compose.saas.yaml.example          # SaaS PLATFORM stack: app + qdrant + garage (S3) + nats + mailpit (.env-driven; AI is BYO per community, no platform Ollama)
+compose.saas.yaml.example          # SaaS PLATFORM stack: caddy (edge, 80/443) + app + qdrant + garage (S3) + nats + mailpit; bind-mounts under ./data; AI is BYO per community
+Caddyfile.example                  # Caddy reverse proxy: domain.tld → app:8080, auto-HTTPS
 .env.saas.example                  # SaaS .env template (cp to .env)
 Makefile
 ```

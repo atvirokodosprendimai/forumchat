@@ -1,0 +1,35 @@
+# forumchat — Caddy reverse proxy (SaaS).  →  cp Caddyfile.example Caddyfile
+#
+# Caddy is the only thing on ports 80/443. It terminates TLS (automatic
+# Let's Encrypt) and proxies your domain to the internal `app` service on :8080.
+# Point your domain's A/AAAA DNS record at this host, set the email + domain
+# below, then `docker compose -f compose.saas.yaml.example up -d`.
+#
+# Also set BASE_URL=https://<your-domain> in .env so the app builds correct
+# absolute URLs (verify links, signed uploads, OAuth callbacks).
+
+{
+	# ACME account email — cert issuance + expiry notices. REQUIRED for prod.
+	email you@example.com
+}
+
+# ── Your community/SaaS domain ───────────────────────────────────────────────
+# Replace domain.tld with your real domain. Caddy fetches + renews TLS for free.
+domain.tld {
+	encode zstd gzip
+	# forumchat streams SSE (datastar). Caddy auto-disables buffering for
+	# text/event-stream, so realtime works with no extra config.
+	reverse_proxy app:8080
+}
+
+# ── Optional: browse caught dev mail (Mailpit). Remove for real prod — there
+# you'd use a real SMTP relay via SMTP_* in .env, not Mailpit. ────────────────
+# mail.domain.tld {
+# 	reverse_proxy mailpit:8025
+# }
+
+# ── Local testing without a public domain (Caddy issues an internal cert):
+# trust the local CA, then browse https://localhost. Comment out the block above.
+# localhost {
+# 	reverse_proxy app:8080
+# }
