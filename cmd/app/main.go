@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
+	"github.com/atvirokodosprendimai/forumchat/internal/dataexport"
 	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
 	"github.com/atvirokodosprendimai/forumchat/internal/explore"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
@@ -347,6 +349,20 @@ func run() error {
 			return bs, uploads.StoreKeyCommunity, nil
 		}
 	}
+	// ----- Data export (owner-initiated "download all my data") -----------
+	// Builds a ZIP of a community's data + media behind a 7-day signed-token
+	// URL. Reuses uploadStore for media bytes; the zip lives under a sibling
+	// exports/ dir. The Worker (started with the other background workers)
+	// drains pending requests and sweeps expired artifacts.
+	exportSvc := &dataexport.Service{
+		Repo:  dataexport.NewRepo(db),
+		DB:    db,
+		Media: uploadStore,
+		Dir:   filepath.Join(cfg.UploadsDir, "exports"),
+		Log:   log,
+	}
+	exportHandler := &dataexport.Handler{Svc: exportSvc, Log: log}
+
 	uploadHandler := &uploads.Handler{
 		Store:       uploadStore,
 		CommunityID: bootCommunity.ID,
@@ -953,6 +969,10 @@ func run() error {
 	// attachments, or markdown body). Trims the storage footprint
 	// of "user picked a file then closed the tab" cases.
 	(&uploads.SweepWorker{Store: uploadStore, Log: log}).Start(digestCtx)
+	// ----- Data-export queue + expiry sweep -------------------------------
+	// Drains pending owner-requested exports (builds one ZIP at a time) and
+	// deletes artifacts past their 7-day TTL (a new request is then required).
+	(&dataexport.Worker{Svc: exportSvc, Log: log}).Start(digestCtx)
 	// ----- RAG embed-outbox drain -----------------------------------------
 	// Drains embed_outbox (written by migration 00039 triggers), embeds each
 	// changed row via Ollama, and upserts the vector store. This is RAG's
@@ -1732,6 +1752,10 @@ func run() error {
 				r.Post("/settings", adminHandler.PostSettings)
 				r.Post("/settings/migrate-storage", adminHandler.PostMigrateStorage)
 				r.Post("/settings/delete", adminHandler.PostDeleteCommunity)
+				// Owner-initiated data export: live status card (SSE) + request.
+				// The download itself is a public token-gated route (see below).
+				r.Get("/settings/export/stream", exportHandler.GetStream)
+				r.Post("/settings/export", exportHandler.PostRequest)
 			})
 		}
 	})
@@ -1844,6 +1868,10 @@ func run() error {
 	// is OFF — the handler resolves auth users AND project-share guest
 	// sessions internally so guests can view images on issues.
 	r.Get("/uploads/{id}", uploadHandler.GetFile)
+	// Public, token-gated data-export download. The 32-byte token + id in the
+	// URL are the bearer capability (valid until the 7-day expiry); no session
+	// required, so the owner can fetch it with any client.
+	r.Get("/exports/{id}/download", exportHandler.GetDownload)
 
 	// Private messages are global — no community membership required.
 	// The handler authenticates via the session directly.

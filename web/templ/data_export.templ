@@ -1,0 +1,75 @@
+package templ
+
+// DataExportView drives the owner-only "download all my data" card. State is the
+// lifecycle of the most recent export: none | pending | building | ready |
+// failed | expired. The card is live-streamed (SSE) so building → ready needs no
+// reload.
+type DataExportView struct {
+	Slug        string
+	State       string
+	DownloadURL string // set when State == ready
+	SizeLabel   string // human-readable archive size
+	ExpiresAt   string // formatted expiry (when ready)
+	RequestedAt string // formatted request time (when pending/building)
+	Error       string // set when State == failed
+}
+
+// busy reports whether an export is currently being prepared (no new request
+// allowed, no download yet).
+func (d DataExportView) busy() bool { return d.State == "pending" || d.State == "building" }
+
+// DataExportCard is the placeholder mounted on the Settings page. Its data-init
+// opens the SSE stream that outer-morphs #data-export with the live status, so
+// the card reflects building → ready without a reload.
+templ DataExportCard(slug string) {
+	<section id="data-export" class="card narrow" data-init={ "@get('/c/" + slug + "/settings/export/stream')" }>
+		<h2>⬇ Export your data</h2>
+		<p class="muted">Loading…</p>
+	</section>
+}
+
+// DataExportStatus is the live fragment (stable id #data-export) the stream
+// patches. Same template covers every state (§4.7 live-morph): switch on State.
+templ DataExportStatus(d DataExportView) {
+	<section id="data-export" class="card narrow">
+		<h2>⬇ Export your data</h2>
+		<p class="muted">
+			Download <strong>everything</strong> in this community — chat, forum, projects, agent
+			conversations, members and uploaded files — as a ZIP of JSON files plus media.
+			Agent system prompts and search vectors are ours and are not included.
+		</p>
+		switch d.State {
+			case "pending", "building":
+				<p>
+					<span class="dot-spinner" aria-hidden="true"><span></span><span></span><span></span></span>
+					Preparing your export… this runs in the background.
+					if d.RequestedAt != "" {
+						<span class="muted">Requested { d.RequestedAt }.</span>
+					}
+				</p>
+				<p class="muted">This card updates automatically when it's ready.</p>
+			case "ready":
+				<p class="ok-text">✓ Your export is ready{ sizeSuffix(d.SizeLabel) }.</p>
+				<div class="row">
+					<a class="button" href={ templ.URL(d.DownloadURL) } download>Download ZIP</a>
+					<button class="secondary" data-on:click={ "@post('/c/" + d.Slug + "/settings/export')" }>Regenerate</button>
+				</div>
+				if d.ExpiresAt != "" {
+					<p class="muted">This link expires { d.ExpiresAt }. After that, request a new export.</p>
+				}
+			case "failed":
+				<div id="data-export-error" class="error">Export failed: { d.Error }</div>
+				<button data-on:click={ "@post('/c/" + d.Slug + "/settings/export')" }>Try again</button>
+			default:
+				<button data-on:click={ "@post('/c/" + d.Slug + "/settings/export')" }>Generate export</button>
+		}
+	</section>
+}
+
+// sizeSuffix renders " (1.2 MB)" when a size is known, else "".
+func sizeSuffix(label string) string {
+	if label == "" {
+		return ""
+	}
+	return " (" + label + ")"
+}

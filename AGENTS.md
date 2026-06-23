@@ -787,6 +787,47 @@ like magic-login) burns the token, runs `DeleteAccount`, destroys the session
 (`commitSession` BEFORE `NewSSE`, §4.4) and redirects to `/goodbye`. Ops mirror:
 `forumchat-cli delete-account <email>`.
 
+## 5h. Owner data export — "download ALL my data" (Jun 2026)
+
+Spec: `eidos/spec - data-export …`. The portability counterpart to §5g: a SaaS
+owner takes their whole community with them as a ZIP behind a **7-day signed
+URL**. Lives in `internal/dataexport` (no domain imports → no cycle; imports
+`uploads` only for media bytes).
+
+- **One generic dumper + a declarative manifest** (`manifest.go`) is the whole
+  trick — `SELECT * FROM <table> WHERE <scope>`, rows → `[]map[string]any`,
+  written as `folder/file.json`. `table`/`where` are **internal constants**
+  (never user input), so the string interpolation is injection-free, exactly
+  like `uploads.deleteWhere`. Every `?` in `where` binds the community id, so
+  multi-level subqueries (`thread_id IN (SELECT id FROM threads WHERE
+  community_id=?)`) just repeat the placeholder. **Adding a table is one line.**
+- **Exclusions are platform property, by design** (the customer's own rule):
+  agent system prompts + model config (`ai_agents` skip list), RAG vectors
+  (`embed_outbox`/Qdrant — never exported), and **all secrets by a column-name
+  rule** (`redactColumn`: `password_hash`, bare `token`/`secret`, anything
+  ending `_enc`/`_key`/`_token`/`_secret` or containing `api_key`/`secret`/
+  `password`). New secret columns are redacted by default. Also omitted:
+  sessions/verification/signup tokens, push subs, read-state, OAuth identities,
+  debug logs, and **private DMs** (cross-party → would leak "others'" data).
+  Strictly scoped to one community — never another tenant's rows.
+- **Lifecycle = a queue + a sweep** (`worker.go`, mirrors `uploads.SweepWorker`):
+  `community_exports` rows (migration 00057) go `pending` → worker builds ONE
+  ZIP at a time under `<UploadsDir>/exports/<id>.zip` → `ready` with a 32-byte
+  capability token + `expires_at = ready_at + 7d`. A periodic sweep deletes the
+  ZIP past TTL and marks it `expired` (a new request is then required). One
+  active export per community (`Repo.Request` refuses with `ErrInProgress`).
+- **Download is PUBLIC + token-gated** (`GET /exports/{id}/download?token=…`,
+  outside the owner group, like `/uploads`): the id + high-entropy token are the
+  bearer capability, same pattern as the portal module's 7-day links. A
+  missing/expired/mismatched token is a flat 404 (no existence oracle).
+- **UI**: owner-gated, SSE-streamed status card (`DataExportCard` →
+  `/c/{slug}/settings/export/stream` re-patches `#data-export` on state change),
+  mounted on the owner Settings page between the form and the Danger Zone.
+  Request = `POST /c/{slug}/settings/export`. Routes mounted only when
+  `cfg.SAAS`, like the rest of owner Settings.
+- **Media** copies each upload's bytes (`uploads.Store.ListByCommunity` +
+  `OpenBlob`, honouring per-row `store_key`) into `media/<id>-<filename>`.
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing
