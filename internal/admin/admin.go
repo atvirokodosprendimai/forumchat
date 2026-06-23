@@ -540,8 +540,11 @@ func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
 		UserID:      user.ID,
 		CommunityID: c.ID,
 		DisplayName: display,
-		Role:        auth.RoleAdmin,
-		ApprovedAt:  &now,
+		// The first member of a brand-new community is its owner (community
+		// super-admin), so in SaaS they can reach /settings and configure the
+		// tenant. Harmless in self-host (owner ≥ admin; /settings unmounted).
+		Role:       auth.RoleOwner,
+		ApprovedAt: &now,
 	}
 	if err := h.Repo.CreateMembership(r.Context(), nil, m); err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Could not add first member: "+err.Error()))
