@@ -17,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -55,6 +56,9 @@ type Handler struct {
 	Log           *slog.Logger
 	// RAG triggers a per-community vector reindex. Nil when RAG is disabled.
 	RAG Reindexer
+	// Cfg is the platform config, used by the owner Settings page to resolve
+	// per-community tenant config against env defaults.
+	Cfg config.Config
 }
 
 func (h *Handler) cid(r *http.Request) string {

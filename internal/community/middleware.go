@@ -1,6 +1,7 @@
 package community
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -8,12 +9,17 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/config"
+	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
 // LoadCommunity reads {slug} from the chi URL params, looks up the community
 // via repo, and attaches it to the request context for downstream handlers
-// (use FromContext / MustFromContext). 404s if the slug is unknown.
-func LoadCommunity(repo *Repo) func(http.Handler) http.Handler {
+// (use FromContext / MustFromContext). 404s if the slug is unknown. It also
+// stamps the per-community "AI enabled" flag (read by webtempl.CommunityAIEnabled
+// for the Agent nav). In self-hosted mode this is just the global AI_ENABLED —
+// no extra DB read; only SaaS loads community_settings to resolve the override.
+func LoadCommunity(repo *Repo, cfg config.Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			slug := chi.URLParam(r, "slug")
@@ -30,7 +36,15 @@ func LoadCommunity(repo *Repo) func(http.Handler) http.Handler {
 				http.Error(w, "load community: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithContext(r.Context(), c)))
+			aiEnabled := cfg.AIEnabled
+			if cfg.SAAS && aiEnabled {
+				if s, err := repo.Settings(r.Context(), c.ID); err == nil {
+					aiEnabled = EffectiveAIEnabled(s, cfg)
+				}
+			}
+			ctx := WithContext(r.Context(), c)
+			ctx = context.WithValue(ctx, webtempl.CommunityAICtxKey(), aiEnabled)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

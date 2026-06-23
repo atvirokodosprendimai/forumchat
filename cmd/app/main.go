@@ -367,6 +367,7 @@ func run() error {
 		BaseURL:       cfg.BaseURL,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
+		Cfg:           cfg,
 		Log:           log,
 	}
 
@@ -1404,7 +1405,7 @@ func run() error {
 	// admits new members). Mounted before the main /c/{slug} group so it
 	// doesn't get caught by RequireMember.
 	r.Route("/c/{slug}/join", func(r chi.Router) {
-		r.Use(community.LoadCommunity(cRepo))
+		r.Use(community.LoadCommunity(cRepo, cfg))
 		r.Get("/", invitesHandler.GetJoin)
 		r.Post("/confirm", invitesHandler.PostJoinConfirm)
 		r.Post("/set-password", invitesHandler.PostJoinSetPassword)
@@ -1415,7 +1416,7 @@ func run() error {
 	// viewer's identity to that community's membership row.
 	r.Route("/c/{slug}", func(r chi.Router) {
 		r.Use(auth.RequireAuth)
-		r.Use(community.LoadCommunity(cRepo))
+		r.Use(community.LoadCommunity(cRepo, cfg))
 		r.Use(community.RequireMember(aRepo))
 		r.Use(auth.RequireApproved)
 
@@ -1456,19 +1457,33 @@ func run() error {
 		r.Post("/pastes/{id}/save", pastesHandler.PostSave)
 
 		// Agent — per-community AI chat with threads + history. Static
-		// segments (new) win over the {thread} wildcard in chi.
+		// segments (new) win over the {thread} wildcard in chi. Gated by the
+		// global AI_ENABLED kill-switch AND (in SaaS) the community's master
+		// toggle: a community with ai_enabled=false 404s its agent routes even
+		// though the feature is globally mounted (LoadCommunity stamps the flag).
 		if cfg.AIEnabled {
-			r.Get("/agent", agentHandler.GetIndex)
-			r.Post("/agent/new", agentHandler.PostNew)
-			r.Get("/agent/refs", agentHandler.GetRefSearch)
-			r.Get("/agent/{thread}", agentHandler.GetPage)
-			r.Get("/agent/{thread}/stream", agentHandler.GetStream)
-			r.Post("/agent/{thread}/send", agentHandler.PostSend)
-			r.Post("/agent/{thread}/agent", agentHandler.PostSetAgent)
-			r.Post("/agent/{thread}/stop", agentHandler.PostStop)
-			r.Post("/agent/{thread}/regenerate", agentHandler.PostRegenerate)
-			r.Post("/agent/{thread}/share", agentHandler.PostShareToChannel)
-			r.Post("/agent/{thread}/delete", agentHandler.PostDelete)
+			r.Group(func(r chi.Router) {
+				r.Use(func(next http.Handler) http.Handler {
+					return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+						if !webtempl.CommunityAIEnabled(req.Context()) {
+							http.NotFound(w, req)
+							return
+						}
+						next.ServeHTTP(w, req)
+					})
+				})
+				r.Get("/agent", agentHandler.GetIndex)
+				r.Post("/agent/new", agentHandler.PostNew)
+				r.Get("/agent/refs", agentHandler.GetRefSearch)
+				r.Get("/agent/{thread}", agentHandler.GetPage)
+				r.Get("/agent/{thread}/stream", agentHandler.GetStream)
+				r.Post("/agent/{thread}/send", agentHandler.PostSend)
+				r.Post("/agent/{thread}/agent", agentHandler.PostSetAgent)
+				r.Post("/agent/{thread}/stop", agentHandler.PostStop)
+				r.Post("/agent/{thread}/regenerate", agentHandler.PostRegenerate)
+				r.Post("/agent/{thread}/share", agentHandler.PostShareToChannel)
+				r.Post("/agent/{thread}/delete", agentHandler.PostDelete)
+			})
 		}
 
 		r.Get("/presence/stream", presenceHandler.GetStream)
@@ -1588,6 +1603,18 @@ func run() error {
 				r.Post("/admin/ai/{id}/delete", agentHandler.PostDeleteAgent)
 			}
 		})
+
+		// Per-community owner Settings (SaaS tenant config). Owner-gated and
+		// only mounted in SaaS mode; super-admins pass via the synthetic owner
+		// membership. Configures the per-community AI master switch, join
+		// policy and translation; RAG + storage cards land with those backends.
+		if cfg.SAAS {
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireRole(auth.RoleOwner))
+				r.Get("/settings", adminHandler.GetSettings)
+				r.Post("/settings", adminHandler.PostSettings)
+			})
+		}
 	})
 
 	// Global admin (uses session's CurrentCommunity membership for the role
@@ -1612,7 +1639,7 @@ func run() error {
 	// /c/{slug} group.
 	if cfg.ProjectsEnabled {
 		r.Route("/c/{slug}/projects", func(r chi.Router) {
-			r.Use(community.LoadCommunity(cRepo))
+			r.Use(community.LoadCommunity(cRepo, cfg))
 
 			// Open — auth member OR share-link guest.
 			r.Group(func(r chi.Router) {
@@ -1712,7 +1739,7 @@ func run() error {
 	// RequireMember, while per-room interaction routes accept either
 	// an auth user or an invite-guest (handler.caller() resolves it).
 	r.Route("/c/{slug}/rooms", func(r chi.Router) {
-		r.Use(community.LoadCommunity(cRepo))
+		r.Use(community.LoadCommunity(cRepo, cfg))
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth)

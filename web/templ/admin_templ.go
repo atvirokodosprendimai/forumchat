@@ -162,7 +162,7 @@ func AdminPage(d AdminPageData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if AIEnabled {
+			if AIEnabled && CommunityAIEnabled(ctx) {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<section class=\"card narrow\"><h2>AI agents</h2><p class=\"muted\">Create and configure the AI agents members can chat with — each with its own model and system prompt.</p><a class=\"button\" href=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

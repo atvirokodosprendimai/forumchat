@@ -1,0 +1,67 @@
+package templ
+
+import "encoding/json"
+
+// OwnerSettingsData drives the owner-only tenant Settings page (SaaS). It
+// carries the EFFECTIVE values (per-community override resolved against env) so
+// unset fields show the platform default.
+type OwnerSettingsData struct {
+	Viewer           Viewer
+	CommunitySlug    string
+	CommunityName    string
+	AIEnabled        bool
+	JoinPolicy       string // open | request
+	TranslateEnabled bool
+	TranslateBaseURL string
+	TranslateModel   string
+	Saved            bool
+}
+
+func ownerSettingsSignals(d OwnerSettingsData) string {
+	b, _ := json.Marshal(map[string]any{
+		"set_ai_enabled":         d.AIEnabled,
+		"set_join_policy":        d.JoinPolicy,
+		"set_translate_enabled":  d.TranslateEnabled,
+		"set_translate_base_url": d.TranslateBaseURL,
+		"set_translate_model":    d.TranslateModel,
+	})
+	return string(b)
+}
+
+templ OwnerSettingsPage(d OwnerSettingsData) {
+	@Layout("Settings · "+d.CommunityName, d.Viewer) {
+		<div class="container">
+			@OwnerSettingsForm(d)
+		</div>
+	}
+}
+
+// OwnerSettingsForm is the stable-id fragment patched on save (§4.7 live-morph).
+templ OwnerSettingsForm(d OwnerSettingsData) {
+	<section id="owner-settings" class="card" data-signals={ ownerSettingsSignals(d) }>
+		<h1>Tenant settings</h1>
+		<p class="muted">Owner-only configuration for <strong>{ d.CommunityName }</strong>. RAG &amp; storage cards arrive with those backends.</p>
+		<div class="card narrow">
+			<h2>🤖 AI</h2>
+			<label class="check"><input type="checkbox" data-bind="set_ai_enabled"/> Enable AI agents for this community</label>
+			<p class="muted">Master switch. The platform must also have AI enabled for this to take effect.</p>
+		</div>
+		<div class="card narrow">
+			<h2>🚪 Join policy</h2>
+			<label class="check"><input type="radio" name="set_join_policy" value="open" data-bind="set_join_policy"/> Open — anyone may join instantly</label>
+			<label class="check"><input type="radio" name="set_join_policy" value="request" data-bind="set_join_policy"/> Request — joins need owner/admin approval</label>
+		</div>
+		<div class="card narrow">
+			<h2>🌐 Translation</h2>
+			<label class="check"><input type="checkbox" data-bind="set_translate_enabled"/> Enable the /translate composer command</label>
+			<label class="field">Ollama host <input type="text" data-bind="set_translate_base_url" placeholder="http://localhost:11434"/></label>
+			<label class="field">Model <input type="text" data-bind="set_translate_model" placeholder="e.g. llama3.2"/></label>
+		</div>
+		<div class="row">
+			<button data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings')" }>Save settings</button>
+			if d.Saved {
+				<span class="muted">Saved ✓</span>
+			}
+		</div>
+	</section>
+}

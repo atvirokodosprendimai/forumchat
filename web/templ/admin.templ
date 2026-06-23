@@ -67,7 +67,7 @@ templ AdminPage(d AdminPageData) {
 				}
 			</section>
 
-			if AIEnabled {
+			if AIEnabled && CommunityAIEnabled(ctx) {
 				<section class="card narrow">
 					<h2>AI agents</h2>
 					<p class="muted">Create and configure the AI agents members can chat with — each with its own model and system prompt.</p>
