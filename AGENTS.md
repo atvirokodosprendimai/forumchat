@@ -676,6 +676,48 @@ profile `Name` is often empty, so `finishOAuthLogin` falls back to `NickName`
 - Enabled by `GOOGLE_`/`FACEBOOK_`/`GITHUB_CLIENT_ID`+`SECRET`; the
   provider's redirect URI must be `BASE_URL/auth/<provider>/callback`.
 
+## 5f. SaaS tenant config + the `owner` role (Jun 2026)
+
+Spec: `eidos/spec - saas-tenant-config - …`. Plan: `memory/plan - 2606230830 - …`.
+When `SAAS=true` each community is a self-serve **tenant**; when false nothing
+changes (single-tenant, every capability reads global env).
+
+- **`owner` role** (`auth.RoleOwner`, rank 3 > admin) — the per-community
+  super-admin. Migration **00055** promotes the earliest admin per community to
+  owner. `SuperAdminMembership` synthesizes `owner` so god-mode clears the owner
+  gate. **Audit rule:** content gates were `Role == RoleAdmin`; they're now
+  `Role.AtLeast(RoleAdmin)` so owner ≥ admin everywhere. `CountAdmins` counts
+  admin **+** owner (last-privileged-member guard). CLI: `role <email> owner`,
+  `owner <slug> <email>`.
+- **The resolution rule lives in ONE place** — `internal/community/resolve.go`:
+  `effective = community.override ?? env.default`, gated by the global
+  `*_ENABLED` kill-switch. `SAAS=false` short-circuits to env (settings ignored)
+  — that is what keeps single-tenant byte-for-byte. `Resolve{RAG,Translate,
+  Storage}` + `EffectiveAIEnabled` + `JoinPolicy` return **neutral** structs;
+  main.go maps them to each subsystem via closures (no `community` imports in
+  rag/uploads → no cycles), exactly like the translate closure.
+- **`community_settings`** (00055, all columns nullable = "fall back to env") +
+  `community.Repo.Settings/SaveSettings`. Secret fields (Qdrant/S3 keys) are
+  sealed by **`internal/secretbox`** (AES-GCM; empty `SECRETS_KEY` = dev
+  passthrough; prod+SaaS without it is rejected at boot). `uploads.store_key`
+  (00055) records which blob store an upload lives in.
+- **Per-community AI master switch**: `community.LoadCommunity(repo, cfg)` stamps
+  `EffectiveAIEnabled` into ctx (skips the DB read in self-host);
+  `webtempl.CommunityAIEnabled(ctx)` gates the Agent nav + admin AI link
+  (leaf-package ctx-key trick, §4.13); agent routes 404 when a community disabled
+  AI even though globally mounted.
+- **Owner Settings** `/c/{slug}/settings` (SaaS only, `RequireRole(RoleOwner)`):
+  `admin.Handler.GetSettings/PostSettings` + `webtempl.OwnerSettingsPage`. Cards
+  today: AI / join policy / translate. PostSettings **loads-then-overlays** so a
+  save never wipes the RAG/storage fields it doesn't render.
+- **Done:** owner role, secretbox, config/boot rules, settings+resolver, join
+  policy, per-community translate + AI switch, owner Settings shell.
+  **Remaining (own follow-ups):** Phase 2 storage `Blobstore`+S3 (+per-community
+  bucket migration, `store_key` routing) and Phase 5 RAG per-community embedder +
+  **Qdrant** per-community collections (dynamic vector size; chromem stays for
+  self-host). The resolver already exposes `ResolveRAG`/`ResolveStorage` to drive
+  them — wire a closure, same shape as translate.
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing

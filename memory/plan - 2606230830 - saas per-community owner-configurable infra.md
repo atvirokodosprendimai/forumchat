@@ -190,3 +190,24 @@ Depends on Phase 0. Largest piece; may span several commits.
 ## Progress log
 
 - 2606230830 — spec written + committed; plan written. Starting Phase 0.
+- 2606230905 — **Phase 0 DONE** (owner role + 00055 migration; secretbox + SaaS
+  boot rules; community Settings repo + resolver). **Phase 1 DONE** (join policy
+  enforced in explore). **Phase 4 DONE** (translate resolved per-community).
+  **Phase 3 DONE** (AI master switch: LoadCommunity stamps EffectiveAIEnabled,
+  nav/admin-link gated, agent routes 404 when off). **Phase 6 (partial)**: owner
+  Settings page `/c/{slug}/settings` (SaaS, owner-gated) with AI / join-policy /
+  translate cards — makes Phases 1/3/4 operable. Full suite green (26 pkgs);
+  SaaS boot smoke confirms route mounting + owner gate.
+  - **REMAINING (largest, own follow-ups):**
+    - **Phase 2 — Storage Blobstore + S3** (+per-community own-bucket migration).
+      Needs a new dep (minio-go); `uploads.Store` blob backend extraction +
+      `store_key` routing (column already added in 00055).
+    - **Phase 5 — RAG + Qdrant per-community** (`internal/rag/qdrant.go`,
+      per-community embedder resolver, worker fan-out by community). Net-new
+      vector backend; chromem stays for self-host. Resolver `ResolveRAG` +
+      `community_settings` RAG columns already in place to drive it.
+    - **Phase 6 remainder** — RAG + Storage cards on the owner Settings page once
+      those backends land.
+  - The resolver (`community/resolve.go`) is the reusable seam: each remaining
+    backend wires a closure from `ResolveRAG`/`ResolveStorage`, exactly like the
+    translate closure in main.go.

@@ -680,6 +680,30 @@ boot fails fast on placeholder secrets.
 | `FACEBOOK_CLIENT_ID` / `FACEBOOK_CLIENT_SECRET` | _(empty)_   | Enable "Continue with Facebook". Register `BASE_URL/auth/facebook/callback` as the Valid OAuth Redirect URI in the Meta app dashboard. Both empty = button hidden, routes not mounted. |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | _(empty)_       | Enable "Continue with GitHub". Set the Authorization callback URL to `BASE_URL/auth/github/callback` in the GitHub OAuth App settings. The `user:email` scope is requested automatically so private primary emails are fetched. Both empty = button hidden, routes not mounted. |
 
+### SaaS / multi-tenant
+
+When `SAAS=true` each community becomes a self-serve tenant. A new per-community
+**`owner`** role (above `admin`) configures the tenant from `/c/<slug>/settings`:
+the AI master switch, join policy (open vs request-approval) and translation
+model/host today; RAG model + dedicated Qdrant collection and per-community S3
+land as those backends ship. SaaS mode forces registration **open**, **disables**
+the IMAP mailbox, and (for self-host) Qdrant + S3 are the backends while
+single-tenant keeps chromem-go + local `./uploads`. Per-community settings resolve
+as `community.override ?? env.default`, gated by the global `*_ENABLED`
+kill-switch. See `spec - saas-tenant-config`.
+
+| Variable             | Default                                | Purpose                                                            |
+|----------------------|----------------------------------------|--------------------------------------------------------------------|
+| `SAAS`               | `false`                                | Turn on multi-tenant mode (marketing landing, self-serve tenants, owner Settings, open registration, IMAP off). |
+| `SAAS_BRAND`         | _(empty)_                              | Product/brand name shown across the landing page. |
+| `SECRETS_KEY`        | _(empty)_                              | **32-byte** key encrypting per-community secrets at rest (Qdrant/S3 keys) via AES-GCM. Empty (dev) = tagged-plaintext passthrough. **Required when `SAAS=true` in prod** (boot fails without it). |
+| `STORAGE_BACKEND`    | _(empty)_                              | Blob backend for uploads: `disk` or `s3`. Empty resolves to `s3` in SaaS, `disk` self-hosted. |
+| `S3_ENDPOINT`        | _(empty)_                              | S3-compatible endpoint (empty = AWS). Configures the shared platform bucket. |
+| `S3_REGION`          | `us-east-1`                            | S3 region. |
+| `S3_BUCKET`          | _(empty)_                              | Shared platform bucket; object keys are prefixed by community id. |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | _(empty)_                 | Platform bucket credentials. |
+| `S3_USE_PATH_STYLE`  | `true`                                 | Path-style addressing (MinIO/R2). |
+
 ### Uploads
 
 | Variable             | Default                                | Purpose                                                            |
