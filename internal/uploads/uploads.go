@@ -22,11 +22,11 @@ import (
 )
 
 var (
-	ErrTooLarge   = errors.New("uploads: too large")
-	ErrBadMIME    = errors.New("uploads: unsupported MIME type")
-	ErrNotFound   = errors.New("uploads: not found")
-	ErrBadSig     = errors.New("uploads: bad signature")
-	ErrCrossComm  = errors.New("uploads: cross-community access denied")
+	ErrTooLarge  = errors.New("uploads: too large")
+	ErrBadMIME   = errors.New("uploads: unsupported MIME type")
+	ErrNotFound  = errors.New("uploads: not found")
+	ErrBadSig    = errors.New("uploads: bad signature")
+	ErrCrossComm = errors.New("uploads: cross-community access denied")
 )
 
 // allowedMIME is the legacy image-only extension map. Still used by
@@ -35,17 +35,17 @@ var (
 // Adding rich-media MIMEs here is welcome — they all get the same
 // fallback ext lookup.
 var allowedMIME = map[string]string{
-	"image/jpeg": ".jpg",
-	"image/png":  ".png",
-	"image/gif":  ".gif",
-	"image/webp": ".webp",
-	"video/mp4":  ".mp4",
-	"video/webm": ".webm",
+	"image/jpeg":      ".jpg",
+	"image/png":       ".png",
+	"image/gif":       ".gif",
+	"image/webp":      ".webp",
+	"video/mp4":       ".mp4",
+	"video/webm":      ".webm",
 	"video/quicktime": ".mov",
-	"audio/mpeg": ".mp3",
-	"audio/mp4":  ".m4a",
-	"audio/wav":  ".wav",
-	"audio/ogg":  ".ogg",
+	"audio/mpeg":      ".mp3",
+	"audio/mp4":       ".m4a",
+	"audio/wav":       ".wav",
+	"audio/ogg":       ".ogg",
 	"application/pdf": ".pdf",
 }
 
@@ -55,22 +55,22 @@ var allowedMIME = map[string]string{
 // should never be expanded to "everything that isn't an image" — that
 // was the bug Phase 1 of the chat-attachments plan fixed.
 var denyMIME = map[string]struct{}{
-	"application/x-msdownload":     {},
-	"application/x-msdos-program":  {},
-	"application/x-dosexec":        {},
-	"application/x-mach-binary":    {},
-	"application/x-executable":     {},
-	"application/x-sh":             {},
-	"application/x-bsh":            {},
-	"application/x-csh":            {},
-	"application/x-shellscript":    {},
-	"text/x-shellscript":           {},
-	"application/x-perl":           {},
-	"application/x-python":         {},
-	"application/x-python-code":    {},
-	"application/x-php":            {},
-	"application/x-httpd-php":      {},
-	"application/x-bat":            {},
+	"application/x-msdownload":    {},
+	"application/x-msdos-program": {},
+	"application/x-dosexec":       {},
+	"application/x-mach-binary":   {},
+	"application/x-executable":    {},
+	"application/x-sh":            {},
+	"application/x-bsh":           {},
+	"application/x-csh":           {},
+	"application/x-shellscript":   {},
+	"text/x-shellscript":          {},
+	"application/x-perl":          {},
+	"application/x-python":        {},
+	"application/x-python-code":   {},
+	"application/x-php":           {},
+	"application/x-httpd-php":     {},
+	"application/x-bat":           {},
 }
 
 // isAllowedMIME returns true when the MIME (lower-cased) is not on
@@ -153,10 +153,22 @@ type Store struct {
 	Dir     string
 	MaxSize int64
 	SignKey []byte
+	// Blob is the byte backend (disk by default; S3 in SaaS). The Store owns
+	// metadata/signing/dedup; Blob only moves bytes. Nil falls back to a disk
+	// blobstore rooted at Dir, so existing NewStore callers are unchanged.
+	Blob Blobstore
 }
 
 func NewStore(db *sql.DB, dir string, max int64, signKey string) *Store {
-	return &Store{DB: db, Dir: dir, MaxSize: max, SignKey: []byte(signKey)}
+	return &Store{DB: db, Dir: dir, MaxSize: max, SignKey: []byte(signKey), Blob: NewDiskBlobstore(dir)}
+}
+
+// blob returns the configured Blobstore, defaulting to a disk store at Dir.
+func (s *Store) blob() Blobstore {
+	if s.Blob != nil {
+		return s.Blob
+	}
+	return NewDiskBlobstore(s.Dir)
 }
 
 // Save persists a single upload. mime is the caller-declared MIME
@@ -227,14 +239,11 @@ func (s *Store) Save(ctx context.Context, ownerID, communityID, mime, filename s
 	digest := hex.EncodeToString(h.Sum(nil))
 	ext := extFor(finalMIME, filename)
 	rel := filepath.Join(digest[:2], digest+ext)
-	dst := filepath.Join(s.Dir, rel)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return Upload{}, err
 	}
-	if _, err := os.Stat(dst); errors.Is(err, os.ErrNotExist) {
-		if err := os.Rename(tmp.Name(), dst); err != nil {
-			return Upload{}, err
-		}
+	if err := s.blob().Put(ctx, rel, tmp); err != nil {
+		return Upload{}, fmt.Errorf("blob put: %w", err)
 	}
 
 	cleanName := sanitiseFilename(filename)
@@ -372,9 +381,28 @@ func stableExpiry(now time.Time, ttl time.Duration) time.Time {
 	return now.Truncate(step).Add(step + ttl)
 }
 
-// PathFor returns the absolute filesystem path for the upload.
+// PathFor returns the absolute filesystem path for the upload. Only valid for
+// disk-backed stores; remote stores should use Serve / Open instead.
 func (s *Store) PathFor(u Upload) string {
 	return filepath.Join(s.Dir, u.RelPath)
+}
+
+// Serve writes the upload's bytes to w. For disk-backed stores it uses
+// http.ServeFile (HTTP Range / video seeking); for remote stores it streams
+// via the Blobstore. Headers (Content-Type, Disposition) are the caller's job.
+func (s *Store) Serve(w http.ResponseWriter, r *http.Request, u Upload) error {
+	bs := s.blob()
+	if p, ok := bs.LocalPath(u.RelPath); ok {
+		http.ServeFile(w, r, p)
+		return nil
+	}
+	rc, err := bs.Open(r.Context(), u.RelPath)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	_, err = io.Copy(w, rc)
+	return err
 }
 
 // ExtForMIME returns the canonical extension for an allowed MIME, or "" if not.
@@ -399,7 +427,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	var cnt int
 	_ = s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM uploads WHERE rel_path = ?`, u.RelPath).Scan(&cnt)
 	if cnt == 0 {
-		_ = os.Remove(filepath.Join(s.Dir, u.RelPath))
+		_ = s.blob().Remove(ctx, u.RelPath)
 	}
 	return nil
 }
@@ -471,14 +499,11 @@ func (s *Store) SaveAttachment(ctx context.Context, ownerID, communityID, mime, 
 	}
 	digest := hex.EncodeToString(h.Sum(nil))
 	rel := filepath.Join(digest[:2], digest+ext)
-	dst := filepath.Join(s.Dir, rel)
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return Upload{}, err
 	}
-	if _, err := os.Stat(dst); errors.Is(err, os.ErrNotExist) {
-		if err := os.Rename(tmp.Name(), dst); err != nil {
-			return Upload{}, err
-		}
+	if err := s.blob().Put(ctx, rel, tmp); err != nil {
+		return Upload{}, fmt.Errorf("blob put: %w", err)
 	}
 
 	cleanName := sanitiseFilename(filename)

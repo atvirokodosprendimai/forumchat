@@ -128,7 +128,9 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 	if u.Filename != "" {
 		w.Header().Set("Content-Disposition", `inline; filename="`+u.Filename+`"`)
 	}
-	http.ServeFile(w, r, h.Store.PathFor(u))
+	if err := h.Store.Serve(w, r, u); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+	}
 }
 
 // hasValidSharedSig reports whether the request carries a valid, unexpired
