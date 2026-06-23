@@ -95,7 +95,12 @@ services:
       nats: { condition: service_started }
       qdrant: { condition: service_started }
       mailpit: { condition: service_started }
-      garage-init: { condition: service_completed_successfully }
+      # garage-init is best-effort, NOT a hard gate: the app boots even if the
+      # bucket bootstrap hasn't finished (only uploads are degraded until it
+      # has), so a storage hiccup can't wedge the whole app. We require only
+      # that Garage itself is healthy. Run `docker compose up -d garage-init`
+      # (or `up -d` for the whole stack) to (re)bootstrap the bucket + key.
+      garage: { condition: service_healthy }
     volumes:
       - ./data/app:/data
     # No host ports — Caddy reverse-proxies to app:8080 on the internal network.
@@ -143,7 +148,8 @@ services:
   #   docker compose ... exec garage /garage layout assign -z dc1 -c 10G <NODE_ID>
   #   docker compose ... exec garage /garage layout apply --version 1
   #   docker compose ... exec garage /garage bucket create forumchat
-  #   docker compose ... exec garage /garage key import -n forumchat <ACCESS> <SECRET>
+  #   docker compose ... exec garage /garage key create forumchat   # prints a valid Key ID + Secret
+  #     → put those in S3_ACCESS_KEY / S3_SECRET_KEY in .env (Garage rejects arbitrary keys)
   #   docker compose ... exec garage /garage bucket allow --read --write --owner forumchat --key forumchat
   garage-init:
     image: alpine:3.20
@@ -163,23 +169,59 @@ services:
         set -eu
         apk add --no-cache curl jq >/dev/null
         ADMIN="http://garage:3903"; AUTH="Authorization: Bearer $${GARAGE_ADMIN_TOKEN}"
+
+        # call METHOD PATH [JSON] — runs the request and stores the HTTP status in
+        # RC and the response body in BODY (so every failure can be shown, instead
+        # of curl -sf dying with a silent "exit 22" three steps downstream).
+        call() {
+          if [ "$$#" -ge 3 ]; then
+            _out=$$(curl -s -w '\n%{http_code}' -X "$$1" -H "$$AUTH" "$$ADMIN$$2" -d "$$3")
+          else
+            _out=$$(curl -s -w '\n%{http_code}' -X "$$1" -H "$$AUTH" "$$ADMIN$$2")
+          fi
+          RC=$$(printf '%s\n' "$$_out" | tail -n1)
+          BODY=$$(printf '%s\n' "$$_out" | sed '$$ d')
+        }
+        ok2xx() { case "$$RC" in 2*) return 0;; *) return 1;; esac; }
+        die() { echo "garage-init FAILED: $$*" >&2; exit 1; }
+
         echo "waiting for garage admin API..."
         until curl -sf "$$ADMIN/health" >/dev/null 2>&1; do sleep 2; done
-        NODE=$$(curl -sf -H "$$AUTH" "$$ADMIN/v1/status" | jq -r '.node')
-        echo "node=$$NODE — staging single-node layout"
-        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/layout" \
-          -d "{\"$$NODE\":{\"zone\":\"dc1\",\"capacity\":10000000000,\"tags\":[]}}" >/dev/null || true
-        VER=$$(curl -sf -H "$$AUTH" "$$ADMIN/v1/layout" | jq -r '.version')
-        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/layout/apply" -d "{\"version\":$$((VER+1))}" >/dev/null || true
-        echo "creating bucket $${S3_BUCKET}"
-        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/bucket" -d "{\"globalAlias\":\"$${S3_BUCKET}\"}" >/dev/null || true
-        BID=$$(curl -sf -H "$$AUTH" "$$ADMIN/v1/bucket?globalAlias=$${S3_BUCKET}" | jq -r '.id')
-        echo "importing S3 key"
-        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/key/import" \
-          -d "{\"accessKeyId\":\"$${S3_ACCESS_KEY}\",\"secretAccessKey\":\"$${S3_SECRET_KEY}\",\"name\":\"forumchat\"}" >/dev/null || true
+
+        call GET /v1/status
+        ok2xx || die "GET /v1/status -> HTTP $$RC. Wrong GARAGE_ADMIN_TOKEN? Recreate garage after editing .env (docker compose up -d --force-recreate garage). $$BODY"
+        NODE=$$(printf '%s' "$$BODY" | jq -r '.node')
+        if [ -z "$$NODE" ] || [ "$$NODE" = null ]; then die "no node id in /v1/status: $$BODY"; fi
+        echo "node=$$NODE — applying single-node layout"
+
+        call POST /v1/layout "{\"$$NODE\":{\"zone\":\"dc1\",\"capacity\":10000000000,\"tags\":[]}}"
+        ok2xx || die "stage layout -> HTTP $$RC: $$BODY"
+        call GET /v1/layout
+        VER=$$(printf '%s' "$$BODY" | jq -r '.version'); if [ "$$VER" = null ]; then VER=0; fi
+        call POST /v1/layout/apply "{\"version\":$$((VER+1))}"
+        ok2xx || echo "note: layout apply -> HTTP $$RC (usually means already applied): $$BODY"
+
+        echo "ensuring bucket $${S3_BUCKET}"
+        call POST /v1/bucket "{\"globalAlias\":\"$${S3_BUCKET}\"}"
+        ok2xx || echo "note: bucket create -> HTTP $$RC (usually means already exists): $$BODY"
+        call GET "/v1/bucket?globalAlias=$${S3_BUCKET}"
+        BID=$$(printf '%s' "$$BODY" | jq -r '.id')
+        if [ -z "$$BID" ] || [ "$$BID" = null ]; then die "bucket $${S3_BUCKET} has no id (layout not applied?): $$BODY"; fi
+
+        echo "ensuring S3 key $${S3_ACCESS_KEY}"
+        call POST /v1/key/import "{\"accessKeyId\":\"$${S3_ACCESS_KEY}\",\"secretAccessKey\":\"$${S3_SECRET_KEY}\",\"name\":\"forumchat\"}"
+        if ! ok2xx; then
+          if printf '%s' "$$BODY" | grep -qi exist; then
+            echo "note: key already present"
+          else
+            die "key import -> HTTP $$RC: $$BODY -- Garage keys must be GK-format. Run: docker compose exec garage /garage key create forumchat ; then copy the printed Key ID + Secret into S3_ACCESS_KEY / S3_SECRET_KEY in .env and re-run."
+          fi
+        fi
+
         echo "granting key access to bucket $$BID"
-        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/bucket/allow" \
-          -d "{\"bucketId\":\"$$BID\",\"accessKeyId\":\"$${S3_ACCESS_KEY}\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":true}}" >/dev/null
+        call POST /v1/bucket/allow "{\"bucketId\":\"$$BID\",\"accessKeyId\":\"$${S3_ACCESS_KEY}\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":true}}"
+        ok2xx || die "bucket/allow -> HTTP $$RC: $$BODY"
+
         echo "garage bootstrap complete"
     restart: "no"
 
