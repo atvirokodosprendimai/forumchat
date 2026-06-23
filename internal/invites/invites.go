@@ -127,47 +127,56 @@ func (h *Handler) PostJoinSetPassword(w http.ResponseWriter, r *http.Request) {
 	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	var in setPasswordSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
-		sse := render.NewSSE(w, r)
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", "bad signals: "+err.Error()))
+		h.joinError(w, r, "bad signals: "+err.Error())
 		return
 	}
-	sse := render.NewSSE(w, r)
+	// Do ALL the work before opening SSE: the success path must commit the
+	// session cookie before datastar's Flush, else the just-activated invitee's
+	// login is silently dropped and they bounce back to the login wall (§4.4).
 	pw := strings.TrimSpace(in.Password)
 	if len(pw) < 8 {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", "Password must be at least 8 characters"))
+		h.joinError(w, r, "Password must be at least 8 characters")
 		return
 	}
 	tok, err := h.AuthRepo.SignupTokenByValue(r.Context(), code)
 	if err != nil || !tok.IsValid() || tok.CommunityID != c.ID {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", "Invite expired"))
+		h.joinError(w, r, "Invite expired")
 		return
 	}
 	target, err := h.AuthRepo.UserByID(r.Context(), tok.UserID)
 	if err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", "User not found"))
+		h.joinError(w, r, "User not found")
 		return
 	}
 	if target.Status != auth.StatusInvited {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", "Account already activated — sign in instead"))
+		h.joinError(w, r, "Account already activated — sign in instead")
 		return
 	}
 	hash, err := auth.HashPassword(pw)
 	if err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", err.Error()))
+		h.joinError(w, r, err.Error())
 		return
 	}
 	if err := h.AuthRepo.SetPasswordAndActivate(r.Context(), target.ID, hash); err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", err.Error()))
+		h.joinError(w, r, err.Error())
 		return
 	}
 	_ = h.AuthRepo.ConsumeSignupToken(r.Context(), code)
-	// Log them in.
+	// Log them in — commit the cookie BEFORE NewSSE (§4.4).
 	auth.PutLogin(r.Context(), h.Sessions, target.ID, c.ID)
+	auth.CommitSession(h.Sessions, w, r)
 	// Welcome ping — new placeholder invitee just activated and joined.
 	if h.Chat != nil {
 		if m, err := h.AuthRepo.MembershipFor(r.Context(), target.ID, c.ID); err == nil {
 			h.Chat.Welcome(r.Context(), c.ID, m.DisplayName)
 		}
 	}
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/chat")
+}
+
+// joinError renders a join-error fragment over a fresh SSE response.
+func (h *Handler) joinError(w http.ResponseWriter, r *http.Request, msg string) {
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.ErrorFragment("join-error", msg))
 }

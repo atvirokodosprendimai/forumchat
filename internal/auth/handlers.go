@@ -24,6 +24,14 @@ import (
 // past scs via sessionResponseWriter.Unwrap() and flushes the *underlying*
 // http.ResponseWriter directly. The scs wrapper never sees the write so
 // Set-Cookie is never sent. Callers must commit explicitly before NewSSE.
+// CommitSession writes the scs session cookie to w. Call it BEFORE
+// datastar.NewSSE in any handler that mutates session state — NewSSE's Flush
+// bypasses scs's own Set-Cookie hook, so the cookie is otherwise dropped
+// (§4.4). Exported for handlers outside this package (e.g. internal/invites).
+func CommitSession(sm *scs.SessionManager, w http.ResponseWriter, r *http.Request) {
+	commitSession(sm, w, r)
+}
+
 func commitSession(sm *scs.SessionManager, w http.ResponseWriter, r *http.Request) {
 	switch sm.Status(r.Context()) {
 	case scs.Modified:
@@ -110,9 +118,9 @@ func (h *Handler) PostRegisterAsAdmin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := render.NewSSE(w, r)
 	email := strings.TrimSpace(in.Email)
 	if email == "" || in.Password == "" {
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Email and password required"))
 		return
 	}
@@ -131,11 +139,16 @@ func (h *Handler) PostRegisterAsAdmin(w http.ResponseWriter, r *http.Request) {
 				msg = "Something went wrong"
 			}
 		}
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment(msg))
 		return
 	}
+	// Success: commit the session cookie BEFORE NewSSE flushes the response,
+	// else datastar's Flush bypasses scs's Set-Cookie hook and the login is
+	// silently dropped (§4.4). RenewToken (in PutLogin) makes this load-bearing.
 	PutLogin(r.Context(), h.Sessions, res.UserID, res.CommunityID)
 	commitSession(h.Sessions, w, r)
+	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/")
 }
 
