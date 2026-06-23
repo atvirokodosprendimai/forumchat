@@ -28,11 +28,14 @@ import (
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
-// Reindexer triggers a global RAG re-embed. Implemented by *rag.Service; nil
-// when RAG is disabled (the dashboard hides the button), so the handler is
-// nil-safe.
+// Reindexer triggers a global RAG re-embed and drops a community's vectors.
+// Implemented by *rag.Service; nil when RAG is disabled (the dashboard hides the
+// button), so the handler is nil-safe.
 type Reindexer interface {
 	ReindexAll(ctx context.Context) (int, error)
+	// DropCommunity removes a community's vector collection. Called on community
+	// delete so a deleted tenant's embedded content doesn't survive in Qdrant.
+	DropCommunity(ctx context.Context, communityID string) error
 }
 
 // ChatBroadcaster posts a pre-rendered HTML system message into one community's
@@ -249,6 +252,14 @@ func (h *Handler) PostDeleteCommunity(w http.ResponseWriter, r *http.Request) {
 	if err := h.Communities.Delete(r.Context(), cid); err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Delete failed: "+err.Error()))
 		return
+	}
+	// Drop the community's vector collection so a deleted tenant's embedded
+	// content doesn't survive in Qdrant. Best-effort — the DB rows are already
+	// gone; a left-over collection is a leak, not a correctness issue.
+	if h.RAG != nil {
+		if err := h.RAG.DropCommunity(r.Context(), cid); err != nil && h.Log != nil {
+			h.Log.Warn("super-admin: drop community vectors after delete", "community_id", cid, "err", err)
+		}
 	}
 	actor := "unknown"
 	if id, ok := auth.FromContext(r.Context()); ok {

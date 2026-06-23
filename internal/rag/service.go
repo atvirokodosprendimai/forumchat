@@ -146,6 +146,13 @@ func (s *Service) ReindexAll(ctx context.Context) (int, error) {
 	return s.Repo.EnqueueAll(ctx)
 }
 
+// DropCommunity removes a community's vectors WITHOUT re-queueing — used when the
+// community itself is deleted (no point re-embedding gone content). For a rebuild
+// use ReindexCommunity instead.
+func (s *Service) DropCommunity(ctx context.Context, communityID string) error {
+	return s.Store.DropCommunity(ctx, communityID)
+}
+
 // ReindexCommunity drops and re-queues one community's content.
 func (s *Service) ReindexCommunity(ctx context.Context, communityID string) (int, error) {
 	if err := s.Store.DropCommunity(ctx, communityID); err != nil {
