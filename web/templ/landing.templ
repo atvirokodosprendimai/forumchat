@@ -20,8 +20,9 @@ func brandName() string {
 }
 
 // landingTagline is the one-line positioning used in the <title>, OG card and
-// footer. Kept here so brand copy lives in one place.
-const landingTagline = "One calm home for your community and team"
+// footer. Kept here so brand copy lives in one place. Community-first: this is
+// built for small communities, not enterprises.
+const landingTagline = "A calm home for your community"
 
 // ctaPrimaryLabel adapts the hero/nav primary button to the instance's signup
 // mode: open self-serve registration vs invite-only. Mirrors the gate in
@@ -53,11 +54,11 @@ templ LandingPage() {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width,initial-scale=1"/>
 			<title>{ brandName() } — { landingTagline }</title>
-			<meta name="description" content="Real-time chat, threaded forums, video rooms and AI agents in one fast, self-hosted space. The all-in-one platform for communities and teams."/>
+			<meta name="description" content="Real-time chat, threaded forums, video rooms and AI agents in one fast, self-hosted space. Built for small communities who want to own their home online, not enterprises."/>
 			<meta name="robots" content="index,follow"/>
 			<meta property="og:type" content="website"/>
 			<meta property="og:title" content={ brandName() + " — " + landingTagline }/>
-			<meta property="og:description" content="Chat, forum, rooms and AI agents — together in a single calm space for your community and team."/>
+			<meta property="og:description" content="Chat, forum, rooms and AI agents — in one calm space, built for small communities, not big companies."/>
 			<link rel="preconnect" href="https://fonts.googleapis.com"/>
 			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
 			<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;600&display=swap"/>
@@ -106,15 +107,15 @@ templ landingNav() {
 templ landingHero() {
 	<section class="lp-hero" aria-label="Introduction">
 		<div class="lp-hero-copy">
-			<span class="lp-eyebrow">✦ All-in-one community platform</span>
+			<span class="lp-eyebrow">✦ Built for small communities</span>
 			<h1 class="lp-h1">
 				Where your community<br/>
 				<span class="lp-h1-accent">actually lives.</span>
 			</h1>
 			<p class="lp-sub">
-				Real-time chat, threaded discussions, video rooms and AI agents —
-				together in a single fast space. Self-hosted, no sprawl, no
-				per-seat surprises.
+				Real-time chat, threaded discussions and video rooms—
+				one calm little home for your community. Self-hosted on a
+				single box, no per-seat fees, no ads, no algorithms.
 			</p>
 			<div class="lp-hero-actions">
 				<a href="/register" class="btn lp-btn-lg">{ ctaPrimaryLabel() }</a>
@@ -149,20 +150,20 @@ templ landingPreview() {
 			<div class="lp-mini-stream">
 				<div class="lp-bubble">
 					<span class="lp-ava lp-ava-a">A</span>
-					<div class="lp-bubble-body"><strong>Ada</strong><span>Shipping the new onboarding today 🚀</span></div>
+					<div class="lp-bubble-body"><strong>Ada</strong><span>Anyone up for the Saturday hike? 🥾</span></div>
 				</div>
 				<div class="lp-bubble">
 					<span class="lp-ava lp-ava-b">M</span>
-					<div class="lp-bubble-body"><strong>Mira</strong><span>Promoted it to a thread so we can track feedback.</span></div>
+					<div class="lp-bubble-body"><strong>Mira</strong><span>Promoted it to a thread so we can plan the route.</span></div>
 				</div>
 				<div class="lp-bubble lp-bubble-bot">
 					<span class="lp-ava lp-ava-bot">✦</span>
-					<div class="lp-bubble-body"><strong>Assistant</strong><span>Summary + 3 action items posted to the thread.</span></div>
+					<div class="lp-bubble-body"><strong>Assistant</strong><span>Trail map + Saturday weather posted to the thread.</span></div>
 				</div>
 				<div class="lp-mini-thread-card">
 					<span class="lp-thread-pill">📋 Thread</span>
-					<strong>New onboarding — feedback</strong>
-					<span class="lp-thread-meta">4 replies · 2 participants</span>
+					<strong>Saturday hike — who's in?</strong>
+					<span class="lp-thread-meta">4 replies · 2 going</span>
 				</div>
 			</div>
 		</div>
@@ -176,8 +177,8 @@ templ landingFeatures() {
 	<section id="features" class="lp-section" aria-label="Features">
 		<div class="lp-section-head">
 			<span class="lp-kicker">Everything in one place</span>
-			<h2 class="lp-h2">Stop stitching five tools together</h2>
-			<p class="lp-lead">Chat, forum, rooms and AI live in the same fast app — one login, one search, one source of truth.</p>
+			<h2 class="lp-h2">Stop scattering your community across apps</h2>
+			<p class="lp-lead">Chat, forum, rooms and AI live in the same fast app — one login, one search, one home your members actually own.</p>
 		</div>
 		<div class="lp-grid">
 			@landingFeature("💬", "Realtime chat channels", "Public named channels with @mentions, replies, image paste and instant fan-out over NATS.")
@@ -190,11 +191,11 @@ templ landingFeatures() {
 				@landingFeature("📂", "Projects & issues", "Track work with issues, checklists and attachments right next to the conversation.")
 			}
 			@landingFeature("🔍", "Full-text search", "Find any message or thread instantly with built-in SQLite FTS.")
-			@landingFeature("🛡", "Roles & moderation", "Per-community admins, approval queues and bans with content cleanup — built in.")
+			@landingFeature("🛡", "Roles & moderation", "Admins, approval queues and bans with content cleanup — keep your space friendly without hiring a mod team.")
 			if TimeEnabled {
 				@landingFeature("⏱", "Time & budget", "Log time against work and watch budgets without a second tool.")
 			}
-			@landingFeature("⚡", "Self-hosted & fast", "A single Go binary on SQLite + NATS. Deploy in minutes, own your data.")
+			@landingFeature("⚡", "Self-hosted & cheap", "A single Go binary on SQLite — runs on the smallest box. Deploy in minutes, own every message.")
 		</div>
 	</section>
 }
@@ -214,13 +215,13 @@ templ landingHow() {
 	<section id="how" class="lp-section lp-section-alt" aria-label="How it works">
 		<div class="lp-section-head">
 			<span class="lp-kicker">Up and running fast</span>
-			<h2 class="lp-h2">From zero to a living space in minutes</h2>
+			<h2 class="lp-h2">From zero to a living community in minutes</h2>
 		</div>
 		<ol class="lp-steps">
 			<li class="lp-step">
 				<span class="lp-step-num">1</span>
 				<h3>Create your space</h3>
-				<p>Spin up a community or team workspace — a chat channel and forum are ready instantly.</p>
+				<p>Spin up your community — a chat channel and forum are ready the moment you sign up.</p>
 			</li>
 			<li class="lp-step">
 				<span class="lp-step-num">2</span>
@@ -240,28 +241,29 @@ templ landingHow() {
 	</section>
 }
 
-// landingUseCases — who it's for. Balanced across communities and teams.
+// landingUseCases — who it's for. Community-first: small communities lead,
+// small teams kept as a single secondary card.
 templ landingUseCases() {
 	<section id="use-cases" class="lp-section" aria-label="Use cases">
 		<div class="lp-section-head">
 			<span class="lp-kicker">Built for</span>
-			<h2 class="lp-h2">One platform, every kind of group</h2>
+			<h2 class="lp-h2">Made for small communities</h2>
 		</div>
 		<div class="lp-usecases">
 			<article class="lp-usecase">
-				<span class="lp-usecase-icon" aria-hidden="true">🌐</span>
-				<h3>Communities & creators</h3>
-				<p>Give members a real home — channels to hang out, threads that stay, and rooms to gather.</p>
+				<span class="lp-usecase-icon" aria-hidden="true">🎲</span>
+				<h3>Clubs, hobbies & fandoms</h3>
+				<p>Give your members a real home: channels to hang out, threads that stay put, and rooms to meet up.</p>
 			</article>
 			<article class="lp-usecase">
-				<span class="lp-usecase-icon" aria-hidden="true">🏢</span>
-				<h3>Teams & businesses</h3>
-				<p>An internal hub where chat, decisions and project tracking finally sit in one place.</p>
+				<span class="lp-usecase-icon" aria-hidden="true">🏡</span>
+				<h3>Friends & local groups</h3>
+				<p>A private corner of the internet for your circle, neighborhood or meetup. No ads, no algorithm, just your people.</p>
 			</article>
 			<article class="lp-usecase">
-				<span class="lp-usecase-icon" aria-hidden="true">🛟</span>
-				<h3>Support & operations</h3>
-				<p>Approval queues, roles and an audit trail baked in — no plugins, no spreadsheets.</p>
+				<span class="lp-usecase-icon" aria-hidden="true">🛠️</span>
+				<h3>Small teams & makers</h3>
+				<p>Tiny teams and side-projects get chat, decisions and tracking in one place, without enterprise pricing.</p>
 			</article>
 		</div>
 	</section>
@@ -271,7 +273,7 @@ templ landingUseCases() {
 templ landingFinalCTA() {
 	<section class="lp-cta-band" aria-label="Get started">
 		<h2 class="lp-cta-title">Ready when you are.</h2>
-		<p class="lp-cta-sub">Bring your community and team into one calm, fast space.</p>
+		<p class="lp-cta-sub">Bring your community into one calm, fast home you actually own.</p>
 		<div class="lp-hero-actions lp-cta-actions">
 			<a href="/register" class="btn lp-btn-lg">{ ctaPrimaryLabel() }</a>
 			<a href="/login" class="btn ghost lp-btn-lg">Sign in</a>

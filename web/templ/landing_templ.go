@@ -28,8 +28,9 @@ func brandName() string {
 }
 
 // landingTagline is the one-line positioning used in the <title>, OG card and
-// footer. Kept here so brand copy lives in one place.
-const landingTagline = "One calm home for your community and team"
+// footer. Kept here so brand copy lives in one place. Community-first: this is
+// built for small communities, not enterprises.
+const landingTagline = "A calm home for your community"
 
 // ctaPrimaryLabel adapts the hero/nav primary button to the instance's signup
 // mode: open self-serve registration vs invite-only. Mirrors the gate in
@@ -82,7 +83,7 @@ func LandingPage() templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(brandName())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 55, Col: 23}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 56, Col: 23}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -95,26 +96,26 @@ func LandingPage() templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(landingTagline)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 55, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 56, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</title><meta name=\"description\" content=\"Real-time chat, threaded forums, video rooms and AI agents in one fast, self-hosted space. The all-in-one platform for communities and teams.\"><meta name=\"robots\" content=\"index,follow\"><meta property=\"og:type\" content=\"website\"><meta property=\"og:title\" content=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</title><meta name=\"description\" content=\"Real-time chat, threaded forums, video rooms and AI agents in one fast, self-hosted space. Built for small communities who want to own their home online, not enterprises.\"><meta name=\"robots\" content=\"index,follow\"><meta property=\"og:type\" content=\"website\"><meta property=\"og:title\" content=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(brandName() + " — " + landingTagline)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 59, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 60, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><meta property=\"og:description\" content=\"Chat, forum, rooms and AI agents — together in a single calm space for your community and team.\"><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"anonymous\"><link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;600&display=swap\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><meta property=\"og:description\" content=\"Chat, forum, rooms and AI agents — in one calm space, built for small communities, not big companies.\"><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"anonymous\"><link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;600&display=swap\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -129,7 +130,7 @@ func LandingPage() templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(themeColor(""))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 67, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 68, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -214,7 +215,7 @@ func landingNav() templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(brandName())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 90, Col: 43}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 91, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -227,7 +228,7 @@ func landingNav() templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(ctaPrimaryLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 99, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 100, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -264,14 +265,14 @@ func landingHero() templ.Component {
 			templ_7745c5c3_Var9 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<section class=\"lp-hero\" aria-label=\"Introduction\"><div class=\"lp-hero-copy\"><span class=\"lp-eyebrow\">✦ All-in-one community platform</span><h1 class=\"lp-h1\">Where your community<br><span class=\"lp-h1-accent\">actually lives.</span></h1><p class=\"lp-sub\">Real-time chat, threaded discussions, video rooms and AI agents — together in a single fast space. Self-hosted, no sprawl, no per-seat surprises.</p><div class=\"lp-hero-actions\"><a href=\"/register\" class=\"btn lp-btn-lg\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<section class=\"lp-hero\" aria-label=\"Introduction\"><div class=\"lp-hero-copy\"><span class=\"lp-eyebrow\">✦ Built for small communities</span><h1 class=\"lp-h1\">Where your community<br><span class=\"lp-h1-accent\">actually lives.</span></h1><p class=\"lp-sub\">Real-time chat, threaded discussions and video rooms— one calm little home for your community. Self-hosted on a single box, no per-seat fees, no ads, no algorithms.</p><div class=\"lp-hero-actions\"><a href=\"/register\" class=\"btn lp-btn-lg\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(ctaPrimaryLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 120, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 121, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -284,7 +285,7 @@ func landingHero() templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(ctaTrustNote())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 123, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 124, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -337,13 +338,13 @@ func landingPreview() templ.Component {
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(brandName())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 138, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 139, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, " · #general</span></div><div class=\"lp-window-body\"><aside class=\"lp-mini-rail\"><span class=\"lp-mini-chan lp-mini-active\"># general</span> <span class=\"lp-mini-chan\"># product</span> <span class=\"lp-mini-chan\"># random</span> <span class=\"lp-mini-sep\"></span> <span class=\"lp-mini-chan lp-mini-thread\">📋 Threads</span> <span class=\"lp-mini-chan lp-mini-thread\">🎥 Rooms</span></aside><div class=\"lp-mini-stream\"><div class=\"lp-bubble\"><span class=\"lp-ava lp-ava-a\">A</span><div class=\"lp-bubble-body\"><strong>Ada</strong><span>Shipping the new onboarding today 🚀</span></div></div><div class=\"lp-bubble\"><span class=\"lp-ava lp-ava-b\">M</span><div class=\"lp-bubble-body\"><strong>Mira</strong><span>Promoted it to a thread so we can track feedback.</span></div></div><div class=\"lp-bubble lp-bubble-bot\"><span class=\"lp-ava lp-ava-bot\">✦</span><div class=\"lp-bubble-body\"><strong>Assistant</strong><span>Summary + 3 action items posted to the thread.</span></div></div><div class=\"lp-mini-thread-card\"><span class=\"lp-thread-pill\">📋 Thread</span> <strong>New onboarding — feedback</strong> <span class=\"lp-thread-meta\">4 replies · 2 participants</span></div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, " · #general</span></div><div class=\"lp-window-body\"><aside class=\"lp-mini-rail\"><span class=\"lp-mini-chan lp-mini-active\"># general</span> <span class=\"lp-mini-chan\"># product</span> <span class=\"lp-mini-chan\"># random</span> <span class=\"lp-mini-sep\"></span> <span class=\"lp-mini-chan lp-mini-thread\">📋 Threads</span> <span class=\"lp-mini-chan lp-mini-thread\">🎥 Rooms</span></aside><div class=\"lp-mini-stream\"><div class=\"lp-bubble\"><span class=\"lp-ava lp-ava-a\">A</span><div class=\"lp-bubble-body\"><strong>Ada</strong><span>Anyone up for the Saturday hike? 🥾</span></div></div><div class=\"lp-bubble\"><span class=\"lp-ava lp-ava-b\">M</span><div class=\"lp-bubble-body\"><strong>Mira</strong><span>Promoted it to a thread so we can plan the route.</span></div></div><div class=\"lp-bubble lp-bubble-bot\"><span class=\"lp-ava lp-ava-bot\">✦</span><div class=\"lp-bubble-body\"><strong>Assistant</strong><span>Trail map + Saturday weather posted to the thread.</span></div></div><div class=\"lp-mini-thread-card\"><span class=\"lp-thread-pill\">📋 Thread</span> <strong>Saturday hike — who's in?</strong> <span class=\"lp-thread-meta\">4 replies · 2 going</span></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -375,7 +376,7 @@ func landingFeatures() templ.Component {
 			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<section id=\"features\" class=\"lp-section\" aria-label=\"Features\"><div class=\"lp-section-head\"><span class=\"lp-kicker\">Everything in one place</span><h2 class=\"lp-h2\">Stop stitching five tools together</h2><p class=\"lp-lead\">Chat, forum, rooms and AI live in the same fast app — one login, one search, one source of truth.</p></div><div class=\"lp-grid\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<section id=\"features\" class=\"lp-section\" aria-label=\"Features\"><div class=\"lp-section-head\"><span class=\"lp-kicker\">Everything in one place</span><h2 class=\"lp-h2\">Stop scattering your community across apps</h2><p class=\"lp-lead\">Chat, forum, rooms and AI live in the same fast app — one login, one search, one home your members actually own.</p></div><div class=\"lp-grid\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -407,7 +408,7 @@ func landingFeatures() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = landingFeature("🛡", "Roles & moderation", "Per-community admins, approval queues and bans with content cleanup — built in.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = landingFeature("🛡", "Roles & moderation", "Admins, approval queues and bans with content cleanup — keep your space friendly without hiring a mod team.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -417,7 +418,7 @@ func landingFeatures() templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = landingFeature("⚡", "Self-hosted & fast", "A single Go binary on SQLite + NATS. Deploy in minutes, own your data.").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = landingFeature("⚡", "Self-hosted & cheap", "A single Go binary on SQLite — runs on the smallest box. Deploy in minutes, own every message.").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -459,7 +460,7 @@ func landingFeature(icon, title, body string) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(icon)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 206, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 207, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -472,7 +473,7 @@ func landingFeature(icon, title, body string) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 207, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 208, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
@@ -485,7 +486,7 @@ func landingFeature(icon, title, body string) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(body)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 208, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 209, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -521,7 +522,7 @@ func landingHow() templ.Component {
 			templ_7745c5c3_Var19 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<section id=\"how\" class=\"lp-section lp-section-alt\" aria-label=\"How it works\"><div class=\"lp-section-head\"><span class=\"lp-kicker\">Up and running fast</span><h2 class=\"lp-h2\">From zero to a living space in minutes</h2></div><ol class=\"lp-steps\"><li class=\"lp-step\"><span class=\"lp-step-num\">1</span><h3>Create your space</h3><p>Spin up a community or team workspace — a chat channel and forum are ready instantly.</p></li><li class=\"lp-step\"><span class=\"lp-step-num\">2</span><h3>Invite your people</h3>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<section id=\"how\" class=\"lp-section lp-section-alt\" aria-label=\"How it works\"><div class=\"lp-section-head\"><span class=\"lp-kicker\">Up and running fast</span><h2 class=\"lp-h2\">From zero to a living community in minutes</h2></div><ol class=\"lp-steps\"><li class=\"lp-step\"><span class=\"lp-step-num\">1</span><h3>Create your space</h3><p>Spin up your community — a chat channel and forum are ready the moment you sign up.</p></li><li class=\"lp-step\"><span class=\"lp-step-num\">2</span><h3>Invite your people</h3>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -544,7 +545,8 @@ func landingHow() templ.Component {
 	})
 }
 
-// landingUseCases — who it's for. Balanced across communities and teams.
+// landingUseCases — who it's for. Community-first: small communities lead,
+// small teams kept as a single secondary card.
 func landingUseCases() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -566,7 +568,7 @@ func landingUseCases() templ.Component {
 			templ_7745c5c3_Var20 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<section id=\"use-cases\" class=\"lp-section\" aria-label=\"Use cases\"><div class=\"lp-section-head\"><span class=\"lp-kicker\">Built for</span><h2 class=\"lp-h2\">One platform, every kind of group</h2></div><div class=\"lp-usecases\"><article class=\"lp-usecase\"><span class=\"lp-usecase-icon\" aria-hidden=\"true\">🌐</span><h3>Communities & creators</h3><p>Give members a real home — channels to hang out, threads that stay, and rooms to gather.</p></article><article class=\"lp-usecase\"><span class=\"lp-usecase-icon\" aria-hidden=\"true\">🏢</span><h3>Teams & businesses</h3><p>An internal hub where chat, decisions and project tracking finally sit in one place.</p></article><article class=\"lp-usecase\"><span class=\"lp-usecase-icon\" aria-hidden=\"true\">🛟</span><h3>Support & operations</h3><p>Approval queues, roles and an audit trail baked in — no plugins, no spreadsheets.</p></article></div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<section id=\"use-cases\" class=\"lp-section\" aria-label=\"Use cases\"><div class=\"lp-section-head\"><span class=\"lp-kicker\">Built for</span><h2 class=\"lp-h2\">Made for small communities</h2></div><div class=\"lp-usecases\"><article class=\"lp-usecase\"><span class=\"lp-usecase-icon\" aria-hidden=\"true\">🎲</span><h3>Clubs, hobbies & fandoms</h3><p>Give your members a real home: channels to hang out, threads that stay put, and rooms to meet up.</p></article><article class=\"lp-usecase\"><span class=\"lp-usecase-icon\" aria-hidden=\"true\">🏡</span><h3>Friends & local groups</h3><p>A private corner of the internet for your circle, neighborhood or meetup. No ads, no algorithm, just your people.</p></article><article class=\"lp-usecase\"><span class=\"lp-usecase-icon\" aria-hidden=\"true\">🛠️</span><h3>Small teams & makers</h3><p>Tiny teams and side-projects get chat, decisions and tracking in one place, without enterprise pricing.</p></article></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -596,14 +598,14 @@ func landingFinalCTA() templ.Component {
 			templ_7745c5c3_Var21 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<section class=\"lp-cta-band\" aria-label=\"Get started\"><h2 class=\"lp-cta-title\">Ready when you are.</h2><p class=\"lp-cta-sub\">Bring your community and team into one calm, fast space.</p><div class=\"lp-hero-actions lp-cta-actions\"><a href=\"/register\" class=\"btn lp-btn-lg\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<section class=\"lp-cta-band\" aria-label=\"Get started\"><h2 class=\"lp-cta-title\">Ready when you are.</h2><p class=\"lp-cta-sub\">Bring your community into one calm, fast home you actually own.</p><div class=\"lp-hero-actions lp-cta-actions\"><a href=\"/register\" class=\"btn lp-btn-lg\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(ctaPrimaryLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 276, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 278, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
@@ -646,7 +648,7 @@ func landingFooter() templ.Component {
 		var templ_7745c5c3_Var24 string
 		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(brandName())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 288, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 290, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 		if templ_7745c5c3_Err != nil {
@@ -659,7 +661,7 @@ func landingFooter() templ.Component {
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(landingTagline)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 290, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 292, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
@@ -672,7 +674,7 @@ func landingFooter() templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(ctaPrimaryLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 294, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 296, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 		if templ_7745c5c3_Err != nil {
@@ -685,7 +687,7 @@ func landingFooter() templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(Version)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 298, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 300, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {
