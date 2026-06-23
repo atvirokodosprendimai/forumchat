@@ -345,17 +345,11 @@ func (h *Handler) PostDeleteCommunity(w http.ResponseWriter, r *http.Request) {
 			"Delete cancelled — the typed slug did not match \""+c.Slug+"\". Nothing was deleted."))
 		return
 	}
-	if err := h.Communities.Delete(r.Context(), cid); err != nil {
+	// Provision.Delete purges ALL of the community's data: upload blobs, the
+	// cascaded DB rows, and the vector collection (see provision.Service.Delete).
+	if err := h.Provision.Delete(r.Context(), cid); err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Delete failed: "+err.Error()))
 		return
-	}
-	// Drop the community's vector collection so a deleted tenant's embedded
-	// content doesn't survive in Qdrant. Best-effort — the DB rows are already
-	// gone; a left-over collection is a leak, not a correctness issue.
-	if h.RAG != nil {
-		if err := h.RAG.DropCommunity(r.Context(), cid); err != nil && h.Log != nil {
-			h.Log.Warn("super-admin: drop community vectors after delete", "community_id", cid, "err", err)
-		}
 	}
 	actor := "unknown"
 	if id, ok := auth.FromContext(r.Context()); ok {

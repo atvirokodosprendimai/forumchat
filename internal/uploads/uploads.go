@@ -472,6 +472,54 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeleteByCommunity removes every upload owned by a community — both the rows
+// and the underlying blobs. Call it BEFORE the community row is cascade-deleted,
+// otherwise the upload rows are gone and their blobs leak. Each delete goes
+// through Delete so the dedup guard (a blob shared by another row survives) and
+// the per-row store resolution (own-bucket vs platform) are honoured. Returns
+// the number of upload rows removed.
+func (s *Store) DeleteByCommunity(ctx context.Context, communityID string) (int, error) {
+	return s.deleteWhere(ctx, "community_id", communityID)
+}
+
+// DeleteByOwner removes every upload a user owns — rows and blobs. Used by
+// account erasure; the user row is kept (anonymised), so the uploads.owner_id
+// ON DELETE CASCADE never fires and the bytes must be removed explicitly.
+func (s *Store) DeleteByOwner(ctx context.Context, ownerID string) (int, error) {
+	return s.deleteWhere(ctx, "owner_id", ownerID)
+}
+
+// deleteWhere deletes every upload matching a single indexed column, reusing
+// Delete so blob removal stays dedup-aware. col is a fixed internal literal
+// ("community_id" / "owner_id"), never user input.
+func (s *Store) deleteWhere(ctx context.Context, col, val string) (int, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id FROM uploads WHERE `+col+` = ?`, val)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		if err := s.Delete(ctx, id); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
 // SaveDataURL decodes a "data:<mime>;base64,XXXX" string, enforces maxBytes
 // on the decoded payload, and persists it via Save. Used by the paste-image
 // path on chat and forum forms.

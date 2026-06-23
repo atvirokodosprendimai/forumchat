@@ -417,6 +417,8 @@ func run() error {
 			_, err := chatRepo.EnsureDefaultChannel(ctx, communityID)
 			return err
 		},
+		Blobs: uploadStore, // purge upload blobs on community delete (ALL data)
+		Log:   log,
 	}
 
 	adminHandler := &admin.Handler{
@@ -552,6 +554,9 @@ func run() error {
 		// Per-community admin "Reindex" button. Guard the assignment so the
 		// interface field stays nil (not a typed-nil) when RAG is off.
 		adminHandler.RAG = ragSvc
+		// Community delete drops the tenant's vector collection. Guard so the
+		// interface field stays a real nil when RAG is off.
+		provSvc.Vectors = ragSvc
 	}
 
 	// ----- Agent (per-community AI chat) -----------------------------------
