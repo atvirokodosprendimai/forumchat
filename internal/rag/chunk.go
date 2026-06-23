@@ -58,7 +58,7 @@ func chunk(title, body string, cfg ChunkConfig) []string {
 		if j == i {                          // a single oversized word — force progress
 			j = i + 1
 		}
-		lo := back(tok, i, cfg.Overlap)  // bleed context before
+		lo := back(tok, i, cfg.Overlap)    // bleed context before
 		hi := advance(tok, j, cfg.Overlap) // bleed context after
 		chunks = append(chunks, strings.Join(words[lo:hi], " "))
 		i = j

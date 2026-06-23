@@ -220,7 +220,7 @@ type Config struct {
 	// embedder is independent of the per-agent Ollama config — RAG has its own
 	// endpoint/model so embedding and chat can point at different daemons.
 	RAGEnabled       bool   `env:"RAG_ENABLED" envDefault:"false"`
-	RAGBackend       string `env:"RAG_BACKEND" envDefault:"chromem"` // chromem | qdrant
+	RAGBackend       string `env:"RAG_BACKEND" envDefault:""` // "" | chromem | qdrant
 	RAGStorePath     string `env:"RAG_DB_PATH" envDefault:"./data/rag"`
 	RAGEmbedBaseURL  string `env:"RAG_EMBED_BASEURL" envDefault:"http://localhost:11434"`
 	RAGEmbedModel    string `env:"RAG_EMBED_MODEL" envDefault:"bge-m3"`
@@ -270,6 +270,20 @@ func (c Config) EffectiveStorageBackend() string {
 		return "s3"
 	}
 	return "disk"
+}
+
+// EffectiveRAGBackend resolves the vector store: explicit RAG_BACKEND wins,
+// otherwise SaaS defaults to qdrant (per-community collections) and self-hosted
+// defaults to chromem (embedded, single collection).
+func (c Config) EffectiveRAGBackend() string {
+	switch c.RAGBackend {
+	case "chromem", "qdrant":
+		return c.RAGBackend
+	}
+	if c.SAAS {
+		return "qdrant"
+	}
+	return "chromem"
 }
 
 func Load() (Config, error) {

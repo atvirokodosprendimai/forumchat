@@ -17,6 +17,21 @@ type Service struct {
 	Store    Store
 	Chunk    ChunkConfig
 	Log      *slog.Logger
+	// EmbedderFor resolves a community's own embedder (model / Ollama host /
+	// dim). Optional — nil uses the single Embedder (self-host, unchanged). Set
+	// in main.go from community.ResolveRAG for the SaaS per-community path. A
+	// community whose model differs from another gets a different vector size,
+	// which the per-community Qdrant collection is sized to on first upsert.
+	EmbedderFor func(ctx context.Context, communityID string) (Embedder, error)
+}
+
+// embedder returns the embedder for a community: the per-community resolver when
+// set, else the single Service-wide embedder.
+func (s *Service) embedder(ctx context.Context, communityID string) (Embedder, error) {
+	if s.EmbedderFor != nil {
+		return s.EmbedderFor(ctx, communityID)
+	}
+	return s.Embedder, nil
 }
 
 // NewService builds a Service.
@@ -34,7 +49,11 @@ func (s *Service) Search(ctx context.Context, communityID, query string, limit i
 	if limit <= 0 {
 		limit = 8
 	}
-	vecs, err := s.Embedder.Embed(ctx, []string{query})
+	emb, err := s.embedder(ctx, communityID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve embedder: %w", err)
+	}
+	vecs, err := emb.Embed(ctx, []string{query})
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
@@ -87,7 +106,11 @@ func (s *Service) process(ctx context.Context, it OutboxItem) error {
 	if len(parts) == 0 {
 		return s.Store.DeleteByRef(ctx, it.Kind, it.RefID)
 	}
-	vecs, err := s.Embedder.Embed(ctx, parts)
+	emb, err := s.embedder(ctx, doc.CommunityID)
+	if err != nil {
+		return fmt.Errorf("resolve embedder for %s: %w", doc.CommunityID, err)
+	}
+	vecs, err := emb.Embed(ctx, parts)
 	if err != nil {
 		return err
 	}

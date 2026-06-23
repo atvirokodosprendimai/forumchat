@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -447,16 +449,31 @@ func run() error {
 	var ragSvc *rag.Service
 	if cfg.RAGEnabled {
 		var ragStore rag.Store
-		switch cfg.RAGBackend {
-		case "chromem", "":
+		ragBackend := cfg.EffectiveRAGBackend()
+		switch ragBackend {
+		case "chromem":
 			cs, err := rag.NewChromemStore(cfg.RAGStorePath)
 			if err != nil {
 				log.Error("rag: open chromem store", "path", cfg.RAGStorePath, "err", err)
 				os.Exit(1)
 			}
 			ragStore = cs
+		case "qdrant":
+			// Per-community collections on Qdrant (the SaaS path). Resolve maps a
+			// community to its connection — BYO Qdrant URL/key + collection,
+			// falling back to the platform QDRANT_URL.
+			qs := rag.NewQdrantStore(cfg.QdrantURL, "", log)
+			qs.Resolve = func(ctx context.Context, communityID string) rag.QdrantConn {
+				s, err := cRepo.Settings(ctx, communityID)
+				if err != nil {
+					return rag.QdrantConn{}
+				}
+				r := community.ResolveRAG(s, cfg)
+				return rag.QdrantConn{URL: r.QdrantURL, APIKey: r.QdrantAPIKey, Collection: r.QdrantColl}
+			}
+			ragStore = qs
 		default:
-			log.Error("rag: unsupported RAG_BACKEND (only 'chromem' is implemented)", "backend", cfg.RAGBackend)
+			log.Error("rag: unsupported RAG_BACKEND", "backend", ragBackend)
 			os.Exit(1)
 		}
 		ragSvc = rag.NewService(
@@ -466,7 +483,28 @@ func run() error {
 			rag.ChunkConfig{BodyTokens: cfg.RAGChunkTokens, Overlap: cfg.RAGChunkOverlap},
 			log,
 		)
-		log.Info("rag enabled", "backend", cfg.RAGBackend, "model", cfg.RAGEmbedModel, "store", cfg.RAGStorePath)
+		// Per-community embedder (SaaS): each community's own model / Ollama host
+		// / dim. A model with a different vector size sizes that community's
+		// Qdrant collection accordingly. Self-host leaves this nil → single
+		// embedder, unchanged. Cache by (host|model|dim) to reuse HTTP clients.
+		if cfg.SAAS {
+			var embCache sync.Map
+			ragSvc.EmbedderFor = func(ctx context.Context, communityID string) (rag.Embedder, error) {
+				s, err := cRepo.Settings(ctx, communityID)
+				if err != nil {
+					return nil, err
+				}
+				r := community.ResolveRAG(s, cfg)
+				key := r.EmbedBaseURL + "|" + r.EmbedModel + "|" + strconv.Itoa(r.EmbedDim)
+				if v, ok := embCache.Load(key); ok {
+					return v.(rag.Embedder), nil
+				}
+				e := rag.NewOllamaEmbedder(r.EmbedBaseURL, r.EmbedModel, r.EmbedDim)
+				embCache.Store(key, e)
+				return e, nil
+			}
+		}
+		log.Info("rag enabled", "backend", ragBackend, "model", cfg.RAGEmbedModel, "store", cfg.RAGStorePath)
 		// Per-community admin "Reindex" button. Guard the assignment so the
 		// interface field stays nil (not a typed-nil) when RAG is off.
 		adminHandler.RAG = ragSvc
