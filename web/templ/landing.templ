@@ -1,9 +1,23 @@
 package templ
 
-// landingBrand is the marketing/product name shown on the public index page.
-// Placeholder while the SaaS brand is decided — change this one constant to
-// rebrand the whole landing (nav, hero, footer, <title>, OG tags).
-const landingBrand = "Commons"
+// SaaSEnabled mirrors config.SAAS (set at boot in main.go). When true the
+// public "/" renders the marketing LandingPage; when false anonymous visitors
+// are routed straight to /login. Read by the dashboard handler.
+var SaaSEnabled bool
+
+// SaaSBrand mirrors config.SAASBrand — the product name shown across the
+// landing. Empty falls back to a neutral placeholder via brandName().
+var SaaSBrand string
+
+// brandName is the marketing/product name used everywhere on the landing
+// (nav, hero, footer, <title>, OG tags). Driven by SAAS_BRAND with a
+// placeholder fallback so the page never renders an empty brand.
+func brandName() string {
+	if SaaSBrand != "" {
+		return SaaSBrand
+	}
+	return "Commons"
+}
 
 // landingTagline is the one-line positioning used in the <title>, OG card and
 // footer. Kept here so brand copy lives in one place.
@@ -38,11 +52,11 @@ templ LandingPage() {
 		<head>
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width,initial-scale=1"/>
-			<title>{ landingBrand } — { landingTagline }</title>
+			<title>{ brandName() } — { landingTagline }</title>
 			<meta name="description" content="Real-time chat, threaded forums, video rooms and AI agents in one fast, self-hosted space. The all-in-one platform for communities and teams."/>
 			<meta name="robots" content="index,follow"/>
 			<meta property="og:type" content="website"/>
-			<meta property="og:title" content={ landingBrand + " — " + landingTagline }/>
+			<meta property="og:title" content={ brandName() + " — " + landingTagline }/>
 			<meta property="og:description" content="Chat, forum, rooms and AI agents — together in a single calm space for your community and team."/>
 			<link rel="preconnect" href="https://fonts.googleapis.com"/>
 			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
@@ -73,7 +87,7 @@ templ landingNav() {
 	<header class="lp-nav">
 		<a href="/" class="lp-logo">
 			<span class="lp-logo-mark" aria-hidden="true">◇</span>
-			<span class="lp-logo-word">{ landingBrand }</span>
+			<span class="lp-logo-word">{ brandName() }</span>
 		</a>
 		<nav class="lp-nav-links" aria-label="Sections">
 			<a href="#features">Features</a>
@@ -121,7 +135,7 @@ templ landingPreview() {
 	<div class="lp-window">
 		<div class="lp-window-bar">
 			<span class="lp-dot"></span><span class="lp-dot"></span><span class="lp-dot"></span>
-			<span class="lp-window-title">{ landingBrand } · #general</span>
+			<span class="lp-window-title">{ brandName() } · #general</span>
 		</div>
 		<div class="lp-window-body">
 			<aside class="lp-mini-rail">
@@ -271,7 +285,7 @@ templ landingFooter() {
 		<div class="lp-footer-brand">
 			<a href="/" class="lp-logo">
 				<span class="lp-logo-mark" aria-hidden="true">◇</span>
-				<span class="lp-logo-word">{ landingBrand }</span>
+				<span class="lp-logo-word">{ brandName() }</span>
 			</a>
 			<p class="lp-footer-tag">{ landingTagline }.</p>
 		</div>

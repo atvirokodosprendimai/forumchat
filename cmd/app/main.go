@@ -388,6 +388,8 @@ func run() error {
 	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
 	webtempl.OpenRegistration = cfg.OpenRegistration
+	webtempl.SaaSEnabled = cfg.SAAS
+	webtempl.SaaSBrand = cfg.SAASBrand
 
 	// ----- support inbox (hidden cross-tenant write-only issue inbox) ------
 	// ONE designated community (SUPPORT_INBOX_SLUG) collects reports filed

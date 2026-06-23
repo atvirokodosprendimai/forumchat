@@ -8,10 +8,24 @@ package templ
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-// landingBrand is the marketing/product name shown on the public index page.
-// Placeholder while the SaaS brand is decided — change this one constant to
-// rebrand the whole landing (nav, hero, footer, <title>, OG tags).
-const landingBrand = "Commons"
+// SaaSEnabled mirrors config.SAAS (set at boot in main.go). When true the
+// public "/" renders the marketing LandingPage; when false anonymous visitors
+// are routed straight to /login. Read by the dashboard handler.
+var SaaSEnabled bool
+
+// SaaSBrand mirrors config.SAASBrand — the product name shown across the
+// landing. Empty falls back to a neutral placeholder via brandName().
+var SaaSBrand string
+
+// brandName is the marketing/product name used everywhere on the landing
+// (nav, hero, footer, <title>, OG tags). Driven by SAAS_BRAND with a
+// placeholder fallback so the page never renders an empty brand.
+func brandName() string {
+	if SaaSBrand != "" {
+		return SaaSBrand
+	}
+	return "Commons"
+}
 
 // landingTagline is the one-line positioning used in the <title>, OG card and
 // footer. Kept here so brand copy lives in one place.
@@ -66,9 +80,9 @@ func LandingPage() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
-		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(landingBrand)
+		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(brandName())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 41, Col: 24}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 55, Col: 23}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -81,7 +95,7 @@ func LandingPage() templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(landingTagline)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 41, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 55, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -92,9 +106,9 @@ func LandingPage() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(landingBrand + " — " + landingTagline)
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(brandName() + " — " + landingTagline)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 45, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 59, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -115,7 +129,7 @@ func LandingPage() templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue(themeColor(""))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 53, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 67, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -198,9 +212,9 @@ func landingNav() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(landingBrand)
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(brandName())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 76, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 90, Col: 43}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -213,7 +227,7 @@ func landingNav() templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(ctaPrimaryLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 85, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 99, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -257,7 +271,7 @@ func landingHero() templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(ctaPrimaryLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 106, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 120, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -270,7 +284,7 @@ func landingHero() templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(ctaTrustNote())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 109, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 123, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -321,9 +335,9 @@ func landingPreview() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var13 string
-		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(landingBrand)
+		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(brandName())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 124, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 138, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -445,7 +459,7 @@ func landingFeature(icon, title, body string) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(icon)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 192, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 206, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 		if templ_7745c5c3_Err != nil {
@@ -458,7 +472,7 @@ func landingFeature(icon, title, body string) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 193, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 207, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
@@ -471,7 +485,7 @@ func landingFeature(icon, title, body string) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(body)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 194, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 208, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -589,7 +603,7 @@ func landingFinalCTA() templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(ctaPrimaryLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 262, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 276, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
@@ -630,9 +644,9 @@ func landingFooter() templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var24 string
-		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(landingBrand)
+		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(brandName())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 274, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 288, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 		if templ_7745c5c3_Err != nil {
@@ -645,7 +659,7 @@ func landingFooter() templ.Component {
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(landingTagline)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 276, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 290, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 		if templ_7745c5c3_Err != nil {
@@ -658,7 +672,7 @@ func landingFooter() templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(ctaPrimaryLabel())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 280, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 294, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 		if templ_7745c5c3_Err != nil {
@@ -671,7 +685,7 @@ func landingFooter() templ.Component {
 		var templ_7745c5c3_Var27 string
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(Version)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 284, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/landing.templ`, Line: 298, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {

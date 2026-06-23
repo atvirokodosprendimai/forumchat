@@ -54,6 +54,17 @@ type Config struct {
 	// users). Set via env, immutable at runtime. Empty (default) = none.
 	SuperAdminEmails []string `env:"SUPERADMIN_EMAILS" envSeparator:","`
 
+	// SAAS turns the public, unauthenticated "/" into the marketing landing
+	// page. When false (default) anonymous visitors are sent straight to
+	// /login instead — the app is a plain private community with no marketing
+	// front door.
+	SAAS bool `env:"SAAS" envDefault:"false"`
+
+	// SAASBrand is the product/brand name shown across the landing page (nav,
+	// hero, footer, <title>, OG tags). Empty falls back to a placeholder.
+	// Only meaningful when SAAS is true.
+	SAASBrand string `env:"SAAS_BRAND" envDefault:""`
+
 	// OpenRegistration lets strangers register without an invite code. When
 	// false (default) /register requires a valid invite. When true the invite
 	// field is optional and an empty code joins the bootstrap community.

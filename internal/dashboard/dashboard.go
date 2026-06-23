@@ -33,7 +33,14 @@ type Handler struct {
 func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
-		_ = webtempl.LandingPage().Render(r.Context(), w)
+		// SAAS mode shows the marketing landing as the public front door;
+		// otherwise this is a plain private community — send anonymous
+		// visitors straight to sign in.
+		if webtempl.SaaSEnabled {
+			_ = webtempl.LandingPage().Render(r.Context(), w)
+		} else {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+		}
 		return
 	}
 	rows, err := h.Communities.ListForUser(r.Context(), id.User.ID)
