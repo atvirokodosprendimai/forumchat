@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -126,6 +127,45 @@ func TestPostRequest_QueuesForApproval(t *testing.T) {
 	if n, _ := cRepo.CountPendingRequestsForUser(context.Background(), u.ID); n != 1 {
 		t.Fatalf("a second pending request must be refused, pending=%d want 1", n)
 	}
+}
+
+// TestCommunityHoldMsg checks the pure account-age gate: accounts younger than
+// NewUserCommunityDelay are blocked, established ones pass.
+func TestCommunityHoldMsg(t *testing.T) {
+	now := time.Now()
+	fresh := auth.User{CreatedAt: now}
+	if _, blocked := communityHoldMsg(fresh); !blocked {
+		t.Fatal("a just-registered account must be blocked from creating a community")
+	}
+	old := auth.User{CreatedAt: now.Add(-auth.NewUserCommunityDelay - time.Minute)}
+	if _, blocked := communityHoldMsg(old); blocked {
+		t.Fatal("an established account must NOT be blocked")
+	}
+}
+
+// TestPostCreate_NewUserBlocked confirms a brand-new account can't create a
+// community until NewUserCommunityDelay has passed — even with quota free.
+func TestPostCreate_NewUserBlocked(t *testing.T) {
+	h, aRepo, cRepo := newSaaSHandler(t)
+	u := seedUserAt(t, aRepo, "fresh@x.com", time.Now()) // created just now
+
+	postAs(t, h, h.PostCreate, u, `{"nc_name":"Alpha","nc_slug":"alpha"}`)
+
+	if _, err := cRepo.BySlug(context.Background(), "alpha"); err == nil {
+		t.Fatal("a just-registered user must NOT be able to create a community")
+	}
+}
+
+// seedUserAt inserts an active user whose account age starts at createdAt.
+func seedUserAt(t *testing.T, aRepo *auth.Repo, email string, createdAt time.Time) auth.User {
+	t.Helper()
+	id := uuid.NewString()
+	if _, err := aRepo.DB.ExecContext(context.Background(),
+		`INSERT INTO users (id, email, password_hash, status, created_at, updated_at)
+		 VALUES (?, ?, 'h', 'active', ?, ?)`, id, email, createdAt.Unix(), createdAt.Unix()); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	return auth.User{ID: id, Email: email, CreatedAt: createdAt}
 }
 
 func chatDefault(t *testing.T, aRepo *auth.Repo, cid string) (chat.Channel, error) {

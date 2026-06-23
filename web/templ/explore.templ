@@ -42,7 +42,14 @@ templ ExplorePage(d ExploreData) {
 							} else if row.IsPending {
 								<span class="pm-pill pm-pill-pending-out">request pending</span>
 							} else if d.Viewer.IsAuthed {
-								<form method="post" action={ templ.URL("/explore/" + row.Slug + "/request") }>
+								<form method="post" action={ templ.URL("/explore/" + row.Slug + "/request") } class="explore-join-form">
+									<textarea
+										name="reason"
+										class="explore-join-reason"
+										rows="2"
+										maxlength="1000"
+										placeholder="Why do you want to join? (optional)"
+									></textarea>
 									<button>Request to join</button>
 								</form>
 							} else {

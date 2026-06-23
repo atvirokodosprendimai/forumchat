@@ -729,6 +729,7 @@ func memberRowsToAdminMembers(rows []auth.MemberRow, now time.Time) []webtempl.A
 			BannedUntil:  r.BannedUntil,
 			IsApproved:   r.IsApproved(),
 			CreatedAt:    r.CreatedAt,
+			JoinReason:   r.JoinReason,
 		}
 		out = append(out, am)
 	}

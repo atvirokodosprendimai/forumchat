@@ -2,6 +2,18 @@ package auth
 
 import "time"
 
+// Account-age limits gate brand-new signups against spam. Both key off
+// users.created_at, so an established account joining a new community is never
+// throttled — only freshly registered ones are.
+const (
+	// NewUserPostDelay is how long after registration a member must wait before
+	// posting their first chat message.
+	NewUserPostDelay = 1 * time.Minute
+	// NewUserCommunityDelay is how long after registration a user must wait
+	// before creating (or requesting) a community via the self-serve flow.
+	NewUserCommunityDelay = 5 * time.Minute
+)
+
 type UserStatus string
 
 const (
@@ -47,6 +59,12 @@ func (u User) HasPassword() bool {
 	return u.PasswordHash != "" && u.PasswordHash != oauthSentinelHash
 }
 
+// Age reports how long ago the account was created, relative to now. Drives the
+// new-user post / community-create delays (NewUserPostDelay, NewUserCommunityDelay).
+func (u User) Age(now time.Time) time.Duration {
+	return now.Sub(u.CreatedAt)
+}
+
 type Membership struct {
 	ID          string
 	UserID      string
@@ -58,6 +76,9 @@ type Membership struct {
 	BannedUntil *time.Time
 	ApprovedAt  *time.Time
 	CreatedAt   time.Time
+	// JoinReason is the "why do you want to join?" note a user writes when
+	// requesting an approval-gated community. Empty for instant/invited joins.
+	JoinReason string
 }
 
 func (m Membership) IsBanned(now time.Time) bool {

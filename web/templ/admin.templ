@@ -20,6 +20,7 @@ type AdminMember struct {
 	BannedUntil  *time.Time
 	IsApproved   bool
 	CreatedAt    time.Time
+	JoinReason   string // "why do you want to join?" note, shown in the pending queue
 }
 
 type AdminReport struct {
@@ -222,6 +223,9 @@ templ AdminPending(slug string, rows []AdminMember) {
 			for _, m := range rows {
 				<li>
 					<strong>{ m.DisplayName }</strong> ({ m.Email }) · <span class="muted">{ fmtTime(m.CreatedAt) }</span>
+					if m.JoinReason != "" {
+						<blockquote class="admin-join-reason">{ m.JoinReason }</blockquote>
+					}
 					<div style="margin-top:.4rem">
 						<button data-on:click={ "@post('/c/" + slug + "/admin/approve?id=" + m.MembershipID + "')" }>Approve</button>
 						<button class="ghost"

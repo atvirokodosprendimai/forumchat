@@ -120,6 +120,17 @@ func (h *Handler) PostRequestJoin(w http.ResponseWriter, r *http.Request) {
 	if community.JoinPolicy(settings, h.Cfg) == "open" {
 		now := time.Now()
 		m.ApprovedAt = &now // straight in, no /pending
+	} else {
+		// Approval-gated join: capture the optional "why do you want to join?"
+		// note for the admin reviewing the pending queue. Plain HTML form POST,
+		// so FormValue (not datastar signals) is correct here. Cap the length so
+		// a pasted essay can't bloat the row.
+		if reason := strings.TrimSpace(r.FormValue("reason")); reason != "" {
+			if len(reason) > 1000 {
+				reason = reason[:1000]
+			}
+			m.JoinReason = reason
+		}
 	}
 	if err := h.AuthRepo.CreateMembership(r.Context(), nil, m); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

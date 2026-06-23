@@ -363,9 +363,9 @@ func (r *Repo) CreateMembership(ctx context.Context, tx *sql.Tx, m Membership) e
 		approved = sql.NullInt64{Int64: m.ApprovedAt.Unix(), Valid: true}
 	}
 	_, err := exec(ctx, `
-		INSERT INTO memberships (id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.UserID, m.CommunityID, m.DisplayName, m.AvatarURL, string(m.Role), m.TrustLevel, banned, approved, time.Now().Unix())
+		INSERT INTO memberships (id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at, join_reason)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.UserID, m.CommunityID, m.DisplayName, m.AvatarURL, string(m.Role), m.TrustLevel, banned, approved, time.Now().Unix(), m.JoinReason)
 	return err
 }
 
@@ -544,7 +544,7 @@ type MemberRow struct {
 func (r *Repo) ListPendingMemberships(ctx context.Context, communityID string) ([]MemberRow, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.user_id, m.community_id, m.display_name, m.avatar_url, m.role,
-		       m.trust_level, m.banned_until, m.approved_at, m.created_at, u.email
+		       m.trust_level, m.banned_until, m.approved_at, m.created_at, m.join_reason, u.email
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.community_id = ? AND m.approved_at IS NULL
@@ -560,7 +560,7 @@ func (r *Repo) ListPendingMemberships(ctx context.Context, communityID string) (
 func (r *Repo) ListMembers(ctx context.Context, communityID string) ([]MemberRow, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.user_id, m.community_id, m.display_name, m.avatar_url, m.role,
-		       m.trust_level, m.banned_until, m.approved_at, m.created_at, u.email
+		       m.trust_level, m.banned_until, m.approved_at, m.created_at, m.join_reason, u.email
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.community_id = ? AND m.approved_at IS NOT NULL
@@ -581,7 +581,7 @@ func scanMemberRows(rows *sql.Rows) ([]MemberRow, error) {
 		var created int64
 		var email string
 		if err := rows.Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL,
-			&role, &m.TrustLevel, &banned, &approved, &created, &email); err != nil {
+			&role, &m.TrustLevel, &banned, &approved, &created, &m.JoinReason, &email); err != nil {
 			return nil, err
 		}
 		m.Role = Role(role)

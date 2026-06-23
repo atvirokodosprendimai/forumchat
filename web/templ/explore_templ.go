@@ -136,7 +136,7 @@ func ExplorePage(d ExploreData) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\"><button>Request to join</button></form>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" class=\"explore-join-form\"><textarea name=\"reason\" class=\"explore-join-reason\" rows=\"2\" maxlength=\"1000\" placeholder=\"Why do you want to join? (optional)\"></textarea> <button>Request to join</button></form>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

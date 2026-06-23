@@ -900,6 +900,16 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	body := strings.TrimSpace(in.Body)
 	sse := render.NewSSE(w, r)
 
+	// New-account hold: brand-new members can't post until their account is
+	// NewUserPostDelay old (anti-spam). Keyed off account age, so established
+	// users joining this community are never throttled. Super-admins bypass.
+	if !id.IsSuperAdmin {
+		if age := id.User.Age(time.Now()); age < auth.NewUserPostDelay {
+			_ = sse.PatchElementTempl(webtempl.NewUserHoldNotice("chat-agent-notice", "post", auth.NewUserPostDelay-age))
+			return
+		}
+	}
+
 	if in.ImageData != "" && h.Uploads != nil {
 		u, err := h.Uploads.SaveDataURL(r.Context(), id.User.ID, h.cid(r.Context()), in.ImageData, PasteImageMaxBytes)
 		if err != nil {

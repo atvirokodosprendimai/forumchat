@@ -610,6 +610,15 @@ label.icon-btn {
 .explore-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
 .explore-count { font-size: .85rem; }
 .explore-actions form { margin: 0; }
+.explore-join-form { display: flex; flex-direction: column; gap: .5rem; align-items: stretch; }
+.explore-join-reason { width: 100%; min-height: 0; resize: vertical; }
+.admin-join-reason {
+  margin: .4rem 0 0; padding: .4rem .7rem;
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg); color: var(--fg-muted);
+  border-radius: var(--radius-sm);
+  font-size: .9rem; white-space: pre-wrap; word-break: break-word;
+}
 
 .community-list { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .community-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }

@@ -15,6 +15,22 @@ func rateLimitSecs(retry time.Duration) string {
 	return strconv.Itoa(secs)
 }
 
+// NewUserHoldNotice renders a dismissible "you just joined — wait a bit" card
+// into a stable slot, used to gate brand-new accounts (e.g. first chat post).
+// action is the verb the user is blocked from ("post"); retry is how long until
+// the account is old enough. Reuses the agent-notice slot + styling.
+templ NewUserHoldNotice(slotID, action string, retry time.Duration) {
+	<div id={ slotID } class="agent-notice-slot">
+		<div class="agent-rate-notice" role="status" aria-live="polite" data-init="setTimeout(() => el.remove(), 8000)">
+			<span class="agent-rate-notice-icon" aria-hidden="true">⏳</span>
+			<span class="agent-rate-notice-text">
+				Welcome! New members can { action } { rateLimitSecs(retry) }s from now.
+			</span>
+			<button type="button" class="agent-rate-notice-x" aria-label="Dismiss" data-on:click="el.closest('.agent-rate-notice').remove()">✕</button>
+		</div>
+	</div>
+}
+
 // AgentRateLimitNotice renders a dismissible "rate limit reached" card into a
 // stable slot identified by slotID. The slot id must already exist on the page
 // (empty); this outer-morphs the slot so it contains the card. The card

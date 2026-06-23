@@ -2,9 +2,11 @@ package dashboard
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	datastar "github.com/starfederation/datastar-go/datastar"
 
@@ -16,6 +18,20 @@ import (
 )
 
 var slugRE = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// communityHoldMsg reports whether the user's account is too new to create or
+// request a community (< NewUserCommunityDelay old), with a human "try again
+// in N" message. Keyed off account age so established users are never blocked.
+func communityHoldMsg(u auth.User) (string, bool) {
+	remaining := auth.NewUserCommunityDelay - u.Age(time.Now())
+	if remaining <= 0 {
+		return "", false
+	}
+	if mins := int(remaining.Minutes()); mins > 0 {
+		return fmt.Sprintf("New accounts can create a community a few minutes after signing up — try again in about %dm%02ds.", mins, int(remaining.Seconds())%60), true
+	}
+	return fmt.Sprintf("New accounts can create a community a few minutes after signing up — try again in %ds.", int(remaining.Seconds())+1), true
+}
 
 func localPart(email string) string {
 	if i := strings.IndexByte(email, '@'); i > 0 {
@@ -64,6 +80,10 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if !slugRE.MatchString(slug) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "Slug must contain only a-z, 0-9, '-'"))
+		return
+	}
+	if msg, blocked := communityHoldMsg(id.User); blocked {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", msg))
 		return
 	}
 	owned, err := h.Auth.CountOwnedByUser(r.Context(), id.User.ID)
@@ -119,6 +139,10 @@ func (h *Handler) PostRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	if !slugRE.MatchString(slug) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cr-error", "Slug must contain only a-z, 0-9, '-'"))
+		return
+	}
+	if msg, blocked := communityHoldMsg(id.User); blocked {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cr-error", msg))
 		return
 	}
 	if pending, err := h.Communities.CountPendingRequestsForUser(r.Context(), id.User.ID); err == nil && pending > 0 {
