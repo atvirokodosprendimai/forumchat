@@ -14,16 +14,28 @@ type OwnerSettingsData struct {
 	TranslateEnabled bool
 	TranslateBaseURL string
 	TranslateModel   string
+	RAGEnabled       bool
+	RAGEmbedBaseURL  string
+	RAGEmbedModel    string
+	RAGEmbedDim      int
+	RAGQdrantURL     string
+	RAGHasQdrantKey  bool // a key is stored (don't echo it)
 	Saved            bool
 }
 
 func ownerSettingsSignals(d OwnerSettingsData) string {
 	b, _ := json.Marshal(map[string]any{
-		"set_ai_enabled":         d.AIEnabled,
-		"set_join_policy":        d.JoinPolicy,
-		"set_translate_enabled":  d.TranslateEnabled,
-		"set_translate_base_url": d.TranslateBaseURL,
-		"set_translate_model":    d.TranslateModel,
+		"set_ai_enabled":          d.AIEnabled,
+		"set_join_policy":         d.JoinPolicy,
+		"set_translate_enabled":   d.TranslateEnabled,
+		"set_translate_base_url":  d.TranslateBaseURL,
+		"set_translate_model":     d.TranslateModel,
+		"set_rag_enabled":         d.RAGEnabled,
+		"set_rag_embed_base_url":  d.RAGEmbedBaseURL,
+		"set_rag_embed_model":     d.RAGEmbedModel,
+		"set_rag_embed_dim":       d.RAGEmbedDim,
+		"set_rag_qdrant_url":      d.RAGQdrantURL,
+		"set_rag_qdrant_api_key":  "",
 	})
 	return string(b)
 }
@@ -56,6 +68,24 @@ templ OwnerSettingsForm(d OwnerSettingsData) {
 			<label class="check"><input type="checkbox" data-bind="set_translate_enabled"/> Enable the /translate composer command</label>
 			<label class="field">Ollama host <input type="text" data-bind="set_translate_base_url" placeholder="http://localhost:11434"/></label>
 			<label class="field">Model <input type="text" data-bind="set_translate_model" placeholder="e.g. llama3.2"/></label>
+		</div>
+		<div class="card narrow">
+			<h2>🔎 RAG (semantic search)</h2>
+			<label class="check"><input type="checkbox" data-bind="set_rag_enabled"/> Enable semantic search over this community's public content</label>
+			<label class="field">Embedding Ollama host <input type="text" data-bind="set_rag_embed_base_url" placeholder="http://localhost:11434"/></label>
+			<label class="field">Embedding model <input type="text" data-bind="set_rag_embed_model" placeholder="e.g. bge-m3"/></label>
+			<label class="field">Vector size <input type="number" data-bind="set_rag_embed_dim" placeholder="1024"/></label>
+			<label class="field">Qdrant URL <input type="text" data-bind="set_rag_qdrant_url" placeholder="http://localhost:6333"/></label>
+			<label class="field">
+				Qdrant API key
+				if d.RAGHasQdrantKey {
+					<input type="password" data-bind="set_rag_qdrant_api_key" placeholder="•••••• (stored — leave blank to keep)"/>
+				} else {
+					<input type="password" data-bind="set_rag_qdrant_api_key" placeholder="optional"/>
+				}
+			</label>
+			<p class="muted">Changing the model or vector size requires a reindex (it rebuilds this community's collection at the new size).</p>
+			<button class="secondary" data-on:click={ "@post('/c/" + d.CommunitySlug + "/admin/reindex')" }>Reindex this community</button>
 		</div>
 		<div class="row">
 			<button data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings')" }>Save settings</button>

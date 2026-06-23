@@ -22,6 +22,12 @@ type OwnerSettingsData struct {
 	TranslateEnabled bool
 	TranslateBaseURL string
 	TranslateModel   string
+	RAGEnabled       bool
+	RAGEmbedBaseURL  string
+	RAGEmbedModel    string
+	RAGEmbedDim      int
+	RAGQdrantURL     string
+	RAGHasQdrantKey  bool // a key is stored (don't echo it)
 	Saved            bool
 }
 
@@ -32,6 +38,12 @@ func ownerSettingsSignals(d OwnerSettingsData) string {
 		"set_translate_enabled":  d.TranslateEnabled,
 		"set_translate_base_url": d.TranslateBaseURL,
 		"set_translate_model":    d.TranslateModel,
+		"set_rag_enabled":        d.RAGEnabled,
+		"set_rag_embed_base_url": d.RAGEmbedBaseURL,
+		"set_rag_embed_model":    d.RAGEmbedModel,
+		"set_rag_embed_dim":      d.RAGEmbedDim,
+		"set_rag_qdrant_url":     d.RAGQdrantURL,
+		"set_rag_qdrant_api_key": "",
 	})
 	return string(b)
 }
@@ -120,7 +132,7 @@ func OwnerSettingsForm(d OwnerSettingsData) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(ownerSettingsSignals(d))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 41, Col: 81}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 53, Col: 81}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -133,36 +145,64 @@ func OwnerSettingsForm(d OwnerSettingsData) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(d.CommunityName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 43, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 55, Col: 73}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</strong>. RAG &amp; storage cards arrive with those backends.</p><div class=\"card narrow\"><h2>🤖 AI</h2><label class=\"check\"><input type=\"checkbox\" data-bind=\"set_ai_enabled\"> Enable AI agents for this community</label><p class=\"muted\">Master switch. The platform must also have AI enabled for this to take effect.</p></div><div class=\"card narrow\"><h2>🚪 Join policy</h2><label class=\"check\"><input type=\"radio\" name=\"set_join_policy\" value=\"open\" data-bind=\"set_join_policy\"> Open — anyone may join instantly</label> <label class=\"check\"><input type=\"radio\" name=\"set_join_policy\" value=\"request\" data-bind=\"set_join_policy\"> Request — joins need owner/admin approval</label></div><div class=\"card narrow\"><h2>🌐 Translation</h2><label class=\"check\"><input type=\"checkbox\" data-bind=\"set_translate_enabled\"> Enable the /translate composer command</label> <label class=\"field\">Ollama host <input type=\"text\" data-bind=\"set_translate_base_url\" placeholder=\"http://localhost:11434\"></label> <label class=\"field\">Model <input type=\"text\" data-bind=\"set_translate_model\" placeholder=\"e.g. llama3.2\"></label></div><div class=\"row\"><button data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</strong>. RAG &amp; storage cards arrive with those backends.</p><div class=\"card narrow\"><h2>🤖 AI</h2><label class=\"check\"><input type=\"checkbox\" data-bind=\"set_ai_enabled\"> Enable AI agents for this community</label><p class=\"muted\">Master switch. The platform must also have AI enabled for this to take effect.</p></div><div class=\"card narrow\"><h2>🚪 Join policy</h2><label class=\"check\"><input type=\"radio\" name=\"set_join_policy\" value=\"open\" data-bind=\"set_join_policy\"> Open — anyone may join instantly</label> <label class=\"check\"><input type=\"radio\" name=\"set_join_policy\" value=\"request\" data-bind=\"set_join_policy\"> Request — joins need owner/admin approval</label></div><div class=\"card narrow\"><h2>🌐 Translation</h2><label class=\"check\"><input type=\"checkbox\" data-bind=\"set_translate_enabled\"> Enable the /translate composer command</label> <label class=\"field\">Ollama host <input type=\"text\" data-bind=\"set_translate_base_url\" placeholder=\"http://localhost:11434\"></label> <label class=\"field\">Model <input type=\"text\" data-bind=\"set_translate_model\" placeholder=\"e.g. llama3.2\"></label></div><div class=\"card narrow\"><h2>🔎 RAG (semantic search)</h2><label class=\"check\"><input type=\"checkbox\" data-bind=\"set_rag_enabled\"> Enable semantic search over this community's public content</label> <label class=\"field\">Embedding Ollama host <input type=\"text\" data-bind=\"set_rag_embed_base_url\" placeholder=\"http://localhost:11434\"></label> <label class=\"field\">Embedding model <input type=\"text\" data-bind=\"set_rag_embed_model\" placeholder=\"e.g. bge-m3\"></label> <label class=\"field\">Vector size <input type=\"number\" data-bind=\"set_rag_embed_dim\" placeholder=\"1024\"></label> <label class=\"field\">Qdrant URL <input type=\"text\" data-bind=\"set_rag_qdrant_url\" placeholder=\"http://localhost:6333\"></label> <label class=\"field\">Qdrant API key ")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if d.RAGHasQdrantKey {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<input type=\"password\" data-bind=\"set_rag_qdrant_api_key\" placeholder=\"•••••• (stored — leave blank to keep)\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<input type=\"password\" data-bind=\"set_rag_qdrant_api_key\" placeholder=\"optional\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</label><p class=\"muted\">Changing the model or vector size requires a reindex (it rebuilds this community's collection at the new size).</p><button class=\"secondary\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var6 string
-		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.CommunitySlug + "/settings')")
+		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.CommunitySlug + "/admin/reindex')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 61, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 88, Col: 96}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\">Save settings</button> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\">Reindex this community</button></div><div class=\"row\"><button data-on:click=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var7 string
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.CommunitySlug + "/settings')")
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 91, Col: 73}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\">Save settings</button> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if d.Saved {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<span class=\"muted\">Saved ✓</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<span class=\"muted\">Saved ✓</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

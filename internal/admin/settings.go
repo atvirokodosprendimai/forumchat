@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 
 	datastar "github.com/starfederation/datastar-go/datastar"
 
@@ -19,6 +20,12 @@ type ownerSettingsSignals struct {
 	TranslateEnabled bool   `json:"set_translate_enabled"`
 	TranslateBaseURL string `json:"set_translate_base_url"`
 	TranslateModel   string `json:"set_translate_model"`
+	RAGEnabled       bool   `json:"set_rag_enabled"`
+	RAGEmbedBaseURL  string `json:"set_rag_embed_base_url"`
+	RAGEmbedModel    string `json:"set_rag_embed_model"`
+	RAGEmbedDim      int    `json:"set_rag_embed_dim"`
+	RAGQdrantURL     string `json:"set_rag_qdrant_url"`
+	RAGQdrantAPIKey  string `json:"set_rag_qdrant_api_key"` // write-only: blank = keep existing
 }
 
 // GetSettings renders the owner-only tenant Settings page (SaaS). Owner-gated by
@@ -64,6 +71,17 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	s.TranslateEnabled = &tr
 	s.TranslateBaseURL = in.TranslateBaseURL
 	s.TranslateModel = in.TranslateModel
+	rag := in.RAGEnabled
+	s.RAGEnabled = &rag
+	s.RAGEmbedBaseURL = in.RAGEmbedBaseURL
+	s.RAGEmbedModel = in.RAGEmbedModel
+	s.RAGEmbedDim = in.RAGEmbedDim
+	s.RAGQdrantURL = in.RAGQdrantURL
+	// Write-only secret: only overwrite when the owner typed a new key, so a
+	// blank field on save keeps the stored key rather than wiping it.
+	if strings.TrimSpace(in.RAGQdrantAPIKey) != "" {
+		s.RAGQdrantAPIKey = in.RAGQdrantAPIKey
+	}
 	if err := h.Communities.SaveSettings(r.Context(), s); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -76,6 +94,7 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 // effective values against env so unset fields display the platform default.
 func (h *Handler) settingsData(r *http.Request, c community.Community, s community.Settings, saved bool) webtempl.OwnerSettingsData {
 	tr := community.ResolveTranslate(s, h.Cfg)
+	rag := community.ResolveRAG(s, h.Cfg)
 	d := webtempl.OwnerSettingsData{
 		Viewer:           h.viewer(r),
 		CommunitySlug:    c.Slug,
@@ -85,6 +104,12 @@ func (h *Handler) settingsData(r *http.Request, c community.Community, s communi
 		TranslateEnabled: tr.Enabled,
 		TranslateBaseURL: tr.BaseURL,
 		TranslateModel:   tr.Model,
+		RAGEnabled:       rag.Enabled,
+		RAGEmbedBaseURL:  rag.EmbedBaseURL,
+		RAGEmbedModel:    rag.EmbedModel,
+		RAGEmbedDim:      rag.EmbedDim,
+		RAGQdrantURL:     rag.QdrantURL,
+		RAGHasQdrantKey:  s.RAGQdrantAPIKey != "",
 		Saved:            saved,
 	}
 	return d
