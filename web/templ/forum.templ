@@ -2,6 +2,7 @@ package templ
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -16,9 +17,17 @@ func quoteClickJS(postID, authorName string) string {
 
 // jsString returns a JS-safe string body — without quotes — for inline
 // data-on:click expressions. Caller wraps it in '' (or "").
+//
+// strconv.Quote escapes ", \, newlines and control chars but NOT the single
+// quote, and every caller wraps the result in '…'. A single quote in the
+// input (e.g. a guest display name like "o'brien" or an attacker payload)
+// would otherwise close the JS string and run arbitrary code in another
+// user's browser when datastar evals the attribute. Escape ' too so the
+// helper is safe in both '…' and "…" contexts.
 func jsString(s string) string {
 	q := strconv.Quote(s)
-	return q[1 : len(q)-1]
+	q = q[1 : len(q)-1]
+	return strings.ReplaceAll(q, "'", `\'`)
 }
 
 type ThreadRow struct {

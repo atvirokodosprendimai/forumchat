@@ -111,7 +111,7 @@ type SAChatPageData struct {
 // all their chat/threads/posts in every community), then posts. The server
 // re-guards self-ban. Email is inlined the same lax way as the Disable button.
 func sysBanJS(u SAUser) string {
-	return "if(confirm('SYSTEM BAN " + u.Email + "?\\n\\nDisables the account (signed out on next request) AND soft-deletes ALL their chat, threads and posts across every community. Reversible only by re-enabling + manual restore.')){$sa_uid='" + u.ID + "'; @post('/superadmin/user/sysban')}"
+	return "if(confirm('SYSTEM BAN " + jsString(u.Email) + "?\\n\\nDisables the account (signed out on next request) AND soft-deletes ALL their chat, threads and posts across every community. Reversible only by re-enabling + manual restore.')){$sa_uid='" + u.ID + "'; @post('/superadmin/user/sysban')}"
 }
 
 // deleteConfirmJS builds the per-row Delete click expression: a prompt that
@@ -539,9 +539,9 @@ func SuperAdminPage(data SuperAdminPageData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var23 string
-					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue("if(confirm('Disable " + u.Email + "? They are signed out on next request.')){$sa_uid='" + u.ID + "'; @post('/superadmin/user/disable')}")
+					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue("if(confirm('Disable " + jsString(u.Email) + "? They are signed out on next request.')){$sa_uid='" + u.ID + "'; @post('/superadmin/user/disable')}")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/superadmin.templ`, Line: 254, Col: 163}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/superadmin.templ`, Line: 254, Col: 173}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 					if templ_7745c5c3_Err != nil {
@@ -965,10 +965,10 @@ func SABroadcastResult(msg string) templ.Component {
 // approveReqJS / denyReqJS build the per-request click expressions: confirm,
 // stash the request id into sa_req_id, then post. The server re-loads the
 // pending row and re-guards everything — these prompts are UX, not the boundary.
-// Email is inlined the same lax way as the existing Disable/Ban buttons; slug is
-// JS-string-safe (a-z0-9-).
+// Slug is JS-string-safe (a-z0-9-); the email is attacker-influenced so it goes
+// through jsString to escape any quote that would break out of the confirm().
 func approveReqJS(q SARequest) string {
-	return "if(confirm('Approve and create " + q.Slug + " for " + q.UserEmail +
+	return "if(confirm('Approve and create " + q.Slug + " for " + jsString(q.UserEmail) +
 		"? They become its owner.')){$sa_req_id='" + q.ID + "'; @post('/superadmin/community-request/approve')}"
 }
 
