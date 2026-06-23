@@ -299,19 +299,23 @@ func run() error {
 	// SaaS default). The disk Dir stays the local scratch path for upload
 	// streaming even when bytes land in S3.
 	if cfg.EffectiveStorageBackend() == "s3" {
-		s3, err := uploads.NewS3Blobstore(uploads.S3Config{
-			Endpoint:     cfg.S3Endpoint,
-			Region:       cfg.S3Region,
-			Bucket:       cfg.S3Bucket,
-			AccessKey:    cfg.S3AccessKey,
-			SecretKey:    cfg.S3SecretKey,
-			UsePathStyle: cfg.S3UsePathStyle,
-		})
-		if err != nil {
-			return fmt.Errorf("s3 blobstore: %w", err)
+		if cfg.S3Bucket == "" {
+			log.Warn("uploads: STORAGE_BACKEND=s3 but S3_BUCKET is unset — falling back to local disk")
+		} else {
+			s3, err := uploads.NewS3Blobstore(uploads.S3Config{
+				Endpoint:     cfg.S3Endpoint,
+				Region:       cfg.S3Region,
+				Bucket:       cfg.S3Bucket,
+				AccessKey:    cfg.S3AccessKey,
+				SecretKey:    cfg.S3SecretKey,
+				UsePathStyle: cfg.S3UsePathStyle,
+			})
+			if err != nil {
+				return fmt.Errorf("s3 blobstore: %w", err)
+			}
+			uploadStore.Blob = s3
+			log.Info("uploads: using S3 backend", "bucket", cfg.S3Bucket, "endpoint", cfg.S3Endpoint)
 		}
-		uploadStore.Blob = s3
-		log.Info("uploads: using S3 backend", "bucket", cfg.S3Bucket, "endpoint", cfg.S3Endpoint)
 	}
 	uploadHandler := &uploads.Handler{
 		Store:       uploadStore,
