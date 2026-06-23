@@ -13,9 +13,11 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
+	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	"github.com/atvirokodosprendimai/forumchat/internal/rag"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 )
 
 func main() {
@@ -39,6 +41,8 @@ usage:
   forumchat-cli unban <email>
   forumchat-cli approve <email>             approve a single pending membership
   forumchat-cli approve-all                 approve every pending join request in the bootstrap community
+  forumchat-cli delete-account <email>      erase a user: anonymise PII + purge their data across every
+                                            community (refuses if they solely own a community with members)
   forumchat-cli mailbox rescan              reset every IMAP folder cursor to UID 0; next poll re-fetches everything
   forumchat-cli mailbox wipe                delete every email_ingest + email_ingest_attachment + email_ingest_fts row
                                             and reset folder cursors — full cold start
@@ -101,12 +105,21 @@ func run() error {
 	}
 
 	aRepo := auth.NewRepo(db)
+	uploadStore := uploads.NewStore(db, cfg.UploadsDir, cfg.UploadsMaxSize, cfg.UploadsSignKey)
 	svc := &auth.Service{
 		Repo:      aRepo,
 		Mailer:    &auth.LogMailer{Log: log},
 		BaseURL:   cfg.BaseURL,
 		VerifyTTL: 48 * time.Hour,
 		InviteTTL: 30 * 24 * time.Hour,
+		// Account erasure needs to delete solo-owned communities and purge owned
+		// blobs. Vectors is nil here (the CLI can't hold the chromem store the
+		// server has open) — content deletes still enqueue RAG outbox deletes
+		// that the running server drains.
+		Uploads: uploadStore,
+		Communities: &provision.Service{
+			Communities: cRepo, Auth: aRepo, Blobs: uploadStore, Log: log,
+		},
 	}
 
 	switch os.Args[1] {
@@ -292,6 +305,31 @@ func run() error {
 			n++
 		}
 		fmt.Printf("done — approved %d of %d\n", n, len(pending))
+	case "delete-account":
+		// Ops-side mirror of the self-serve profile erase: anonymise the user +
+		// purge their data across every community (skips the password/email
+		// confirmation, but still refuses if they solely own a community with
+		// other members).
+		if len(os.Args) < 3 {
+			return errors.New("usage: delete-account <email>")
+		}
+		email := os.Args[2]
+		u, err := aRepo.UserByEmail(ctx, email)
+		if err != nil {
+			return err
+		}
+		if err := svc.DeleteAccount(ctx, u.ID); err != nil {
+			var soleErr *auth.SoleOwnerError
+			if errors.As(err, &soleErr) {
+				names := make([]string, len(soleErr.Blockers))
+				for i, b := range soleErr.Blockers {
+					names[i] = b.Slug
+				}
+				return fmt.Errorf("refused: %s still solely owns %s (hand off or delete first)", email, strings.Join(names, ", "))
+			}
+			return err
+		}
+		fmt.Printf("erased %s — data purged across all communities\n", email)
 	case "mailbox":
 		if len(os.Args) < 3 {
 			usage()
