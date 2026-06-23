@@ -38,6 +38,15 @@ type User struct {
 	UpdatedAt    time.Time
 }
 
+// HasPassword reports whether the user has a usable password (login works with
+// it). It is false for OAuth-only accounts, whose password_hash is the
+// oauthSentinelHash placeholder, and for accounts that never set one. The
+// change-password flow uses it to decide whether to require the current
+// password: OAuth users are *setting* a first password, not changing one.
+func (u User) HasPassword() bool {
+	return u.PasswordHash != "" && u.PasswordHash != oauthSentinelHash
+}
+
 type Membership struct {
 	ID          string
 	UserID      string

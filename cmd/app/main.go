@@ -1353,6 +1353,7 @@ func run() error {
 		r.Get("/pending", authHandler.GetPending)
 		r.Get("/profile", authHandler.GetProfile)
 		r.Post("/profile", authHandler.PostProfile)
+		r.Post("/profile/password", authHandler.PostPassword)
 		// Personal worklog timer + journal — global (no community scope),
 		// available to any signed-in user. Gated by TIME_ENABLED.
 		if cfg.TimeEnabled {

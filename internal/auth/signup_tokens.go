@@ -63,6 +63,23 @@ func (r *Repo) SetPasswordAndActivate(ctx context.Context, userID, passwordHash 
 	return nil
 }
 
+// UpdatePassword sets a new password hash on an existing user and bumps
+// updated_at. Unlike SetPasswordAndActivate it does NOT touch status — the user
+// is already active. Used by the signed-in change/set-password flow.
+func (r *Repo) UpdatePassword(ctx context.Context, userID, passwordHash string) error {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
+		passwordHash, time.Now().Unix(), userID)
+	if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // MintSignupToken creates a single-use token bound to userID + communityID,
 // valid for ttl. Returns the raw token string.
 func (r *Repo) MintSignupToken(ctx context.Context, userID, communityID string, ttl time.Duration) (string, error) {

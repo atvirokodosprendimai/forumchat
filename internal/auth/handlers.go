@@ -370,7 +370,9 @@ func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	_ = webtempl.ProfilePage(h.Viewer(r), id.Membership.DisplayName, id.Membership.AvatarURL).Render(r.Context(), w)
+	// hasPassword decides whether the password card asks for the current one.
+	// OAuth-only users (sentinel hash) are setting a first password, not changing.
+	_ = webtempl.ProfilePage(h.Viewer(r), id.Membership.DisplayName, id.Membership.AvatarURL, id.User.HasPassword()).Render(r.Context(), w)
 }
 
 type profileSignals struct {
@@ -406,4 +408,71 @@ func (h *Handler) PostProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = sse.PatchElementTempl(webtempl.ProfileStatusFragment("Saved across every community.", true))
+}
+
+type passwordSignals struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+	ConfirmPassword string `json:"new_password_confirm"`
+}
+
+// PostPassword lets a signed-in user change (or, for an OAuth-only account, set)
+// their password. A user who already has a usable password must supply the
+// current one; an OAuth-only user (sentinel hash) is setting a first password
+// and is not asked for one. No session state is mutated, so the §4.4
+// commitSession dance does not apply.
+func (h *Handler) PostPassword(w http.ResponseWriter, r *http.Request) {
+	id, ok := FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in passwordSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	fail := func(msg string) {
+		_ = sse.PatchElementTempl(webtempl.PasswordStatusFragment(msg, false))
+	}
+
+	// Re-read the user so the password check is against the live hash, not stale
+	// session state.
+	user, err := h.Repo.UserByID(r.Context(), id.User.ID)
+	if err != nil {
+		h.Log.Error("change password: load user", "err", err)
+		fail("Could not load your account")
+		return
+	}
+	// Users with a real password must prove they know it; OAuth-only users are
+	// setting a first password and skip this gate.
+	if user.HasPassword() && !CheckPassword(user.PasswordHash, in.CurrentPassword) {
+		fail("Current password is incorrect")
+		return
+	}
+	if in.NewPassword != in.ConfirmPassword {
+		fail("New passwords do not match")
+		return
+	}
+	hash, err := HashPassword(in.NewPassword)
+	if err != nil {
+		if errors.Is(err, ErrWeakPassword) {
+			fail("Password must be at least 8 characters")
+			return
+		}
+		h.Log.Error("change password: hash", "err", err)
+		fail("Could not update password")
+		return
+	}
+	if err := h.Repo.UpdatePassword(r.Context(), user.ID, hash); err != nil {
+		h.Log.Error("change password: persist", "err", err)
+		fail("Could not update password")
+		return
+	}
+	// The card flips to "has a password" — a freshly-set OAuth password now needs
+	// the current one for the next change. Re-render the whole card so the
+	// current-password field appears and the inputs clear.
+	_ = sse.PatchElementTempl(webtempl.PasswordCard(true, true))
+	_ = sse.PatchSignals([]byte(`{"current_password":"","new_password":"","new_password_confirm":""}`))
 }

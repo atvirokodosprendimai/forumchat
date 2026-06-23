@@ -1,6 +1,6 @@
 package templ
 
-templ ProfilePage(v Viewer, displayName, avatarURL string) {
+templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool) {
 	@Layout("Profile", v) {
 		<section class="card narrow profile-card">
 			<div class="profile-head">
@@ -28,6 +28,7 @@ templ ProfilePage(v Viewer, displayName, avatarURL string) {
 				<a class="btn ghost" href="/">Back</a>
 			</div>
 		</section>
+		@PasswordCard(hasPassword, false)
 	}
 }
 
@@ -36,5 +37,56 @@ templ ProfileStatusFragment(msg string, ok bool) {
 		<div id="profile-status" class="success">{ msg }</div>
 	} else {
 		<div id="profile-status" class="error">{ msg }</div>
+	}
+}
+
+// PasswordCard is the change/set-password card. hasPassword=false (an OAuth-only
+// account, whose stored hash is the no-password sentinel) hides the current-
+// password field — the user is setting a first password, not changing one.
+// saved=true shows the success line; the handler re-renders the whole card
+// (stable id #password-card) after a successful change so the field set and copy
+// flip to the "has a password" state.
+templ PasswordCard(hasPassword bool, saved bool) {
+	<section id="password-card" class="card narrow profile-card">
+		if hasPassword {
+			<h2>Change password</h2>
+		} else {
+			<h2>Set a password</h2>
+			<p class="muted">You signed in with a social account. Set a password to also sign in with your email and password.</p>
+		}
+		if saved {
+			<div id="password-status" class="success">Password updated.</div>
+		} else {
+			<div id="password-status" class="muted"></div>
+		}
+		if hasPassword {
+			<div class="field">
+				<label>Current password</label>
+				<input type="password" data-bind="current_password" autocomplete="current-password"/>
+			</div>
+		}
+		<div class="field">
+			<label>New password</label>
+			<input type="password" data-bind="new_password" autocomplete="new-password" minlength="8" placeholder="at least 8 characters"/>
+		</div>
+		<div class="field">
+			<label>Confirm new password</label>
+			<input type="password" data-bind="new_password_confirm" autocomplete="new-password" minlength="8"/>
+		</div>
+		<div class="profile-actions">
+			if hasPassword {
+				<button data-on:click="@post('/profile/password')">Change password</button>
+			} else {
+				<button data-on:click="@post('/profile/password')">Set password</button>
+			}
+		</div>
+	</section>
+}
+
+templ PasswordStatusFragment(msg string, ok bool) {
+	if ok {
+		<div id="password-status" class="success">{ msg }</div>
+	} else {
+		<div id="password-status" class="error">{ msg }</div>
 	}
 }
