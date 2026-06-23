@@ -56,8 +56,37 @@ templ OwnerSettingsPage(d OwnerSettingsData) {
 	@Layout("Settings · "+d.CommunityName, d.Viewer) {
 		<div class="container">
 			@OwnerSettingsForm(d)
+			@ownerDangerZone(d)
 		</div>
 	}
+}
+
+// ownerDangerZone is the irreversible community-delete card. It lives OUTSIDE
+// the #owner-settings save-morph fragment so a settings save never resets the
+// typed confirmation. The delete button stays disabled until the owner types
+// the community slug back; the server re-checks the slug too (never trust the
+// client). The slug is carried on a data-attr (not inlined into the JS
+// expression) so a slug never has to be string-escaped.
+templ ownerDangerZone(d OwnerSettingsData) {
+	<section id="owner-danger" class="card narrow danger-zone" data-signals="{'set_delete_slug':''}">
+		<h2>⚠️ Danger zone</h2>
+		<p class="muted">
+			Permanently delete <strong>{ d.CommunityName }</strong> and <strong>ALL</strong> of its
+			data — every channel, message, thread, project, uploaded file and membership.
+			This cannot be undone.
+		</p>
+		<label class="field">
+			Type the slug <code>{ d.CommunitySlug }</code> to confirm
+			<input type="text" data-bind="set_delete_slug" placeholder={ d.CommunitySlug } autocomplete="off" spellcheck="false"/>
+		</label>
+		<div id="owner-delete-error"></div>
+		<button
+			class="danger"
+			data-slug={ d.CommunitySlug }
+			data-attr:disabled="$set_delete_slug !== el.dataset.slug"
+			data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings/delete')" }
+		>Delete this community forever</button>
+	</section>
 }
 
 // OwnerSettingsForm is the stable-id fragment patched on save (§4.7 live-morph).

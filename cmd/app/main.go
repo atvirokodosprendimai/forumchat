@@ -1720,6 +1720,7 @@ func run() error {
 				r.Get("/settings", adminHandler.GetSettings)
 				r.Post("/settings", adminHandler.PostSettings)
 				r.Post("/settings/migrate-storage", adminHandler.PostMigrateStorage)
+				r.Post("/settings/delete", adminHandler.PostDeleteCommunity)
 			})
 		}
 	})

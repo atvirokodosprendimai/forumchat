@@ -7,6 +7,7 @@ import (
 
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/netguard"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -223,6 +224,45 @@ func (h *Handler) PostMigrateStorage(w http.ResponseWriter, r *http.Request) {
 		h.Log.Info("storage migrate complete", "community", cid, "migrated", n)
 	}()
 	_ = sse.PatchElementTempl(webtempl.OwnerSettingsForm(h.settingsData(r, c, s, true)))
+}
+
+// deleteCommunitySignals is the owner Danger-Zone confirmation.
+type deleteCommunitySignals struct {
+	ConfirmSlug string `json:"set_delete_slug"`
+}
+
+// PostDeleteCommunity is the owner-facing self-serve community delete (SaaS
+// Danger Zone). Like the super-admin path it requires the owner to type the
+// slug back — re-checked server-side, never trusting the client — then routes
+// through the shared Provision.Delete seam so ALL data (blobs + cascaded rows +
+// vectors) is purged. Audit-logged. The route is owner-gated in main.go.
+func (h *Handler) PostDeleteCommunity(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var in deleteCommunitySignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if strings.TrimSpace(in.ConfirmSlug) != c.Slug {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-delete-error",
+			"The typed slug did not match \""+c.Slug+"\". Nothing was deleted."))
+		return
+	}
+	actor := "unknown"
+	if id, ok := auth.FromContext(r.Context()); ok {
+		actor = id.User.Email
+	}
+	if err := h.Provision.Delete(r.Context(), c.ID); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-delete-error", "Delete failed: "+err.Error()))
+		return
+	}
+	h.Log.Warn("owner deleted community (cascaded)", "actor", actor, "community_id", c.ID, "slug", c.Slug, "name", c.Name)
+	_ = sse.Redirect("/")
 }
 
 // overrideURL returns the tenant override for an outbound URL. A blank field or

@@ -5855,3 +5855,21 @@ html.lp-doc body.lp {
   .lp-hero-actions .btn { flex: 1 1 auto; text-align: center; }
   .lp-footer-links { margin-left: 0; }
 }
+
+/* ── Danger zone (owner community delete + account erasure) ───────────── */
+.danger-zone {
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 5%, var(--surface));
+}
+.danger-zone h2 { color: var(--danger); margin-top: 0; }
+.danger-zone code {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  padding: .05rem .35rem; border-radius: 4px;
+}
+button.danger {
+  background: var(--danger); color: #fff; border: none;
+}
+button.danger:hover:not([disabled]) {
+  background: color-mix(in srgb, var(--danger) 85%, black);
+}
+button.danger[disabled] { opacity: .45; cursor: not-allowed; }
