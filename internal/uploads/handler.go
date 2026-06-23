@@ -41,7 +41,7 @@ func (h *Handler) cid(r *http.Request) string {
 	if c, ok := community.FromContext(r.Context()); ok {
 		return c.ID
 	}
-	return h.cid(r)
+	return h.CommunityID
 }
 
 const signedTTL = 24 * time.Hour
