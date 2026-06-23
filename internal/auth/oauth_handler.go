@@ -53,6 +53,7 @@ func (h *Handler) finishOAuthLogin(w http.ResponseWriter, r *http.Request, provi
 		Email:          gu.Email,
 		Name:           name,
 		AvatarURL:      gu.AvatarURL,
+		EmailVerified:  providerEmailVerified(provider, gu),
 	})
 	if err != nil {
 		label := providerLabel(provider)
@@ -62,6 +63,8 @@ func (h *Handler) finishOAuthLogin(w http.ResponseWriter, r *http.Request, provi
 			msg = "Your " + label + " account didn't share an email address, so we can't sign you in."
 		case errors.Is(err, ErrOAuthNoAccount):
 			msg = "No account is registered for that email. Ask an admin for an invite, then sign in with " + label + " once you're a member."
+		case errors.Is(err, ErrOAuthEmailUnverified):
+			msg = "An account already exists for that email, but " + label + " didn't verify you own it. Please sign in with your password instead."
 		case errors.Is(err, ErrBanned):
 			msg = "Your account is disabled."
 		default:
@@ -86,6 +89,32 @@ func (h *Handler) oauthButtons() []webtempl.OAuthButton {
 		btns = append(btns, webtempl.OAuthButton{Provider: p.Name, Label: p.Label})
 	}
 	return btns
+}
+
+// providerEmailVerified reports whether the provider proved the user owns the
+// returned email — the gate for auto-linking to an existing local account.
+//   - github: goth fetches only *verified* primary emails (user:email scope),
+//     so a returned email is verified.
+//   - google: the OIDC userinfo carries email_verified / verified_email.
+//   - facebook (and any future provider): no verified-email guarantee → treat
+//     as unverified so it can't take over an existing password account.
+func providerEmailVerified(provider string, gu goth.User) bool {
+	switch provider {
+	case "github":
+		return true
+	case "google":
+		for _, k := range []string{"email_verified", "verified_email"} {
+			switch v := gu.RawData[k].(type) {
+			case bool:
+				return v
+			case string:
+				return v == "true"
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }
 
 // providerLabel returns the human label for a provider key, falling back to the

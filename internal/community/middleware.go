@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -76,6 +77,15 @@ func RequireMember(authRepo *auth.Repo) func(http.Handler) http.Handler {
 					http.Error(w, "forbidden", http.StatusForbidden)
 					return
 				}
+			}
+			// auth.Loader checks the ban only for the SESSION community; this
+			// rebinds to the URL-slug community, so a user banned in community A
+			// whose session is pinned to B would otherwise still reach A. Enforce
+			// the per-community ban here. (Super-admins synthesize an unbanned
+			// membership above, so god-mode is unaffected.)
+			if m.IsBanned(time.Now()) {
+				http.Redirect(w, r, "/login?banned=1", http.StatusSeeOther)
+				return
 			}
 			// Repopulate identity with the per-community membership so
 			// downstream handlers see the right role / display name.

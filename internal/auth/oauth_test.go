@@ -83,7 +83,9 @@ func TestUpsertOAuthUser_LinksToExistingPasswordAccount(t *testing.T) {
 		t.Fatalf("seed membership: %v", err)
 	}
 
-	res, err := svc.UpsertOAuthUser(ctx, oauthInput("facebook", "fb-9", "EXISTING@example.com", "Existing"))
+	in := oauthInput("facebook", "fb-9", "EXISTING@example.com", "Existing")
+	in.EmailVerified = true // only a provider-verified email may auto-link
+	res, err := svc.UpsertOAuthUser(ctx, in)
 	if err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -92,6 +94,34 @@ func TestUpsertOAuthUser_LinksToExistingPasswordAccount(t *testing.T) {
 	}
 	if uid, err := repo.UserIDByIdentity(ctx, "facebook", "fb-9"); err != nil || uid != u.ID {
 		t.Fatalf("identity not linked: (%q, %v)", uid, err)
+	}
+}
+
+// TestUpsertOAuthUser_UnverifiedEmailRefusedLink guards the account-takeover
+// fix: an unverified provider email that matches an existing local account must
+// NOT auto-link (the attacker registers a provider account with the victim's
+// email). They are refused and no identity row is written.
+func TestUpsertOAuthUser_UnverifiedEmailRefusedLink(t *testing.T) {
+	svc, repo, cid := setupSvc(t)
+	svc.OpenRegistration = false
+	ctx := context.Background()
+
+	u := auth.User{ID: uuid.NewString(), Email: "victim@example.com", PasswordHash: "$2a$bogus", Status: auth.StatusActive}
+	if err := repo.CreateUser(ctx, u); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if err := repo.CreateMembership(ctx, nil, auth.Membership{
+		ID: uuid.NewString(), UserID: u.ID, CommunityID: cid, DisplayName: "Victim", Role: auth.RoleMember,
+	}); err != nil {
+		t.Fatalf("seed membership: %v", err)
+	}
+
+	_, err := svc.UpsertOAuthUser(ctx, oauthInput("facebook", "fb-evil", "victim@example.com", "Attacker"))
+	if !errors.Is(err, auth.ErrOAuthEmailUnverified) {
+		t.Fatalf("want ErrOAuthEmailUnverified, got %v", err)
+	}
+	if _, err := repo.UserIDByIdentity(ctx, "facebook", "fb-evil"); !errors.Is(err, auth.ErrNotFound) {
+		t.Fatalf("identity must not be linked, got %v", err)
 	}
 }
 

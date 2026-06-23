@@ -469,6 +469,12 @@ type OAuthInput struct {
 	Email          string
 	Name           string
 	AvatarURL      string
+	// EmailVerified is whether the provider proved the user owns Email. Only a
+	// verified email may auto-link to an existing local (password) account —
+	// otherwise an attacker could register a provider account with a victim's
+	// unverified email and take over the victim's account. Set per provider in
+	// the handler.
+	EmailVerified bool
 }
 
 // UpsertOAuthUser resolves a provider sign-in to a LoginResult. Resolution
@@ -502,10 +508,16 @@ func (s *Service) UpsertOAuthUser(ctx context.Context, in OAuthInput) (LoginResu
 		return LoginResult{}, err
 	}
 
-	// 2. Existing local account with the same email — link by verified email.
+	// 2. Existing local account with the same email — link ONLY when the
+	//    provider proved the email. An unverified match is an account-takeover
+	//    vector (register a provider account with the victim's email), so refuse
+	//    it and let them sign in with their password instead.
 	if u, err := s.Repo.UserByEmail(ctx, in.Email); err == nil {
 		if u.Status == StatusDisabled {
 			return LoginResult{}, ErrBanned
+		}
+		if !in.EmailVerified {
+			return LoginResult{}, ErrOAuthEmailUnverified
 		}
 		if err := s.Repo.LinkIdentity(ctx, nil, identityFrom(in, u.ID)); err != nil {
 			return LoginResult{}, err
