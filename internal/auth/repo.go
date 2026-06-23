@@ -900,6 +900,20 @@ func (r *Repo) CountAdmins(ctx context.Context, communityID string) (int, error)
 	return n, nil
 }
 
+// CountOwnedByUser returns how many communities the user owns (role=owner).
+// It is the SaaS self-serve quota gate: a user with zero owned communities may
+// create one instantly; beyond that they must request super-admin approval.
+func (r *Repo) CountOwnedByUser(ctx context.Context, userID string) (int, error) {
+	var n int
+	if err := r.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM memberships
+		WHERE user_id = ? AND role = ?`,
+		userID, string(RoleOwner)).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // MembershipByID is needed by admin operations that come in via signal/ID.
 func (r *Repo) MembershipByID(ctx context.Context, id string) (Membership, error) {
 	var m Membership
