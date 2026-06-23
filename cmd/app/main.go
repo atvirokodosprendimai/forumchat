@@ -387,6 +387,7 @@ func run() error {
 		return &projects.CommunityRef{ID: c.ID, Slug: c.Slug, Name: c.Name}, nil
 	})
 	webtempl.ProjectsEnabled = cfg.ProjectsEnabled
+	webtempl.OpenRegistration = cfg.OpenRegistration
 
 	// ----- support inbox (hidden cross-tenant write-only issue inbox) ------
 	// ONE designated community (SUPPORT_INBOX_SLUG) collects reports filed

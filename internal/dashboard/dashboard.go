@@ -33,7 +33,7 @@ type Handler struct {
 func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok {
-		_ = webtempl.Hello("forumchat").Render(r.Context(), w)
+		_ = webtempl.LandingPage().Render(r.Context(), w)
 		return
 	}
 	rows, err := h.Communities.ListForUser(r.Context(), id.User.ID)
