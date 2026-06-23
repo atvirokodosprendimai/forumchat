@@ -1,6 +1,7 @@
 package dataexport
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -137,7 +138,9 @@ func (h *Handler) validDownload(r *http.Request, id, token string) (Export, bool
 	if errors.Is(err, sql.ErrNoRows) || err != nil {
 		return Export{}, false
 	}
-	if token == "" || e.Token == "" || token != e.Token || !e.IsDownloadable(time.Now()) {
+	if token == "" || e.Token == "" ||
+		subtle.ConstantTimeCompare([]byte(token), []byte(e.Token)) != 1 ||
+		!e.IsDownloadable(time.Now()) {
 		return Export{}, false
 	}
 	return e, true

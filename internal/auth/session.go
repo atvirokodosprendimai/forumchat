@@ -26,6 +26,10 @@ func NewSessionManager(maxAge time.Duration, secure bool) *scs.SessionManager {
 }
 
 func PutLogin(ctx context.Context, sm *scs.SessionManager, userID, communityID string) {
+	// Rotate the session token at the privilege boundary (anonymous →
+	// authenticated) to defeat session fixation: a token an attacker planted
+	// pre-login can't carry over into the authenticated session.
+	_ = sm.RenewToken(ctx)
 	sm.Put(ctx, sessionKeyUserID, userID)
 	sm.Put(ctx, sessionKeyCommunityID, communityID)
 }

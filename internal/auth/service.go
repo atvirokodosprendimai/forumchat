@@ -627,6 +627,7 @@ func (s *Service) Login(ctx context.Context, email, password, communityID string
 	u, err := s.Repo.UserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			CheckPasswordDummy(password) // equalize timing vs the bcrypt path below
 			return LoginResult{}, ErrInvalidCredentials
 		}
 		return LoginResult{}, err
