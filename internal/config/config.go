@@ -57,8 +57,30 @@ type Config struct {
 	// SAAS turns the public, unauthenticated "/" into the marketing landing
 	// page. When false (default) anonymous visitors are sent straight to
 	// /login instead — the app is a plain private community with no marketing
-	// front door.
+	// front door. SAAS=true also makes communities self-serve tenants:
+	// owners configure their own AI/RAG/translate/storage/join-policy
+	// (internal/community/resolve.go), registration is forced open, and the
+	// single-tenant IMAP mailbox is disabled. See
+	// spec - saas-tenant-config.
 	SAAS bool `env:"SAAS" envDefault:"false"`
+
+	// SecretsKey (32 bytes) encrypts per-community secrets at rest (Qdrant API
+	// keys, S3 credentials) via internal/secretbox. Empty (dev) = passthrough,
+	// values stored tagged-plaintext. Prod + SAAS without it is rejected at boot.
+	SecretsKey string `env:"SECRETS_KEY" envDefault:""`
+
+	// Storage backend for upload bytes. "" resolves to "s3" in SaaS and "disk"
+	// otherwise (see EffectiveStorageBackend). The DB metadata, signing and MIME
+	// logic in internal/uploads are backend-agnostic; only the blob backend
+	// swaps. S3_* configure the shared platform bucket (S3-compatible:
+	// AWS/MinIO/R2). Per-community own-bucket overrides live in community_settings.
+	StorageBackend string `env:"STORAGE_BACKEND" envDefault:""` // "" | disk | s3
+	S3Endpoint     string `env:"S3_ENDPOINT" envDefault:""`     // empty = AWS default
+	S3Region       string `env:"S3_REGION" envDefault:"us-east-1"`
+	S3Bucket       string `env:"S3_BUCKET" envDefault:""`
+	S3AccessKey    string `env:"S3_ACCESS_KEY" envDefault:""`
+	S3SecretKey    string `env:"S3_SECRET_KEY" envDefault:""`
+	S3UsePathStyle bool   `env:"S3_USE_PATH_STYLE" envDefault:"true"` // true for MinIO/R2
 
 	// SAASBrand is the product/brand name shown across the landing page (nav,
 	// hero, footer, <title>, OG tags). Empty falls back to a placeholder.
@@ -236,6 +258,20 @@ type Config struct {
 
 func (c Config) IsProd() bool { return strings.EqualFold(c.Env, "prod") }
 
+// EffectiveStorageBackend resolves the platform default blob backend: an explicit
+// STORAGE_BACKEND wins, otherwise SaaS defaults to s3 (Qdrant+S3 are the SaaS
+// path) and self-hosted defaults to disk (local ./uploads).
+func (c Config) EffectiveStorageBackend() string {
+	switch c.StorageBackend {
+	case "disk", "s3":
+		return c.StorageBackend
+	}
+	if c.SAAS {
+		return "s3"
+	}
+	return "disk"
+}
+
 func Load() (Config, error) {
 	_ = godotenv.Load()
 	var cfg Config
@@ -248,6 +284,19 @@ func Load() (Config, error) {
 		}
 		if strings.Contains(cfg.UploadsSignKey, "dev-only") {
 			return Config{}, fmt.Errorf("UPLOADS_SIGN_KEY must be set in production")
+		}
+	}
+	// SaaS mode reshapes a few globals so the single-tenant path stays the
+	// default and SaaS is opt-in via one flag.
+	if cfg.SAAS {
+		// Registration is open in SaaS — strangers sign up and join/create
+		// communities; the per-community join_policy decides approval.
+		cfg.OpenRegistration = true
+		// Single-tenant inbound-mail ingest is not a SaaS feature.
+		cfg.MailboxEnabled = false
+		// Per-community secrets are stored at rest; require a real key in prod.
+		if cfg.IsProd() && cfg.SecretsKey == "" {
+			return Config{}, fmt.Errorf("SECRETS_KEY (32 bytes) must be set when SAAS=true in production")
 		}
 	}
 	return cfg, nil
