@@ -60,6 +60,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/search"
 	"github.com/atvirokodosprendimai/forumchat/internal/secretbox"
+	"github.com/atvirokodosprendimai/forumchat/internal/sendtoken"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 	"github.com/atvirokodosprendimai/forumchat/internal/superadmin"
 	"github.com/atvirokodosprendimai/forumchat/internal/support"
@@ -122,6 +123,11 @@ func run() error {
 	if cfg.IsProd() && cfg.SecretsKey == "" {
 		log.Warn("SECRETS_KEY is not set in production — secret-at-rest encryption is DISABLED (passthrough); set SECRETS_KEY (32 bytes) before storing any tenant secrets")
 	}
+
+	// sendSigner mints the per-user, SSE-delivered liveness token required on
+	// member-write content sends (chat/forum/PM/discussion). Keyed off the
+	// session secret so it's stateless + restart-proof. See internal/sendtoken.
+	sendSigner := sendtoken.New(cfg.SessionKey)
 
 	cRepo := community.NewRepo(db)
 	cRepo.Secrets = secrets
@@ -1506,12 +1512,13 @@ func run() error {
 	pmBus := privatemsg.NewBus()
 	pmSvc := &privatemsg.Service{Repo: pmRepo, Bus: pmBus, Blocks: aRepo}
 	pmHandler := &privatemsg.Handler{
-		Svc:      pmSvc,
-		Repo:     pmRepo,
-		Bus:      pmBus,
-		AuthRepo: aRepo,
-		Sessions: sessions,
-		Log:      log,
+		Svc:       pmSvc,
+		Repo:      pmRepo,
+		Bus:       pmBus,
+		AuthRepo:  aRepo,
+		Sessions:  sessions,
+		Log:       log,
+		SendToken: sendSigner, // /messages/stream patches the token to clients
 	}
 
 	roomsRepo := rooms.NewRepo(db)
@@ -1604,7 +1611,7 @@ func run() error {
 		// Per-channel surfaces.
 		r.Get("/chat/{channel}", chatHandler.GetPage)
 		r.Get("/chat/{channel}/stream", chatHandler.GetStream)
-		r.Post("/chat/{channel}/send", chatHandler.PostSend)
+		r.With(sendSigner.Require()).Post("/chat/{channel}/send", chatHandler.PostSend)
 		r.Post("/chat/{channel}/search/publish", chatHandler.PostSearchPublish)
 		r.Post("/chat/{channel}/summary/publish", chatHandler.PostSummaryPublish)
 		r.Post("/chat/{channel}/read", chatHandler.PostMarkRead)
@@ -1655,10 +1662,10 @@ func run() error {
 
 		r.Get("/forum", forumHandler.GetIndex)
 		r.Get("/forum/new", forumHandler.GetNew)
-		r.Post("/forum/new", forumHandler.PostNew)
+		r.With(sendSigner.Require()).Post("/forum/new", forumHandler.PostNew)
 		r.Get("/forum/{id}", forumHandler.GetThread)
 		r.Get("/forum/{id}/stream", forumHandler.GetThreadStream)
-		r.Post("/forum/{id}/reply", forumHandler.PostReply)
+		r.With(sendSigner.Require()).Post("/forum/{id}/reply", forumHandler.PostReply)
 		r.Post("/forum/{id}/delete", forumHandler.PostDeleteThread)
 		r.Post("/forum/{id}/resolve", forumHandler.PostResolve)
 		r.Post("/forum/{id}/unresolve", forumHandler.PostUnresolve)

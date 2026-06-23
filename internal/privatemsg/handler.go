@@ -14,6 +14,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
+	"github.com/atvirokodosprendimai/forumchat/internal/sendtoken"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -24,19 +25,35 @@ type Handler struct {
 	AuthRepo *auth.Repo
 	Sessions *scs.SessionManager
 	Log      *slog.Logger
+	// SendToken, when set, is patched into the client signal bag by the global
+	// /messages/stream (on connect + every keep-alive tick) so member-write
+	// POSTs can carry a fresh, stream-only liveness token. nil = disabled.
+	SendToken *sendtoken.Signer
+}
+
+// sendTokenPatch builds the {"send_token":"…"} signal payload. The token is
+// base64url (no JSON-special chars), but build it via a fixed template to keep
+// it obviously injection-free.
+func sendTokenPatch(tok string) []byte {
+	return []byte(`{"send_token":"` + tok + `"}`)
 }
 
 // Routes mounts /messages/* under the supplied router. Caller is responsible
 // for wrapping in an auth-required middleware (we still re-check the session
 // in each handler for safety).
 func (h *Handler) Routes(r chi.Router) {
+	// tok gates the content-send POSTs (new request + reply) on a valid
+	// SSE-delivered send token. State actions (accept/decline/read) are left
+	// ungated — they aren't a flood/automation surface and a button clicked
+	// right after load could race the token's first patch. nil Signer = no-op.
+	tok := h.SendToken.Require()
 	r.Get("/messages", h.GetInbox)
 	r.Get("/messages/badge", h.GetBadge)
 	r.Get("/messages/stream", h.GetStream)
-	r.Post("/messages/new", h.PostNew)
+	r.With(tok).Post("/messages/new", h.PostNew)
 	r.Get("/messages/{id}", h.GetThread)
 	r.Get("/messages/{id}/stream", h.GetThreadStream)
-	r.Post("/messages/{id}/send", h.PostSend)
+	r.With(tok).Post("/messages/{id}/send", h.PostSend)
 	r.Post("/messages/{id}/accept", h.PostAccept)
 	r.Post("/messages/{id}/decline", h.PostDecline)
 	r.Post("/messages/{id}/read", h.PostRead)
@@ -337,6 +354,11 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	if n, err := h.badgeCount(r.Context(), u.UserID); err == nil {
 		_ = sse.PatchElementTempl(webtempl.MessagesBadge(n), datastar.WithModeOuter())
 	}
+	// Seed the anti-automation send token immediately so a freshly-loaded (or
+	// just-reconnected, e.g. post-restart) page can send right away.
+	if h.SendToken != nil {
+		_ = sse.PatchSignals(sendTokenPatch(h.SendToken.Issue(u.UserID)))
+	}
 
 	local, unsub := h.Bus.Subscribe(u.UserID)
 	defer unsub()
@@ -349,8 +371,14 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			// keep-alive comment via empty patch
-			_ = sse.PatchSignals([]byte(`{}`))
+			// Keep-alive doubles as the send-token refresh: 25s < the 60s
+			// rotation window, so the client always holds the current token
+			// well before the previous one ages out.
+			if h.SendToken != nil {
+				_ = sse.PatchSignals(sendTokenPatch(h.SendToken.Issue(u.UserID)))
+			} else {
+				_ = sse.PatchSignals([]byte(`{}`))
+			}
 		case <-local:
 			n, err := h.badgeCount(r.Context(), u.UserID)
 			if err != nil {
