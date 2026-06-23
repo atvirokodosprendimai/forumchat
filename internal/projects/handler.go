@@ -749,6 +749,12 @@ func (h *Handler) PostIssueMove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "target project is in a different community", http.StatusBadRequest)
 		return
 	}
+	// Confirm the issue actually belongs to the source project, else a
+	// foreign project's/tenant's issue could be relocated in by id.
+	if i, err := h.Repo.IssueByID(r.Context(), iid); err != nil || i.ProjectID != from.ID {
+		http.NotFound(w, r)
+		return
+	}
 	if err := h.Repo.MoveIssueToProject(r.Context(), iid, to.ID); err != nil {
 		h.Log.Warn("projects issue move", "err", err, "from", pid, "to", to.ID, "iid", iid)
 		http.Error(w, err.Error(), http.StatusInternalServerError)

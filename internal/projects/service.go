@@ -162,7 +162,7 @@ func (s *Service) UpdateTodoBody(ctx context.Context, projectID, todoID, body st
 	if len(body) > 500 {
 		body = body[:500]
 	}
-	if err := s.Repo.UpdateTodoBody(ctx, todoID, body, time.Now().UTC()); err != nil {
+	if err := s.Repo.UpdateTodoBody(ctx, projectID, todoID, body, time.Now().UTC()); err != nil {
 		return fmt.Errorf("update todo body: %w", err)
 	}
 	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
@@ -171,7 +171,7 @@ func (s *Service) UpdateTodoBody(ctx context.Context, projectID, todoID, body st
 
 // ToggleTodo flips done and publishes.
 func (s *Service) ToggleTodo(ctx context.Context, projectID, todoID string) error {
-	if err := s.Repo.ToggleTodoDone(ctx, todoID, time.Now().UTC()); err != nil {
+	if err := s.Repo.ToggleTodoDone(ctx, projectID, todoID, time.Now().UTC()); err != nil {
 		return fmt.Errorf("toggle todo: %w", err)
 	}
 	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
@@ -183,7 +183,7 @@ func (s *Service) SetTodoStatus(ctx context.Context, projectID, todoID, status s
 	if !ValidTodoStatus(status) {
 		return ErrInvalidStatus
 	}
-	if err := s.Repo.SetTodoStatus(ctx, todoID, status, time.Now().UTC()); err != nil {
+	if err := s.Repo.SetTodoStatus(ctx, projectID, todoID, status, time.Now().UTC()); err != nil {
 		return fmt.Errorf("set todo status: %w", err)
 	}
 	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
@@ -193,7 +193,7 @@ func (s *Service) SetTodoStatus(ctx context.Context, projectID, todoID, status s
 // AssignTodo assigns a member to a todo, or unassigns when assigneeUserID
 // is empty, then publishes.
 func (s *Service) AssignTodo(ctx context.Context, projectID, todoID, assigneeUserID string) error {
-	if err := s.Repo.SetTodoAssignee(ctx, todoID, assigneeUserID, time.Now().UTC()); err != nil {
+	if err := s.Repo.SetTodoAssignee(ctx, projectID, todoID, assigneeUserID, time.Now().UTC()); err != nil {
 		return fmt.Errorf("assign todo: %w", err)
 	}
 	s.Bus.PublishProject(projectID, Event{Kind: "todos"})
@@ -202,7 +202,7 @@ func (s *Service) AssignTodo(ctx context.Context, projectID, todoID, assigneeUse
 
 // DeleteTodo removes one row.
 func (s *Service) DeleteTodo(ctx context.Context, projectID, todoID string) error {
-	if err := s.Repo.DeleteTodo(ctx, todoID); err != nil {
+	if err := s.Repo.DeleteTodo(ctx, projectID, todoID); err != nil {
 		return fmt.Errorf("delete todo: %w", err)
 	}
 	s.Bus.PublishProject(projectID, Event{Kind: "todos"})

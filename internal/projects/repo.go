@@ -289,32 +289,44 @@ func millisOrNil(t *time.Time) any {
 }
 
 // UpdateTodoBody changes the text and bumps updated_at.
-func (r *Repo) UpdateTodoBody(ctx context.Context, id, body string, now time.Time) error {
-	_, err := r.DB.ExecContext(ctx,
-		`UPDATE project_todos SET body = ?, updated_at = ? WHERE id = ?`,
-		body, now.UnixMilli(), id)
-	return err
+func (r *Repo) UpdateTodoBody(ctx context.Context, projectID, id, body string, now time.Time) error {
+	res, err := r.DB.ExecContext(ctx,
+		`UPDATE project_todos SET body = ?, updated_at = ? WHERE id = ? AND project_id = ?`,
+		body, now.UnixMilli(), id, projectID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ToggleTodoDone flips between done and todo (the quick checkbox path),
 // keeping status + completed_at in sync. The CASE expressions read the
 // pre-update `done` value, so entering done stamps completed_at and
 // leaving it clears the stamp.
-func (r *Repo) ToggleTodoDone(ctx context.Context, id string, now time.Time) error {
-	_, err := r.DB.ExecContext(ctx, `
+func (r *Repo) ToggleTodoDone(ctx context.Context, projectID, id string, now time.Time) error {
+	res, err := r.DB.ExecContext(ctx, `
 		UPDATE project_todos SET
 			done = CASE done WHEN 0 THEN 1 ELSE 0 END,
 			status = CASE done WHEN 0 THEN 'done' ELSE 'todo' END,
 			completed_at = CASE done WHEN 0 THEN ? ELSE NULL END,
 			updated_at = ?
-		WHERE id = ?`, now.UnixMilli(), now.UnixMilli(), id)
-	return err
+		WHERE id = ? AND project_id = ?`, now.UnixMilli(), now.UnixMilli(), id, projectID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SetTodoStatus sets an explicit status, syncing the done mirror and the
 // completion stamp: entering 'done' stamps completed_at, any other status
 // clears it.
-func (r *Repo) SetTodoStatus(ctx context.Context, id, status string, now time.Time) error {
+func (r *Repo) SetTodoStatus(ctx context.Context, projectID, id, status string, now time.Time) error {
 	done := 0
 	var completed any
 	if status == TodoStatusDone {
@@ -323,7 +335,7 @@ func (r *Repo) SetTodoStatus(ctx context.Context, id, status string, now time.Ti
 	}
 	res, err := r.DB.ExecContext(ctx, `
 		UPDATE project_todos SET status = ?, done = ?, completed_at = ?, updated_at = ?
-		WHERE id = ?`, status, done, completed, now.UnixMilli(), id)
+		WHERE id = ? AND project_id = ?`, status, done, completed, now.UnixMilli(), id, projectID)
 	if err != nil {
 		return err
 	}
@@ -335,10 +347,10 @@ func (r *Repo) SetTodoStatus(ctx context.Context, id, status string, now time.Ti
 
 // SetTodoAssignee assigns a member, or unassigns when assigneeUserID is
 // empty.
-func (r *Repo) SetTodoAssignee(ctx context.Context, id, assigneeUserID string, now time.Time) error {
+func (r *Repo) SetTodoAssignee(ctx context.Context, projectID, id, assigneeUserID string, now time.Time) error {
 	res, err := r.DB.ExecContext(ctx, `
-		UPDATE project_todos SET assignee_user_id = ?, updated_at = ? WHERE id = ?`,
-		nullStr(assigneeUserID), now.UnixMilli(), id)
+		UPDATE project_todos SET assignee_user_id = ?, updated_at = ? WHERE id = ? AND project_id = ?`,
+		nullStr(assigneeUserID), now.UnixMilli(), id, projectID)
 	if err != nil {
 		return err
 	}
@@ -349,9 +361,15 @@ func (r *Repo) SetTodoAssignee(ctx context.Context, id, assigneeUserID string, n
 }
 
 // DeleteTodo removes a row outright.
-func (r *Repo) DeleteTodo(ctx context.Context, id string) error {
-	_, err := r.DB.ExecContext(ctx, `DELETE FROM project_todos WHERE id = ?`, id)
-	return err
+func (r *Repo) DeleteTodo(ctx context.Context, projectID, id string) error {
+	res, err := r.DB.ExecContext(ctx, `DELETE FROM project_todos WHERE id = ? AND project_id = ?`, id, projectID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // TodoByID loads one row.

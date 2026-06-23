@@ -131,6 +131,12 @@ func (s *Service) UpdateIssueBody(ctx context.Context, projectID, issueID, bodyM
 
 // AddIssueComment persists a new comment + publishes.
 func (s *Service) AddIssueComment(ctx context.Context, projectID, issueID string, author Identity, bodyMD string) (IssueComment, error) {
+	// Bind the issue to the URL project (the update/delete paths already do).
+	// Without this a comment could be attached to another project's/tenant's
+	// issue by id.
+	if i, err := s.Repo.IssueByID(ctx, issueID); err != nil || i.ProjectID != projectID {
+		return IssueComment{}, ErrNotFound
+	}
 	bodyMD = strings.TrimSpace(bodyMD)
 	if bodyMD == "" {
 		return IssueComment{}, ErrEmptyTitle
@@ -222,6 +228,11 @@ func (s *Service) DeleteIssueComment(ctx context.Context, projectID, issueID, co
 // captured on project_issue_attachments.uploader_user_id /
 // uploader_guest_id so audit + permission checks aren't lost.
 func (s *Service) AddIssueAttachment(ctx context.Context, projectID, issueID, commentID, communityID, mime, filename string, body io.Reader, uploader Identity) (IssueAttachment, error) {
+	// Bind the issue to the URL project before storing any bytes, so a file
+	// can't be attached to another project's/tenant's issue by id.
+	if i, err := s.Repo.IssueByID(ctx, issueID); err != nil || i.ProjectID != projectID {
+		return IssueAttachment{}, ErrNotFound
+	}
 	ownerID := uploader.UserID
 	if ownerID == "" {
 		p, err := s.Repo.ByID(ctx, projectID)

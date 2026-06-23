@@ -79,6 +79,15 @@ func (h *Handler) PostExtractFromChat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "attachment not found", http.StatusNotFound)
 		return
 	}
+	// The chat attachment's underlying upload must belong to THIS community,
+	// else a mod could pull another tenant's file in by attachment id (the
+	// extract only duplicates the upload reference — no copy).
+	if h.Uploads != nil {
+		if u, uerr := h.Uploads.Get(r.Context(), att.UploadID); uerr != nil || u.CommunityID != c.ID {
+			http.Error(w, "attachment not found", http.StatusNotFound)
+			return
+		}
+	}
 	// Project must exist in the same community as the chat attachment.
 	p, err := h.Repo.ByID(r.Context(), in.ProjectID)
 	if err != nil || p.CommunityID != c.ID {
