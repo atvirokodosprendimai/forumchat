@@ -48,6 +48,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/lobbies"
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
+	"github.com/atvirokodosprendimai/forumchat/internal/netguard"
 	"github.com/atvirokodosprendimai/forumchat/internal/pastes"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
@@ -578,6 +579,9 @@ func run() error {
 					return v.(rag.Embedder), nil
 				}
 				e := rag.NewOllamaEmbedder(r.EmbedBaseURL, r.EmbedModel, r.EmbedDim)
+				// Tenant-supplied Ollama host: reject internal/metadata addresses
+				// at dial time (rebinding-safe) on top of the save-time guard.
+				e.HTTP = netguard.GuardedClient(2 * time.Minute)
 				embCache.Store(key, e)
 				return e, nil
 			}
@@ -1071,9 +1075,11 @@ func run() error {
 	var webhooksHandler *webhooks.Handler
 	if cfg.WebhooksEnabled {
 		whRepo := webhooks.NewRepo(db)
+		whSvc := webhooks.NewService(whRepo)
+		whSvc.BlockOutbound = cfg.SAAS // SSRF guard on tenant-supplied target URLs
 		webhooksHandler = &webhooks.Handler{
 			Repo:          whRepo,
-			Svc:           webhooks.NewService(whRepo),
+			Svc:           whSvc,
 			Chat:          chatSvc,
 			ChatRepo:      chatRepo,
 			ChatBus:       chatBus,
@@ -1087,6 +1093,11 @@ func run() error {
 		}
 		relay := webhooks.NewRelay(whRepo, log)
 		relay.Debug = debugRec
+		if cfg.SAAS {
+			// Untrusted tenant targets: reject internal/metadata addresses at
+			// dial time (rebinding-safe) and re-validate every redirect hop.
+			relay.Client = netguard.GuardedClient(10 * time.Second)
+		}
 		// Resolve a message's upload IDs into fetchable outbound attachments:
 		// a shared-signed, session-less URL (served by uploads.GetFile) plus
 		// MIME + filename. Lets a generic-webhook consumer download images.

@@ -10,10 +10,14 @@
 package netguard
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // BlockedURL reports whether rawurl targets a non-public address (loopback,
@@ -47,6 +51,51 @@ func BlockedURL(rawurl string) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+// DialControl is a net.Dialer.Control hook that rejects connections whose
+// resolved address is internal/metadata. Because it runs AFTER DNS resolution
+// on the actual connection address, it also defends against DNS rebinding (a
+// host that resolved public at save time but private at request time) — the
+// gap BlockedURL's package note calls out.
+func DialControl(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	if ip := net.ParseIP(host); ip != nil && isInternal(ip) {
+		return fmt.Errorf("netguard: blocked internal address %s", host)
+	}
+	return nil
+}
+
+// GuardedClient returns an *http.Client safe for dialing tenant-supplied URLs:
+// its dialer rejects internal/metadata addresses at connect time (rebinding-
+// safe) and every redirect hop is re-validated through BlockedURL. timeout
+// bounds the whole request. Use ONLY for SaaS (untrusted tenant endpoints) —
+// self-host operators legitimately point at localhost/private hosts.
+func GuardedClient(timeout time.Duration) *http.Client {
+	tr := &http.Transport{
+		DialContext: (&net.Dialer{Timeout: 10 * time.Second, Control: DialControl}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: tr,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("netguard: too many redirects")
+			}
+			if blocked, reason := BlockedURL(req.URL.String()); blocked {
+				return fmt.Errorf("netguard: blocked redirect: %s", reason)
+			}
+			return nil
+		},
+	}
 }
 
 func isInternal(ip net.IP) bool {

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/netguard"
 )
 
 // Validation errors surfaced to the admin handler.
@@ -29,7 +31,14 @@ var (
 )
 
 // Service is the write side for webhooks: validation + token minting.
-type Service struct{ Repo *Repo }
+type Service struct {
+	Repo *Repo
+	// BlockOutbound, when true, rejects outbound TargetURLs that resolve to
+	// internal/metadata addresses (SSRF guard). Set in SaaS, where a tenant
+	// admin is untrusted; left off in self-host, where the community admin is
+	// the operator and may legitimately relay to a localhost bridge.
+	BlockOutbound bool
+}
 
 // NewService returns a Service bound to repo.
 func NewService(repo *Repo) *Service { return &Service{Repo: repo} }
@@ -89,6 +98,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Webhook, error) {
 	case DirOut:
 		if !validHTTPURL(in.TargetURL) {
 			return Webhook{}, ErrTargetURL
+		}
+		if s.BlockOutbound {
+			if blocked, reason := netguard.BlockedURL(in.TargetURL); blocked {
+				return Webhook{}, fmt.Errorf("%w (%s)", ErrTargetURL, reason)
+			}
 		}
 		w.TargetURL = strings.TrimSpace(in.TargetURL)
 		w.ChannelID = strings.TrimSpace(in.ChannelID) // "" = all channels
