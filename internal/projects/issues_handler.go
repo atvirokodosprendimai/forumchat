@@ -34,12 +34,33 @@ type issueSignals struct {
 // for the project ID the guest was admitted to.
 func (h *Handler) callerIdentity(r *http.Request) (Identity, bool) {
 	if id, ok := auth.FromContext(r.Context()); ok {
-		return Identity{
-			UserID: id.User.ID,
-			Name:   id.Membership.DisplayName,
-			Role:   id.Membership.Role,
-		}, true
+		// Re-resolve the membership against the URL-slug community. The
+		// identity in context was bound by auth.Loader to the SESSION
+		// community, which may differ from the community in the URL — this
+		// route group has no RequireMember to rebind it. Trusting the
+		// session role here let an admin of community B act on community A
+		// with admin rights (cross-tenant escalation). Resolve the role for
+		// THIS community; a non-member auth user falls through to the
+		// share-guest path below (and is denied if not a guest of it).
+		if c, ok := community.FromContext(r.Context()); ok && h.AuthRepo != nil {
+			m, err := h.AuthRepo.MembershipFor(r.Context(), id.User.ID, c.ID)
+			switch {
+			case err == nil:
+				return Identity{UserID: id.User.ID, Name: m.DisplayName, Role: m.Role}, true
+			case id.IsSuperAdmin && errors.Is(err, auth.ErrNotFound):
+				m = auth.SuperAdminMembership(id.User, c.ID)
+				return Identity{UserID: id.User.ID, Name: m.DisplayName, Role: m.Role}, true
+			}
+		}
 	}
+	return h.guestIdentity(r)
+}
+
+// guestIdentity resolves a share-link guest session, scoped to the one
+// project the guest was admitted to. Returns false for anyone who is
+// neither an admitted guest of the URL project nor (per callerIdentity) a
+// member of the URL community.
+func (h *Handler) guestIdentity(r *http.Request) (Identity, bool) {
 	if h.Sessions == nil {
 		return Identity{}, false
 	}
