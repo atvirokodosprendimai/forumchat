@@ -816,10 +816,17 @@ URL**. Lives in `internal/dataexport` (no domain imports → no cycle; imports
   capability token + `expires_at = ready_at + 7d`. A periodic sweep deletes the
   ZIP past TTL and marks it `expired` (a new request is then required). One
   active export per community (`Repo.Request` refuses with `ErrInProgress`).
-- **Download is PUBLIC + token-gated** (`GET /exports/{id}/download?token=…`,
-  outside the owner group, like `/uploads`): the id + high-entropy token are the
-  bearer capability, same pattern as the portal module's 7-day links. A
-  missing/expired/mismatched token is a flat 404 (no existence oracle).
+- **Download is PUBLIC, token-gated, and TWO-STEP / crawl-safe** — because a
+  shared link gets prefetched by mail scanners (Gmail, Defender Safe Links),
+  corporate proxies and chat unfurlers, and a single GET that streamed the ZIP
+  would hand a third party a full copy of all the tenant's data. So:
+  `GET /exports/{id}?token=…` renders only an HTML landing page (no payload);
+  `POST /exports/{id}/download` (an HTML `<form>`, token in the body) streams the
+  ZIP. Prefetchers issue GET, never POST, so they can't pull data. The id +
+  high-entropy token are the bearer capability (same as the portal 7-day links);
+  any miss/expiry/mismatch renders the generic "invalid or expired" page / flat
+  404 (no existence oracle). The owner card shows a direct download form button
+  **and** the absolute shareable landing link (safe to email).
 - **UI**: owner-gated, SSE-streamed status card (`DataExportCard` →
   `/c/{slug}/settings/export/stream` re-patches `#data-export` on state change),
   mounted on the owner Settings page between the form and the Danger Zone.

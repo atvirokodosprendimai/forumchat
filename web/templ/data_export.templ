@@ -7,7 +7,9 @@ package templ
 type DataExportView struct {
 	Slug        string
 	State       string
-	DownloadURL string // set when State == ready
+	ExportID    string // set when State == ready
+	Token       string // capability token (POSTed by the download form)
+	LandingURL  string // absolute, crawl-safe share link (GET shows a page, not the file)
 	SizeLabel   string // human-readable archive size
 	ExpiresAt   string // formatted expiry (when ready)
 	RequestedAt string // formatted request time (when pending/building)
@@ -51,9 +53,16 @@ templ DataExportStatus(d DataExportView) {
 			case "ready":
 				<p class="ok-text">✓ Your export is ready{ sizeSuffix(d.SizeLabel) }.</p>
 				<div class="row">
-					<a class="button" href={ templ.URL(d.DownloadURL) } download>Download ZIP</a>
+					<form method="post" action={ templ.SafeURL("/exports/" + d.ExportID + "/download") }>
+						<input type="hidden" name="token" value={ d.Token }/>
+						<button type="submit">Download ZIP</button>
+					</form>
 					<button class="secondary" data-on:click={ "@post('/c/" + d.Slug + "/settings/export')" }>Regenerate</button>
 				</div>
+				<label class="field">
+					Shareable link — safe to email (opens a download page, not the file)
+					<input type="text" readonly value={ d.LandingURL } onclick="this.select()"/>
+				</label>
 				if d.ExpiresAt != "" {
 					<p class="muted">This link expires { d.ExpiresAt }. After that, request a new export.</p>
 				}
@@ -72,4 +81,42 @@ func sizeSuffix(label string) string {
 		return ""
 	}
 	return " (" + label + ")"
+}
+
+// ExportDownloadView drives the public landing page behind a shared export link.
+type ExportDownloadView struct {
+	ID        string
+	Token     string
+	Valid     bool
+	SizeLabel string
+	ExpiresAt string
+}
+
+// ExportDownloadPage is the PUBLIC, crawl-safe landing for a signed export link.
+// A GET renders only this page (NO payload), so mail/security scanners and chat
+// unfurlers that prefetch the link (Gmail, Defender Safe Links, Slack, proxies)
+// can't pull the data — they GET, never POST. Only a human clicking the form
+// button issues the POST that streams the ZIP. Mirrors the magic-link /
+// account-delete GET-peek + POST-act split (§5g).
+templ ExportDownloadPage(d ExportDownloadView) {
+	@Layout("Download export", Viewer{}) {
+		<div class="container">
+			<section class="card narrow">
+				<h1>⬇ Community data export</h1>
+				if d.Valid {
+					<p class="muted">Your export is ready{ sizeSuffix(d.SizeLabel) }. Click below to download the ZIP.</p>
+					if d.ExpiresAt != "" {
+						<p class="muted">This link expires { d.ExpiresAt }.</p>
+					}
+					<form method="post" action={ templ.SafeURL("/exports/" + d.ID + "/download") }>
+						<input type="hidden" name="token" value={ d.Token }/>
+						<button type="submit">Download ZIP</button>
+					</form>
+				} else {
+					<p class="muted">This download link is invalid or has expired. Ask the community owner to generate a fresh export from Settings.</p>
+					<a class="btn" href="/">Back to start</a>
+				}
+			</section>
+		</div>
+	}
 }

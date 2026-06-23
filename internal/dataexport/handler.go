@@ -48,7 +48,7 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		if key == last {
 			return last
 		}
-		_ = sse.PatchElementTempl(webtempl.DataExportStatus(toView(c.Slug, e, found)))
+		_ = sse.PatchElementTempl(webtempl.DataExportStatus(toView(absBase(r), c.Slug, e, found)))
 		return key
 	}
 	last = push()
@@ -87,25 +87,40 @@ func (h *Handler) PostRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchElementTempl(webtempl.DataExportStatus(toView(c.Slug, e, found)))
+	_ = sse.PatchElementTempl(webtempl.DataExportStatus(toView(absBase(r), c.Slug, e, found)))
 }
 
-// GetDownload streams a ready export ZIP. Public + token-gated: the export id +
-// 32-byte token in the URL are the bearer capability (valid until expiry). A
-// missing/expired/mismatched export is a flat 404 — no existence oracle.
-func (h *Handler) GetDownload(w http.ResponseWriter, r *http.Request) {
+// GetLanding renders the PUBLIC, crawl-safe landing page for a shared export
+// link. It NEVER streams the archive — a GET (which is what mail scanners and
+// link unfurlers issue when they prefetch a link) only ever sees an HTML page.
+// The actual bytes require the POST below, which prefetchers don't perform. An
+// invalid/expired/unknown token renders the same generic "link no longer valid"
+// page (no existence oracle), always 200.
+func (h *Handler) GetLanding(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	token := r.URL.Query().Get("token")
-	e, err := h.Svc.Repo.Get(r.Context(), id)
-	if errors.Is(err, sql.ErrNoRows) {
-		http.NotFound(w, r)
-		return
+	v := webtempl.ExportDownloadView{ID: id, Token: token}
+	if e, ok := h.validDownload(r, id, token); ok {
+		v.Valid = true
+		v.SizeLabel = humanSize(e.SizeBytes)
+		if e.ExpiresAt != nil {
+			v.ExpiresAt = e.ExpiresAt.Local().Format("Jan 2, 2006 15:04")
+		}
 	}
-	if err != nil {
-		http.Error(w, "error", http.StatusInternalServerError)
-		return
-	}
-	if token == "" || e.Token == "" || token != e.Token || !e.IsDownloadable(time.Now()) {
+	_ = webtempl.ExportDownloadPage(v).Render(r.Context(), w)
+}
+
+// PostDownload streams a ready export ZIP. Public + token-gated, but POST-only so
+// that a link prefetch (GET) can never pull the data. The token arrives in the
+// form body (not the URL), keeping it out of referrer/proxy logs. A
+// missing/expired/mismatched export is a flat 404 — no existence oracle.
+func (h *Handler) PostDownload(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	// Plain HTML form POST (NOT a datastar signal handler), so form-parsing is
+	// the correct way to read the token here.
+	token := r.PostFormValue("token")
+	e, ok := h.validDownload(r, id, token)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -113,6 +128,32 @@ func (h *Handler) GetDownload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename="+name)
 	http.ServeFile(w, r, h.Svc.ZipPath(e))
+}
+
+// validDownload loads an export and reports whether (id, token) is a live,
+// downloadable capability. Shared by the landing page and the download POST.
+func (h *Handler) validDownload(r *http.Request, id, token string) (Export, bool) {
+	e, err := h.Svc.Repo.Get(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) || err != nil {
+		return Export{}, false
+	}
+	if token == "" || e.Token == "" || token != e.Token || !e.IsDownloadable(time.Now()) {
+		return Export{}, false
+	}
+	return e, true
+}
+
+// absBase reconstructs this request's scheme://host so the owner card can show
+// an absolute, copy-pasteable share link.
+func absBase(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		scheme = p
+	}
+	return scheme + "://" + r.Host
 }
 
 // stateKey is the change-detection key for the stream: a new export id or a
@@ -124,8 +165,9 @@ func stateKey(e Export, found bool) string {
 	return e.ID + ":" + e.Status
 }
 
-// toView maps the latest export onto the templ view model.
-func toView(slug string, e Export, found bool) webtempl.DataExportView {
+// toView maps the latest export onto the templ view model. base is this
+// request's scheme://host, used to render an absolute, shareable landing link.
+func toView(base, slug string, e Export, found bool) webtempl.DataExportView {
 	v := webtempl.DataExportView{Slug: slug, State: "none"}
 	if !found {
 		return v
@@ -137,7 +179,9 @@ func toView(slug string, e Export, found bool) webtempl.DataExportView {
 			v.State = StatusExpired // expired but not yet swept
 			return v
 		}
-		v.DownloadURL = fmt.Sprintf("/exports/%s/download?token=%s", e.ID, url.QueryEscape(e.Token))
+		v.ExportID = e.ID
+		v.Token = e.Token
+		v.LandingURL = fmt.Sprintf("%s/exports/%s?token=%s", base, e.ID, url.QueryEscape(e.Token))
 		v.SizeLabel = humanSize(e.SizeBytes)
 		if e.ExpiresAt != nil {
 			v.ExpiresAt = e.ExpiresAt.Local().Format("Jan 2, 2006 15:04")

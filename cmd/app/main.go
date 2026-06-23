@@ -1868,10 +1868,13 @@ func run() error {
 	// is OFF — the handler resolves auth users AND project-share guest
 	// sessions internally so guests can view images on issues.
 	r.Get("/uploads/{id}", uploadHandler.GetFile)
-	// Public, token-gated data-export download. The 32-byte token + id in the
-	// URL are the bearer capability (valid until the 7-day expiry); no session
-	// required, so the owner can fetch it with any client.
-	r.Get("/exports/{id}/download", exportHandler.GetDownload)
+	// Public, token-gated data-export download — two-step + crawl-safe. GET
+	// renders only a landing page (no payload), so mail scanners / link
+	// unfurlers that prefetch the shared link can't pull the data; only a human
+	// POST (the form button) streams the ZIP. The id + 32-byte token are the
+	// bearer capability (valid until the 7-day expiry); no session required.
+	r.Get("/exports/{id}", exportHandler.GetLanding)
+	r.Post("/exports/{id}/download", exportHandler.PostDownload)
 
 	// Private messages are global — no community membership required.
 	// The handler authenticates via the session directly.

@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -13,7 +15,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/dataexport"
 )
 
-func TestGetDownload_TokenGating(t *testing.T) {
+func TestDownload_TwoStepCrawlSafe(t *testing.T) {
 	t.Parallel()
 	db, svc := setup(t)
 	ctx := context.Background()
@@ -33,25 +35,54 @@ func TestGetDownload_TokenGating(t *testing.T) {
 
 	h := &dataexport.Handler{Svc: svc}
 	r := chi.NewRouter()
-	r.Get("/exports/{id}/download", h.GetDownload)
+	r.Get("/exports/{id}", h.GetLanding)
+	r.Post("/exports/{id}/download", h.PostDownload)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
+	// 1. The landing GET (what a prefetcher issues) must NEVER return the zip —
+	//    only an HTML page with a Download form.
+	resp, err := http.Get(srv.URL + "/exports/" + ready.ID + "?token=" + ready.Token)
+	if err != nil {
+		t.Fatalf("landing get: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("landing status = %d", resp.StatusCode)
+	}
+	if strings.HasPrefix(string(body), "PK") {
+		t.Fatal("landing GET leaked the zip payload — crawl-unsafe")
+	}
+	if !strings.Contains(string(body), "Download ZIP") {
+		t.Fatalf("landing page missing download form:\n%s", body)
+	}
+
+	// An invalid token landing shows the generic invalid message, no form action.
+	resp, _ = http.Get(srv.URL + "/exports/" + ready.ID + "?token=bad")
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), "invalid or has expired") {
+		t.Fatalf("invalid-token landing missing message:\n%s", body)
+	}
+
+	// 2. The POST streams the zip — and only with the right token.
 	cases := []struct {
-		name string
-		url  string
-		want int
+		name  string
+		id    string
+		token string
+		want  int
 	}{
-		{"valid", "/exports/" + ready.ID + "/download?token=" + ready.Token, http.StatusOK},
-		{"wrong token", "/exports/" + ready.ID + "/download?token=deadbeef", http.StatusNotFound},
-		{"no token", "/exports/" + ready.ID + "/download", http.StatusNotFound},
-		{"unknown id", "/exports/nope/download?token=" + ready.Token, http.StatusNotFound},
+		{"valid", ready.ID, ready.Token, http.StatusOK},
+		{"wrong token", ready.ID, "deadbeef", http.StatusNotFound},
+		{"no token", ready.ID, "", http.StatusNotFound},
+		{"unknown id", "nope", ready.Token, http.StatusNotFound},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := http.Get(srv.URL + tc.url)
+			resp, err := http.PostForm(srv.URL+"/exports/"+tc.id+"/download", url.Values{"token": {tc.token}})
 			if err != nil {
-				t.Fatalf("get: %v", err)
+				t.Fatalf("post: %v", err)
 			}
 			defer resp.Body.Close()
 			if resp.StatusCode != tc.want {
