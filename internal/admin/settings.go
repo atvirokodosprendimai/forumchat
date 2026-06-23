@@ -112,11 +112,16 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	// drop + re-enqueue in the background so the owner doesn't have to remember
 	// to click Reindex (forgetting it silently stalls the embed worker).
 	newRAG := community.ResolveRAG(s, h.Cfg)
-	if h.RAG != nil && newRAG.Enabled && (oldRAG.EmbedModel != newRAG.EmbedModel || oldRAG.EmbedDim != newRAG.EmbedDim) {
+	ragMoved := oldRAG.EmbedModel != newRAG.EmbedModel || oldRAG.EmbedDim != newRAG.EmbedDim ||
+		oldRAG.QdrantURL != newRAG.QdrantURL || oldRAG.QdrantColl != newRAG.QdrantColl
+	if h.RAG != nil && newRAG.Enabled && ragMoved {
+		// Model/dim change rebuilds the collection at the new size; a Qdrant
+		// URL/collection change repopulates the new target (else search is empty
+		// until content is next written). Drop + re-enqueue in the background.
 		cid := c.ID
 		go func() {
 			if _, err := h.RAG.ReindexCommunity(context.Background(), cid); err != nil {
-				h.Log.Error("auto-reindex after embed model change", "community", cid, "err", err)
+				h.Log.Error("auto-reindex after RAG config change", "community", cid, "err", err)
 			}
 		}()
 	}
