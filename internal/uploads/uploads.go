@@ -146,7 +146,20 @@ type Upload struct {
 	RelPath     string
 	Filename    string
 	CreatedAt   time.Time
+	// StoreKey records which blob store holds the bytes: "" = the default
+	// platform store; StoreKeyCommunity = the community's own bucket (resolved
+	// live via CommunityBlob). Set when a community migrates to its own S3.
+	StoreKey string
 }
+
+// StoreKeyCommunity marks an upload as living in the community's own blob store
+// (its migrated S3 bucket) rather than the platform default.
+const StoreKeyCommunity = "community"
+
+// CommunityBlobstoreFunc resolves a community's OWN blob store and its store_key
+// tag. Returns (nil, "", nil) when the community uses the platform default
+// (not migrated). Wired in main.go from community.ResolveStorage.
+type CommunityBlobstoreFunc func(ctx context.Context, communityID string) (Blobstore, string, error)
 
 type Store struct {
 	DB      *sql.DB
@@ -157,6 +170,32 @@ type Store struct {
 	// metadata/signing/dedup; Blob only moves bytes. Nil falls back to a disk
 	// blobstore rooted at Dir, so existing NewStore callers are unchanged.
 	Blob Blobstore
+	// CommunityBlob resolves a community's OWN store (migrated bucket). Optional
+	// — nil means every community uses the default Blob. Wired in main.go.
+	CommunityBlob CommunityBlobstoreFunc
+}
+
+// writeStoreFor picks the blob store a NEW upload for communityID goes to: the
+// community's own store when it has migrated, else the default. Returns the
+// store_key to stamp on the row.
+func (s *Store) writeStoreFor(ctx context.Context, communityID string) (Blobstore, string) {
+	if s.CommunityBlob != nil {
+		if bs, key, err := s.CommunityBlob(ctx, communityID); err == nil && bs != nil {
+			return bs, key
+		}
+	}
+	return s.blob(), ""
+}
+
+// readStoreFor resolves the store an existing upload's bytes live in, by its
+// store_key. Falls back to the default store on any resolver error.
+func (s *Store) readStoreFor(ctx context.Context, u Upload) Blobstore {
+	if u.StoreKey != "" && s.CommunityBlob != nil {
+		if bs, _, err := s.CommunityBlob(ctx, u.CommunityID); err == nil && bs != nil {
+			return bs
+		}
+	}
+	return s.blob()
 }
 
 func NewStore(db *sql.DB, dir string, max int64, signKey string) *Store {
@@ -242,7 +281,8 @@ func (s *Store) Save(ctx context.Context, ownerID, communityID, mime, filename s
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return Upload{}, err
 	}
-	if err := s.blob().Put(ctx, rel, tmp); err != nil {
+	writeBlob, storeKey := s.writeStoreFor(ctx, communityID)
+	if err := writeBlob.Put(ctx, rel, tmp); err != nil {
 		return Upload{}, fmt.Errorf("blob put: %w", err)
 	}
 
@@ -250,12 +290,12 @@ func (s *Store) Save(ctx context.Context, ownerID, communityID, mime, filename s
 	u := Upload{
 		ID: uuid.NewString(), OwnerID: ownerID, CommunityID: communityID,
 		SHA256: digest, MIME: finalMIME, Size: n, RelPath: rel,
-		Filename: cleanName, CreatedAt: time.Now(),
+		Filename: cleanName, CreatedAt: time.Now(), StoreKey: storeKey,
 	}
 	if _, err := s.DB.ExecContext(ctx, `
-		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.Filename, u.CreatedAt.Unix()); err != nil {
+		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at, store_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.Filename, u.CreatedAt.Unix(), u.StoreKey); err != nil {
 		return Upload{}, err
 	}
 	return u, nil
@@ -291,9 +331,9 @@ func (s *Store) Get(ctx context.Context, id string) (Upload, error) {
 	var u Upload
 	var created int64
 	err := s.DB.QueryRowContext(ctx, `
-		SELECT id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at
+		SELECT id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at, COALESCE(store_key,'')
 		FROM uploads WHERE id = ?`, id).
-		Scan(&u.ID, &u.OwnerID, &u.CommunityID, &u.SHA256, &u.MIME, &u.Size, &u.RelPath, &u.Filename, &created)
+		Scan(&u.ID, &u.OwnerID, &u.CommunityID, &u.SHA256, &u.MIME, &u.Size, &u.RelPath, &u.Filename, &created, &u.StoreKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Upload{}, ErrNotFound
 	}
@@ -391,7 +431,7 @@ func (s *Store) PathFor(u Upload) string {
 // http.ServeFile (HTTP Range / video seeking); for remote stores it streams
 // via the Blobstore. Headers (Content-Type, Disposition) are the caller's job.
 func (s *Store) Serve(w http.ResponseWriter, r *http.Request, u Upload) error {
-	bs := s.blob()
+	bs := s.readStoreFor(r.Context(), u)
 	if p, ok := bs.LocalPath(u.RelPath); ok {
 		http.ServeFile(w, r, p)
 		return nil
@@ -427,7 +467,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	var cnt int
 	_ = s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM uploads WHERE rel_path = ?`, u.RelPath).Scan(&cnt)
 	if cnt == 0 {
-		_ = s.blob().Remove(ctx, u.RelPath)
+		_ = s.readStoreFor(ctx, u).Remove(ctx, u.RelPath)
 	}
 	return nil
 }
@@ -502,7 +542,8 @@ func (s *Store) SaveAttachment(ctx context.Context, ownerID, communityID, mime, 
 	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 		return Upload{}, err
 	}
-	if err := s.blob().Put(ctx, rel, tmp); err != nil {
+	writeBlob, storeKey := s.writeStoreFor(ctx, communityID)
+	if err := writeBlob.Put(ctx, rel, tmp); err != nil {
 		return Upload{}, fmt.Errorf("blob put: %w", err)
 	}
 
@@ -510,12 +551,12 @@ func (s *Store) SaveAttachment(ctx context.Context, ownerID, communityID, mime, 
 	u := Upload{
 		ID: uuid.NewString(), OwnerID: ownerID, CommunityID: communityID,
 		SHA256: digest, MIME: mime, Size: n, RelPath: rel,
-		Filename: cleanName, CreatedAt: time.Now(),
+		Filename: cleanName, CreatedAt: time.Now(), StoreKey: storeKey,
 	}
 	if _, err := s.DB.ExecContext(ctx, `
-		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.Filename, u.CreatedAt.Unix()); err != nil {
+		INSERT INTO uploads (id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at, store_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		u.ID, u.OwnerID, u.CommunityID, u.SHA256, u.MIME, u.Size, u.RelPath, u.Filename, u.CreatedAt.Unix(), u.StoreKey); err != nil {
 		return Upload{}, err
 	}
 	return u, nil

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -103,6 +104,80 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchElementTempl(webtempl.OwnerSettingsForm(h.settingsData(r, c, s, true)))
 }
 
+// storageSignals is the datastar bag for the owner Storage card.
+type storageSignals struct {
+	Endpoint  string `json:"set_s3_endpoint"`
+	Region    string `json:"set_s3_region"`
+	Bucket    string `json:"set_s3_bucket"`
+	AccessKey string `json:"set_s3_access_key"`
+	SecretKey string `json:"set_s3_secret_key"`
+}
+
+// PostMigrateStorage points a community at its OWN S3 bucket (privacy opt-out)
+// and kicks a background copy of its existing uploads from the platform store.
+func (h *Handler) PostMigrateStorage(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	var in storageSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if strings.TrimSpace(in.Bucket) == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-storage-error", "A bucket name is required"))
+		return
+	}
+	if blocked, reason := netguard.BlockedURL(in.Endpoint); blocked {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-storage-error", "Rejected S3 endpoint — "+reason))
+		return
+	}
+	if h.Uploads == nil || h.Uploads.CommunityBlob == nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-storage-error", "Per-community storage is not available on this instance"))
+		return
+	}
+	s, err := h.Communities.Settings(r.Context(), c.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.StorageBackend = "s3"
+	s.S3Endpoint = in.Endpoint
+	s.S3Region = in.Region
+	s.S3Bucket = in.Bucket
+	if strings.TrimSpace(in.AccessKey) != "" {
+		s.S3AccessKey = in.AccessKey
+	}
+	if strings.TrimSpace(in.SecretKey) != "" {
+		s.S3SecretKey = in.SecretKey
+	}
+	if err := h.Communities.SaveSettings(r.Context(), s); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dst, _, err := h.Uploads.CommunityBlob(r.Context(), c.ID)
+	if err != nil || dst == nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-storage-error", "Could not connect to the bucket — check credentials"))
+		return
+	}
+	// Migrate in the background (bytes-heavy); the row knows its own store via
+	// store_key so reads stay correct throughout. Detached context so the copy
+	// survives the request.
+	cid := c.ID
+	go func() {
+		n, err := h.Uploads.MigrateCommunity(context.Background(), cid, dst)
+		if err != nil {
+			h.Log.Error("storage migrate", "community", cid, "err", err, "migrated", n)
+			return
+		}
+		h.Log.Info("storage migrate complete", "community", cid, "migrated", n)
+	}()
+	_ = sse.PatchElementTempl(webtempl.OwnerSettingsForm(h.settingsData(r, c, s, true)))
+}
+
 // settingsData maps the persisted Settings onto the view model, resolving the
 // effective values against env so unset fields display the platform default.
 func (h *Handler) settingsData(r *http.Request, c community.Community, s community.Settings, saved bool) webtempl.OwnerSettingsData {
@@ -125,5 +200,13 @@ func (h *Handler) settingsData(r *http.Request, c community.Community, s communi
 		RAGHasQdrantKey:  s.RAGQdrantAPIKey != "",
 		Saved:            saved,
 	}
+	st := community.ResolveStorage(s, h.Cfg)
+	d.StorageBackend = st.Backend
+	d.StorageOwnBucket = st.OwnBucket
+	d.StorageMigratable = h.Cfg.SAAS && h.Uploads != nil && h.Uploads.CommunityBlob != nil
+	d.S3Endpoint = s.S3Endpoint
+	d.S3Region = s.S3Region
+	d.S3Bucket = s.S3Bucket
+	d.HasS3Secret = s.S3SecretKey != ""
 	return d
 }

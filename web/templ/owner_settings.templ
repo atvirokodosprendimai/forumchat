@@ -20,6 +20,13 @@ type OwnerSettingsData struct {
 	RAGEmbedDim      int
 	RAGQdrantURL     string
 	RAGHasQdrantKey  bool // a key is stored (don't echo it)
+	StorageBackend   string
+	StorageOwnBucket bool
+	StorageMigratable bool // SaaS + per-community storage available
+	S3Endpoint       string
+	S3Region         string
+	S3Bucket         string
+	HasS3Secret      bool
 	Saved            bool
 }
 
@@ -36,6 +43,11 @@ func ownerSettingsSignals(d OwnerSettingsData) string {
 		"set_rag_embed_dim":       d.RAGEmbedDim,
 		"set_rag_qdrant_url":      d.RAGQdrantURL,
 		"set_rag_qdrant_api_key":  "",
+		"set_s3_endpoint":         d.S3Endpoint,
+		"set_s3_region":           d.S3Region,
+		"set_s3_bucket":           d.S3Bucket,
+		"set_s3_access_key":       "",
+		"set_s3_secret_key":       "",
 	})
 	return string(b)
 }
@@ -87,6 +99,30 @@ templ OwnerSettingsForm(d OwnerSettingsData) {
 			<p class="muted">Changing the model or vector size requires a reindex (it rebuilds this community's collection at the new size).</p>
 			<button class="secondary" data-on:click={ "@post('/c/" + d.CommunitySlug + "/admin/reindex')" }>Reindex this community</button>
 		</div>
+		if d.StorageMigratable {
+			<div class="card narrow">
+				<h2>📦 Storage</h2>
+				if d.StorageOwnBucket {
+					<p class="muted">This community's files live in its own S3 bucket (<strong>{ d.S3Bucket }</strong>). Re-submit to update credentials or re-run the copy.</p>
+				} else {
+					<p class="muted">Files are on the shared platform store (<strong>{ d.StorageBackend }</strong>). Move them to your own S3 bucket for full data isolation — existing files are copied in the background; reads stay correct throughout.</p>
+				}
+				<label class="field">S3 endpoint <input type="text" data-bind="set_s3_endpoint" placeholder="(blank = AWS) https://s3.eu-central-1.amazonaws.com"/></label>
+				<label class="field">Region <input type="text" data-bind="set_s3_region" placeholder="us-east-1"/></label>
+				<label class="field">Bucket <input type="text" data-bind="set_s3_bucket" placeholder="my-community-bucket"/></label>
+				<label class="field">Access key <input type="text" data-bind="set_s3_access_key" placeholder="AKIA…"/></label>
+				<label class="field">
+					Secret key
+					if d.HasS3Secret {
+						<input type="password" data-bind="set_s3_secret_key" placeholder="•••••• (stored — leave blank to keep)"/>
+					} else {
+						<input type="password" data-bind="set_s3_secret_key" placeholder="secret"/>
+					}
+				</label>
+				<div id="owner-storage-error"></div>
+				<button class="secondary" data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings/migrate-storage')" }>Migrate to my S3</button>
+			</div>
+		}
 		<div id="owner-settings-error"></div>
 		<div class="row">
 			<button data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings')" }>Save settings</button>

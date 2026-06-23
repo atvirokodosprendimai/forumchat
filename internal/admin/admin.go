@@ -19,6 +19,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -59,6 +60,9 @@ type Handler struct {
 	// Cfg is the platform config, used by the owner Settings page to resolve
 	// per-community tenant config against env defaults.
 	Cfg config.Config
+	// Uploads is used by the owner Storage card to migrate a community to its
+	// own S3 bucket. Optional — nil disables the migrate action.
+	Uploads *uploads.Store
 }
 
 func (h *Handler) cid(r *http.Request) string {

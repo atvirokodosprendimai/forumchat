@@ -14,21 +14,28 @@ import "encoding/json"
 // carries the EFFECTIVE values (per-community override resolved against env) so
 // unset fields show the platform default.
 type OwnerSettingsData struct {
-	Viewer           Viewer
-	CommunitySlug    string
-	CommunityName    string
-	AIEnabled        bool
-	JoinPolicy       string // open | request
-	TranslateEnabled bool
-	TranslateBaseURL string
-	TranslateModel   string
-	RAGEnabled       bool
-	RAGEmbedBaseURL  string
-	RAGEmbedModel    string
-	RAGEmbedDim      int
-	RAGQdrantURL     string
-	RAGHasQdrantKey  bool // a key is stored (don't echo it)
-	Saved            bool
+	Viewer            Viewer
+	CommunitySlug     string
+	CommunityName     string
+	AIEnabled         bool
+	JoinPolicy        string // open | request
+	TranslateEnabled  bool
+	TranslateBaseURL  string
+	TranslateModel    string
+	RAGEnabled        bool
+	RAGEmbedBaseURL   string
+	RAGEmbedModel     string
+	RAGEmbedDim       int
+	RAGQdrantURL      string
+	RAGHasQdrantKey   bool // a key is stored (don't echo it)
+	StorageBackend    string
+	StorageOwnBucket  bool
+	StorageMigratable bool // SaaS + per-community storage available
+	S3Endpoint        string
+	S3Region          string
+	S3Bucket          string
+	HasS3Secret       bool
+	Saved             bool
 }
 
 func ownerSettingsSignals(d OwnerSettingsData) string {
@@ -44,6 +51,11 @@ func ownerSettingsSignals(d OwnerSettingsData) string {
 		"set_rag_embed_dim":      d.RAGEmbedDim,
 		"set_rag_qdrant_url":     d.RAGQdrantURL,
 		"set_rag_qdrant_api_key": "",
+		"set_s3_endpoint":        d.S3Endpoint,
+		"set_s3_region":          d.S3Region,
+		"set_s3_bucket":          d.S3Bucket,
+		"set_s3_access_key":      "",
+		"set_s3_secret_key":      "",
 	})
 	return string(b)
 }
@@ -132,7 +144,7 @@ func OwnerSettingsForm(d OwnerSettingsData) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue(ownerSettingsSignals(d))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 53, Col: 81}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 65, Col: 81}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -145,7 +157,7 @@ func OwnerSettingsForm(d OwnerSettingsData) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(d.CommunityName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 55, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 67, Col: 73}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -173,36 +185,115 @@ func OwnerSettingsForm(d OwnerSettingsData) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.CommunitySlug + "/admin/reindex')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 88, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 100, Col: 96}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\">Reindex this community</button></div><div id=\"owner-settings-error\"></div><div class=\"row\"><button data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\">Reindex this community</button></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.CommunitySlug + "/settings')")
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 92, Col: 73}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\">Save settings</button> ")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		if d.Saved {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<span class=\"muted\">Saved ✓</span>")
+		if d.StorageMigratable {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div class=\"card narrow\"><h2>📦 Storage</h2>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if d.StorageOwnBucket {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<p class=\"muted\">This community's files live in its own S3 bucket (<strong>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var7 string
+				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(d.S3Bucket)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 106, Col: 92}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</strong>). Re-submit to update credentials or re-run the copy.</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<p class=\"muted\">Files are on the shared platform store (<strong>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var8 string
+				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(d.StorageBackend)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 108, Col: 88}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</strong>). Move them to your own S3 bucket for full data isolation — existing files are copied in the background; reads stay correct throughout.</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<label class=\"field\">S3 endpoint <input type=\"text\" data-bind=\"set_s3_endpoint\" placeholder=\"(blank = AWS) https://s3.eu-central-1.amazonaws.com\"></label> <label class=\"field\">Region <input type=\"text\" data-bind=\"set_s3_region\" placeholder=\"us-east-1\"></label> <label class=\"field\">Bucket <input type=\"text\" data-bind=\"set_s3_bucket\" placeholder=\"my-community-bucket\"></label> <label class=\"field\">Access key <input type=\"text\" data-bind=\"set_s3_access_key\" placeholder=\"AKIA…\"></label> <label class=\"field\">Secret key ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if d.HasS3Secret {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<input type=\"password\" data-bind=\"set_s3_secret_key\" placeholder=\"•••••• (stored — leave blank to keep)\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<input type=\"password\" data-bind=\"set_s3_secret_key\" placeholder=\"secret\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</label><div id=\"owner-storage-error\"></div><button class=\"secondary\" data-on:click=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var9 string
+			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.CommunitySlug + "/settings/migrate-storage')")
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 123, Col: 108}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\">Migrate to my S3</button></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div id=\"owner-settings-error\"></div><div class=\"row\"><button data-on:click=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var10 string
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.CommunitySlug + "/settings')")
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/owner_settings.templ`, Line: 128, Col: 73}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\">Save settings</button> ")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if d.Saved {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<span class=\"muted\">Saved ✓</span>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -317,6 +317,30 @@ func run() error {
 			log.Info("uploads: using S3 backend", "bucket", cfg.S3Bucket, "endpoint", cfg.S3Endpoint)
 		}
 	}
+	// Per-community own-bucket resolver (SaaS privacy opt-out): a community that
+	// migrated to its own S3 reads/writes there; everyone else uses the default
+	// store. ResolveStorage returns OwnBucket only in SaaS, so this is inert
+	// self-host. One extra settings read per resolve — acceptable; PK-indexed.
+	if cfg.SAAS {
+		uploadStore.CommunityBlob = func(ctx context.Context, communityID string) (uploads.Blobstore, string, error) {
+			s, err := cRepo.Settings(ctx, communityID)
+			if err != nil {
+				return nil, "", err
+			}
+			st := community.ResolveStorage(s, cfg)
+			if !st.OwnBucket {
+				return nil, "", nil
+			}
+			bs, err := uploads.NewS3Blobstore(uploads.S3Config{
+				Endpoint: st.S3Endpoint, Region: st.S3Region, Bucket: st.S3Bucket,
+				AccessKey: st.S3AccessKey, SecretKey: st.S3SecretKey, UsePathStyle: st.UsePathStyle,
+			})
+			if err != nil {
+				return nil, "", err
+			}
+			return bs, uploads.StoreKeyCommunity, nil
+		}
+	}
 	uploadHandler := &uploads.Handler{
 		Store:       uploadStore,
 		CommunityID: bootCommunity.ID,
@@ -392,6 +416,7 @@ func run() error {
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Cfg:           cfg,
+		Uploads:       uploadStore,
 		Log:           log,
 	}
 
@@ -1673,6 +1698,7 @@ func run() error {
 				r.Use(auth.RequireRole(auth.RoleOwner))
 				r.Get("/settings", adminHandler.GetSettings)
 				r.Post("/settings", adminHandler.PostSettings)
+				r.Post("/settings/migrate-storage", adminHandler.PostMigrateStorage)
 			})
 		}
 	})
