@@ -5873,3 +5873,9 @@ button.danger:hover:not([disabled]) {
   background: color-mix(in srgb, var(--danger) 85%, black);
 }
 button.danger[disabled] { opacity: .45; cursor: not-allowed; }
+.delete-disclosure > summary {
+  cursor: pointer; color: var(--danger); font-weight: 600;
+  padding: .35rem 0; list-style: none;
+}
+.delete-disclosure > summary::-webkit-details-marker { display: none; }
+.delete-disclosure[open] > summary { margin-bottom: .5rem; }

@@ -288,6 +288,11 @@ func run() error {
 	r.Get("/login/magic", authHandler.GetLoginMagic)
 	r.Get("/verify", authHandler.GetVerify)
 	r.Post("/logout", authHandler.PostLogout)
+	// Account-erasure confirmation is token-gated, not session-gated (the link is
+	// emailed behind a password step), so these stay public like the magic link.
+	r.Get("/profile/delete/confirm", authHandler.GetDeleteConfirm)
+	r.Post("/profile/delete/confirm", authHandler.PostDeleteConfirm)
+	r.Get("/goodbye", authHandler.GetGoodbye)
 	// OAuth (goth) — begin + provider callback. Mounted only when at least one
 	// provider has credentials, so unconfigured installs expose no dead routes.
 	if len(oauthProviders) > 0 {
@@ -1364,6 +1369,7 @@ func run() error {
 		r.Get("/profile", authHandler.GetProfile)
 		r.Post("/profile", authHandler.PostProfile)
 		r.Post("/profile/password", authHandler.PostPassword)
+		r.Post("/profile/delete/start", authHandler.PostDeleteStart)
 		// Personal worklog timer + journal — global (no community scope),
 		// available to any signed-in user. Gated by TIME_ENABLED.
 		if cfg.TimeEnabled {

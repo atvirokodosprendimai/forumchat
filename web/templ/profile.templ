@@ -1,5 +1,7 @@
 package templ
 
+import "encoding/json"
+
 templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool) {
 	@Layout("Profile", v) {
 		<section class="card narrow profile-card">
@@ -29,6 +31,87 @@ templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool) {
 			</div>
 		</section>
 		@PasswordCard(hasPassword, false)
+		@DeleteAccountCard(hasPassword)
+	}
+}
+
+// DeleteAccountCard is the irreversible self-serve erasure entry point. It opens
+// a two-step confirmation: prove the password (skipped for OAuth-only accounts —
+// the emailed link is the proof), then we email a one-time deletion link that
+// lands on DeleteAccountConfirmPage. The actual erase only runs after the link
+// is clicked AND re-confirmed, so a single accidental click here is harmless.
+templ DeleteAccountCard(hasPassword bool) {
+	<section id="delete-account-card" class="card narrow profile-card danger-zone">
+		<h2>⚠️ Delete account</h2>
+		<p class="muted">
+			Permanently erase your account and <strong>all</strong> of your data across
+			<strong>every</strong> community — messages, threads, posts, uploaded files,
+			bookmarks and your email address. This cannot be undone.
+		</p>
+		<details class="delete-disclosure">
+			<summary>Delete my account…</summary>
+			<div id="delete-account-status" class="muted"></div>
+			if hasPassword {
+				<div class="field">
+					<label>Confirm your password</label>
+					<input type="password" data-bind="delete_password" autocomplete="current-password"/>
+				</div>
+			} else {
+				<p class="muted">You sign in with a social account — we'll confirm by email.</p>
+			}
+			<div class="profile-actions">
+				<button class="danger" data-on:click="@post('/profile/delete/start')">Email me a deletion link</button>
+			</div>
+		</details>
+	</section>
+}
+
+templ DeleteAccountStatusFragment(msg string, ok bool) {
+	if ok {
+		<div id="delete-account-status" class="success">{ msg }</div>
+	} else {
+		<div id="delete-account-status" class="error">{ msg }</div>
+	}
+}
+
+func deleteTokenSignals(token string) string {
+	b, _ := json.Marshal(map[string]string{"delete_token": token})
+	return string(b)
+}
+
+// DeleteAccountConfirmPage is the terminal confirmation reached by clicking the
+// emailed link. The token rides a page-local signal; confirming POSTs it back to
+// burn the token and run the erasure.
+templ DeleteAccountConfirmPage(v Viewer, token string) {
+	@Layout("Confirm account deletion", v) {
+		<div class="container">
+			<section id="delete-confirm" class="card narrow danger-zone" data-signals={ deleteTokenSignals(token) }>
+				<h1>⚠️ Delete your account?</h1>
+				<p>
+					This <strong>permanently erases</strong> your account and all of your data
+					across every community — and frees your email address. It <strong>cannot</strong>
+					be undone.
+				</p>
+				<div id="delete-confirm-error"></div>
+				<div class="profile-actions">
+					<button class="danger" data-on:click="@post('/profile/delete/confirm')">Yes, delete everything</button>
+					<a class="btn ghost" href="/profile">Cancel</a>
+				</div>
+			</section>
+		</div>
+	}
+}
+
+// GoodbyePage is shown once erasure has completed and the session is destroyed.
+templ GoodbyePage() {
+	@Layout("Account deleted", Viewer{}) {
+		<div class="container">
+			<section class="card narrow">
+				<h1>Your account has been deleted</h1>
+				<p class="muted">Your data has been erased across every community. Thanks for spending time here.</p>
+				<a class="btn" href="/">Back to start</a>
+			</section>
+		</div>
 	}
 }
 

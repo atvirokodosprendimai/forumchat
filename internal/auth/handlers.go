@@ -476,3 +476,134 @@ func (h *Handler) PostPassword(w http.ResponseWriter, r *http.Request) {
 	_ = sse.PatchElementTempl(webtempl.PasswordCard(true, true))
 	_ = sse.PatchSignals([]byte(`{"current_password":"","new_password":"","new_password_confirm":""}`))
 }
+
+// --- account erasure (self-serve delete) ---
+
+const deleteTokenPurpose = "account_delete"
+
+type deletePasswordSignals struct {
+	Password string `json:"delete_password"`
+}
+
+// soleOwnerMessage turns the blocking communities into a friendly sentence.
+func soleOwnerMessage(blockers []CommunityRef) string {
+	names := make([]string, len(blockers))
+	for i, b := range blockers {
+		names[i] = b.Name
+	}
+	return "You're the only owner of " + strings.Join(names, ", ") +
+		". Transfer ownership or delete " +
+		map[bool]string{true: "it", false: "them"}[len(blockers) == 1] +
+		" before deleting your account."
+}
+
+// PostDeleteStart is step 1 of erasure: prove the password (OAuth-only accounts
+// skip it — the emailed link is the proof), block early if the user solely owns
+// a community with other members, then email a one-time confirmation link.
+// Nothing is deleted here.
+func (h *Handler) PostDeleteStart(w http.ResponseWriter, r *http.Request) {
+	id, ok := FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in deletePasswordSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	fail := func(msg string) {
+		_ = sse.PatchElementTempl(webtempl.DeleteAccountStatusFragment(msg, false))
+	}
+	user, err := h.Repo.UserByID(r.Context(), id.User.ID)
+	if err != nil {
+		h.Log.Error("delete start: load user", "err", err)
+		fail("Could not load your account")
+		return
+	}
+	if user.HasPassword() && !CheckPassword(user.PasswordHash, in.Password) {
+		fail("Password is incorrect")
+		return
+	}
+	// Early sole-owner guard so the user sees it before any email is sent.
+	blockers, err := h.Svc.CheckDeletable(r.Context(), user.ID)
+	if err != nil {
+		h.Log.Error("delete start: check deletable", "err", err)
+		fail("Something went wrong")
+		return
+	}
+	if len(blockers) > 0 {
+		fail(soleOwnerMessage(blockers))
+		return
+	}
+	if err := h.Svc.IssueDeletionLink(r.Context(), user.ID, user.Email); err != nil {
+		h.Log.Error("delete start: issue link", "err", err)
+		fail("Could not send the confirmation email — please try again")
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.DeleteAccountStatusFragment(
+		"Check your email for a confirmation link. It expires in 30 minutes.", true))
+}
+
+// GetDeleteConfirm renders the terminal confirmation page for a valid deletion
+// link. The token is validated (not consumed) so a stale/expired link shows the
+// error look instead of the confirm button. Public + token-gated — the token is
+// the authorization (it was emailed to the account behind a password gate).
+func (h *Handler) GetDeleteConfirm(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		_ = webtempl.VerifyPage("Missing confirmation token", false).Render(r.Context(), w)
+		return
+	}
+	if _, err := h.Repo.PeekVerificationToken(r.Context(), token, deleteTokenPurpose); err != nil {
+		_ = webtempl.VerifyPage("This deletion link is invalid or expired", false).Render(r.Context(), w)
+		return
+	}
+	_ = webtempl.DeleteAccountConfirmPage(h.Viewer(r), token).Render(r.Context(), w)
+}
+
+type deleteConfirmSignals struct {
+	Token string `json:"delete_token"`
+}
+
+// PostDeleteConfirm burns the deletion token and runs the irreversible erasure
+// for the token's user, then destroys the session and redirects to the goodbye
+// page. Token-gated (no session required — clicking the email in any browser
+// works), matching the magic-link trust model.
+func (h *Handler) PostDeleteConfirm(w http.ResponseWriter, r *http.Request) {
+	var in deleteConfirmSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	vt, err := h.Repo.ConsumeVerificationToken(r.Context(), strings.TrimSpace(in.Token), deleteTokenPurpose)
+	if err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("delete-confirm-error", "This deletion link is invalid or expired."))
+		return
+	}
+	if err := h.Svc.DeleteAccount(r.Context(), vt.UserID); err != nil {
+		sse := render.NewSSE(w, r)
+		var soleErr *SoleOwnerError
+		if errors.As(err, &soleErr) {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("delete-confirm-error", soleOwnerMessage(soleErr.Blockers)))
+			return
+		}
+		h.Log.Error("delete account", "user_id", vt.UserID, "err", err)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("delete-confirm-error", "Deletion failed — please try again."))
+		return
+	}
+	h.Log.Info("account erased (self-serve)", "user_id", vt.UserID)
+	// Destroy the session (the row is now a disabled tombstone) and flush the
+	// cookie BEFORE NewSSE per §4.4.
+	_ = Logout(r.Context(), h.Sessions)
+	commitSession(h.Sessions, w, r)
+	sse := render.NewSSE(w, r)
+	_ = sse.Redirect("/goodbye")
+}
+
+// GetGoodbye renders the post-erasure confirmation page.
+func (h *Handler) GetGoodbye(w http.ResponseWriter, r *http.Request) {
+	_ = webtempl.GoodbyePage().Render(r.Context(), w)
+}
