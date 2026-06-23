@@ -4705,7 +4705,19 @@ hr {
 .data-table tbody tr:hover td { background: var(--surface-alt); }
 .form-row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
 .form-row input { flex: 1 1 12rem; }
-button.ghost.danger { color: var(--danger); }
+/* Ghost + danger: a surface (outlined) destructive button — red text on the
+   ghost surface, NOT the filled red `button.danger`. Reset the red background
+   that button.danger sets, else it renders red-on-red (unreadable). */
+button.ghost.danger {
+  background: var(--surface);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+button.ghost.danger:hover:not([disabled]) {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
 /* Segmented role switcher in the super-admin user drill-down. */
 .sa-role-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
