@@ -1314,12 +1314,27 @@ func run() error {
 		return search.Views(results)
 	}
 
-	// /translate composer typeahead. Ollama-direct (TRANSLATE_* config),
-	// independent of the per-community AI agents. Left nil when disabled or no
-	// model is set — the popup then stays empty and the command is inert.
-	if cfg.TranslateEnabled && cfg.TranslateModel != "" {
+	// /translate composer typeahead. Ollama-direct, independent of the
+	// per-community AI agents. In SaaS each community resolves its own model +
+	// Ollama host (community_settings); self-hosted falls back to the global
+	// TRANSLATE_* env. Installed whenever the feature is globally enabled (the
+	// kill-switch); the resolver decides per request — an empty model leaves
+	// the popup inert.
+	if cfg.TranslateEnabled {
 		chatHandler.Translate = func(ctx context.Context, text string) ([]string, error) {
-			return agent.Translate(ctx, cfg.TranslateBaseURL, cfg.TranslateModel, text)
+			c, ok := community.FromContext(ctx)
+			if !ok {
+				return nil, nil
+			}
+			s, err := cRepo.Settings(ctx, c.ID)
+			if err != nil {
+				return nil, err
+			}
+			tr := community.ResolveTranslate(s, cfg)
+			if !tr.Enabled || tr.Model == "" {
+				return nil, nil
+			}
+			return agent.Translate(ctx, tr.BaseURL, tr.Model, text)
 		}
 	}
 
