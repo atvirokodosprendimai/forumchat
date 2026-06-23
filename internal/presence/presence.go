@@ -1,6 +1,8 @@
 package presence
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"sort"
 	"sync"
 	"time"
@@ -123,16 +125,16 @@ func (t *Tracker) Sweep() {
 	}
 }
 
+// randomKey returns a collision-free subscriber key. It was derived from
+// time.Now().UnixNano(), so two Watch calls in the same nanosecond produced the
+// same key — the second overwrote the first in the subscriber map, silently
+// dropping a roster stream and leaking its goroutine. Use crypto/rand instead.
 func randomKey() string {
-	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-	n := time.Now().UnixNano()
-	b := make([]byte, 8)
-	for i := range b {
-		b[i] = charset[n%int64(len(charset))]
-		n /= int64(len(charset))
-		if n == 0 {
-			n = time.Now().UnixNano()
-		}
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		// rand.Read never fails on supported platforms; fall back to a
+		// time-based key rather than panicking in a presence helper.
+		return hex.EncodeToString([]byte(time.Now().Format(time.RFC3339Nano)))
 	}
-	return string(b)
+	return hex.EncodeToString(b)
 }

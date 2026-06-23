@@ -86,33 +86,53 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", msg))
 		return
 	}
-	// Serialize the quota check + create so concurrent requests can't both pass
-	// the "owns 0" gate (the 1-free quota has no backing DB constraint).
-	h.createMu.Lock()
-	defer h.createMu.Unlock()
-	owned, err := h.Auth.CountOwnedByUser(r.Context(), id.User.ID)
-	if err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "Could not verify your communities; try again"))
-		return
-	}
-	if owned > 0 {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "You already own a community — request another below."))
-		return
-	}
-	c, err := h.Provision.Create(r.Context(), provision.Input{
-		Slug: slug, Name: name, OwnerUserID: id.User.ID,
-		DisplayName: localPart(id.User.Email), Role: auth.RoleOwner,
-	})
-	if err != nil {
-		if errors.Is(err, community.ErrSlugTaken) {
-			_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "That slug is taken — pick another"))
+	// Serialize ONLY the quota check + create so concurrent requests can't both
+	// pass the "owns 0" gate (the 1-free quota has no backing DB constraint).
+	// The lock must NOT span the SSE writes below — a slow client could
+	// otherwise hold it and stall every other create. So do the locked work in
+	// a closure that unlocks before we touch the response.
+	var (
+		newSlug   string
+		overQuota bool
+		verifyErr error
+		createErr error
+	)
+	func() {
+		h.createMu.Lock()
+		defer h.createMu.Unlock()
+		owned, err := h.Auth.CountOwnedByUser(r.Context(), id.User.ID)
+		if err != nil {
+			verifyErr = err
 			return
 		}
-		h.Log.Error("self-serve community create", "user", id.User.ID, "slug", slug, "err", err)
+		if owned > 0 {
+			overQuota = true
+			return
+		}
+		c, err := h.Provision.Create(r.Context(), provision.Input{
+			Slug: slug, Name: name, OwnerUserID: id.User.ID,
+			DisplayName: localPart(id.User.Email), Role: auth.RoleOwner,
+		})
+		if err != nil {
+			createErr = err
+			return
+		}
+		newSlug = c.Slug
+	}()
+
+	switch {
+	case verifyErr != nil:
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "Could not verify your communities; try again"))
+	case overQuota:
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "You already own a community — request another below."))
+	case errors.Is(createErr, community.ErrSlugTaken):
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "That slug is taken — pick another"))
+	case createErr != nil:
+		h.Log.Error("self-serve community create", "user", id.User.ID, "slug", slug, "err", createErr)
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "Could not create the community; try again"))
-		return
+	default:
+		_ = sse.Redirect("/c/" + newSlug + "/chat")
 	}
-	_ = sse.Redirect("/c/" + c.Slug + "/chat")
 }
 
 // PostRequest queues an over-quota user's request for an additional community,
