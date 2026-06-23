@@ -84,7 +84,6 @@ type projectSignals struct {
 	CommentEdit  string   `json:"projects_comment_edit"`
 }
 
-
 // GetIndex renders /c/{slug}/projects: active projects on top, archived
 // collapsed under an expandable section. Empty-state when the community
 // has no projects yet.
@@ -197,7 +196,7 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 		return webtempl.ProjectPageData{}, false
 	}
 
-	isAdmin := caller.Role == auth.RoleAdmin
+	isAdmin := caller.Role.AtLeast(auth.RoleAdmin)
 	isGuest := caller.IsGuest()
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
@@ -623,7 +622,7 @@ func (h *Handler) PostAttachmentDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.DeleteAttachment(r.Context(), pid, aid, id.User.ID, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -788,7 +787,7 @@ func (h *Handler) archiveOrUnarchive(w http.ResponseWriter, r *http.Request, arc
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin)
 	var err error
 	if archive {
 		err = h.Svc.Archive(r.Context(), pid, id.User.ID, isAdmin)
@@ -820,7 +819,7 @@ func (h *Handler) PostDeleteProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.DeleteProject(r.Context(), pid, id.User.ID, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -882,7 +881,7 @@ func (h *Handler) PostCommentEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.UpdateComment(r.Context(), pid, cid, id.User.ID, isAdmin, in.CommentEdit); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -907,7 +906,7 @@ func (h *Handler) PostCommentDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.DeleteComment(r.Context(), pid, cid, id.User.ID, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -1020,7 +1019,7 @@ func (h *Handler) pushComments(r *http.Request, sse *datastar.ServerSentEventGen
 	id, _ := auth.FromContext(r.Context())
 	c, _ := community.FromContext(r.Context())
 	now := time.Now().UTC()
-	views := toCommentViews(comments, id.User.ID, id.Membership.Role == auth.RoleAdmin, h.Svc.EditGrace, now)
+	views := toCommentViews(comments, id.User.ID, id.Membership.Role.AtLeast(auth.RoleAdmin), h.Svc.EditGrace, now)
 	_ = sse.PatchElementTempl(
 		webtempl.ProjectCommentsFragment(c.Slug, pid, views, false),
 		datastar.WithSelector("#proj-comments"),
@@ -1071,7 +1070,7 @@ func (h *Handler) pushAttachments(r *http.Request, sse *datastar.ServerSentEvent
 	id, _ := auth.FromContext(r.Context())
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectAttachmentsFragment(c.Slug, pid, h.toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role == auth.RoleAdmin), false),
+		webtempl.ProjectAttachmentsFragment(c.Slug, pid, h.toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role.AtLeast(auth.RoleAdmin)), false),
 		datastar.WithSelector("#proj-attachments"),
 		datastar.WithModeOuter(),
 	)
@@ -1169,7 +1168,7 @@ func (h *Handler) pushHeader(r *http.Request, sse *datastar.ServerSentEventGener
 		DescriptionMD:   p.DescriptionMD,
 		DescriptionHTML: p.DescriptionHTML,
 		IsArchived:      p.IsArchived(),
-		CanDelete:       id.User.ID != "" && (p.CreatorUserID == id.User.ID || id.Membership.Role == auth.RoleAdmin),
+		CanDelete:       id.User.ID != "" && (p.CreatorUserID == id.User.ID || id.Membership.Role.AtLeast(auth.RoleAdmin)),
 	}
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(

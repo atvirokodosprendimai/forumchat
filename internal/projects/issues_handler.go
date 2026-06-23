@@ -79,7 +79,7 @@ func (h *Handler) PostShareMint(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin)
 	if _, err := h.Svc.MintGuestInvite(r.Context(), pid, id.User.ID, ttl, id.User.ID, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -105,7 +105,7 @@ func (h *Handler) PostShareRevoke(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Membership.Role == auth.RoleAdmin
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.RevokeActiveGuestInvite(r.Context(), pid, id.User.ID, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -212,7 +212,7 @@ func (h *Handler) GetIssuesTab(w http.ResponseWriter, r *http.Request) {
 	}
 	counts, _ := h.Repo.CountIssuesByStatus(r.Context(), pid)
 	id, _ := h.callerIdentity(r)
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	views := toIssueViews(issues, id, isAdmin)
 	data.IssuesActiveStatus = status
 	data.IssuesCounts = counts
@@ -227,7 +227,7 @@ func (h *Handler) PostCloseAllIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, ok := h.callerIdentity(r)
-	if !ok || (id.Role != auth.RoleAdmin && id.Role != auth.RoleMod) {
+	if !ok || !id.Role.AtLeast(auth.RoleMod) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -309,7 +309,7 @@ func (h *Handler) PostIssueCommentEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.UpdateIssueComment(r.Context(), pid, iid, cid, id, isAdmin, in.CommentEdit); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -337,7 +337,7 @@ func (h *Handler) PostIssueCommentDelete(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.DeleteIssueComment(r.Context(), pid, iid, cid, id, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -411,7 +411,7 @@ func (h *Handler) PostIssueAttachmentDelete(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.DeleteIssueAttachment(r.Context(), pid, iid, aid, id, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -493,7 +493,7 @@ func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := h.callerIdentity(r)
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	view := toIssueView(i, id, isAdmin)
 	view.BodyHTML = h.resolveUploadURLs(r, view.BodyHTML, id)
 
@@ -596,7 +596,7 @@ func commentAttachmentURLs(r *http.Request, byComment map[string][]IssueAttachme
 }
 
 func canDeleteIssueAttachment(a IssueAttachment, viewer Identity) bool {
-	if viewer.Role == auth.RoleAdmin {
+	if viewer.Role.AtLeast(auth.RoleAdmin) {
 		return true
 	}
 	if viewer.UserID != "" && a.UploaderUserID == viewer.UserID {
@@ -686,7 +686,7 @@ func (h *Handler) PostIssueDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.DeleteIssue(r.Context(), pid, iid, id, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -723,7 +723,7 @@ func (h *Handler) PostIssueEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	c, _ := community.FromContext(r.Context())
 	if in.Title != "" {
 		if err := h.Svc.UpdateIssueTitle(r.Context(), pid, iid, in.Title, id, isAdmin); err != nil {

@@ -7,6 +7,28 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 )
 
+// TestRoleRank pins the ordering member < moderator < admin < owner so the
+// AtLeast gates compose: an owner satisfies every admin/mod/member bar, and an
+// admin never satisfies the owner-only infra gate.
+func TestRoleRank(t *testing.T) {
+	t.Parallel()
+	if !auth.RoleOwner.AtLeast(auth.RoleAdmin) {
+		t.Fatal("owner must rank >= admin")
+	}
+	if !auth.RoleOwner.AtLeast(auth.RoleOwner) {
+		t.Fatal("owner must satisfy the owner gate")
+	}
+	if auth.RoleAdmin.AtLeast(auth.RoleOwner) {
+		t.Fatal("admin must NOT satisfy the owner gate")
+	}
+	if !auth.RoleOwner.AtLeast(auth.RoleMod) || !auth.RoleOwner.AtLeast(auth.RoleMember) {
+		t.Fatal("owner must satisfy mod and member bars")
+	}
+	if auth.RoleMod.AtLeast(auth.RoleAdmin) {
+		t.Fatal("moderator must NOT satisfy the admin gate")
+	}
+}
+
 // TestUpdateMembershipRole_RoundTrip covers the persistence path behind
 // the roster context-menu's "Make moderator" / "Remove moderator"
 // actions: promote a member to moderator and demote back.

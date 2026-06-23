@@ -377,7 +377,7 @@ func (h *Handler) PostCommunityRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := auth.Role(strings.TrimSpace(in.Role))
-	if role != auth.RoleMember && role != auth.RoleMod && role != auth.RoleAdmin {
+	if role != auth.RoleMember && role != auth.RoleMod && role != auth.RoleAdmin && role != auth.RoleOwner {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Invalid role"))
 		return
 	}
@@ -390,8 +390,9 @@ func (h *Handler) PostCommunityRole(w http.ResponseWriter, r *http.Request) {
 		h.renderMemberships(sse, r, m.UserID) // no-op change, just re-sync the row
 		return
 	}
-	// Demoting away from admin must not leave the community without one.
-	if m.Role == auth.RoleAdmin && role != auth.RoleAdmin {
+	// Demoting away from a privileged role (admin/owner) must not leave the
+	// community without one.
+	if m.Role.AtLeast(auth.RoleAdmin) && !role.AtLeast(auth.RoleAdmin) {
 		count, err := h.AuthRepo.CountAdmins(r.Context(), m.CommunityID)
 		if err != nil {
 			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "count admins: "+err.Error()))
@@ -465,14 +466,14 @@ func (h *Handler) PostCommunityRemove(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No such membership"))
 		return
 	}
-	if m.Role == auth.RoleAdmin {
+	if m.Role.AtLeast(auth.RoleAdmin) {
 		count, err := h.AuthRepo.CountAdmins(r.Context(), m.CommunityID)
 		if err != nil {
 			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "count admins: "+err.Error()))
 			return
 		}
 		if count <= 1 {
-			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Refused — this is the community's last admin. Promote another admin first."))
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Refused — this is the community's last privileged member. Promote another admin/owner first."))
 			return
 		}
 	}

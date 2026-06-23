@@ -33,15 +33,16 @@ func (s SuperAdminSet) Has(email string) bool {
 
 // SuperAdminMembership is the synthetic, never-persisted membership a
 // super-admin carries in communities where they have no real row. Role is
-// admin and it reads as approved so every per-community gate passes. It has
-// no ID — callers must not write it back to the DB.
+// owner and it reads as approved so every per-community gate passes —
+// including the owner-only infra config in SaaS mode. It has no ID — callers
+// must not write it back to the DB.
 func SuperAdminMembership(u User, communityID string) Membership {
 	now := time.Now()
 	return Membership{
 		UserID:      u.ID,
 		CommunityID: communityID,
 		DisplayName: localPart(u.Email),
-		Role:        RoleAdmin,
+		Role:        RoleOwner,
 		ApprovedAt:  &now,
 	}
 }

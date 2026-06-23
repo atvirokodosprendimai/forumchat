@@ -883,15 +883,17 @@ func (r *Repo) ResolveUserReport(ctx context.Context, id string) error {
 	return err
 }
 
-// CountAdmins returns the number of admin-role memberships in the
-// community. Used as a last-admin-standing guard before remove/demote
-// so an op can't accidentally lock everyone out.
+// CountAdmins returns the number of privileged (admin OR owner) memberships in
+// the community. Used as a last-privileged-member-standing guard before
+// remove/demote so an op can't accidentally lock everyone out. Owners count
+// because a SaaS community is typically owned by one owner with no separate
+// admin (see migration 00055, which promotes the first admin to owner).
 func (r *Repo) CountAdmins(ctx context.Context, communityID string) (int, error) {
 	var n int
 	if err := r.DB.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM memberships
-		WHERE community_id = ? AND role = ?`,
-		communityID, string(RoleAdmin)).Scan(&n); err != nil {
+		WHERE community_id = ? AND role IN (?, ?)`,
+		communityID, string(RoleAdmin), string(RoleOwner)).Scan(&n); err != nil {
 		return 0, err
 	}
 	return n, nil

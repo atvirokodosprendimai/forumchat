@@ -30,7 +30,8 @@ func usage() {
 
 usage:
   forumchat-cli invite [count] [max-uses]       create N invite codes (default 1); max-uses optional, omit for unlimited
-  forumchat-cli role <email> <member|moderator|admin>
+  forumchat-cli role <email> <member|moderator|admin|owner>   (in the bootstrap community)
+  forumchat-cli owner <slug> <email>            set/transfer the community super-admin (owner) of <slug>
   forumchat-cli ban <email> [duration] [cleanup]
         ban member; duration like 24h or "-" for permanent
         cleanup: comma-separated subset of chat,threads,posts or "all"
@@ -138,7 +139,7 @@ func run() error {
 			return errors.New("usage: role <email> <role>")
 		}
 		email, role := os.Args[2], auth.Role(os.Args[3])
-		if role != auth.RoleMember && role != auth.RoleMod && role != auth.RoleAdmin {
+		if role != auth.RoleMember && role != auth.RoleMod && role != auth.RoleAdmin && role != auth.RoleOwner {
 			return fmt.Errorf("unknown role: %s", role)
 		}
 		u, err := aRepo.UserByEmail(ctx, email)
@@ -153,6 +154,31 @@ func run() error {
 			return err
 		}
 		fmt.Printf("updated %s -> %s\n", email, role)
+	case "owner":
+		// Seed/transfer a community's owner (super-admin) by slug — the SaaS
+		// bootstrap path when a community has no owner (e.g. created via
+		// /superadmin, or migrated with no admin to promote).
+		if len(os.Args) < 4 {
+			usage()
+			return errors.New("usage: owner <slug> <email>")
+		}
+		slug, email := os.Args[2], os.Args[3]
+		target, err := cRepo.BySlug(ctx, slug)
+		if err != nil {
+			return fmt.Errorf("community %q: %w", slug, err)
+		}
+		u, err := aRepo.UserByEmail(ctx, email)
+		if err != nil {
+			return err
+		}
+		m, err := aRepo.MembershipFor(ctx, u.ID, target.ID)
+		if err != nil {
+			return fmt.Errorf("membership for %s in %s: %w", email, slug, err)
+		}
+		if err := aRepo.UpdateMembershipRole(ctx, m.ID, auth.RoleOwner); err != nil {
+			return err
+		}
+		fmt.Printf("%s is now owner of %s\n", email, slug)
 	case "ban":
 		if len(os.Args) < 3 {
 			usage()

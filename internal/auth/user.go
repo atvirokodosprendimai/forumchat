@@ -17,10 +17,15 @@ const (
 	RoleMember Role = "member"
 	RoleMod    Role = "moderator"
 	RoleAdmin  Role = "admin"
+	// RoleOwner is the per-community super-admin: the top community role,
+	// above admin. In SaaS mode the owner alone configures tenant infra
+	// (ai_enabled, RAG model/host/collection, translate, storage, join
+	// policy). In self-hosted mode it is inert — an admin is the de-facto top.
+	RoleOwner Role = "owner"
 )
 
 func (r Role) AtLeast(min Role) bool {
-	rank := map[Role]int{RoleMember: 0, RoleMod: 1, RoleAdmin: 2}
+	rank := map[Role]int{RoleMember: 0, RoleMod: 1, RoleAdmin: 2, RoleOwner: 3}
 	return rank[r] >= rank[min]
 }
 

@@ -81,8 +81,9 @@ func TestRequireSuperAdmin(t *testing.T) {
 
 func TestSuperAdminMembership_IsApprovedAdmin(t *testing.T) {
 	m := SuperAdminMembership(User{ID: "u", Email: "boss@x.com"}, "c1")
-	if m.Role != RoleAdmin {
-		t.Fatalf("synthetic membership must be admin, got %q", m.Role)
+	// Owner so god-mode also clears the owner-only infra gate (SaaS).
+	if m.Role != RoleOwner {
+		t.Fatalf("synthetic membership must be owner, got %q", m.Role)
 	}
 	if !m.IsApproved() {
 		t.Fatal("synthetic membership must read as approved")

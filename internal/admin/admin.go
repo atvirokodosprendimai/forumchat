@@ -310,7 +310,7 @@ func (h *Handler) PostRemoveMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot remove yourself", http.StatusBadRequest)
 		return
 	}
-	if m.Role == auth.RoleAdmin {
+	if m.Role.AtLeast(auth.RoleAdmin) {
 		count, err := h.Repo.CountAdmins(r.Context(), h.cid(r))
 		if err != nil {
 			http.Error(w, "count admins: "+err.Error(), http.StatusInternalServerError)
@@ -462,8 +462,8 @@ func (h *Handler) PostSetRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot change your own role", http.StatusBadRequest)
 		return
 	}
-	if m.Role == auth.RoleAdmin {
-		http.Error(w, "cannot change an admin's role here", http.StatusBadRequest)
+	if m.Role.AtLeast(auth.RoleAdmin) {
+		http.Error(w, "cannot change an admin's or owner's role here", http.StatusBadRequest)
 		return
 	}
 	if err := h.Repo.UpdateMembershipRole(r.Context(), id, role); err != nil {

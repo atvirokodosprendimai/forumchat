@@ -76,7 +76,7 @@ func (h *Handler) GetDiscussionsTab(w http.ResponseWriter, r *http.Request) {
 		h.Log.Error("projects discussions list", "err", err, "id", pid)
 	}
 	id, _ := h.callerIdentity(r)
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	views := toDiscussionThreadRowViews(threads, id, isAdmin)
 	_ = webtempl.ProjectDiscussionsPage(data, views).Render(r.Context(), w)
 }
@@ -106,7 +106,7 @@ func (h *Handler) GetDiscussionThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := h.callerIdentity(r)
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	view := toDiscussionThreadView(t, id, isAdmin)
 
 	replies, err := h.Repo.ListDiscussionReplies(r.Context(), did)
@@ -170,7 +170,7 @@ func (h *Handler) PostDiscussionReplyEdit(w http.ResponseWriter, r *http.Request
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.UpdateDiscussionReply(r.Context(), pid, did, rid, in.ReplyEdit, id, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -198,7 +198,7 @@ func (h *Handler) PostDiscussionReplyDelete(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.DeleteDiscussionReply(r.Context(), pid, did, rid, id, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -303,7 +303,7 @@ func (h *Handler) PostEditDiscussionThread(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.UpdateDiscussionThread(r.Context(), pid, did, in.Subject, in.Edit, id, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -330,7 +330,7 @@ func (h *Handler) PostDeleteDiscussionThread(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	isAdmin := id.Role == auth.RoleAdmin
+	isAdmin := id.Role.AtLeast(auth.RoleAdmin)
 	if err := h.Svc.DeleteDiscussionThread(r.Context(), pid, did, id, isAdmin); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			http.Error(w, "forbidden", http.StatusForbidden)
