@@ -710,13 +710,29 @@ changes (single-tenant, every capability reads global env).
   `admin.Handler.GetSettings/PostSettings` + `webtempl.OwnerSettingsPage`. Cards
   today: AI / join policy / translate. PostSettings **loads-then-overlays** so a
   save never wipes the RAG/storage fields it doesn't render.
-- **Done:** owner role, secretbox, config/boot rules, settings+resolver, join
-  policy, per-community translate + AI switch, owner Settings shell.
-  **Remaining (own follow-ups):** Phase 2 storage `Blobstore`+S3 (+per-community
-  bucket migration, `store_key` routing) and Phase 5 RAG per-community embedder +
-  **Qdrant** per-community collections (dynamic vector size; chromem stays for
-  self-host). The resolver already exposes `ResolveRAG`/`ResolveStorage` to drive
-  them — wire a closure, same shape as translate.
+- **Storage** (`internal/uploads`): `Blobstore` interface (Put/Open/Remove/
+  Exists/LocalPath) — `diskBlobs` (default, `LocalPath`→`ServeFile` keeps Range)
+  + `s3Blobs` (minio-go). `STORAGE_BACKEND` (SaaS→s3, self-host→disk via
+  `EffectiveStorageBackend`); s3 with no `S3_BUCKET` warns + falls back to disk.
+  `uploads.store_key` column reserved for the per-community own-bucket migration
+  (resolver hook not yet wired — own-bucket UI deliberately not exposed).
+- **RAG/Qdrant** (`internal/rag/qdrant.go`): `QdrantStore` (REST, no dep) — one
+  collection per community `forumchat_<id>`, sized to the community's model on
+  first upsert (**dynamic dim from vector length**). `Service.EmbedderFor`
+  resolves each community's model/host/dim (self-host nil = single embedder).
+  `RAG_BACKEND` empty → qdrant in SaaS, chromem self-host (`EffectiveRAGBackend`).
+  The community-less outbox delete scans `forumchat_*` by payload filter. Owner
+  RAG card (model/host/dim + Qdrant URL/key + Reindex) on `/settings`.
+- **SSRF guard** (`internal/netguard`): owner-supplied outbound URLs (translate/
+  RAG Ollama hosts, Qdrant URL) are rejected at save in SaaS if they resolve to
+  loopback/private/link-local/metadata. Pair with an egress firewall (DNS-rebind).
+- **Owner bootstrap:** the create-community flow seeds the first member as
+  `owner` (was admin), so a fresh SaaS community has an owner who can reach
+  `/settings`.
+- **Still TODO:** per-community S3 **own-bucket migration** (copy bytes
+  platform→tenant + `store_key` routing in `uploads.Store` + Storage card) — the
+  only deferred piece; `community_settings` storage columns + `store_key` are
+  ready for it.
 
 ## 6. Chat — the fat-morph pattern
 

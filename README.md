@@ -768,7 +768,8 @@ Full-text search (FTS5) is always on. The semantic half is opt-in:
 | Variable                  | Default                      | Purpose                                                       |
 |---------------------------|------------------------------|---------------------------------------------------------------|
 | `RAG_ENABLED`             | `false`                      | Turn on the embedding worker + semantic search. Off → FTS5 only. |
-| `RAG_BACKEND`             | `chromem`                    | Vector store: `chromem` (embedded) or `qdrant` (reserved).    |
+| `RAG_BACKEND`             | _(empty)_                    | Vector store: `chromem` (embedded, single-tenant) or `qdrant` (per-community collections, the SaaS path). Empty → `qdrant` in SaaS, `chromem` self-host. In SaaS each community can override the embed model/host/dim + Qdrant URL/key from `/c/{slug}/settings` (per-community collection sized to its model — dynamic vector dim). |
+| `RAG_EMBED_*` / `QDRANT_URL` (below) | …               | Platform defaults; per-community settings override them in SaaS. |
 | `RAG_DB_PATH`             | `./data/rag`                 | chromem-go store path.                                        |
 | `RAG_EMBED_BASEURL`       | `http://localhost:11434`     | Ollama endpoint for embeddings (independent of agent config). |
 | `RAG_EMBED_MODEL`         | `bge-m3`                     | Embedding model.                                             |
@@ -778,7 +779,7 @@ Full-text search (FTS5) is always on. The semantic half is opt-in:
 | `RAG_WORKER_INTERVAL`     | `10`                         | Outbox drain cadence (seconds).                              |
 | `RAG_WORKER_BATCH`        | `64`                         | Rows embedded per drain.                                     |
 | `RAG_SEARCH_DEFAULT_LIMIT`| `8`                          | Default result count.                                        |
-| `QDRANT_URL`              | _(empty)_                    | Read only when `RAG_BACKEND=qdrant`.                          |
+| `QDRANT_URL`              | _(empty)_                    | Platform Qdrant URL, used when `RAG_BACKEND=qdrant`. Per-community BYO URL/key override it via `/c/{slug}/settings`. Collections are named `forumchat_<communityID>`. |
 
 ### Translate (chat `/translate`)
 

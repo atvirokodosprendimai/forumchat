@@ -211,3 +211,19 @@ Depends on Phase 0. Largest piece; may span several commits.
   - The resolver (`community/resolve.go`) is the reusable seam: each remaining
     backend wires a closure from `ResolveRAG`/`ResolveStorage`, exactly like the
     translate closure in main.go.
+- 2606231000 — **Audit pass + Phase 2 + Phase 5 SHIPPED.**
+  - Security audit of the role refactor found 2 regressions (HIGH): migration
+    00055 promotes admin→owner, but `AdminCommunityIDs`/`OldestCommunityAdminID`
+    still hard-matched admin → a promoted owner lost /inbox + mailbox + /issues.
+    Fixed (include owner) + regression test. Also: SSRF guard on owner-supplied
+    URLs (`internal/netguard`, SaaS), and owner-bootstrap (new-community first
+    member is now owner).
+  - **Phase 2 (storage):** `Blobstore` interface + `diskBlobs` (refactor, disk
+    identical) + `s3Blobs` (minio-go) + `STORAGE_BACKEND` wiring (SaaS→s3, falls
+    back to disk if no bucket). Contract test. Per-community own-bucket
+    **migration** still TODO (store_key column ready).
+  - **Phase 5 (RAG/Qdrant):** `QdrantStore` REST impl, per-community collections,
+    dynamic vector dim; `Service.EmbedderFor` per-community embedder; qdrant is
+    the SaaS default backend; owner RAG card + reindex. chromem unchanged.
+  - All 28 pkgs green; SaaS boot smoke OK. Only deferred: per-community S3
+    own-bucket byte-migration + Storage card.
