@@ -1,12 +1,15 @@
 package dashboard
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/config"
+	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -24,7 +27,14 @@ func isPostLogin(r *http.Request) bool {
 
 type Handler struct {
 	Communities *community.Repo
-	Log         *slog.Logger
+	// Auth supplies the owner-count quota gate (CountOwnedByUser). Cfg gates the
+	// whole self-serve flow to SaaS. Provision creates the community on a free
+	// self-serve create. All three are only needed for the SaaS create/request
+	// card; in self-host they are unused.
+	Auth      *auth.Repo
+	Cfg       config.Config
+	Provision *provision.Service
+	Log       *slog.Logger
 }
 
 // GetIndex is the post-login landing. Lists the user's communities. When the
@@ -77,5 +87,30 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 			IsBanned:   row.IsBanned,
 		})
 	}
-	_ = webtempl.Dashboard(v, cards, isGlobalAdmin).Render(r.Context(), w)
+	_ = webtempl.Dashboard(v, cards, isGlobalAdmin, h.createState(r.Context(), id.User.ID)).Render(r.Context(), w)
+}
+
+// createState computes the SaaS self-serve create/request card state for a user:
+// may they create a free community, or are they over quota (and possibly already
+// have a request pending). Returns a zero (SaaS:false) value in self-host so the
+// card is hidden entirely.
+func (h *Handler) createState(ctx context.Context, userID string) webtempl.DashboardCreate {
+	if !h.Cfg.SAAS {
+		return webtempl.DashboardCreate{}
+	}
+	dc := webtempl.DashboardCreate{SaaS: true}
+	owned, err := h.Auth.CountOwnedByUser(ctx, userID)
+	if err != nil {
+		h.Log.Error("dashboard: count owned communities", "user", userID, "err", err)
+		return dc // safest default: no free create, no pending — show the request form
+	}
+	if owned == 0 {
+		dc.CanCreateFree = true
+		return dc
+	}
+	if req, ok, err := h.Communities.PendingRequestForUser(ctx, userID); err == nil && ok {
+		dc.HasPending = true
+		dc.PendingSlug = req.Slug
+	}
+	return dc
 }

@@ -435,7 +435,7 @@ func run() error {
 		Log:           log,
 	}
 
-	dashboardHandler := &dashboard.Handler{Communities: cRepo, Log: log}
+	dashboardHandler := &dashboard.Handler{Communities: cRepo, Auth: aRepo, Cfg: cfg, Provision: provSvc, Log: log}
 	exploreHandler := &explore.Handler{Communities: cRepo, AuthRepo: aRepo, Sessions: sessions, Cfg: cfg, Log: log}
 
 	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
@@ -1860,6 +1860,14 @@ func run() error {
 	go roomsState.RunJanitor(ctx, log)
 
 	r.Get("/", dashboardHandler.GetIndex)
+	// SaaS self-serve community creation. RequireAuth only (no RequireApproved /
+	// RequireMember): a user creating their first community may have no membership
+	// yet. The handlers re-check SAAS + the owner-count quota server-side.
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAuth)
+		r.Post("/communities/create", dashboardHandler.PostCreate)
+		r.Post("/communities/request", dashboardHandler.PostRequest)
+	})
 	if cfg.MailboxEnabled && mailboxHandler != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth)

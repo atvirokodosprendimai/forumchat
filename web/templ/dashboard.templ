@@ -8,7 +8,17 @@ type DashboardCard struct {
 	IsBanned   bool
 }
 
-templ Dashboard(v Viewer, cards []DashboardCard, isGlobalAdmin bool) {
+// DashboardCreate drives the SaaS self-serve create/request card. A user with
+// no owned community may create one instantly; beyond that they must request
+// platform approval (and may only have one request pending at a time).
+type DashboardCreate struct {
+	SaaS          bool   // SaaS mode — the card only appears here
+	CanCreateFree bool   // owns zero communities → instant create
+	HasPending    bool   // already has a request awaiting approval
+	PendingSlug   string // slug on the pending request, for display
+}
+
+templ Dashboard(v Viewer, cards []DashboardCard, isGlobalAdmin bool, dc DashboardCreate) {
 	@Layout("Your communities", v) {
 		<section>
 			<header class="page-head">
@@ -22,7 +32,11 @@ templ Dashboard(v Viewer, cards []DashboardCard, isGlobalAdmin bool) {
 				<div class="empty-state">
 					<div class="empty-icon" aria-hidden="true">🏠</div>
 					<p><strong>You don't belong to any community yet.</strong></p>
-					<p>Ask an admin to invite you, or paste an invite code on the <a href="/register">register page</a>.</p>
+					if dc.SaaS {
+						<p>Create your own below, or browse the <a href="/explore">public communities</a>.</p>
+					} else {
+						<p>Ask an admin to invite you, or paste an invite code on the <a href="/register">register page</a>.</p>
+					}
 				</div>
 			}
 
@@ -48,6 +62,10 @@ templ Dashboard(v Viewer, cards []DashboardCard, isGlobalAdmin bool) {
 				}
 			</ul>
 
+			if dc.SaaS {
+				@DashboardCreateCard(dc)
+			}
+
 			if isGlobalAdmin {
 				<section class="card">
 					<h2>Create community (admin)</h2>
@@ -71,4 +89,51 @@ templ Dashboard(v Viewer, cards []DashboardCard, isGlobalAdmin bool) {
 			}
 		</section>
 	}
+}
+
+// DashboardCreateCard renders the SaaS self-serve create/request card. Its root
+// id is stable so the request-submitted state can be morphed in (§4.7).
+templ DashboardCreateCard(dc DashboardCreate) {
+	<section id="dash-create" class="card">
+		if dc.CanCreateFree {
+			<h2>Create your community</h2>
+			<p class="muted">You can create one community for free — you'll be its owner. Pick a short slug, used in URLs like <code>/c/&lt;slug&gt;/chat</code>.</p>
+			<div id="nc-error" class="error"></div>
+			<div class="field">
+				<label>Name</label>
+				<input type="text" data-bind="nc_name" maxlength="120" placeholder="Acme Inc."/>
+			</div>
+			<div class="field">
+				<label>Slug</label>
+				<input type="text" data-bind="nc_slug" maxlength="40" placeholder="acme" pattern="[a-z0-9-]+"/>
+			</div>
+			<button data-on:click="@post('/communities/create')">Create community</button>
+		} else if dc.HasPending {
+			<h2>Request pending</h2>
+			<p class="muted">
+				Your request for another community
+				if dc.PendingSlug != "" {
+					(<code>{ dc.PendingSlug }</code>)
+				}
+				is awaiting platform approval. You'll see it in your list once an admin approves it.
+			</p>
+		} else {
+			<h2>Request another community</h2>
+			<p class="muted">You already own a community. Creating another needs a platform admin's approval — tell us a little about it and we'll review.</p>
+			<div id="cr-error" class="error"></div>
+			<div class="field">
+				<label>Name</label>
+				<input type="text" data-bind="cr_name" maxlength="120" placeholder="Beta Org"/>
+			</div>
+			<div class="field">
+				<label>Slug</label>
+				<input type="text" data-bind="cr_slug" maxlength="40" placeholder="beta" pattern="[a-z0-9-]+"/>
+			</div>
+			<div class="field">
+				<label>Why another community?</label>
+				<textarea data-bind="cr_reason" rows="3" maxlength="500" placeholder="A separate space for…"></textarea>
+			</div>
+			<button data-on:click="@post('/communities/request')">Request community</button>
+		}
+	</section>
 }

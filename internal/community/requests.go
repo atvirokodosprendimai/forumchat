@@ -73,6 +73,27 @@ func (r *Repo) CountPendingRequestsForUser(ctx context.Context, userID string) (
 	return n, nil
 }
 
+// PendingRequestForUser returns the user's current pending request (ok=false
+// when they have none). Drives the dashboard's "request pending" state.
+func (r *Repo) PendingRequestForUser(ctx context.Context, userID string) (CommunityRequest, bool, error) {
+	var req CommunityRequest
+	var created int64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT id, user_id, name, slug, reason, status, created_at
+		FROM community_requests
+		WHERE user_id = ? AND status = ?
+		ORDER BY created_at DESC LIMIT 1`, userID, RequestPending).
+		Scan(&req.ID, &req.UserID, &req.Name, &req.Slug, &req.Reason, &req.Status, &created)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CommunityRequest{}, false, nil
+	}
+	if err != nil {
+		return CommunityRequest{}, false, err
+	}
+	req.CreatedAt = time.Unix(created, 0)
+	return req, true, nil
+}
+
 // ListPendingRequests returns every pending request, oldest first, with the
 // requester's email for display. Drives the super-admin approval queue.
 func (r *Repo) ListPendingRequests(ctx context.Context) ([]PendingRequest, error) {
