@@ -115,6 +115,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("secretbox: %w", err)
 	}
+	// config.Load only rejects an empty key for prod+SaaS. A prod self-host with
+	// no key gets passthrough — any secret stored at rest would be PLAINTEXT.
+	// Nothing seals secrets in self-host today, but warn loudly so a future
+	// secret-writing feature can't ship plaintext-at-rest unnoticed.
+	if cfg.IsProd() && cfg.SecretsKey == "" {
+		log.Warn("SECRETS_KEY is not set in production — secret-at-rest encryption is DISABLED (passthrough); set SECRETS_KEY (32 bytes) before storing any tenant secrets")
+	}
 
 	cRepo := community.NewRepo(db)
 	cRepo.Secrets = secrets
