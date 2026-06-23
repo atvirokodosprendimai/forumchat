@@ -136,6 +136,25 @@ func (h *Handler) cslug(ctx context.Context) string {
 	return ""
 }
 
+// threadInCommunity loads a thread by id and confirms it belongs to the
+// URL-slug community. The forum routes rebind role to the slug community,
+// but resolved threads by raw global id with no tenant check — so a
+// mod/admin of community A could read/delete/rename/hard-delete community
+// B's threads. Writes 404 and returns ok=false on miss or cross-tenant
+// mismatch. Call it BEFORE opening an SSE response (it writes headers).
+func (h *Handler) threadInCommunity(w http.ResponseWriter, r *http.Request, threadID string) (Thread, bool) {
+	t, err := h.Repo.GetThread(r.Context(), threadID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return Thread{}, false
+	}
+	if t.CommunityID != h.cid(r.Context()) {
+		http.NotFound(w, r)
+		return Thread{}, false
+	}
+	return t, true
+}
+
 // attachPastedImage prepends a markdown image link to body if an image data
 // URL was pasted. Returns the new body; image errors are logged and ignored
 // so the textual content still posts.
@@ -353,9 +372,8 @@ func (h *Handler) GetThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := chi.URLParam(r, "id")
-	t, err := h.Repo.GetThread(r.Context(), threadID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	t, ok := h.threadInCommunity(w, r, threadID)
+	if !ok {
 		return
 	}
 	if t.IsDeleted() && !id.Membership.Role.AtLeast(auth.RoleMod) {
@@ -390,6 +408,9 @@ func (h *Handler) GetThreadStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := chi.URLParam(r, "id")
+	if _, ok := h.threadInCommunity(w, r, threadID); !ok {
+		return
+	}
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 	sse := render.NewSSE(w, r)
 
@@ -485,6 +506,10 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := chi.URLParam(r, "id")
+	t, ok := h.threadInCommunity(w, r, threadID)
+	if !ok {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in replySignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
@@ -528,16 +553,14 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	//   - plain threads: mirror the human reply to outbound webhooks tagged with
 	//     the thread identity (Matrix-thread sync). Agent threads stay local.
 	if h.OnAgentReply != nil || h.RelayThread != nil {
-		if th, err := h.Repo.GetThread(r.Context(), threadID); err == nil {
-			switch {
-			case th.AgentID != nil && h.OnAgentReply != nil:
-				res := h.OnAgentReply(r.Context(), h.cid(r.Context()), threadID, *th.AgentID, id.User.ID, id.IsSuperAdmin)
-				if res.RateLimited {
-					_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("thread-agent-notice", res.RetryAfter))
-				}
-			case th.AgentID == nil:
-				h.relayForumReply(r.Context(), th, id.Membership.DisplayName, body, post.ID)
+		switch {
+		case t.AgentID != nil && h.OnAgentReply != nil:
+			res := h.OnAgentReply(r.Context(), h.cid(r.Context()), threadID, *t.AgentID, id.User.ID, id.IsSuperAdmin)
+			if res.RateLimited {
+				_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("thread-agent-notice", res.RetryAfter))
 			}
+		case t.AgentID == nil:
+			h.relayForumReply(r.Context(), t, id.Membership.DisplayName, body, post.ID)
 		}
 	}
 }
@@ -551,9 +574,8 @@ func (h *Handler) postResolve(w http.ResponseWriter, r *http.Request, resolved b
 		return
 	}
 	threadID := chi.URLParam(r, "id")
-	t, err := h.Repo.GetThread(r.Context(), threadID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	t, ok := h.threadInCommunity(w, r, threadID)
+	if !ok {
 		return
 	}
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
@@ -595,6 +617,9 @@ func (h *Handler) PostRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := chi.URLParam(r, "id")
+	if _, ok := h.threadInCommunity(w, r, threadID); !ok {
+		return
+	}
 	var in renameSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -629,6 +654,9 @@ func (h *Handler) PostHardDeleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := chi.URLParam(r, "id")
+	if _, ok := h.threadInCommunity(w, r, threadID); !ok {
+		return
+	}
 	uploadIDs, err := h.Repo.HardDeleteThread(r.Context(), threadID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -657,9 +685,8 @@ func (h *Handler) PostDeleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	threadID := chi.URLParam(r, "id")
-	t, err := h.Repo.GetThread(r.Context(), threadID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	t, ok := h.threadInCommunity(w, r, threadID)
+	if !ok {
 		return
 	}
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
@@ -698,6 +725,10 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	msg, err := h.ChatRepo.ByID(r.Context(), msgID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if msg.CommunityID != h.cid(r.Context()) {
+		http.NotFound(w, r)
 		return
 	}
 	authorMatch := msg.AuthorID != nil && *msg.AuthorID == id.User.ID
@@ -1013,6 +1044,11 @@ func (h *Handler) PostDeletePost(w http.ResponseWriter, r *http.Request) {
 	p, err := h.Repo.GetPost(r.Context(), postID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	// Posts carry only a thread id; verify the parent thread is in this
+	// community so a mod of another tenant can't delete posts here by id.
+	if _, ok := h.threadInCommunity(w, r, p.ThreadID); !ok {
 		return
 	}
 	isMod := id.Membership.Role.AtLeast(auth.RoleMod)

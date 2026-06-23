@@ -1537,6 +1537,13 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "message not found", http.StatusNotFound)
 		return
 	}
+	// Delete is a community-level route (no {channel} in the URL); the id is
+	// a raw global message id. Reject messages from another tenant so a mod
+	// of community A can't soft-delete community B's chat by id.
+	if msg.CommunityID != h.cid(r.Context()) {
+		http.NotFound(w, r)
+		return
+	}
 	if err := h.Repo.SoftDelete(r.Context(), msgID); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
