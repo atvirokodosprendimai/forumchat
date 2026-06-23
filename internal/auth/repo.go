@@ -615,32 +615,33 @@ func (r *Repo) CleanupUserContent(ctx context.Context, userID, communityID strin
 }
 
 // OldestCommunityAdminID returns the user_id of the longest-tenured
-// admin in the given community. Used as the system-fallback creator
-// when MAILBOX_SYSTEM_USER_ID is unset — every community has at least
-// one admin (bootstrap invariant), so this should always succeed for a
-// real community. Returns sql.ErrNoRows when no admin exists.
+// privileged member (admin OR owner) in the given community. Used as the
+// system-fallback creator when MAILBOX_SYSTEM_USER_ID is unset. Owner is
+// included because migration 00055 promotes the sole admin to owner, so an
+// owner-only community would otherwise return ErrNoRows.
 func (r *Repo) OldestCommunityAdminID(ctx context.Context, communityID string) (string, error) {
 	var userID string
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT user_id FROM memberships
-		WHERE community_id = ? AND role = ? AND approved_at IS NOT NULL
+		WHERE community_id = ? AND role IN (?, ?) AND approved_at IS NOT NULL
 		ORDER BY created_at ASC
 		LIMIT 1`,
-		communityID, string(RoleAdmin)).Scan(&userID)
+		communityID, string(RoleAdmin), string(RoleOwner)).Scan(&userID)
 	return userID, err
 }
 
-// AdminCommunityIDs returns the community IDs in which the user holds
-// admin OR moderator role AND is approved. Returns an empty slice (not
-// nil) when there are none. Drives the global /inbox gate plus the
-// per-row community scoping inside the mailbox feature.
+// AdminCommunityIDs returns the community IDs in which the user holds a
+// privileged role (owner, admin OR moderator) AND is approved. Returns an
+// empty slice (not nil) when there are none. Drives the global /inbox gate
+// plus the per-row community scoping inside the mailbox feature. Owner is
+// included so a promoted owner (migration 00055) keeps admin-scoped surfaces.
 func (r *Repo) AdminCommunityIDs(ctx context.Context, userID string) ([]string, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT community_id FROM memberships
 		WHERE user_id = ?
-		  AND role IN (?, ?)
+		  AND role IN (?, ?, ?)
 		  AND approved_at IS NOT NULL`,
-		userID, string(RoleAdmin), string(RoleMod))
+		userID, string(RoleAdmin), string(RoleMod), string(RoleOwner))
 	if err != nil {
 		return nil, err
 	}
