@@ -71,6 +71,11 @@ func (s *Service) UpdateIssueStatus(ctx context.Context, projectID, issueID, sta
 	if !validStatus(status) {
 		return ErrBadStatus
 	}
+	// Bind the issue to the URL project — the repo UPDATE is keyed by id alone,
+	// so without this a member could flip any other project's issue status by id.
+	if err := s.assertIssueInProject(ctx, projectID, issueID); err != nil {
+		return err
+	}
 	if err := s.Repo.UpdateIssueStatus(ctx, issueID, status, time.Now().UTC()); err != nil {
 		return fmt.Errorf("update status: %w", err)
 	}

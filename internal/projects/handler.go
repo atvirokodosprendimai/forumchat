@@ -789,6 +789,13 @@ func (h *Handler) PostIssueMove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	// Moving an issue across projects is a member-only action — a share-link
+	// guest (even the issue author) must not relocate it (the UI gates the
+	// picker to non-guests; enforce it server-side too).
+	if caller.UserID == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	issue, err := h.Repo.IssueByID(r.Context(), iid)
 	if err != nil || issue.ProjectID != from.ID {
 		http.NotFound(w, r)

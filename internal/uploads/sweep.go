@@ -19,6 +19,10 @@ var bodyHTMLTables = []string{
 	"project_comments", "project_discussion_threads", "project_discussion_replies",
 	"project_issues", "project_issue_comments", "room_chat", "room_chat_archive",
 	"pastes", "ai_messages",
+	// email_ingest has body_html (migration 00024) but no write path populates
+	// it today — listed preemptively so a future ingest-HTML path can't make the
+	// sweep delete a still-referenced upload.
+	"email_ingest",
 }
 
 // SweepWorker periodically deletes upload rows that no row anywhere in
