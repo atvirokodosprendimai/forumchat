@@ -86,6 +86,10 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", msg))
 		return
 	}
+	// Serialize the quota check + create so concurrent requests can't both pass
+	// the "owns 0" gate (the 1-free quota has no backing DB constraint).
+	h.createMu.Lock()
+	defer h.createMu.Unlock()
 	owned, err := h.Auth.CountOwnedByUser(r.Context(), id.User.ID)
 	if err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("nc-error", "Could not verify your communities; try again"))

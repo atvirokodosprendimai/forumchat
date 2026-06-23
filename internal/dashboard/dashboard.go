@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
@@ -35,6 +36,12 @@ type Handler struct {
 	Cfg       config.Config
 	Provision *provision.Service
 	Log       *slog.Logger
+	// createMu serializes the self-serve owner-quota check→create so two
+	// concurrent requests with different slugs can't both pass the "owns 0"
+	// gate and create two free communities. The quota is a business rule with
+	// no backing DB constraint (owning several is legal after approval), so the
+	// check-then-act needs a lock. Single process → in-memory mutex suffices.
+	createMu sync.Mutex
 }
 
 // GetIndex is the post-login landing. Lists the user's communities. When the
