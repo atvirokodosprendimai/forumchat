@@ -737,6 +737,56 @@ changes (single-tenant, every capability reads global env).
   — a separate after-verified step), per-community Qdrant *cluster* isolation,
   hosted-LLM providers.
 
+## 5g. Community delete + self-serve account erasure (Jun 2026)
+
+Two destructive flows, both routed through shared seams so "ALL data" stays
+true and the FK reality is handled in one place.
+
+**Community delete = `provision.Service.Delete`** (`internal/provision`). The
+create seam grew into the lifecycle seam: `Delete(ctx, cid)` purges upload
+**blobs** (`uploads.Store.DeleteByCommunity` — the prior super-admin path
+cascaded DB rows but **leaked the blobs on disk/S3**), then cascade-deletes the
+community row (`community.Repo.Delete`, FK cascade), then drops the vector
+collection (`VectorDropper`). Order matters — blobs are enumerated from the
+upload rows the cascade is about to erase. `Blobs`/`Vectors` are interfaces
+(no `internal/uploads`/`internal/rag` import → no cycle); `Vectors` is nil-guarded
+for a disabled RAG. Two callers: `superadmin.PostDeleteCommunity` and the new
+owner **Danger Zone** at `/c/{slug}/settings/delete` (SaaS, `RequireRole(owner)`,
+type-slug-to-confirm re-checked server-side; the card lives OUTSIDE the
+`#owner-settings` save-morph so a settings save never resets the confirm).
+
+**Account erasure = anonymise, NOT row-delete** (`auth.Service.DeleteAccount`).
+A hard `DELETE FROM users` is impossible: `chat_messages.author_id` is
+`ON DELETE SET NULL`, and projects/issues/lobbies/mailbox/time_budgets reference
+`users(id)` with bare RESTRICT — a row delete would either fail or strand other
+members' shared work. So the row is **kept and scrubbed**:
+
+- `Repo.EraseUser` (one tx): hard-deletes the user's content (`chat_messages`/
+  `threads`/`posts` by author — which fires the RAG `embed_outbox` AFTER-DELETE
+  triggers, so vectors converge on the next worker tick), all `memberships`,
+  identity (`verification_tokens`/`user_identities`/`signup_tokens`) and personal
+  rows (bookmarks, todos, timer_sessions, chat_reads, push_*, user_blocks,
+  user_reports, private_threads — PM cascade is 2-party). Then `UPDATE users SET
+  email = 'deleted-<id>@deleted.invalid', password_hash = <deletedSentinelHash>,
+  status = 'disabled'`. Email freed, login dead, signed out. Shared artifacts the
+  user authored survive as "deleted user".
+- `Service.DeleteAccount` orchestrates: **sole-owner guard** (`*SoleOwnerError`
+  when the user is the only owner of a community with OTHER members — nothing is
+  deleted, they must hand off first); delete **solo-owned** (only-member)
+  communities via the `CommunityDeleter` seam (= `provision.Service`); purge
+  owned blobs via `UploadPurger` (= `uploads.Store`); then `EraseUser`.
+  `CommunityDeleter`/`UploadPurger` are interfaces declared in `auth` so it never
+  imports `provision` (which imports `auth` → cycle).
+
+**2-step UI confirm:** profile **DeleteAccountCard** → `PostDeleteStart` verifies
+the current password (OAuth-only skips — the emailed link is the proof) + runs
+the sole-owner guard early → `IssueDeletionLink` mails an `account_delete`
+`verification_tokens` link → `GetDeleteConfirm` (public, token **peeked** not
+consumed) renders the terminal page → `PostDeleteConfirm` (public, token-gated
+like magic-login) burns the token, runs `DeleteAccount`, destroys the session
+(`commitSession` BEFORE `NewSSE`, §4.4) and redirects to `/goodbye`. Ops mirror:
+`forumchat-cli delete-account <email>`.
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing
