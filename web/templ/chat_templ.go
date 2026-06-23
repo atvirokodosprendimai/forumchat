@@ -329,7 +329,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, d.Viewer.Role == "admin").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, RoleIsAdmin(d.Viewer.Role)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

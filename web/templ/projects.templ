@@ -633,7 +633,7 @@ templ ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) {
 						@issueTab(d.CommunitySlug, d.Project.ID, "closed", "Closed", d.IssuesActiveStatus, d.IssuesCounts)
 						@issueTab(d.CommunitySlug, d.Project.ID, "all", "All", d.IssuesActiveStatus, d.IssuesCounts)
 					</nav>
-					if d.Viewer.Role == "admin" || d.Viewer.Role == "moderator" {
+					if RoleIsMod(d.Viewer.Role) {
 						<button class="btn ghost danger"
 							title="Close every non-closed issue in this project"
 							data-on:click={ "confirm('Close every open issue in this project?') && @post('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/issues/close-all')" }>

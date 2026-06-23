@@ -81,7 +81,9 @@ templ rosterMemberRow(m RosterMember) {
 			}
 		</span>
 		<span class="roster-name">{ m.DisplayName }</span>
-		if m.Role == "admin" {
+		if m.Role == "owner" {
+			<span class="roster-badge" title="Owner">♛</span>
+		} else if m.Role == "admin" {
 			<span class="roster-badge" title="Admin">★</span>
 		} else if m.Role == "moderator" {
 			<span class="roster-badge" title="Moderator">⚑</span>

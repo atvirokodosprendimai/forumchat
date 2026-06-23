@@ -116,7 +116,7 @@ templ AgentPage(d AgentPageData) {
 			@AgentSidebar(d)
 			<div class="agent-main">
 				if !d.HasEnabledAgent {
-					@AgentSetupBanner(d.Slug, d.Viewer.Role == "admin")
+					@AgentSetupBanner(d.Slug, RoleIsAdmin(d.Viewer.Role))
 				}
 				if d.HasActive {
 					<header class="agent-thread-head">

@@ -67,6 +67,15 @@ func CommunityAIEnabled(ctx context.Context) bool {
 // without an import cycle. Read by CommunityAIEnabled above.
 func CommunityAICtxKey() any { return communityAICtxKey }
 
+// RoleIsAdmin reports whether a role string carries admin-or-above power — i.e.
+// "admin" OR the per-community "owner" (the super-admin above admin). UI gates
+// must use this, not `Role == "admin"`, or a promoted owner (migration 00055)
+// loses admin affordances. Mirrors auth.Role.AtLeast(RoleAdmin) on the leaf side.
+func RoleIsAdmin(role string) bool { return role == "admin" || role == "owner" }
+
+// RoleIsMod reports moderator-or-above power (moderator, admin, owner).
+func RoleIsMod(role string) bool { return role == "moderator" || RoleIsAdmin(role) }
+
 // TopNavCommunity is one entry in the top-bar community switcher — the
 // communities the viewer can enter in one click. web/templ is a leaf package
 // (§4.13), so the handler side builds these and stashes them on ctx under
@@ -623,12 +632,12 @@ templ CommunityTopNav(v Viewer) {
 					if TimeEnabled {
 						<a href={ templ.URL("/c/" + v.CommunitySlug + "/budget") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/budget") }><span class="sb-icon" aria-hidden="true">📊</span>Budget</a>
 					}
-					if GuestAccessEnabled && (v.Role == "admin" || v.Role == "moderator") {
+					if GuestAccessEnabled && RoleIsMod(v.Role) {
 						<a href={ templ.URL("/c/" + v.CommunitySlug + "/lobbies") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/lobbies") }><span class="sb-icon" aria-hidden="true">🚪</span>Lobbies</a>
 					}
 					<a href={ templ.URL("/c/" + v.CommunitySlug + "/history") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/history") }><span class="sb-icon" aria-hidden="true">🕘</span>History</a>
 					<a href={ templ.URL("/c/" + v.CommunitySlug + "/notifications") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/notifications") }><span class="sb-icon" aria-hidden="true">🔔</span>Notifications</a>
-					if v.Role == "admin" {
+					if RoleIsAdmin(v.Role) {
 						<a href={ templ.URL("/c/" + v.CommunitySlug + "/admin") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/admin") }><span class="sb-icon" aria-hidden="true">⚙</span>Admin</a>
 					}
 				</div>

@@ -176,7 +176,7 @@ func AgentPage(d AgentPageData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if !d.HasEnabledAgent {
-				templ_7745c5c3_Err = AgentSetupBanner(d.Slug, d.Viewer.Role == "admin").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = AgentSetupBanner(d.Slug, RoleIsAdmin(d.Viewer.Role)).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

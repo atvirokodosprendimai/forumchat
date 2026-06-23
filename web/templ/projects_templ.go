@@ -1927,7 +1927,7 @@ func ProjectIssuesPage(d ProjectPageData, issues []ProjectIssueView) templ.Compo
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				if d.Viewer.Role == "admin" || d.Viewer.Role == "moderator" {
+				if RoleIsMod(d.Viewer.Role) {
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "<button class=\"btn ghost danger\" title=\"Close every non-closed issue in this project\" data-on:click=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err

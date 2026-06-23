@@ -116,10 +116,12 @@ func roleSwitchJS(uid string, m SAUserMembership, target string) string {
 	post := "$sa_mid='" + m.MembershipID + "'; $sa_uid='" + uid + "'; $sa_role='" + target +
 		"'; @post('/superadmin/user/community/role')"
 	switch {
+	case target == "owner":
+		return "if(confirm('Make owner of " + m.Slug + "? They become the community super-admin with full control.')){" + post + "}"
 	case target == "admin":
 		return "if(confirm('Make admin of " + m.Slug + "? They gain full control of this community.')){" + post + "}"
-	case m.Role == "admin":
-		return "if(confirm('Demote the admin of " + m.Slug + " to " + target + "?')){" + post + "}"
+	case m.Role == "admin" || m.Role == "owner":
+		return "if(confirm('Demote the " + m.Role + " of " + m.Slug + " to " + target + "?')){" + post + "}"
 	default:
 		return post
 	}
@@ -444,6 +446,7 @@ templ SAUserMemberships(uid string, rows []SAUserMembership) {
 										@saRoleButton(uid, m, "member", "Member")
 										@saRoleButton(uid, m, "moderator", "Mod")
 										@saRoleButton(uid, m, "admin", "Admin")
+										@saRoleButton(uid, m, "owner", "Owner")
 									</div>
 								</td>
 							<td>

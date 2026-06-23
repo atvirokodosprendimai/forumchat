@@ -197,7 +197,7 @@ templ ChatPage(d ChatPageData) {
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
 		@ForwardDialog(d.Viewer.CommunitySlug, d.ActiveSlug, d.Channels)
-		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, d.Viewer.Role == "admin")
+		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, RoleIsAdmin(d.Viewer.Role))
 		if d.IsMod {
 			@ExtractDialog(d.Viewer.CommunitySlug, d.Projects)
 		}
