@@ -41,8 +41,20 @@ type SuperAdminPageData struct {
 	Viewer       Viewer
 	Communities  []SACommunity
 	Users        []SAUser
+	Requests     []SARequest
 	DebugEnabled bool
 	DebugCount   int
+}
+
+// SARequest is one pending SaaS self-serve request for an ADDITIONAL community,
+// awaiting platform approval (the requester is already over their free quota).
+type SARequest struct {
+	ID        string
+	UserEmail string
+	Name      string
+	Slug      string
+	Reason    string
+	CreatedAt string
 }
 
 // SADebugEntry is one captured payload in the platform debug log viewer.
@@ -167,6 +179,10 @@ templ SuperAdminPage(data SuperAdminPageData) {
 			</div>
 			<div id="sa-cc-error"></div>
 		</section>
+
+		if SaaSEnabled {
+			@SARequestsCard(data.Requests)
+		}
 
 		@SADebugCard(data.DebugEnabled, data.DebugCount)
 
@@ -353,6 +369,56 @@ templ SAReindexResult(msg string) {
 // so PostBroadcast patches the result in place.
 templ SABroadcastResult(msg string) {
 	<div id="sa-broadcast-result"><p class="muted">{ msg }</p></div>
+}
+
+// approveReqJS / denyReqJS build the per-request click expressions: confirm,
+// stash the request id into sa_req_id, then post. The server re-loads the
+// pending row and re-guards everything — these prompts are UX, not the boundary.
+// Email is inlined the same lax way as the existing Disable/Ban buttons; slug is
+// JS-string-safe (a-z0-9-).
+func approveReqJS(q SARequest) string {
+	return "if(confirm('Approve and create " + q.Slug + " for " + q.UserEmail +
+		"? They become its owner.')){$sa_req_id='" + q.ID + "'; @post('/superadmin/community-request/approve')}"
+}
+
+func denyReqJS(q SARequest) string {
+	return "if(confirm('Deny the request for " + q.Slug + "?')){$sa_req_id='" + q.ID +
+		"'; @post('/superadmin/community-request/deny')}"
+}
+
+// SARequestsCard is the platform approval queue for SaaS self-serve requests to
+// create an ADDITIONAL community. Stable id #sa-requests so approve/deny morph
+// the remaining queue in place (§4.7). Approve provisions the community with the
+// requester as owner; deny just closes the request.
+templ SARequestsCard(reqs []SARequest) {
+	<section id="sa-requests" class="card">
+		<h2>Community requests ({ itoa(len(reqs)) })</h2>
+		<p class="muted">Members who already own a community asking for another. Approving creates it immediately with them as owner.</p>
+		<div id="sa-req-error"></div>
+		if len(reqs) == 0 {
+			<p class="muted">No pending requests.</p>
+		} else {
+			<table class="data-table">
+				<thead>
+					<tr><th>Requester</th><th>Community</th><th>Reason</th><th>Asked</th><th></th></tr>
+				</thead>
+				<tbody>
+					for _, q := range reqs {
+						<tr>
+							<td>{ q.UserEmail }</td>
+							<td><strong>{ q.Name }</strong> <span class="muted">/ { q.Slug }</span></td>
+							<td class="muted">{ q.Reason }</td>
+							<td class="muted">{ q.CreatedAt }</td>
+							<td>
+								<button data-on:click={ approveReqJS(q) }>Approve</button>
+								<button class="ghost danger" data-on:click={ denyReqJS(q) }>Deny</button>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	</section>
 }
 
 // SADebugCard is the shared on/off control for platform debug recording. It

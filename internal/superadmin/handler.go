@@ -107,14 +107,126 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	debugCount, _ := h.Debug.Count(r.Context())
+	// Pending self-serve community requests (SaaS). The query is cheap and returns
+	// nothing in self-host (no requests are ever filed there); the page only shows
+	// the card in SaaS via the SaaSEnabled template gate.
+	reqs, err := h.Communities.ListPendingRequests(r.Context())
+	if err != nil {
+		http.Error(w, "load requests: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	data := webtempl.SuperAdminPageData{
 		Viewer:       h.viewer(r),
 		Communities:  toSACommunities(comms),
 		Users:        toSAUsers(users),
+		Requests:     toSARequests(reqs),
 		DebugEnabled: h.Debug.Enabled(),
 		DebugCount:   debugCount,
 	}
 	_ = webtempl.SuperAdminPage(data).Render(r.Context(), w)
+}
+
+func toSARequests(in []community.PendingRequest) []webtempl.SARequest {
+	out := make([]webtempl.SARequest, 0, len(in))
+	for _, q := range in {
+		out = append(out, webtempl.SARequest{
+			ID:        q.ID,
+			UserEmail: q.UserEmail,
+			Name:      q.Name,
+			Slug:      q.Slug,
+			Reason:    q.Reason,
+			CreatedAt: q.CreatedAt.Format(dateFmt),
+		})
+	}
+	return out
+}
+
+type requestDecisionSignals struct {
+	ReqID string `json:"sa_req_id"`
+}
+
+// PostApproveRequest approves a pending self-serve request for an additional
+// community: it provisions the community with the requester as owner, then
+// stamps the request approved, and re-renders the queue.
+func (h *Handler) PostApproveRequest(w http.ResponseWriter, r *http.Request) {
+	var in requestDecisionSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "bad signals: "+err.Error()))
+		return
+	}
+	sse := render.NewSSE(w, r)
+	req, err := h.Communities.RequestByID(r.Context(), strings.TrimSpace(in.ReqID))
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "Request not found"))
+		return
+	}
+	if req.Status != community.RequestPending {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "Request already decided"))
+		return
+	}
+	user, err := h.AuthRepo.UserByID(r.Context(), req.UserID)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "Requester's account no longer exists"))
+		return
+	}
+	c, err := h.Provision.Create(r.Context(), provision.Input{
+		Slug: req.Slug, Name: req.Name, OwnerUserID: user.ID,
+		DisplayName: localPart(user.Email), Role: auth.RoleOwner,
+	})
+	if err != nil {
+		if errors.Is(err, community.ErrSlugTaken) {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "Slug '"+req.Slug+"' is now taken — deny and ask them to pick another"))
+			return
+		}
+		h.Log.Error("approve community request: provision", "req", req.ID, "err", err)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "Could not create the community: "+err.Error()))
+		return
+	}
+	if err := h.Communities.DecideRequest(r.Context(), req.ID, community.RequestApproved, deciderID(r), c.ID); err != nil {
+		// The community was created; only the stamp failed. Log it — a retry would
+		// hit ErrSlugTaken above, prompting the super-admin to deny the stale row.
+		h.Log.Error("approve community request: stamp decision", "req", req.ID, "community", c.ID, "err", err)
+	}
+	h.renderRequests(r, sse)
+}
+
+// PostDenyRequest closes a pending request without creating anything.
+func (h *Handler) PostDenyRequest(w http.ResponseWriter, r *http.Request) {
+	var in requestDecisionSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "bad signals: "+err.Error()))
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if err := h.Communities.DecideRequest(r.Context(), strings.TrimSpace(in.ReqID), community.RequestDenied, deciderID(r), ""); err != nil {
+		if errors.Is(err, community.ErrRequestNotFound) {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "Request already decided"))
+			return
+		}
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "Could not deny: "+err.Error()))
+		return
+	}
+	h.renderRequests(r, sse)
+}
+
+// deciderID returns the acting super-admin's user id for the audit stamp.
+func deciderID(r *http.Request) string {
+	if id, ok := auth.FromContext(r.Context()); ok {
+		return id.User.ID
+	}
+	return ""
+}
+
+// renderRequests reloads the pending queue and morphs the #sa-requests card.
+func (h *Handler) renderRequests(r *http.Request, sse *datastar.ServerSentEventGenerator) {
+	reqs, err := h.Communities.ListPendingRequests(r.Context())
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-req-error", "Could not reload requests: "+err.Error()))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.SARequestsCard(toSARequests(reqs)))
 }
 
 const dateFmt = "2006-01-02"

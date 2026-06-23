@@ -418,3 +418,61 @@ func TestPostCreateCommunity_SeedsDefaultChannel(t *testing.T) {
 		t.Fatalf("default channel slug = %q, want %q", ch.Slug, "general")
 	}
 }
+
+func postReqDecision(h *Handler, fn func(http.ResponseWriter, *http.Request), reqID string) {
+	body := `{"sa_req_id":"` + reqID + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/superadmin/community-request", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	fn(httptest.NewRecorder(), req)
+}
+
+// TestPostApproveRequest_ProvisionsAndStamps is the feature: approving a pending
+// request creates the community with the requester as owner and stamps the row.
+func TestPostApproveRequest_ProvisionsAndStamps(t *testing.T) {
+	h, aRepo, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	uid := insertUser(t, aRepo, "founder@x.com")
+	req, err := cRepo.CreateRequest(ctx, uid, "Beta", "beta", "a second space")
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+
+	postReqDecision(h, h.PostApproveRequest, req.ID)
+
+	c, err := cRepo.BySlug(ctx, "beta")
+	if err != nil {
+		t.Fatalf("approve must create the community: %v", err)
+	}
+	if owned, _ := aRepo.CountOwnedByUser(ctx, uid); owned != 1 {
+		t.Fatalf("requester must own the new community, owned=%d want 1", owned)
+	}
+	got, err := cRepo.RequestByID(ctx, req.ID)
+	if err != nil {
+		t.Fatalf("request by id: %v", err)
+	}
+	if got.Status != community.RequestApproved || got.CommunityID != c.ID {
+		t.Fatalf("request must be stamped approved+community, got %+v", got)
+	}
+}
+
+// TestPostDenyRequest_ClosesWithoutCreating confirms deny closes the request and
+// provisions nothing.
+func TestPostDenyRequest_ClosesWithoutCreating(t *testing.T) {
+	h, aRepo, cRepo := newTestHandler(t)
+	ctx := context.Background()
+	uid := insertUser(t, aRepo, "founder@x.com")
+	req, _ := cRepo.CreateRequest(ctx, uid, "Beta", "beta", "a second space")
+
+	postReqDecision(h, h.PostDenyRequest, req.ID)
+
+	if _, err := cRepo.BySlug(ctx, "beta"); err == nil {
+		t.Fatalf("deny must NOT create the community")
+	}
+	got, _ := cRepo.RequestByID(ctx, req.ID)
+	if got.Status != community.RequestDenied {
+		t.Fatalf("request status = %q, want %q", got.Status, community.RequestDenied)
+	}
+	if n, _ := cRepo.CountPendingRequestsForUser(ctx, uid); n != 0 {
+		t.Fatalf("denied request must not count as pending, got %d", n)
+	}
+}

@@ -1927,6 +1927,8 @@ func run() error {
 		r.Post("/superadmin/broadcast", superHandler.PostBroadcast)
 		r.Post("/superadmin/community/create", superHandler.PostCreateCommunity)
 		r.Post("/superadmin/community/delete", superHandler.PostDeleteCommunity)
+		r.Post("/superadmin/community-request/approve", superHandler.PostApproveRequest)
+		r.Post("/superadmin/community-request/deny", superHandler.PostDenyRequest)
 		r.Post("/superadmin/user/disable", superHandler.PostDisableUser)
 		r.Post("/superadmin/user/enable", superHandler.PostEnableUser)
 		r.Get("/superadmin/user/memberships", superHandler.GetUserMemberships)
