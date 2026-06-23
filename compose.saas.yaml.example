@@ -1,9 +1,12 @@
 # forumchat — SaaS (multi-tenant) docker-compose example.
 #
-# Brings up the full SaaS stack: the app plus the dependencies SaaS mode needs —
+# Brings up the SaaS PLATFORM dependencies (storage + messaging only):
 # Qdrant (per-community vector search), Garage (S3-compatible object storage),
-# NATS (pub/sub fan-out), Ollama (default embeddings/translate engine) and
-# Mailpit (dev SMTP catcher).
+# NATS (pub/sub fan-out) and Mailpit (dev SMTP catcher).
+#
+# There is NO LLM/Ollama service: AI agents, RAG embeddings and /translate are
+# BYO PER COMMUNITY (each owner sets its own host + model + keys at
+# /c/<slug>/settings), so the platform operator pays for ZERO AI compute.
 #
 # ── Configuration lives in .env ─────────────────────────────────────────────
 #   1.  cp .env.saas.example .env
@@ -48,17 +51,23 @@ services:
       S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
       S3_SECRET_KEY: "${S3_SECRET_KEY}"
       S3_USE_PATH_STYLE: "true"
-      # RAG → Qdrant (per-community collections) + Ollama embeddings. These are
-      # the PLATFORM DEFAULTS; each community can BYO its own model/host/Qdrant
-      # from /c/<slug>/settings.
-      RAG_ENABLED: "true"
+      # AI is BYO-per-community — the platform pays for NO AI compute.
+      # These flags only make the features AVAILABLE; each community supplies its
+      # OWN Ollama/LLM host + model + keys at /c/<slug>/settings and pays for its
+      # own compute. The platform provides only the vector STORAGE (Qdrant). There
+      # is deliberately NO platform Ollama: with no embed/translate host set, a
+      # community that hasn't configured its own simply gets an inert feature (no
+      # cost). Set any of these to "false" to disable the feature entirely.
+      RAG_ENABLED: "true"          # vector search available; Qdrant stores only opted-in communities' vectors
       RAG_BACKEND: "qdrant"
       QDRANT_URL: "http://qdrant:6333"
-      RAG_EMBED_BASEURL: "http://ollama:11434"
+      # RAG_EMBED_BASEURL: intentionally unset — communities BYO their embedder.
+      # RAG_EMBED_MODEL/DIM are only the fallback a community inherits if it sets
+      # its own host but not a model.
       RAG_EMBED_MODEL: "${RAG_EMBED_MODEL:-bge-m3}"
       RAG_EMBED_DIM: "${RAG_EMBED_DIM:-1024}"
-      # translate default engine (per-community overridable)
-      TRANSLATE_BASEURL: "http://ollama:11434"
+      # AI_ENABLED / TRANSLATE_ENABLED come from .env; agents + /translate are
+      # BYO too (no platform TRANSLATE_BASEURL → communities supply their own).
       # mail → Mailpit by default; point SMTP_* at a real relay in .env for prod.
       SMTP_HOST: "${SMTP_HOST:-mailpit}"
       SMTP_PORT: "${SMTP_PORT:-1025}"
@@ -168,32 +177,12 @@ services:
       - "8222:8222"   # monitoring
     restart: unless-stopped
 
-  # ── Embeddings / translate / default AI engine ──────────────────────────────
-  # Heavy (downloads models). Point RAG_EMBED_BASEURL / TRANSLATE_BASEURL at an
-  # external Ollama (or a GPU host) and drop this service if you'd rather not run
-  # it here. ollama-init pulls the embedding model so RAG works out of the box.
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama-data:/root/.ollama
-    ports:
-      - "11434:11434"
-    restart: unless-stopped
-    # For GPU acceleration, add a deploy.resources.reservations.devices block.
-
-  ollama-init:
-    image: curlimages/curl:latest
-    depends_on:
-      ollama: { condition: service_started }
-    environment:
-      RAG_EMBED_MODEL: "${RAG_EMBED_MODEL:-bge-m3}"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        until curl -sf http://ollama:11434/api/version >/dev/null 2>&1; do sleep 2; done
-        echo "pulling $${RAG_EMBED_MODEL} (this can take a while)"
-        curl -sf http://ollama:11434/api/pull -d "{\"name\":\"$${RAG_EMBED_MODEL}\"}"
-    restart: "no"
+  # NOTE: there is intentionally NO Ollama / LLM service here. AI agents, RAG
+  # embeddings and /translate are configured PER COMMUNITY (BYO host + model +
+  # keys) at /c/<slug>/settings, so each community pays for its own AI compute —
+  # not the platform operator. If you want to OFFER a shared embedder yourself,
+  # run Ollama separately and point a community's settings (or RAG_EMBED_BASEURL
+  # in .env) at it; the cost is then yours by choice.
 
   # ── Dev SMTP catcher (UI on :8025). Replace with a real relay for prod. ──────
   mailpit:
@@ -234,4 +223,3 @@ volumes:
   garage-meta:
   garage-data:
   nats-data:
-  ollama-data:
