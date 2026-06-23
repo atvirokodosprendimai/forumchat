@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/secretbox"
 )
 
 type Community struct {
@@ -23,7 +25,13 @@ type Community struct {
 	AgentRatePerCommunityMin int
 }
 
-type Repo struct{ DB *sql.DB }
+type Repo struct {
+	DB *sql.DB
+	// Secrets seals/opens per-community secret settings (Qdrant/S3 keys) at
+	// rest. Optional — nil falls back to a passthrough box (dev/tests). Wired
+	// in main.go from config.SecretsKey.
+	Secrets *secretbox.Box
+}
 
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 

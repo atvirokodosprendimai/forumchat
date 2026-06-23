@@ -53,6 +53,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/search"
+	"github.com/atvirokodosprendimai/forumchat/internal/secretbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 	"github.com/atvirokodosprendimai/forumchat/internal/superadmin"
 	"github.com/atvirokodosprendimai/forumchat/internal/support"
@@ -101,7 +102,16 @@ func run() error {
 	// super-admin surface (toggle + view + clear).
 	debugRec := debuglog.New(db, log)
 
+	// Secrets box seals per-community tenant secrets (Qdrant/S3 keys) at rest.
+	// Empty SECRETS_KEY (dev) yields a passthrough; prod+SaaS requires a real
+	// key (enforced in config.Load).
+	secrets, err := secretbox.New(cfg.SecretsKey)
+	if err != nil {
+		return fmt.Errorf("secretbox: %w", err)
+	}
+
 	cRepo := community.NewRepo(db)
+	cRepo.Secrets = secrets
 	bootCommunity, err := cRepo.BootstrapOrFetch(ctx, cfg.CommunitySlug, cfg.CommunityName)
 	if err != nil {
 		return fmt.Errorf("bootstrap community: %w", err)
