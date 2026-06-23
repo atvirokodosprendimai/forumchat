@@ -1040,8 +1040,8 @@ func (r *Repo) ListOpenReports(ctx context.Context, communityID string) ([]UserR
 }
 
 // ResolveUserReport marks a report resolved.
-func (r *Repo) ResolveUserReport(ctx context.Context, id string) error {
-	_, err := r.DB.ExecContext(ctx, `UPDATE user_reports SET status = 'resolved' WHERE id = ?`, id)
+func (r *Repo) ResolveUserReport(ctx context.Context, id, communityID string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE user_reports SET status = 'resolved' WHERE id = ? AND community_id = ?`, id, communityID)
 	return err
 }
 

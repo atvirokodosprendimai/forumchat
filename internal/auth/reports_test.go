@@ -34,7 +34,7 @@ func TestUserReports_RoundTrip(t *testing.T) {
 		t.Fatalf("display names not resolved: %+v", got)
 	}
 
-	if err := repo.ResolveUserReport(ctx, "rep-1"); err != nil {
+	if err := repo.ResolveUserReport(ctx, "rep-1", communityID); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	if open, _ := repo.ListOpenReports(ctx, communityID); len(open) != 0 {

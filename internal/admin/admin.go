@@ -90,6 +90,26 @@ func (h *Handler) cslug(r *http.Request) string {
 	return ""
 }
 
+// membershipInCommunity loads the membership by id and confirms it belongs
+// to the admin's URL-slug community. These handlers are RequireRole(admin)
+// for the *slug* community only, but acted on a raw query-param membership
+// id — so an admin of community A could ban/remove/approve/role-change any
+// member of community B by passing a foreign id. Writes 404 and returns
+// ok=false on miss or cross-tenant mismatch. (Super-admin cross-community
+// moderation lives in internal/superadmin, by design.)
+func (h *Handler) membershipInCommunity(w http.ResponseWriter, r *http.Request, membershipID string) (auth.Membership, bool) {
+	m, err := h.Repo.MembershipByID(r.Context(), membershipID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return auth.Membership{}, false
+	}
+	if m.CommunityID != h.cid(r) {
+		http.NotFound(w, r)
+		return auth.Membership{}, false
+	}
+	return m, true
+}
+
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 	v := webtempl.Viewer{CommunityName: h.cname(r), CommunitySlug: h.cslug(r)}
 	if id, ok := auth.FromContext(r.Context()); ok {
@@ -167,6 +187,10 @@ func (h *Handler) PostApprove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
+	m, ok := h.membershipInCommunity(w, r, id)
+	if !ok {
+		return
+	}
 	if err := h.Repo.ApproveMembership(r.Context(), id); err != nil && !errors.Is(err, auth.ErrNotFound) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -175,9 +199,7 @@ func (h *Handler) PostApprove(w http.ResponseWriter, r *http.Request) {
 	// notices the new member. Best-effort — if any of this fails the approve
 	// itself still succeeded.
 	if h.Chat != nil {
-		if m, err := h.Repo.MembershipByID(r.Context(), id); err == nil {
-			h.Chat.Welcome(r.Context(), m.CommunityID, m.DisplayName)
-		}
+		h.Chat.Welcome(r.Context(), m.CommunityID, m.DisplayName)
 	}
 	h.bumpRoster(r)
 	h.refreshAdminLists(w, r)
@@ -237,6 +259,9 @@ func (h *Handler) PostReject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
+	if _, ok := h.membershipInCommunity(w, r, id); !ok {
+		return
+	}
 	if err := h.Repo.RejectMembership(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -262,9 +287,19 @@ func (h *Handler) PostBan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	m, err := h.Repo.MembershipByID(r.Context(), id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	m, ok := h.membershipInCommunity(w, r, id)
+	if !ok {
+		return
+	}
+	// Same guards PostRemoveMember already has: an admin can't lock
+	// themselves out, and can't ban a fellow admin/owner through this path
+	// (which would orphan the community's privileged access).
+	if vid, ok := auth.FromContext(r.Context()); ok && vid.User.ID == m.UserID {
+		http.Error(w, "cannot ban yourself", http.StatusBadRequest)
+		return
+	}
+	if m.Role.AtLeast(auth.RoleAdmin) {
+		http.Error(w, "cannot ban an admin or owner here", http.StatusBadRequest)
 		return
 	}
 	var until time.Time
@@ -313,9 +348,8 @@ func (h *Handler) PostRemoveMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	m, err := h.Repo.MembershipByID(r.Context(), membershipID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	m, ok := h.membershipInCommunity(w, r, membershipID)
+	if !ok {
 		return
 	}
 	if id, ok := auth.FromContext(r.Context()); ok && id.User.ID == m.UserID {
@@ -354,6 +388,9 @@ func (h *Handler) PostUnban(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if _, ok := h.membershipInCommunity(w, r, id); !ok {
 		return
 	}
 	if err := h.Repo.UpdateBan(r.Context(), id, nil); err != nil {
@@ -438,7 +475,7 @@ func (h *Handler) PostResolveReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
-	if err := h.Repo.ResolveUserReport(r.Context(), id); err != nil {
+	if err := h.Repo.ResolveUserReport(r.Context(), id, h.cid(r)); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -465,9 +502,8 @@ func (h *Handler) PostSetRole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id or invalid role", http.StatusBadRequest)
 		return
 	}
-	m, err := h.Repo.MembershipByID(r.Context(), id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	m, ok := h.membershipInCommunity(w, r, id)
+	if !ok {
 		return
 	}
 	if vid, ok := auth.FromContext(r.Context()); ok && vid.User.ID == m.UserID {
