@@ -472,6 +472,37 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListByCommunity returns every upload row for a community, oldest first. Used
+// by the data-export path to enumerate a community's media for archiving.
+func (s *Store) ListByCommunity(ctx context.Context, communityID string) ([]Upload, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT id, owner_id, community_id, sha256, mime, size, rel_path, filename, created_at, COALESCE(store_key,'')
+		FROM uploads WHERE community_id = ? ORDER BY created_at`, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Upload
+	for rows.Next() {
+		var u Upload
+		var created int64
+		if err := rows.Scan(&u.ID, &u.OwnerID, &u.CommunityID, &u.SHA256, &u.MIME,
+			&u.Size, &u.RelPath, &u.Filename, &created, &u.StoreKey); err != nil {
+			return nil, err
+		}
+		u.CreatedAt = time.Unix(created, 0)
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// OpenBlob returns a reader for an upload's raw bytes, resolving the correct blob
+// store (platform default or the community's own migrated bucket) from the row's
+// store_key. The caller must Close the reader.
+func (s *Store) OpenBlob(ctx context.Context, u Upload) (io.ReadCloser, error) {
+	return s.readStoreFor(ctx, u).Open(ctx, u.RelPath)
+}
+
 // DeleteByCommunity removes every upload owned by a community — both the rows
 // and the underlying blobs. Call it BEFORE the community row is cascade-deleted,
 // otherwise the upload rows are gone and their blobs leak. Each delete goes
