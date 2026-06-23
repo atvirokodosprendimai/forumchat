@@ -277,6 +277,11 @@ func (s *Service) CopyIssueAttachmentToDocs(ctx context.Context, projectID, issu
 	if err != nil {
 		return Attachment{}, fmt.Errorf("issue lookup: %w", err)
 	}
+	// The source issue must belong to the URL project, else a foreign
+	// project's/tenant's issue attachment could be copied into this project.
+	if issue.ProjectID != projectID {
+		return Attachment{}, ErrNotFound
+	}
 	finalName := normaliseCopyFilename(filename, issue.Title, u)
 	a := Attachment{
 		ID:         uuid.NewString(),

@@ -676,6 +676,22 @@ func (h *Handler) PostAttachmentMove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "target project is in a different community", http.StatusBadRequest)
 		return
 	}
+	// Authorize: admin or the uploader, and the attachment must belong to the
+	// source project — else a foreign project's attachment could be relocated.
+	caller, ok := h.callerIdentity(r)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	att, err := h.Repo.AttachmentByID(r.Context(), aid)
+	if err != nil || att.ProjectID != from.ID {
+		http.NotFound(w, r)
+		return
+	}
+	if !(caller.Role.AtLeast(auth.RoleAdmin) || (caller.UserID != "" && att.UploaderID == caller.UserID)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if err := h.Repo.MoveAttachmentToProject(r.Context(), aid, to.ID); err != nil {
 		h.Log.Warn("projects attachment move", "err", err, "from", pid, "to", to.ID, "aid", aid)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -699,6 +715,22 @@ func (h *Handler) PostIssueRefetch(w http.ResponseWriter, r *http.Request) {
 	iid := chi.URLParam(r, "iid")
 	if iid == "" {
 		http.Error(w, "missing issue id", http.StatusBadRequest)
+		return
+	}
+	// Authorize like the move/edit paths: author or admin, issue ∈ URL project.
+	// Without this any caller could refetch (re-pull email into) any issue by id.
+	caller, ok := h.callerIdentity(r)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	issue, err := h.Repo.IssueByID(r.Context(), iid)
+	if err != nil || issue.ProjectID != pid {
+		http.NotFound(w, r)
+		return
+	}
+	if !issueEditable(caller, issue) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	if h.RefetchEmailFn == nil {
@@ -749,10 +781,21 @@ func (h *Handler) PostIssueMove(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "target project is in a different community", http.StatusBadRequest)
 		return
 	}
-	// Confirm the issue actually belongs to the source project, else a
-	// foreign project's/tenant's issue could be relocated in by id.
-	if i, err := h.Repo.IssueByID(r.Context(), iid); err != nil || i.ProjectID != from.ID {
+	// Authorize: only the issue author or an admin may move it (mirrors the
+	// UI CanEdit gate), and the issue must belong to the source project — else
+	// an unauthenticated caller or a foreign project's issue could be moved.
+	caller, ok := h.callerIdentity(r)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	issue, err := h.Repo.IssueByID(r.Context(), iid)
+	if err != nil || issue.ProjectID != from.ID {
 		http.NotFound(w, r)
+		return
+	}
+	if !issueEditable(caller, issue) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	if err := h.Repo.MoveIssueToProject(r.Context(), iid, to.ID); err != nil {

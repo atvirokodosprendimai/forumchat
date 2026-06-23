@@ -56,6 +56,16 @@ func (h *Handler) callerIdentity(r *http.Request) (Identity, bool) {
 	return h.guestIdentity(r)
 }
 
+// issueEditable reports whether caller may edit/move/refetch the issue: its
+// author (auth user or share guest) or an admin. Mirrors the UI CanEdit gate.
+func issueEditable(caller Identity, i Issue) bool {
+	if caller.Role.AtLeast(auth.RoleAdmin) {
+		return true
+	}
+	return (caller.UserID != "" && i.CreatorUserID == caller.UserID) ||
+		(caller.GuestID != "" && i.CreatorGuestID == caller.GuestID)
+}
+
 // guestIdentity resolves a share-link guest session, scoped to the one
 // project the guest was admitted to. Returns false for anyone who is
 // neither an admitted guest of the URL project nor (per callerIdentity) a

@@ -129,13 +129,22 @@ func (s *Service) UpdateIssueBody(ctx context.Context, projectID, issueID, bodyM
 	return nil
 }
 
+// assertIssueInProject confirms issueID belongs to projectID — the project/
+// tenant boundary for issue sub-resources (comments, attachments). Without it
+// an admin of the URL project could mutate another project's (or another
+// tenant's) issue comments/attachments by passing a foreign issue id.
+func (s *Service) assertIssueInProject(ctx context.Context, projectID, issueID string) error {
+	i, err := s.Repo.IssueByID(ctx, issueID)
+	if err != nil || i.ProjectID != projectID {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // AddIssueComment persists a new comment + publishes.
 func (s *Service) AddIssueComment(ctx context.Context, projectID, issueID string, author Identity, bodyMD string) (IssueComment, error) {
-	// Bind the issue to the URL project (the update/delete paths already do).
-	// Without this a comment could be attached to another project's/tenant's
-	// issue by id.
-	if i, err := s.Repo.IssueByID(ctx, issueID); err != nil || i.ProjectID != projectID {
-		return IssueComment{}, ErrNotFound
+	if err := s.assertIssueInProject(ctx, projectID, issueID); err != nil {
+		return IssueComment{}, err
 	}
 	bodyMD = strings.TrimSpace(bodyMD)
 	if bodyMD == "" {
@@ -164,6 +173,9 @@ func (s *Service) AddIssueComment(ctx context.Context, projectID, issueID string
 
 // UpdateIssueComment edits with grace window enforcement.
 func (s *Service) UpdateIssueComment(ctx context.Context, projectID, issueID, commentID string, caller Identity, callerIsAdmin bool, bodyMD string) error {
+	if err := s.assertIssueInProject(ctx, projectID, issueID); err != nil {
+		return err
+	}
 	c, err := s.Repo.IssueCommentByID(ctx, commentID)
 	if err != nil {
 		return fmt.Errorf("issue comment lookup: %w", err)
@@ -194,6 +206,9 @@ func (s *Service) UpdateIssueComment(ctx context.Context, projectID, issueID, co
 
 // DeleteIssueComment soft-deletes.
 func (s *Service) DeleteIssueComment(ctx context.Context, projectID, issueID, commentID string, caller Identity, callerIsAdmin bool) error {
+	if err := s.assertIssueInProject(ctx, projectID, issueID); err != nil {
+		return err
+	}
 	c, err := s.Repo.IssueCommentByID(ctx, commentID)
 	if err != nil {
 		return fmt.Errorf("issue comment lookup: %w", err)
@@ -230,8 +245,8 @@ func (s *Service) DeleteIssueComment(ctx context.Context, projectID, issueID, co
 func (s *Service) AddIssueAttachment(ctx context.Context, projectID, issueID, commentID, communityID, mime, filename string, body io.Reader, uploader Identity) (IssueAttachment, error) {
 	// Bind the issue to the URL project before storing any bytes, so a file
 	// can't be attached to another project's/tenant's issue by id.
-	if i, err := s.Repo.IssueByID(ctx, issueID); err != nil || i.ProjectID != projectID {
-		return IssueAttachment{}, ErrNotFound
+	if err := s.assertIssueInProject(ctx, projectID, issueID); err != nil {
+		return IssueAttachment{}, err
 	}
 	ownerID := uploader.UserID
 	if ownerID == "" {
@@ -266,6 +281,9 @@ func (s *Service) AddIssueAttachment(ctx context.Context, projectID, issueID, co
 // file (uploads.Store.Delete no-ops when other rows still reference the
 // same content hash). Uploader OR admin.
 func (s *Service) DeleteIssueAttachment(ctx context.Context, projectID, issueID, attID string, caller Identity, callerIsAdmin bool) error {
+	if err := s.assertIssueInProject(ctx, projectID, issueID); err != nil {
+		return err
+	}
 	a, err := s.Repo.IssueAttachmentByID(ctx, attID)
 	if err != nil {
 		return fmt.Errorf("attachment lookup: %w", err)
