@@ -60,11 +60,20 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	// A URL field left at the platform default is NOT a tenant override: the form
+	// pre-fills each field with the resolved effective value, so an owner who only
+	// changes, say, the join policy still re-submits the platform's default Ollama/
+	// Qdrant host (which legitimately may be localhost). Normalize those back to an
+	// empty override so they keep inheriting — and so the SSRF guard below inspects
+	// only genuine tenant-supplied overrides, never the platform's own default host.
+	trURL := overrideURL(in.TranslateBaseURL, h.Cfg.TranslateBaseURL)
+	ragURL := overrideURL(in.RAGEmbedBaseURL, h.Cfg.RAGEmbedBaseURL)
+	qdrantURL := overrideURL(in.RAGQdrantURL, h.Cfg.QdrantURL)
 	// SSRF guard: tenant-supplied outbound URLs must not target internal hosts
 	// (the platform dials them). Self-host is exempt — it legitimately uses
 	// localhost daemons.
 	if h.Cfg.SAAS {
-		for _, u := range []string{in.TranslateBaseURL, in.RAGEmbedBaseURL, in.RAGQdrantURL} {
+		for _, u := range []string{trURL, ragURL, qdrantURL} {
 			if blocked, reason := netguard.BlockedURL(u); blocked {
 				sse := render.NewSSE(w, r)
 				_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-settings-error", "Rejected URL — "+reason))
@@ -88,17 +97,17 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	tr := in.TranslateEnabled
 	s.TranslateEnabled = &tr
-	s.TranslateBaseURL = in.TranslateBaseURL
+	s.TranslateBaseURL = trURL
 	s.TranslateModel = in.TranslateModel
 	rag := in.RAGEnabled
 	s.RAGEnabled = &rag
-	s.RAGEmbedBaseURL = in.RAGEmbedBaseURL
+	s.RAGEmbedBaseURL = ragURL
 	s.RAGEmbedModel = in.RAGEmbedModel
 	if in.RAGEmbedDim < 0 {
 		in.RAGEmbedDim = 0 // clamp; 0 → falls back to the platform default dim
 	}
 	s.RAGEmbedDim = in.RAGEmbedDim
-	s.RAGQdrantURL = in.RAGQdrantURL
+	s.RAGQdrantURL = qdrantURL
 	// Write-only secret: only overwrite when the owner typed a new key, so a
 	// blank field on save keeps the stored key rather than wiping it.
 	if strings.TrimSpace(in.RAGQdrantAPIKey) != "" {
@@ -214,6 +223,19 @@ func (h *Handler) PostMigrateStorage(w http.ResponseWriter, r *http.Request) {
 		h.Log.Info("storage migrate complete", "community", cid, "migrated", n)
 	}()
 	_ = sse.PatchElementTempl(webtempl.OwnerSettingsForm(h.settingsData(r, c, s, true)))
+}
+
+// overrideURL returns the tenant override for an outbound URL. A blank field or
+// one left at the platform default means "inherit the platform default", so it
+// is stored as empty (and skipped by the SSRF guard) rather than pinned as an
+// override equal to the default. See PostSettings for why the form re-submits
+// the default.
+func overrideURL(submitted, def string) string {
+	submitted = strings.TrimSpace(submitted)
+	if submitted == "" || submitted == def {
+		return ""
+	}
+	return submitted
 }
 
 // settingsData maps the persisted Settings onto the view model, resolving the
