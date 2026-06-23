@@ -1495,7 +1495,7 @@ func run() error {
 
 	pmRepo := privatemsg.NewRepo(db)
 	pmBus := privatemsg.NewBus()
-	pmSvc := &privatemsg.Service{Repo: pmRepo, Bus: pmBus}
+	pmSvc := &privatemsg.Service{Repo: pmRepo, Bus: pmBus, Blocks: aRepo}
 	pmHandler := &privatemsg.Handler{
 		Svc:      pmSvc,
 		Repo:     pmRepo,

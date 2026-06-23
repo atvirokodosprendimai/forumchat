@@ -13,17 +13,36 @@ import (
 )
 
 var (
-	ErrSelfMessage      = errors.New("cannot message yourself")
-	ErrNotAMember       = errors.New("not a participant of this thread")
-	ErrNotPending       = errors.New("thread is not pending")
-	ErrNotAcceptedYet   = errors.New("thread not accepted")
-	ErrThreadDeclined   = errors.New("thread was declined")
-	ErrEmptyBody        = errors.New("body cannot be empty")
+	ErrSelfMessage    = errors.New("cannot message yourself")
+	ErrNotAMember     = errors.New("not a participant of this thread")
+	ErrNotPending     = errors.New("thread is not pending")
+	ErrNotAcceptedYet = errors.New("thread not accepted")
+	ErrThreadDeclined = errors.New("thread was declined")
+	ErrEmptyBody      = errors.New("body cannot be empty")
+	ErrBlocked        = errors.New("you cannot message this user")
 )
+
+// BlockChecker reports whether blockerID has blocked blockedID. Implemented by
+// auth.Repo; declared here so privatemsg doesn't import auth (avoids a cycle).
+type BlockChecker interface {
+	IsBlocked(ctx context.Context, blockerID, blockedID string) (bool, error)
+}
 
 type Service struct {
 	Repo *Repo
 	Bus  *Bus
+	// Blocks gates messaging when the other party has blocked the sender.
+	// Optional (nil = no block enforcement, e.g. in unit tests).
+	Blocks BlockChecker
+}
+
+// blockedFrom reports whether otherUser has blocked sender (so sender may not
+// message them). Fails closed on a lookup error.
+func (s *Service) blockedFrom(ctx context.Context, sender, otherUser string) (bool, error) {
+	if s.Blocks == nil {
+		return false, nil
+	}
+	return s.Blocks.IsBlocked(ctx, otherUser, sender)
 }
 
 // CreateRequest persists a brand-new pending DM thread plus its first message.
@@ -36,6 +55,12 @@ func (s *Service) CreateRequest(ctx context.Context, fromUser, toUser, body, sou
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return Thread{}, Message{}, ErrEmptyBody
+	}
+	// A user who blocked the sender must not receive a new DM request from them.
+	if blocked, err := s.blockedFrom(ctx, fromUser, toUser); err != nil {
+		return Thread{}, Message{}, err
+	} else if blocked {
+		return Thread{}, Message{}, ErrBlocked
 	}
 
 	now := time.Now().UTC()
@@ -97,6 +122,15 @@ func (s *Service) SendMessage(ctx context.Context, threadID, fromUser, body stri
 	}
 	if !t.HasMember(fromUser) {
 		return Message{}, ErrNotAMember
+	}
+	other := t.RecipientUserID
+	if fromUser == t.RecipientUserID {
+		other = t.InitiatorUserID
+	}
+	if blocked, err := s.blockedFrom(ctx, fromUser, other); err != nil {
+		return Message{}, err
+	} else if blocked {
+		return Message{}, ErrBlocked
 	}
 	if t.Status == StatusDeclined {
 		return Message{}, ErrThreadDeclined

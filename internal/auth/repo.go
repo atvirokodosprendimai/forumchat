@@ -962,6 +962,22 @@ func (r *Repo) UnblockUser(ctx context.Context, blockerID, blockedID, communityI
 
 // ListBlocked returns the user_ids blockerID has blocked in the
 // community. Empty blockerID returns nil without hitting the DB.
+// IsBlocked reports whether blockerID has blocked blockedID in ANY community.
+// Blocks are stored per-community, but a DM crosses community scope, so a block
+// anywhere is treated as blocking for messaging purposes.
+func (r *Repo) IsBlocked(ctx context.Context, blockerID, blockedID string) (bool, error) {
+	if blockerID == "" || blockedID == "" {
+		return false, nil
+	}
+	var n int
+	if err := r.DB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM user_blocks WHERE blocker_id = ? AND blocked_id = ?`,
+		blockerID, blockedID).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (r *Repo) ListBlocked(ctx context.Context, blockerID, communityID string) ([]string, error) {
 	if blockerID == "" {
 		return nil, nil
