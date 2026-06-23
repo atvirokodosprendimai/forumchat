@@ -18,6 +18,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
+	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
@@ -41,6 +42,9 @@ type Handler struct {
 	Svc         *auth.Service
 	Chat        *chat.Handler
 	Communities *community.Repo
+	// Provision creates a community + its #general + first member in the correct
+	// order. Shared with the super-admin and SaaS self-serve create paths.
+	Provision *provision.Service
 	// Roster, when set, is pinged after member-state mutations so the
 	// chat roster reflects role/ban changes without waiting for the next
 	// presence heartbeat.
@@ -516,42 +520,24 @@ func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "No user with that email"))
 		return
 	}
-	c, err := h.Communities.Create(r.Context(), slug, name)
+	display := user.Email
+	if i := strings.IndexByte(display, '@'); i > 0 {
+		display = display[:i]
+	}
+	// The first member of a brand-new community is its owner (community
+	// super-admin), so in SaaS they can reach /settings and configure the tenant.
+	// Harmless in self-host (owner ≥ admin; /settings unmounted). Provisioning
+	// (create + seed #general + seed member) lives in one shared place.
+	c, err := h.Provision.Create(r.Context(), provision.Input{
+		Slug: slug, Name: name, OwnerUserID: user.ID,
+		DisplayName: display, Role: auth.RoleOwner,
+	})
 	if err != nil {
 		if errors.Is(err, community.ErrSlugTaken) {
 			_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Slug already in use"))
 			return
 		}
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", err.Error()))
-		return
-	}
-	// Seed the undeletable #general channel: a runtime-created community is
-	// never seen by migration 00032 or the boot-time EnsureDefaultChannel, and
-	// this handler redirects straight into the community's chat — without a
-	// channel that first visit fails with "load channel: sql: no rows in
-	// result set".
-	if _, err := h.Chat.Repo.EnsureDefaultChannel(r.Context(), c.ID); err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Could not seed default channel: "+err.Error()))
-		return
-	}
-	now := time.Now()
-	display := user.Email
-	if i := strings.IndexByte(display, '@'); i > 0 {
-		display = display[:i]
-	}
-	m := auth.Membership{
-		ID:          uuid.NewString(),
-		UserID:      user.ID,
-		CommunityID: c.ID,
-		DisplayName: display,
-		// The first member of a brand-new community is its owner (community
-		// super-admin), so in SaaS they can reach /settings and configure the
-		// tenant. Harmless in self-host (owner ≥ admin; /settings unmounted).
-		Role:       auth.RoleOwner,
-		ApprovedAt: &now,
-	}
-	if err := h.Repo.CreateMembership(r.Context(), nil, m); err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("cc-error", "Could not add first member: "+err.Error()))
 		return
 	}
 	_ = sse.Redirect("/c/" + c.Slug + "/chat")

@@ -50,6 +50,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
+	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	"github.com/atvirokodosprendimai/forumchat/internal/push"
 	"github.com/atvirokodosprendimai/forumchat/internal/rag"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -405,11 +406,25 @@ func run() error {
 		Log:           log,
 	}
 
+	// provSvc is the single create → seed-#general → seed-first-member sequence,
+	// shared by the super-admin, per-community admin, and SaaS self-serve create
+	// paths. SeedChannel is a closure so internal/provision stays free of a chat
+	// import (no cycle).
+	provSvc := &provision.Service{
+		Communities: cRepo,
+		Auth:        aRepo,
+		SeedChannel: func(ctx context.Context, communityID string) error {
+			_, err := chatRepo.EnsureDefaultChannel(ctx, communityID)
+			return err
+		},
+	}
+
 	adminHandler := &admin.Handler{
 		Repo:          aRepo,
 		Svc:           svc,
 		Chat:          chatHandler,
 		Communities:   cRepo,
+		Provision:     provSvc,
 		Roster:        presenceTracker,
 		Mail:          mailer,
 		BaseURL:       cfg.BaseURL,
@@ -1887,7 +1902,7 @@ func run() error {
 
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
-	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Log: log, Bus: chatHandler.Bus, ChatRepo: chatRepo, NATS: nc, Chat: chatHandler, Debug: debugRec}
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, ChatRepo: chatRepo, NATS: nc, Chat: chatHandler, Debug: debugRec}
 	if ragSvc != nil {
 		superHandler.RAG = ragSvc
 	}

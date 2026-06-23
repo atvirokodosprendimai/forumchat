@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
@@ -24,6 +23,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
+	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -48,7 +48,10 @@ type ChatBroadcaster interface {
 type Handler struct {
 	AuthRepo    *auth.Repo
 	Communities *community.Repo
-	Log         *slog.Logger
+	// Provision creates a community + its #general + first member in the correct
+	// order, shared with the admin/self-serve/approval create paths.
+	Provision *provision.Service
+	Log       *slog.Logger
 	// Bus fans out a chat refresh after a system-ban wipes content so open
 	// chat tabs drop the soft-deleted messages live. It is the process-wide
 	// chat bus, so the global chat inbox (GetChatStream) subscribes to it to
@@ -180,35 +183,16 @@ func (h *Handler) PostCreateCommunity(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-cc-error", "No user with that email"))
 		return
 	}
-	c, err := h.Communities.Create(r.Context(), slug, name)
-	if err != nil {
+	// Provision (create + seed #general + seed first member) lives in one place.
+	if _, err := h.Provision.Create(r.Context(), provision.Input{
+		Slug: slug, Name: name, OwnerUserID: user.ID,
+		DisplayName: localPart(user.Email), Role: auth.RoleAdmin,
+	}); err != nil {
 		if errors.Is(err, community.ErrSlugTaken) {
 			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-cc-error", "Slug already in use"))
 			return
 		}
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-cc-error", err.Error()))
-		return
-	}
-	// Seed the undeletable #general channel. Migration 00032 only backfills
-	// communities that existed at migration time and the boot-time
-	// EnsureDefaultChannel never sees a runtime-created community, so without
-	// this the new community has no channel and the first visit to its chat
-	// fails with "load channel: sql: no rows in result set".
-	if _, err := h.ChatRepo.EnsureDefaultChannel(r.Context(), c.ID); err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-cc-error", "Could not seed default channel: "+err.Error()))
-		return
-	}
-	now := time.Now()
-	m := auth.Membership{
-		ID:          uuid.NewString(),
-		UserID:      user.ID,
-		CommunityID: c.ID,
-		DisplayName: localPart(user.Email),
-		Role:        auth.RoleAdmin,
-		ApprovedAt:  &now,
-	}
-	if err := h.AuthRepo.CreateMembership(r.Context(), nil, m); err != nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-cc-error", "Could not add first admin: "+err.Error()))
 		return
 	}
 	_ = sse.Redirect("/superadmin")

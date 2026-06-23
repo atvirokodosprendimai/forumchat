@@ -16,6 +16,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 )
 
@@ -32,7 +33,16 @@ func newTestHandler(t *testing.T) (*Handler, *auth.Repo, *community.Repo) {
 	}
 	aRepo := auth.NewRepo(db)
 	cRepo := community.NewRepo(db)
-	return &Handler{AuthRepo: aRepo, Communities: cRepo}, aRepo, cRepo
+	chatRepo := chat.NewRepo(db)
+	prov := &provision.Service{
+		Communities: cRepo,
+		Auth:        aRepo,
+		SeedChannel: func(ctx context.Context, communityID string) error {
+			_, err := chatRepo.EnsureDefaultChannel(ctx, communityID)
+			return err
+		},
+	}
+	return &Handler{AuthRepo: aRepo, Communities: cRepo, ChatRepo: chatRepo, Provision: prov}, aRepo, cRepo
 }
 
 // seedCommunityWithMember creates a community plus one approved member, so a
