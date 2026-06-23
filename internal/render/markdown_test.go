@@ -132,3 +132,41 @@ func TestLinkNewTab_FromRenderedMarkdown(t *testing.T) {
 		t.Fatalf("expected href preserved in %q", out)
 	}
 }
+
+func TestWrapHTMLDocument(t *testing.T) {
+	t.Parallel()
+	// The body fragment is embedded verbatim (it was sanitized at render time);
+	// the title is escaped since it is an arbitrary caller string.
+	body, err := render.RenderMarkdown("Hello **world** and a [link](https://example.com).")
+	if err != nil {
+		t.Fatalf("RenderMarkdown: %v", err)
+	}
+	doc := render.WrapHTMLDocument(body, `My <Reply> & "stuff"`)
+
+	if !strings.HasPrefix(doc, "<!doctype html>") {
+		t.Errorf("missing doctype, got prefix: %.20q", doc)
+	}
+	for _, want := range []string{"<html", "<head>", "</body>", "</html>"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("standalone doc missing %q", want)
+		}
+	}
+	if !strings.Contains(doc, "<strong>world</strong>") {
+		t.Errorf("body fragment not embedded:\n%s", doc)
+	}
+	// Title escaped, not injected as live markup.
+	if !strings.Contains(doc, "<title>My &lt;Reply&gt; &amp; &#34;stuff&#34;</title>") {
+		t.Errorf("title not escaped:\n%s", doc)
+	}
+	if strings.Contains(doc, "<title>My <Reply>") {
+		t.Errorf("raw title leaked into document")
+	}
+}
+
+func TestWrapHTMLDocument_EmptyTitleFallback(t *testing.T) {
+	t.Parallel()
+	doc := render.WrapHTMLDocument("<p>x</p>", "   ")
+	if !strings.Contains(doc, "<title>Document</title>") {
+		t.Errorf("blank title should fall back to Document:\n%s", doc)
+	}
+}

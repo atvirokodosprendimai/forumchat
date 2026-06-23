@@ -276,6 +276,8 @@ templ AgentBubble(slug, threadID string, m AgentMsgView) {
 				}
 				if !m.Generating && render.LooksLikeHTML(m.BodyMD) {
 					@SourceTools(m.BodyMD, "agent-reply.html", render.IsHTMLDocument(m.BodyMD))
+				} else if !m.Generating && m.BodyMD != "" {
+					@ReplyDownload(m.BodyMD, render.WrapHTMLDocument(m.BodyHTML, "Agent reply"), "agent-reply")
 				}
 				<div class="agent-bubble-actions">
 					if m.Interrupted || m.Errored {

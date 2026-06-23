@@ -29,3 +29,19 @@ templ SourceTools(rawMD, filename string, fullDoc bool) {
 		<button type="button" class="src-btn" data-on:click={ "window.fcDownloadSource(el," + strconv.Quote(filename) + ")" }>⬇ Download</button>
 	</div>
 }
+
+// ReplyDownload is the download affordance for an agent reply whose body is
+// prose (NOT a hand-written HTML page — that case is handled by SourceTools).
+// It lets a member save the whole response as raw Markdown or as a self-contained
+// HTML file (rawMD converted server-side via render.WrapHTMLDocument). Both
+// payloads ride hidden in the bubble; fcDownloadReply reads the requested one and
+// saves it as a Blob — pure client-side, no server round-trip, morph-safe (the
+// payloads are part of the morphed fragment, like SourceTools' .body-source).
+templ ReplyDownload(rawMD, htmlDoc, baseName string) {
+	<pre class="reply-dl-data dl-md" aria-hidden="true"><code>{ rawMD }</code></pre>
+	<pre class="reply-dl-data dl-html" aria-hidden="true"><code>{ htmlDoc }</code></pre>
+	<div class="body-tools">
+		<button type="button" class="src-btn" data-on:click={ "window.fcDownloadReply(el,'md'," + strconv.Quote(baseName) + ")" }>⬇ Markdown</button>
+		<button type="button" class="src-btn" data-on:click={ "window.fcDownloadReply(el,'html'," + strconv.Quote(baseName) + ")" }>⬇ HTML</button>
+	</div>
+}

@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"fmt"
+	stdhtml "html"
 	"regexp"
 	"strings"
 	"sync"
@@ -173,6 +174,49 @@ var htmlDocRE = regexp.MustCompile(`(?i)<(?:!doctype\s+html|html[\s>])`)
 // a prominent sandboxed preview instead.
 func IsHTMLDocument(s string) bool {
 	return s != "" && htmlDocRE.MatchString(s)
+}
+
+// WrapHTMLDocument turns an already-rendered, already-sanitized body fragment
+// (the output of RenderMarkdown, i.e. what we store as BodyHTML) into a
+// self-contained, downloadable HTML document. It is the "convert markdown to
+// HTML and save as a file" path for an agent reply whose source is prose, not a
+// hand-written HTML page (those go through SourceTools instead). The fragment is
+// embedded verbatim — it was sanitized at render time — while the title is
+// escaped since it can be an arbitrary caller string. Styling is inlined so the
+// file renders standalone with no external assets.
+func WrapHTMLDocument(bodyHTML, title string) string {
+	t := strings.TrimSpace(title)
+	if t == "" {
+		t = "Document"
+	}
+	return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>` + stdhtml.EscapeString(t) + `</title>
+<style>
+:root { color-scheme: light dark; }
+body { max-width: 46rem; margin: 2.5rem auto; padding: 0 1.25rem;
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+img, video { max-width: 100%; height: auto; }
+pre { overflow-x: auto; padding: .8rem; background: #f4f4f5; border-radius: 6px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre code { padding: 0; background: none; }
+blockquote { margin: 0; padding: .2rem 1rem; border-left: 3px solid #d4d4d8; color: #52525b; }
+table { border-collapse: collapse; } td, th { border: 1px solid #d4d4d8; padding: .35rem .6rem; }
+@media (prefers-color-scheme: dark) {
+  body { background: #18181b; color: #e4e4e7; }
+  pre { background: #27272a; } blockquote { border-color: #3f3f46; color: #a1a1aa; }
+  td, th { border-color: #3f3f46; }
+}
+</style>
+</head>
+<body>
+` + bodyHTML + `
+</body>
+</html>
+`
 }
 
 // codeBlockRE matches a full fenced code block as emitted by goldmark +

@@ -66,3 +66,16 @@ window.fcDownloadSource = function (btn, filename) {
   const mime = /\.html?$/i.test(filename || '') ? 'text/html' : 'text/markdown';
   window.fcDownloadText(fcSourceText(btn), filename || 'source.txt', mime);
 };
+
+// fcDownloadReply (ReplyDownload) saves a whole prose reply as a file. Both the
+// raw Markdown and the server-converted standalone HTML ride hidden in the
+// bubble; fmt selects which to save. Same host lookup as the SourceTools helpers.
+window.fcDownloadReply = function (btn, fmt, base) {
+  const host = fcSourceHost(btn);
+  if (!host) return;
+  const html = fmt === 'html';
+  const node = host.querySelector(html ? '.dl-html code' : '.dl-md code');
+  if (!node) return;
+  const name = (base || 'reply') + (html ? '.html' : '.md');
+  window.fcDownloadText(node.textContent || '', name, html ? 'text/html' : 'text/markdown');
+};

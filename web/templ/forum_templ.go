@@ -1074,6 +1074,11 @@ func ForumPost(slug, threadID string, p PostView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
+			} else if p.GenStatus != "generating" && p.BodyMD != "" {
+				templ_7745c5c3_Err = ReplyDownload(p.BodyMD, render.WrapHTMLDocument(p.BodyHTML, "Reply"), "agent-reply").Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
 		} else {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<header class=\"meta\"><strong>")
@@ -1083,7 +1088,7 @@ func ForumPost(slug, threadID string, p PostView) templ.Component {
 			var templ_7745c5c3_Var51 string
 			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(p.AuthorName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 360, Col: 26}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 362, Col: 26}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 			if templ_7745c5c3_Err != nil {
@@ -1096,7 +1101,7 @@ func ForumPost(slug, threadID string, p PostView) templ.Component {
 			var templ_7745c5c3_Var52 string
 			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(fmtTime(p.CreatedAt))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 361, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 363, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 			if templ_7745c5c3_Err != nil {
@@ -1109,7 +1114,7 @@ func ForumPost(slug, threadID string, p PostView) templ.Component {
 			var templ_7745c5c3_Var53 string
 			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue(quoteClickJS(p.ID, p.AuthorName) + "; el.closest('details').open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 368, Col: 93}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 370, Col: 93}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 			if templ_7745c5c3_Err != nil {
@@ -1122,7 +1127,7 @@ func ForumPost(slug, threadID string, p PostView) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.ResolveAttributeValue(todoClickJS("forum_post:"+p.ID, p.TitleSnippet) + "; el.closest('details').open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 372, Col: 108}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 374, Col: 108}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
 			if templ_7745c5c3_Err != nil {
@@ -1140,7 +1145,7 @@ func ForumPost(slug, threadID string, p PostView) templ.Component {
 				var templ_7745c5c3_Var55 string
 				templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/forum/post/" + p.ID + "/delete')")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 377, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 379, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var55)
 				if templ_7745c5c3_Err != nil {
@@ -1163,7 +1168,7 @@ func ForumPost(slug, threadID string, p PostView) templ.Component {
 				var templ_7745c5c3_Var56 string
 				templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(p.QuotedAuthor)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 385, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/forum.templ`, Line: 387, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 				if templ_7745c5c3_Err != nil {

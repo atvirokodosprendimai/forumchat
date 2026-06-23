@@ -354,6 +354,8 @@ templ ForumPost(slug, threadID string, p PostView) {
 			</div>
 			if p.GenStatus != "generating" && render.LooksLikeHTML(p.BodyMD) {
 				@SourceTools(p.BodyMD, "agent-reply.html", render.IsHTMLDocument(p.BodyMD))
+			} else if p.GenStatus != "generating" && p.BodyMD != "" {
+				@ReplyDownload(p.BodyMD, render.WrapHTMLDocument(p.BodyHTML, "Reply"), "agent-reply")
 			}
 		} else {
 			<header class="meta">

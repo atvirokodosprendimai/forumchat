@@ -2784,6 +2784,9 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 }
 .show-source .body, .show-source .agent-body, .show-source .paste-rendered { display: none; }
 .show-source .body-source { display: block; }
+/* ReplyDownload payloads (raw md + standalone html) ride hidden in the bubble;
+   fcDownloadReply reads them. Never shown — no toggle, unlike .body-source. */
+.reply-dl-data { display: none; }
 .body-tools { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; align-items: center; }
 .html-artifact-hint {
   margin: .5rem 0 .15rem; padding: .6rem .75rem;
