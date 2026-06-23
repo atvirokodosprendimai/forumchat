@@ -5619,26 +5619,38 @@ button.ghost.danger { color: var(--danger); }
    Self-contained: no app sidebar/topbar. Uses the global design tokens so it
    stays visually consistent with the app. Mobile-first, responsive.
    ========================================================================== */
-/* The app shell locks html+body to the viewport (height:100%/100dvh +
-   overflow:hidden, lines ~84-85) so chat panels scroll internally. The
-   marketing landing is a long document, so make body.lp the scroll container
-   itself — height pinned to the viewport, overflow-y:auto — mirroring how the
-   rest of the app scrolls panels. This needs no :has() support and works even
-   though html stays overflow:hidden. */
-body.lp {
-  display: block;
-  height: 100dvh;
-  overflow-y: auto;
-  overflow-x: hidden;
+/* The app shell pins html+body to the viewport (height:100%/100dvh +
+   overflow:hidden, lines ~84-85) so chat panels scroll internally. That breaks
+   the long marketing landing: with html locked the wheel routes to the locked
+   root scroller and never reaches the body, so only programmatic hash jumps
+   move it. Restore NORMAL window scrolling for the landing by overriding both
+   html and body via the .lp-doc class on the landing's <html> (LandingPage
+   renders its own document). A class on <html> needs no :has() and wins on
+   specificity over the bare `html, body` rule. */
+html.lp-doc {
+  height: auto;
+  overflow: visible;          /* viewport scrolls the document, like any page */
   scroll-behavior: smooth;
-  -webkit-overflow-scrolling: touch;
+}
+html.lp-doc body.lp {
+  display: block;
+  height: auto;
+  min-height: 100dvh;
+  /* overflow-x:clip contains the tilted hero preview WITHOUT promoting the
+     vertical axis to a scroll container (clip+visible is the one allowed combo)
+     — so the viewport keeps scrolling vertically and there's no h-scrollbar. */
+  overflow-x: clip;
+  overflow-y: visible;
   background:
     radial-gradient(60rem 40rem at 85% -10%, var(--accent-soft) 0%, transparent 55%),
     radial-gradient(50rem 36rem at -10% 8%, oklch(96% 0.05 200) 0%, transparent 50%),
     var(--bg);
   color: var(--fg);
 }
-.lp-main { display: block; padding: 0; }
+/* Neutralise the app shell's sidebar offset (body > main { margin-left:
+   var(--sb-width) } at desktop width) — the landing has no sidebar, so the
+   main spans the full document. .lp-main (0,1,0) outranks body>main (0,0,2). */
+.lp-main { display: block; padding: 0; margin: 0; width: 100%; max-width: none; overflow: visible; }
 .lp .lp-section,
 .lp .lp-hero,
 .lp .lp-cta-band { max-width: 1120px; margin-inline: auto; padding-inline: 1.5rem; }
@@ -5802,7 +5814,7 @@ body.lp {
 
 /* ---- final CTA band ---- */
 .lp-cta-band {
-  text-align: center; margin: 2rem auto 4rem; padding: 3.2rem 1.5rem;
+  text-align: center; margin: 1.5rem auto 3rem; padding: 2.6rem 1.5rem;
   border-radius: var(--radius-xl);
   background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   color: var(--accent-fg); box-shadow: var(--shadow-lg);
@@ -5817,16 +5829,16 @@ body.lp {
 
 /* ---- footer ---- */
 .lp-footer {
-  max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.5rem 3rem;
+  max-width: 1120px; margin: 0 auto; padding: 1.4rem 1.5rem 1.6rem;
   border-top: 1px solid var(--border-subtle);
-  display: flex; flex-wrap: wrap; gap: 1.2rem 2rem; align-items: center;
+  display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center;
 }
-.lp-footer-brand { display: flex; flex-direction: column; gap: .35rem; }
-.lp-footer-tag { margin: 0; font-size: .88rem; color: var(--fg-muted); }
+.lp-footer-brand { display: flex; align-items: baseline; gap: .6rem; }
+.lp-footer-tag { margin: 0; font-size: .82rem; color: var(--fg-muted); }
 .lp-footer-links { display: flex; gap: 1.3rem; margin-left: auto; }
 .lp-footer-links a { color: var(--fg-muted); font-weight: 500; font-size: .9rem; text-decoration: none; }
 .lp-footer-links a:hover { color: var(--fg); }
-.lp-footer-meta { display: flex; align-items: center; gap: .8rem; font-size: .82rem; color: var(--fg-subtle); width: 100%; padding-top: 1rem; border-top: 1px solid var(--border-subtle); }
+.lp-footer-meta { display: flex; align-items: center; gap: .8rem; font-size: .8rem; color: var(--fg-subtle); width: 100%; padding-top: .8rem; border-top: 1px solid var(--border-subtle); }
 .lp-footer-meta .fc-version { margin-left: auto; font-family: var(--font-mono); }
 
 /* ---- responsive ---- */
