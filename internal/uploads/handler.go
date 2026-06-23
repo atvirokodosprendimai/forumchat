@@ -1,6 +1,7 @@
 package uploads
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -23,6 +24,12 @@ type Handler struct {
 	// link guest sessions in addition to auth users so guests can view
 	// images uploaded inside their project.
 	Sessions *scs.SessionManager
+	// MemberOf reports whether userID belongs to communityID. Injected from
+	// main.go (auth.Repo.MembershipFor + super-admin bypass). When set,
+	// GetFile gates an authenticated viewer to the upload's community so a
+	// logged-in user can't read another tenant's media by guessing the id.
+	// Optional: nil keeps the legacy permissive behaviour (tests).
+	MemberOf func(ctx context.Context, userID, communityID string) bool
 }
 
 // Project guest session keys — kept in sync with internal/projects/guest.go.
@@ -114,10 +121,19 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	// No cross-community check — the signed URL is already viewer-scoped
-	// (HMAC includes user_id + exp) so unauthorised users can't forge it.
-	// Serving at root lets stored URLs survive the multi-community route
-	// restructure.
+	// Tenant boundary: an authenticated viewer must belong to the upload's
+	// community (super-admin bypasses). The HMAC signature is only advisory
+	// on the authed path (its Verify result is discarded above for stale/
+	// legacy-URL compatibility), so without this any logged-in user could
+	// read another community's media by guessing the id. Guests are scoped by
+	// their project-share session; the no-session path required a valid
+	// shared signature above. MemberOf nil keeps the legacy behaviour (tests).
+	if id, ok := auth.FromContext(r.Context()); ok && !id.IsSuperAdmin && h.MemberOf != nil {
+		if !h.MemberOf(r.Context(), id.User.ID, u.CommunityID) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+	}
 	w.Header().Set("Content-Type", u.MIME)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	// Preserve the user-supplied filename for inline-rendered kinds AND

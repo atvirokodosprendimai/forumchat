@@ -368,6 +368,12 @@ func run() error {
 		CommunityID: bootCommunity.ID,
 		Log:         log,
 		Sessions:    sessions, // lets project-share guests view images
+		// Gate authed viewers to the upload's community (super-admin bypass
+		// is handled in the handler). Prevents cross-tenant media reads.
+		MemberOf: func(ctx context.Context, userID, communityID string) bool {
+			_, err := aRepo.MembershipFor(ctx, userID, communityID)
+			return err == nil
+		},
 	}
 
 	chatRepo := chat.NewRepo(db)
