@@ -114,6 +114,19 @@ func roomIDParam(r *http.Request) string {
 	return raw
 }
 
+// roomCommunityOK reports whether roomID belongs to the community resolved
+// from the URL slug. Room ids are minted as "<communityID>:room-NN"
+// (repo.go), so the tenant boundary is a cheap prefix check — no DB read on
+// the hot signaling/ping path. The OpenRoutes group has no RequireMember,
+// so without this any logged-in user could drive another tenant's room
+// (join → first joiner becomes admin, relay WebRTC signaling, post chat).
+// GetRoom/GetStream/PostChat/PostShareToChat already enforce this via a
+// RoomByID community check; this guards the remaining interaction handlers.
+func (h *Handler) roomCommunityOK(r *http.Request, roomID string) bool {
+	c, ok := community.FromContext(r.Context())
+	return ok && strings.HasPrefix(roomID, c.ID+":")
+}
+
 // caller resolves the requester to an Identity — either an auth user, or
 // a session-scoped guest. Returns (id, ok). `roomID` constrains guests to
 // the room their invite belongs to.
@@ -504,6 +517,10 @@ func (h *Handler) pushChat(ctx context.Context, sse *datastar.ServerSentEventGen
 // stream so message ordering is preserved and JS uses native EventSource).
 func (h *Handler) GetSignalStream(w http.ResponseWriter, r *http.Request) {
 	roomID := roomIDParam(r)
+	if !h.roomCommunityOK(r, roomID) {
+		http.NotFound(w, r)
+		return
+	}
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -518,6 +535,10 @@ func (h *Handler) GetSignalStream(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PostSignal(w http.ResponseWriter, r *http.Request) {
 	roomID := roomIDParam(r)
+	if !h.roomCommunityOK(r, roomID) {
+		http.NotFound(w, r)
+		return
+	}
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -551,6 +572,10 @@ func (h *Handler) PostSignal(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PostJoin(w http.ResponseWriter, r *http.Request) {
 	roomID := roomIDParam(r)
+	if !h.roomCommunityOK(r, roomID) {
+		http.NotFound(w, r)
+		return
+	}
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -574,6 +599,10 @@ func (h *Handler) PostJoin(w http.ResponseWriter, r *http.Request) {
 // in state; the janitor evicts members who go silent for 45s.
 func (h *Handler) PostPing(w http.ResponseWriter, r *http.Request) {
 	roomID := roomIDParam(r)
+	if !h.roomCommunityOK(r, roomID) {
+		http.NotFound(w, r)
+		return
+	}
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -585,6 +614,10 @@ func (h *Handler) PostPing(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PostLeave(w http.ResponseWriter, r *http.Request) {
 	roomID := roomIDParam(r)
+	if !h.roomCommunityOK(r, roomID) {
+		http.NotFound(w, r)
+		return
+	}
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
@@ -966,6 +999,10 @@ func (h *Handler) PostInviteJoin(w http.ResponseWriter, r *http.Request) {
 // that take a `rooms_target` signal.
 func (h *Handler) adminAction(w http.ResponseWriter, r *http.Request, fn func(*Service, Identity, targetSignals) error) {
 	roomID := roomIDParam(r)
+	if !h.roomCommunityOK(r, roomID) {
+		http.NotFound(w, r)
+		return
+	}
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
