@@ -714,8 +714,11 @@ changes (single-tenant, every capability reads global env).
   Exists/LocalPath) — `diskBlobs` (default, `LocalPath`→`ServeFile` keeps Range)
   + `s3Blobs` (minio-go). `STORAGE_BACKEND` (SaaS→s3, self-host→disk via
   `EffectiveStorageBackend`); s3 with no `S3_BUCKET` warns + falls back to disk.
-  `uploads.store_key` column reserved for the per-community own-bucket migration
-  (resolver hook not yet wired — own-bucket UI deliberately not exposed).
+  **Per-community own-bucket migration** (SaaS privacy opt-out): `uploads.store_key`
+  (`""`=default | `"community"`=own bucket) routes each upload's read/write/delete;
+  `Store.CommunityBlob` resolver (wired from `community.ResolveStorage`) +
+  `MigrateCommunity` (idempotent/resumable background copy, originals not pruned so
+  a half-migration still reads). Owner **Storage card** → `/settings/migrate-storage`.
 - **RAG/Qdrant** (`internal/rag/qdrant.go`): `QdrantStore` (REST, no dep) — one
   collection per community `forumchat_<id>`, sized to the community's model on
   first upsert (**dynamic dim from vector length**). `Service.EmbedderFor`
@@ -729,10 +732,10 @@ changes (single-tenant, every capability reads global env).
 - **Owner bootstrap:** the create-community flow seeds the first member as
   `owner` (was admin), so a fresh SaaS community has an owner who can reach
   `/settings`.
-- **Still TODO:** per-community S3 **own-bucket migration** (copy bytes
-  platform→tenant + `store_key` routing in `uploads.Store` + Storage card) — the
-  only deferred piece; `community_settings` storage columns + `store_key` are
-  ready for it.
+- **All plan phases shipped** (0–6, incl. per-community S3 own-bucket migration).
+  Future-only: pruning migrated originals on the platform store (left on purpose
+  — a separate after-verified step), per-community Qdrant *cluster* isolation,
+  hosted-LLM providers.
 
 ## 6. Chat — the fat-morph pattern
 

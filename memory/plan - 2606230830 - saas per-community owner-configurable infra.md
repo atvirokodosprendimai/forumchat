@@ -1,6 +1,6 @@
 ---
 name: plan-2606230830-saas-tenant-config
-status: in-progress
+status: complete
 type: plan
 spec: spec - saas-tenant-config - per-community owner-configurable ai rag translate storage and join policy
 tldr: Phased implementation of per-community owner-configurable infra in SaaS mode. Foundation (owner role + secretbox + community_settings + resolver) first, then join policy, storage Blobstore+S3, per-community AI/translate, per-community RAG+Qdrant. Each phase mergeable + verifiable; SAAS=false stays a no-op path.
@@ -225,5 +225,10 @@ Depends on Phase 0. Largest piece; may span several commits.
   - **Phase 5 (RAG/Qdrant):** `QdrantStore` REST impl, per-community collections,
     dynamic vector dim; `Service.EmbedderFor` per-community embedder; qdrant is
     the SaaS default backend; owner RAG card + reindex. chromem unchanged.
-  - All 28 pkgs green; SaaS boot smoke OK. Only deferred: per-community S3
-    own-bucket byte-migration + Storage card.
+  - All 28 pkgs green; SaaS boot smoke OK.
+- 2606231030 — **Per-community S3 own-bucket migration SHIPPED** (the last piece).
+  `uploads.store_key` routes reads/writes/deletes (default vs `"community"`);
+  `Store.CommunityBlob` resolver from `community.ResolveStorage`; `MigrateCommunity`
+  idempotent/resumable background copy; owner Storage card + `/settings/migrate-storage`
+  (SSRF-checked). Migration round-trip test. **ALL PLAN PHASES (0–6) COMPLETE.**
+  Future-only (not in scope): prune migrated originals, per-community Qdrant cluster.
