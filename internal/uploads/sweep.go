@@ -2,9 +2,24 @@ package uploads
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
+
+// bodyHTMLTables lists every table whose rendered body_html can embed an upload
+// URL (image paste / inline media writes a reference into the body, NOT an
+// attachment-link row). The sweep must check all of them — missing one means a
+// still-referenced upload gets deleted (data loss). All names are internal
+// constants (never user input), so the interpolation is injection-free, exactly
+// like internal/dataexport's manifest.
+var bodyHTMLTables = []string{
+	"chat_messages", "threads", "posts", "lobby_messages", "private_messages",
+	"project_comments", "project_discussion_threads", "project_discussion_replies",
+	"project_issues", "project_issue_comments", "room_chat", "room_chat_archive",
+	"pastes", "ai_messages",
+}
 
 // SweepWorker periodically deletes upload rows that no row anywhere in
 // the database references. Phase-3 of the chat-attachments work made
@@ -57,31 +72,7 @@ func (w *SweepWorker) tick(ctx context.Context) {
 		return
 	}
 	cutoff := time.Now().Add(-w.MinAge).Unix()
-	// A row is orphaned when no chat_message_attachments, no
-	// project_attachments, no project_issue_attachments, no
-	// project_discussion_attachments references its id AND its
-	// markdown body inclusions can't be traced. Markdown bodies are
-	// expensive to scan — for v1 we conservatively keep any upload
-	// that the markdown render path could be re-using (image paste
-	// path → upload URL embedded in body_html). We delete only when
-	// the row is recent enough not to have been markdown-paste'd
-	// (the dominant path that doesn't add an attachment row).
-	//
-	// The "no attachment row anywhere AND created_at older than
-	// cutoff" query is the simplest conservative pass.
-	rows, err := w.Store.DB.QueryContext(ctx, `
-		SELECT u.id, u.rel_path
-		FROM uploads u
-		WHERE u.created_at < ?
-		  AND NOT EXISTS (SELECT 1 FROM chat_message_attachments a WHERE a.upload_id = u.id)
-		  AND NOT EXISTS (SELECT 1 FROM project_attachments       a WHERE a.upload_id = u.id)
-		  AND NOT EXISTS (SELECT 1 FROM project_issue_attachments a WHERE a.upload_id = u.id)
-		  AND NOT EXISTS (
-		    SELECT 1 FROM chat_messages m
-		    WHERE m.body_md LIKE '%upload://' || u.id || '%'
-		       OR m.body_md LIKE '%/uploads/' || u.id || '%'
-		  )
-		LIMIT 200`, cutoff)
+	rows, err := w.Store.DB.QueryContext(ctx, orphanQuery(), cutoff)
 	if err != nil {
 		w.Log.Warn("uploads sweep query", "err", err)
 		return
@@ -108,4 +99,28 @@ func (w *SweepWorker) tick(ctx context.Context) {
 		}
 	}
 	w.Log.Info("uploads sweep", "deleted", len(vics))
+}
+
+// orphanQuery builds the orphan-detection SQL. A row is orphaned only when NO
+// attachment-link row references it AND its id appears in no body_html anywhere
+// (image paste / inline media embeds a reference into the body without an
+// attachment row). Both the resolved signed URL (/uploads/<id>?sig=…) and the
+// raw upload://<id> form contain the id in body_html, so one LIKE per table
+// catches both. Table names are internal constants — injection-free.
+func orphanQuery() string {
+	var q strings.Builder
+	q.WriteString(`
+		SELECT u.id, u.rel_path
+		FROM uploads u
+		WHERE u.created_at < ?
+		  AND NOT EXISTS (SELECT 1 FROM chat_message_attachments a WHERE a.upload_id = u.id)
+		  AND NOT EXISTS (SELECT 1 FROM project_attachments       a WHERE a.upload_id = u.id)
+		  AND NOT EXISTS (SELECT 1 FROM project_issue_attachments a WHERE a.upload_id = u.id)`)
+	for _, tbl := range bodyHTMLTables {
+		fmt.Fprintf(&q, `
+		  AND NOT EXISTS (SELECT 1 FROM %s b WHERE b.body_html LIKE '%%/uploads/' || u.id || '%%' OR b.body_html LIKE '%%upload://' || u.id || '%%')`, tbl)
+	}
+	q.WriteString(`
+		LIMIT 200`)
+	return q.String()
 }
