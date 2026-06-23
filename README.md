@@ -941,7 +941,9 @@ web/
 data/                          # SQLite db + vapid.json + rag/ store (auto-created)
 migrations/                    # (legacy mount point; real migrations live under internal/storage/sqlite/migrations)
 Dockerfile
-compose.yml.example
+compose.yml.example                # single-tenant (self-host) stack: app + nats + mailpit + coturn
+compose.saas.yaml.example          # SaaS stack: app + qdrant + garage (S3) + nats + ollama + mailpit, .env-driven
+.env.saas.example                  # SaaS .env template (cp to .env)
 Makefile
 ```
 

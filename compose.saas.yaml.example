@@ -1,0 +1,237 @@
+# forumchat — SaaS (multi-tenant) docker-compose example.
+#
+# Brings up the full SaaS stack: the app plus the dependencies SaaS mode needs —
+# Qdrant (per-community vector search), Garage (S3-compatible object storage),
+# NATS (pub/sub fan-out), Ollama (default embeddings/translate engine) and
+# Mailpit (dev SMTP catcher).
+#
+# ── Configuration lives in .env ─────────────────────────────────────────────
+#   1.  cp .env.saas.example .env
+#   2.  edit .env — generate the secrets (the file documents the openssl commands)
+#       and set BASE_URL / SAAS_BRAND / SUPERADMIN_EMAILS.
+#   3.  docker compose -f compose.saas.yaml.example up -d --build
+#   4.  seed the first platform super-admin once it's up:
+#         docker compose -f compose.saas.yaml.example exec app \
+#           /app/forumchat-cli role you@example.com owner   # in the bootstrap community
+#       (or add your email to SUPERADMIN_EMAILS in .env for god-mode everywhere.)
+#
+# The app reads .env via `env_file`; values under `environment:` are the
+# docker-topology + SaaS-backend wiring and intentionally OVERRIDE .env (compose
+# precedence) so the same .env you use for `go run` locally still works here.
+# Secrets shared between the app and the Garage bootstrap (S3 creds, Garage
+# tokens) are interpolated from .env via ${...}.
+
+services:
+  app:
+    image: ghcr.io/atvirokodosprendimai/forumchat:latest
+    # To build from this checkout instead of pulling the published image:
+    # build: { context: ., args: { VERSION: dev } }
+    env_file:
+      - .env
+    environment:
+      # — fixed topology / SaaS backends (override anything in .env) —
+      ENV: "prod"
+      SAAS: "true"
+      HTTP_ADDR: ":8080"
+      DB_PATH: "/data/forumchat.db"
+      # Local scratch for upload streaming + persisted VAPID keys, even though
+      # the bytes land in S3 (Save streams to a temp here before the S3 Put).
+      UPLOADS_DIR: "/data/uploads"
+      VAPID_KEYS_FILE: "/data/vapid.json"
+      MIGRATE_ON_BOOT: "true"
+      NATS_URL: "nats://nats:4222"
+      # storage → Garage (S3). Path-style addressing is required for Garage.
+      STORAGE_BACKEND: "s3"
+      S3_ENDPOINT: "http://garage:3900"
+      S3_REGION: "${S3_REGION:-garage}"
+      S3_BUCKET: "${S3_BUCKET:-forumchat}"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY}"
+      S3_USE_PATH_STYLE: "true"
+      # RAG → Qdrant (per-community collections) + Ollama embeddings. These are
+      # the PLATFORM DEFAULTS; each community can BYO its own model/host/Qdrant
+      # from /c/<slug>/settings.
+      RAG_ENABLED: "true"
+      RAG_BACKEND: "qdrant"
+      QDRANT_URL: "http://qdrant:6333"
+      RAG_EMBED_BASEURL: "http://ollama:11434"
+      RAG_EMBED_MODEL: "${RAG_EMBED_MODEL:-bge-m3}"
+      RAG_EMBED_DIM: "${RAG_EMBED_DIM:-1024}"
+      # translate default engine (per-community overridable)
+      TRANSLATE_BASEURL: "http://ollama:11434"
+      # mail → Mailpit by default; point SMTP_* at a real relay in .env for prod.
+      SMTP_HOST: "${SMTP_HOST:-mailpit}"
+      SMTP_PORT: "${SMTP_PORT:-1025}"
+    depends_on:
+      nats: { condition: service_started }
+      qdrant: { condition: service_started }
+      mailpit: { condition: service_started }
+      garage-init: { condition: service_completed_successfully }
+    volumes:
+      - app-data:/data
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # ── Vector store: per-community Qdrant collections (forumchat_<communityID>) ──
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    # If you set a per-platform Qdrant API key, also put it in .env as
+    # QDRANT_API_KEY and uncomment:
+    # environment:
+    #   QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY}"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    ports:
+      - "6333:6333"   # REST (the app talks here)
+      - "6334:6334"   # gRPC (optional)
+    restart: unless-stopped
+
+  # ── Object storage: Garage (S3-compatible) ──────────────────────────────────
+  # Single-node, replication_factor 1. The config is mounted inline below.
+  garage:
+    image: dxflrs/garage:v1.0.1
+    configs:
+      - source: garage_toml
+        target: /etc/garage.toml
+    volumes:
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    ports:
+      - "3900:3900"   # S3 API
+      # - "3903:3903" # admin API (kept internal; used by garage-init)
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot: assign the storage layout, create the bucket, and import the S3
+  # key from .env so the app's S3_ACCESS_KEY/S3_SECRET_KEY work. Idempotent-ish
+  # (re-runs tolerate "already exists"). Uses Garage's admin API (stable across
+  # v1.x) so it doesn't depend on a shell inside the Garage image.
+  #
+  # MANUAL FALLBACK if your Garage version's admin API differs — run the CLI:
+  #   docker compose -f compose.saas.yaml.example exec garage /garage status
+  #   docker compose ... exec garage /garage layout assign -z dc1 -c 10G <NODE_ID>
+  #   docker compose ... exec garage /garage layout apply --version 1
+  #   docker compose ... exec garage /garage bucket create forumchat
+  #   docker compose ... exec garage /garage key import -n forumchat <ACCESS> <SECRET>
+  #   docker compose ... exec garage /garage bucket allow --read --write --owner forumchat --key forumchat
+  garage-init:
+    image: alpine:3.20
+    depends_on:
+      garage: { condition: service_healthy }
+    environment:
+      GARAGE_ADMIN_TOKEN: "${GARAGE_ADMIN_TOKEN}"
+      S3_BUCKET: "${S3_BUCKET:-forumchat}"
+      S3_ACCESS_KEY: "${S3_ACCESS_KEY}"
+      S3_SECRET_KEY: "${S3_SECRET_KEY}"
+    # NOTE: every shell $ is written $$ so Docker Compose passes it through to the
+    # container instead of interpolating it. Env vars (declared above) are read at
+    # runtime via $${VAR}.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        apk add --no-cache curl jq >/dev/null
+        ADMIN="http://garage:3903"; AUTH="Authorization: Bearer $${GARAGE_ADMIN_TOKEN}"
+        echo "waiting for garage admin API..."
+        until curl -sf "$$ADMIN/health" >/dev/null 2>&1; do sleep 2; done
+        NODE=$$(curl -sf -H "$$AUTH" "$$ADMIN/v1/status" | jq -r '.node')
+        echo "node=$$NODE — staging single-node layout"
+        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/layout" \
+          -d "{\"$$NODE\":{\"zone\":\"dc1\",\"capacity\":10000000000,\"tags\":[]}}" >/dev/null || true
+        VER=$$(curl -sf -H "$$AUTH" "$$ADMIN/v1/layout" | jq -r '.version')
+        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/layout/apply" -d "{\"version\":$$((VER+1))}" >/dev/null || true
+        echo "creating bucket $${S3_BUCKET}"
+        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/bucket" -d "{\"globalAlias\":\"$${S3_BUCKET}\"}" >/dev/null || true
+        BID=$$(curl -sf -H "$$AUTH" "$$ADMIN/v1/bucket?globalAlias=$${S3_BUCKET}" | jq -r '.id')
+        echo "importing S3 key"
+        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/key/import" \
+          -d "{\"accessKeyId\":\"$${S3_ACCESS_KEY}\",\"secretAccessKey\":\"$${S3_SECRET_KEY}\",\"name\":\"forumchat\"}" >/dev/null || true
+        echo "granting key access to bucket $$BID"
+        curl -sf -X POST -H "$$AUTH" "$$ADMIN/v1/bucket/allow" \
+          -d "{\"bucketId\":\"$$BID\",\"accessKeyId\":\"$${S3_ACCESS_KEY}\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":true}}" >/dev/null
+        echo "garage bootstrap complete"
+    restart: "no"
+
+  # ── Pub/sub fan-out across app instances ─────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+    ports:
+      - "4222:4222"
+      - "8222:8222"   # monitoring
+    restart: unless-stopped
+
+  # ── Embeddings / translate / default AI engine ──────────────────────────────
+  # Heavy (downloads models). Point RAG_EMBED_BASEURL / TRANSLATE_BASEURL at an
+  # external Ollama (or a GPU host) and drop this service if you'd rather not run
+  # it here. ollama-init pulls the embedding model so RAG works out of the box.
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    # For GPU acceleration, add a deploy.resources.reservations.devices block.
+
+  ollama-init:
+    image: curlimages/curl:latest
+    depends_on:
+      ollama: { condition: service_started }
+    environment:
+      RAG_EMBED_MODEL: "${RAG_EMBED_MODEL:-bge-m3}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until curl -sf http://ollama:11434/api/version >/dev/null 2>&1; do sleep 2; done
+        echo "pulling $${RAG_EMBED_MODEL} (this can take a while)"
+        curl -sf http://ollama:11434/api/pull -d "{\"name\":\"$${RAG_EMBED_MODEL}\"}"
+    restart: "no"
+
+  # ── Dev SMTP catcher (UI on :8025). Replace with a real relay for prod. ──────
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
+configs:
+  # Garage single-node config, embedded inline (compose v2.23+). rpc_secret +
+  # admin_token are interpolated from .env so the garage-init service can
+  # authenticate. Generate both as 32-byte hex (see .env.saas.example).
+  garage_toml:
+    content: |
+      metadata_dir = "/var/lib/garage/meta"
+      data_dir = "/var/lib/garage/data"
+      db_engine = "sqlite"
+
+      replication_factor = 1
+
+      rpc_bind_addr = "[::]:3901"
+      rpc_public_addr = "garage:3901"
+      rpc_secret = "${GARAGE_RPC_SECRET}"
+
+      [s3_api]
+      s3_region = "${S3_REGION:-garage}"
+      api_bind_addr = "[::]:3900"
+      root_domain = ".s3.garage.local"
+
+      [admin]
+      api_bind_addr = "[::]:3903"
+      admin_token = "${GARAGE_ADMIN_TOKEN}"
+
+volumes:
+  app-data:
+  qdrant-data:
+  garage-meta:
+  garage-data:
+  nats-data:
+  ollama-data:
