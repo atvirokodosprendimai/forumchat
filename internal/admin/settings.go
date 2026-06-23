@@ -77,6 +77,10 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Capture the embedding identity BEFORE overlaying — a model/dim change
+	// invalidates the Qdrant collection (sized to the old dim) and must trigger
+	// a reindex, or the worker stalls on a dimension mismatch.
+	oldRAG := community.ResolveRAG(s, h.Cfg)
 	ai := in.AIEnabled
 	s.AIEnabled = &ai
 	if in.JoinPolicy == "open" || in.JoinPolicy == "request" {
@@ -90,6 +94,9 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	s.RAGEnabled = &rag
 	s.RAGEmbedBaseURL = in.RAGEmbedBaseURL
 	s.RAGEmbedModel = in.RAGEmbedModel
+	if in.RAGEmbedDim < 0 {
+		in.RAGEmbedDim = 0 // clamp; 0 → falls back to the platform default dim
+	}
 	s.RAGEmbedDim = in.RAGEmbedDim
 	s.RAGQdrantURL = in.RAGQdrantURL
 	// Write-only secret: only overwrite when the owner typed a new key, so a
@@ -100,6 +107,18 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	if err := h.Communities.SaveSettings(r.Context(), s); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// A changed embedding model/dim rebuilds the collection at the new size:
+	// drop + re-enqueue in the background so the owner doesn't have to remember
+	// to click Reindex (forgetting it silently stalls the embed worker).
+	newRAG := community.ResolveRAG(s, h.Cfg)
+	if h.RAG != nil && newRAG.Enabled && (oldRAG.EmbedModel != newRAG.EmbedModel || oldRAG.EmbedDim != newRAG.EmbedDim) {
+		cid := c.ID
+		go func() {
+			if _, err := h.RAG.ReindexCommunity(context.Background(), cid); err != nil {
+				h.Log.Error("auto-reindex after embed model change", "community", cid, "err", err)
+			}
+		}()
 	}
 	sse := render.NewSSE(w, r)
 	_ = sse.PatchElementTempl(webtempl.OwnerSettingsForm(h.settingsData(r, c, s, true)))
