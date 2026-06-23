@@ -10,6 +10,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/netguard"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
+	"github.com/atvirokodosprendimai/forumchat/internal/uploads"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -144,6 +145,8 @@ func (h *Handler) PostMigrateStorage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Overlay the submitted config IN MEMORY (don't save yet). Secrets are
+	// write-only: a blank field keeps the stored value.
 	s.StorageBackend = "s3"
 	s.S3Endpoint = in.Endpoint
 	s.S3Region = in.Region
@@ -154,13 +157,24 @@ func (h *Handler) PostMigrateStorage(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(in.SecretKey) != "" {
 		s.S3SecretKey = in.SecretKey
 	}
-	if err := h.Communities.SaveSettings(r.Context(), s); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// Build the destination from the merged config and VERIFY connectivity
+	// before persisting — otherwise a bad bucket/creds would flip the write
+	// path (writeStoreFor) to a broken store and break every future upload.
+	st := community.ResolveStorage(s, h.Cfg)
+	dst, err := uploads.NewS3Blobstore(uploads.S3Config{
+		Endpoint: st.S3Endpoint, Region: st.S3Region, Bucket: st.S3Bucket,
+		AccessKey: st.S3AccessKey, SecretKey: st.S3SecretKey, UsePathStyle: st.UsePathStyle,
+	})
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-storage-error", "Invalid S3 config: "+err.Error()))
 		return
 	}
-	dst, _, err := h.Uploads.CommunityBlob(r.Context(), c.ID)
-	if err != nil || dst == nil {
-		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-storage-error", "Could not connect to the bucket — check credentials"))
+	if _, err := dst.Exists(r.Context(), ".forumchat-connectivity-probe"); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-storage-error", "Could not reach the bucket — check endpoint, bucket name and credentials. Nothing was changed."))
+		return
+	}
+	if err := h.Communities.SaveSettings(r.Context(), s); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	// Migrate in the background (bytes-heavy); the row knows its own store via
