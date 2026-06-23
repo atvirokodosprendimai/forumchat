@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
 
@@ -24,6 +26,7 @@ type Handler struct {
 	Communities *community.Repo
 	AuthRepo    *auth.Repo
 	Sessions    *scs.SessionManager
+	Cfg         config.Config
 	Log         *slog.Logger
 }
 
@@ -98,15 +101,27 @@ func (h *Handler) PostRequestJoin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	display := strings.TrimSpace(strings.Split(u.Email, "@")[0])
-	if err := h.AuthRepo.CreateMembership(r.Context(), nil, auth.Membership{
+	// Join policy decides whether the new membership is admitted straight in
+	// (open) or lands in the approval queue (request, the default). The
+	// community owner sets it in SaaS; self-hosted falls back to the env
+	// auto-approve flag.
+	settings, err := h.Communities.Settings(r.Context(), c.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	m := auth.Membership{
 		ID:          uuid.NewString(),
 		UserID:      u.ID,
 		CommunityID: c.ID,
-		DisplayName: display,
+		DisplayName: strings.TrimSpace(strings.Split(u.Email, "@")[0]),
 		Role:        auth.RoleMember,
-		// ApprovedAt nil = pending — admin must approve.
-	}); err != nil {
+	}
+	if community.JoinPolicy(settings, h.Cfg) == "open" {
+		now := time.Now()
+		m.ApprovedAt = &now // straight in, no /pending
+	}
+	if err := h.AuthRepo.CreateMembership(r.Context(), nil, m); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

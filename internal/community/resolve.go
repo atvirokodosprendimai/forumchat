@@ -126,15 +126,14 @@ func ResolveStorage(s Settings, cfg config.Config) EffectiveStorage {
 	}
 }
 
-// JoinPolicy resolves how a join request is admitted: "open" (auto-approve) or
-// "request" (approval queue). Community override wins; otherwise the env
-// default (OPEN_REGISTRATION_AUTO_APPROVE → open, else request).
+// JoinPolicy resolves how a public-community join is admitted: "open"
+// (auto-approve) or "request" (approval queue). Only meaningful in SaaS, where
+// the community owner sets it; self-hosted always returns "request" so the
+// existing explore behaviour (every join is pending) is unchanged. The separate
+// OPEN_REGISTRATION_AUTO_APPROVE env still governs the registration path.
 func JoinPolicy(s Settings, cfg config.Config) string {
 	if cfg.SAAS && (s.JoinPolicy == "open" || s.JoinPolicy == "request") {
 		return s.JoinPolicy
-	}
-	if cfg.OpenRegistrationAutoApprove {
-		return "open"
 	}
 	return "request"
 }

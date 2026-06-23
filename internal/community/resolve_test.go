@@ -70,8 +70,8 @@ func TestJoinPolicy(t *testing.T) {
 	if got := JoinPolicy(Settings{JoinPolicy: "open"}, config.Config{SAAS: false}); got != "request" {
 		t.Fatalf("self-host ignores override, default request, got %q", got)
 	}
-	if got := JoinPolicy(Settings{}, config.Config{OpenRegistrationAutoApprove: true}); got != "open" {
-		t.Fatalf("auto-approve env => open, got %q", got)
+	if got := JoinPolicy(Settings{}, config.Config{SAAS: true}); got != "request" {
+		t.Fatalf("SaaS unset community defaults request, got %q", got)
 	}
 }
 

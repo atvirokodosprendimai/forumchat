@@ -371,7 +371,7 @@ func run() error {
 	}
 
 	dashboardHandler := &dashboard.Handler{Communities: cRepo, Log: log}
-	exploreHandler := &explore.Handler{Communities: cRepo, AuthRepo: aRepo, Sessions: sessions, Log: log}
+	exploreHandler := &explore.Handler{Communities: cRepo, AuthRepo: aRepo, Sessions: sessions, Cfg: cfg, Log: log}
 
 	todosHandler := &todos.Handler{Repo: todos.NewRepo(db), ChatRepo: chatRepo, Forum: forumRepo, Log: log}
 
