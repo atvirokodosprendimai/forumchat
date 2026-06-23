@@ -1,6 +1,6 @@
 ---
 name: audit-2606231100-saas-security-business-logic
-status: in-progress
+status: complete
 type: audit
 tldr: Adversarial security + business-logic audit of the SaaS tenant-config work (Phases 0–6), cross-checked against mempalace memory. Memory accurately documents the *design*; this audit surfaces 3 real gaps the memory does NOT claim are handled (storage-flip-before-verify, RAG model-change-without-reindex, community-delete leaves the Qdrant collection) plus low-severity items. Fixes implemented one by one below.
 ---
@@ -75,3 +75,16 @@ delete. Acceptable at current scale; documented. Proper fix would add
 
 ## Progress
 - 2606231100 — audit written; starting fixes.
+- 2606231115 — **A, B, C, D fixed + committed** (E documented-only). All tests
+  green; SaaS boot smoke OK.
+  - **A** — `PostMigrateStorage` probes the bucket (`Blobstore.Exists`) before
+    `SaveSettings`; a bad config changes nothing.
+  - **C** — `rag.Service.DropCommunity` + superadmin `Reindexer` method; community
+    delete drops the Qdrant collection (best-effort, logged).
+  - **B** — `PostSettings` auto-reindexes (drop+enqueue, background) when the
+    resolved embed model/dim changes; clamps a negative dim.
+  - **D** — `community.Repo.Settings` tolerates a per-field decrypt failure
+    (empty, re-enterable) instead of 500; regression test with a rotated key.
+  - **E** — `DeleteByRef` N-collection scan left as-is (perf, not security);
+    proper fix = `community_id` on `embed_outbox` (migration), deferred.
+  **status: complete.**
