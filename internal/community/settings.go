@@ -105,16 +105,14 @@ func (r *Repo) Settings(ctx context.Context, communityID string) (Settings, erro
 	s.StorageMigratedAt = migAt.Int64
 	s.JoinPolicy = joinPolicy.String
 
+	// Tolerate decrypt failures (e.g. a rotated SECRETS_KEY orphans old
+	// ciphertext): leave the secret empty rather than failing the whole load, so
+	// the owner Settings page still renders and the secret can be re-entered.
+	// Open returns "" on error, so discarding it yields an empty field.
 	box := r.box()
-	if s.RAGQdrantAPIKey, err = box.Open(ragQKeyEnc.String); err != nil {
-		return Settings{}, err
-	}
-	if s.S3AccessKey, err = box.Open(s3AccEnc.String); err != nil {
-		return Settings{}, err
-	}
-	if s.S3SecretKey, err = box.Open(s3SecEnc.String); err != nil {
-		return Settings{}, err
-	}
+	s.RAGQdrantAPIKey, _ = box.Open(ragQKeyEnc.String)
+	s.S3AccessKey, _ = box.Open(s3AccEnc.String)
+	s.S3SecretKey, _ = box.Open(s3SecEnc.String)
 	return s, nil
 }
 

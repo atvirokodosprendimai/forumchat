@@ -77,3 +77,29 @@ func TestSettings_RoundTripAndSealing(t *testing.T) {
 		t.Fatalf("secret must be sealed at rest, got %q", raw)
 	}
 }
+
+func TestSettings_DecryptFailureTolerated(t *testing.T) {
+	ctx := context.Background()
+	r := newTestRepo(t) // sealed with key A
+	c, _ := r.Create(ctx, "acme", "Acme")
+	if err := r.SaveSettings(ctx, Settings{
+		CommunityID: c.ID, RAGEmbedModel: "bge-m3", RAGQdrantAPIKey: "secret-A",
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Rotate the key: a new box (different key) can't decrypt the old ciphertext.
+	rotated, _ := secretbox.New("FEDCBA9876543210FEDCBA9876543210")
+	r.Secrets = rotated
+
+	got, err := r.Settings(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("decrypt failure must NOT error the load, got %v", err)
+	}
+	if got.RAGQdrantAPIKey != "" {
+		t.Fatalf("undecryptable secret must read empty, got %q", got.RAGQdrantAPIKey)
+	}
+	if got.RAGEmbedModel != "bge-m3" {
+		t.Fatalf("non-secret fields must survive, got model %q", got.RAGEmbedModel)
+	}
+}
