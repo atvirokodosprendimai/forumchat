@@ -1,6 +1,6 @@
 ---
 name: spec-2606231130-fix-selfhost-regression
-status: in-progress
+status: complete
 type: spec
 tldr: Second-pass review of the SaaS work focused on "did non-SaaS break?". It did — migration 00055 relabels the self-host admin → owner, and ~6 templ gates hard-compare Role == "admin" so the owner loses the Admin nav link, chat moderation menu, Lobbies link, etc. Fix with web/templ role helpers (owner ≥ admin). Plus one residual business-logic gap (reindex on Qdrant URL change). Verify both modes.
 ---
@@ -73,3 +73,12 @@ Confirmed env-only (self-host unchanged) — re-verify by boot + tests:
 
 ## Progress
 - 2606231130 — spec written; implementing.
+- 2606231145 — **DONE.** `web/templ` `RoleIsAdmin`/`RoleIsMod` helpers + all 6
+  power gates converted; owner roster badge + super-admin owner switcher; helper
+  test. BL1 (reindex on Qdrant URL/collection change) done. Full suite green.
+  **Non-SaaS no-breaking-change VERIFIED by boot smoke** (`env SAAS=false`,
+  overriding the repo `.env` SAAS=true): `/`→303 `/login`, storage=disk,
+  RAG=chromem, no SaaS reshaping, no s3 warning — identical to pre-SaaS behaviour.
+  (First smoke was a false read — the repo `.env` forces SAAS=true; godotenv does
+  not override a shell-set var, so `env SAAS=false` is the correct self-host test.)
+  **status: complete.**
