@@ -421,6 +421,11 @@ func run() error {
 		Log:   log,
 	}
 
+	// Account erasure (self-serve delete) reuses provision to delete the user's
+	// solo-owned communities and the upload store to purge their owned blobs.
+	svc.Communities = provSvc
+	svc.Uploads = uploadStore
+
 	adminHandler := &admin.Handler{
 		Repo:          aRepo,
 		Svc:           svc,

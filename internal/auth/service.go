@@ -31,6 +31,110 @@ type Service struct {
 	// AutoVerifyEmail skips the email round-trip: Register activates the user
 	// and creates their membership immediately (handy for short demo windows).
 	AutoVerifyEmail bool
+
+	// Communities deletes the solo-owned communities found during account
+	// erasure (provision.Service satisfies CommunityDeleter). Declared as an
+	// interface so auth doesn't import internal/provision — which imports auth,
+	// and would cycle. Nil tolerated (erasure then just drops memberships).
+	Communities CommunityDeleter
+	// Uploads purges a user's owned blobs during erasure (uploads.Store
+	// satisfies UploadPurger). Nil tolerated.
+	Uploads UploadPurger
+}
+
+// CommunityDeleter purges a whole community — blobs, cascaded rows and vectors.
+// provision.Service.Delete satisfies it.
+type CommunityDeleter interface {
+	Delete(ctx context.Context, communityID string) error
+}
+
+// UploadPurger removes every upload a user owns (rows + blobs).
+// *uploads.Store.DeleteByOwner satisfies it.
+type UploadPurger interface {
+	DeleteByOwner(ctx context.Context, ownerID string) (int, error)
+}
+
+// SoleOwnerError is returned by DeleteAccount when the user still solely owns
+// one or more communities that have OTHER members. Nothing is deleted; the user
+// must hand off ownership (or delete those communities) first. Blockers names
+// them for the UI.
+type SoleOwnerError struct{ Blockers []CommunityRef }
+
+func (e *SoleOwnerError) Error() string {
+	return fmt.Sprintf("account is the sole owner of %d community/ies with other members", len(e.Blockers))
+}
+
+// DeleteLinkTTL is the lifetime of an account-deletion confirmation link.
+const DeleteLinkTTL = 30 * time.Minute
+
+// CheckDeletable returns the communities that currently BLOCK erasure (sole
+// owner + other members). Empty slice means the account can be deleted. Used by
+// the password step to warn the user before any email is sent.
+func (s *Service) CheckDeletable(ctx context.Context, userID string) ([]CommunityRef, error) {
+	return s.Repo.SoleOwnerBlockers(ctx, userID)
+}
+
+// IssueDeletionLink mints a one-time account_delete token and emails the
+// confirmation link. The caller has already proven the password; this is step 2
+// of the two-step erase. Token/DB errors are returned (the UI should tell the
+// user the mail didn't go out); a pure mailer failure is logged but swallowed
+// (the token still exists).
+func (s *Service) IssueDeletionLink(ctx context.Context, userID, email string) error {
+	token, err := RandomToken(24)
+	if err != nil {
+		return err
+	}
+	exp := time.Now().Add(DeleteLinkTTL)
+	if err := s.Repo.CreateVerificationToken(ctx, token, userID, "account_delete", exp); err != nil {
+		return err
+	}
+	url := fmt.Sprintf("%s/profile/delete/confirm?token=%s", s.BaseURL, token)
+	body := fmt.Sprintf("You asked to permanently delete your account.\n\nConfirm by opening the link below — this is IRREVERSIBLE and erases your data across every community:\n\n%s\n\nThe link expires %s. If you did not request this, ignore this email and change your password.\n",
+		url, exp.Format(time.RFC1123))
+	if err := s.Mailer.Send(ctx, email, "Confirm account deletion", body); err != nil {
+		if s.Log != nil {
+			s.Log.Error("send deletion link", "err", err)
+		}
+	}
+	return nil
+}
+
+// DeleteAccount runs the irreversible erasure: guard sole-ownership, delete the
+// communities the user solely owns and is the only member of, purge their
+// uploads, then erase + anonymise the account (Repo.EraseUser). Returns a
+// *SoleOwnerError (nothing deleted) when a shared community must be handed off
+// first.
+func (s *Service) DeleteAccount(ctx context.Context, userID string) error {
+	blockers, err := s.Repo.SoleOwnerBlockers(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if len(blockers) > 0 {
+		return &SoleOwnerError{Blockers: blockers}
+	}
+	// Delete the user's solo communities BEFORE the membership rows are erased,
+	// so the ownership is still visible. Each Delete purges that community's
+	// blobs + rows + vectors.
+	if s.Communities != nil {
+		solo, err := s.Repo.SoloOwnedCommunityIDs(ctx, userID)
+		if err != nil {
+			return err
+		}
+		for _, cid := range solo {
+			if err := s.Communities.Delete(ctx, cid); err != nil {
+				return fmt.Errorf("delete solo community %s: %w", cid, err)
+			}
+		}
+	}
+	// Owned upload blobs across the remaining communities. The users row is kept
+	// (anonymised), so the uploads.owner_id cascade won't fire — remove them
+	// explicitly. Best-effort: a leftover blob is a leak, not a correctness bug.
+	if s.Uploads != nil {
+		if _, err := s.Uploads.DeleteByOwner(ctx, userID); err != nil && s.Log != nil {
+			s.Log.Error("purge user uploads on erase", "user_id", userID, "err", err)
+		}
+	}
+	return s.Repo.EraseUser(ctx, userID)
 }
 
 type RegisterInput struct {

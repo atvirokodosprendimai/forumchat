@@ -158,6 +158,30 @@ type VerificationToken struct {
 	UsedAt    *time.Time
 }
 
+// PeekVerificationToken validates a token (right purpose, unused, unexpired)
+// WITHOUT consuming it. Used to render a confirmation page before the user
+// commits — the matching POST then calls ConsumeVerificationToken to burn it.
+func (r *Repo) PeekVerificationToken(ctx context.Context, token, purpose string) (VerificationToken, error) {
+	var vt VerificationToken
+	var exp int64
+	var used sql.NullInt64
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT token, user_id, purpose, expires_at, used_at
+		FROM verification_tokens WHERE token = ? AND purpose = ?`, token, purpose).
+		Scan(&vt.Token, &vt.UserID, &vt.Purpose, &exp, &used)
+	if errors.Is(err, sql.ErrNoRows) {
+		return VerificationToken{}, ErrTokenInvalid
+	}
+	if err != nil {
+		return VerificationToken{}, err
+	}
+	vt.ExpiresAt = time.Unix(exp, 0)
+	if used.Valid || time.Now().After(vt.ExpiresAt) {
+		return VerificationToken{}, ErrTokenInvalid
+	}
+	return vt, nil
+}
+
 func (r *Repo) ConsumeVerificationToken(ctx context.Context, token, purpose string) (VerificationToken, error) {
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -773,6 +797,143 @@ func (r *Repo) SetUserStatus(ctx context.Context, userID string, status UserStat
 		return ErrNotFound
 	}
 	return nil
+}
+
+// --- account erasure (GDPR self-serve delete) ---
+
+// deletedSentinelHash is parked in password_hash for an erased account. It is
+// not a valid bcrypt hash, so CheckPassword always returns false — password
+// login is dead for the tombstone (status=disabled also signs them out).
+const deletedSentinelHash = "deleted-account-no-login"
+
+// CommunityRef is a minimal (id, slug, name) tuple for user-facing messages
+// (e.g. "you still own these communities").
+type CommunityRef struct {
+	ID   string
+	Slug string
+	Name string
+}
+
+// SoleOwnerBlockers returns the communities the user is the ONLY owner of that
+// still have other members. Account erasure is refused while any exist: the
+// user must hand off ownership (or delete the community) first, so a live
+// community full of other members is never silently destroyed.
+func (r *Repo) SoleOwnerBlockers(ctx context.Context, userID string) ([]CommunityRef, error) {
+	return r.ownedCommunities(ctx, userID, `
+		  AND (SELECT COUNT(*) FROM memberships m WHERE m.community_id = c.id) > 1`)
+}
+
+// SoloOwnedCommunityIDs returns the communities the user solely owns AND is the
+// only member of. These hold no other members' data, so erasure deletes them
+// outright (via provision.Service.Delete) rather than blocking.
+func (r *Repo) SoloOwnedCommunityIDs(ctx context.Context, userID string) ([]string, error) {
+	refs, err := r.ownedCommunities(ctx, userID, `
+		  AND (SELECT COUNT(*) FROM memberships m WHERE m.community_id = c.id) = 1`)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(refs))
+	for i, ref := range refs {
+		ids[i] = ref.ID
+	}
+	return ids, nil
+}
+
+// ownedCommunities lists communities the user is the SOLE owner of, narrowed by
+// an extra member-count predicate. The shared core keeps the two callers above
+// from drifting apart.
+func (r *Repo) ownedCommunities(ctx context.Context, userID, memberPredicate string) ([]CommunityRef, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT c.id, c.slug, c.name
+		FROM communities c
+		JOIN memberships me ON me.community_id = c.id AND me.user_id = ? AND me.role = ?
+		WHERE (SELECT COUNT(*) FROM memberships o WHERE o.community_id = c.id AND o.role = ?) = 1`+
+		memberPredicate+`
+		ORDER BY c.name`, userID, string(RoleOwner), string(RoleOwner))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CommunityRef
+	for rows.Next() {
+		var ref CommunityRef
+		if err := rows.Scan(&ref.ID, &ref.Slug, &ref.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, ref)
+	}
+	return out, rows.Err()
+}
+
+// EraseUser hard-deletes the user's content, memberships, identity links and
+// personal rows across every community, then anonymises the users row to a
+// tombstone (email scrubbed to an unusable address, password sentinel, status
+// disabled) — all in one transaction.
+//
+// The users row is KEPT, not deleted: shared community artifacts (projects,
+// issues, lobbies, mailbox entries, time budgets) FK-reference users(id) with
+// RESTRICT, so they survive authored by "deleted user" rather than blocking the
+// erase or cascading away other members' work. The content deletes fire the RAG
+// embed_outbox AFTER DELETE triggers, so the vector index drops the user's
+// chunks on the next worker tick. Owned uploads (blobs) are handled by the
+// caller via uploads.Store.DeleteByOwner — they can't be removed inside this tx
+// because blob deletion is a filesystem/S3 side effect.
+func (r *Repo) EraseUser(ctx context.Context, userID string) error {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// child→parent / content-first order so no FK (787) trips. PM threads are
+	// 2-party with ON DELETE CASCADE, so deleting the user's threads also clears
+	// their messages + read markers on both sides.
+	deletes := []string{
+		// public content — also enqueues RAG deletes via AFTER DELETE triggers.
+		// chat_messages.author_id is ON DELETE SET NULL, so it MUST be deleted
+		// explicitly (a user-row delete would only null it).
+		`DELETE FROM chat_messages WHERE author_id = ?`,
+		`DELETE FROM posts WHERE author_id = ?`,
+		`DELETE FROM threads WHERE author_id = ?`,
+		// presence across every community
+		`DELETE FROM memberships WHERE user_id = ?`,
+		// auth + federated identity (kills magic-link tokens and OAuth links)
+		`DELETE FROM verification_tokens WHERE user_id = ?`,
+		`DELETE FROM user_identities WHERE user_id = ?`,
+		`DELETE FROM signup_tokens WHERE user_id = ?`,
+		// personal, single-column
+		`DELETE FROM bookmarks WHERE user_id = ?`,
+		`DELETE FROM todos WHERE user_id = ?`,
+		`DELETE FROM timer_sessions WHERE user_id = ?`,
+		`DELETE FROM chat_reads WHERE user_id = ?`,
+		`DELETE FROM push_subscriptions WHERE user_id = ?`,
+		`DELETE FROM push_pending WHERE user_id = ?`,
+	}
+	for _, q := range deletes {
+		if _, err := tx.ExecContext(ctx, q, userID); err != nil {
+			return fmt.Errorf("erase user (%s): %w", q, err)
+		}
+	}
+	// two-column relations
+	pairs := []string{
+		`DELETE FROM user_blocks WHERE blocker_id = ? OR blocked_id = ?`,
+		`DELETE FROM user_reports WHERE reporter_id = ? OR reported_user_id = ?`,
+		`DELETE FROM private_threads WHERE initiator_user_id = ? OR recipient_user_id = ?`,
+	}
+	for _, q := range pairs {
+		if _, err := tx.ExecContext(ctx, q, userID, userID); err != nil {
+			return fmt.Errorf("erase user (%s): %w", q, err)
+		}
+	}
+	// anonymise the surviving row — email gone, login impossible, signed out.
+	tombstone := "deleted-" + userID + "@deleted.invalid"
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE users SET email = ?, password_hash = ?, status = ?, updated_at = ?
+		WHERE id = ?`,
+		tombstone, deletedSentinelHash, string(StatusDisabled), time.Now().Unix(), userID); err != nil {
+		return fmt.Errorf("anonymise user: %w", err)
+	}
+	return tx.Commit()
 }
 
 // --- user blocks (per-viewer chat mute) ---
