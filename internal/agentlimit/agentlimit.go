@@ -72,6 +72,22 @@ func (l *Limiter) record(key string, now time.Time) {
 	l.events[key] = append(l.events[key], now)
 }
 
+// AllowRecord atomically checks whether key is under limit in the current
+// window and, if so, records this event. limit<=0 means unlimited. On denial it
+// returns how long until the oldest in-window event ages out. The check and the
+// record happen under one lock, so concurrent callers can't both slip past the
+// limit. Exported for reuse by non-agent callers (e.g. chat flood control).
+func (l *Limiter) AllowRecord(key string, limit int) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	ok, retry := l.allow(key, limit, now)
+	if ok {
+		l.record(key, now)
+	}
+	return ok, retry
+}
+
 // Decision is the result of a Gate check.
 type Decision struct {
 	Allowed    bool

@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
@@ -25,6 +26,11 @@ import (
 )
 
 const RecentLimit = 100
+
+// ChatSendPerMinute caps how many messages one member may send per rolling
+// minute (per community). ~1/sec average with bursts — far above human chat,
+// far below a scripted flood.
+const ChatSendPerMinute = 60
 
 type Handler struct {
 	Svc  *Service
@@ -111,6 +117,11 @@ type Handler struct {
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
 	Roster RosterNotifier
+	// Flood rate-limits chat sends per (community,user) to block scripted
+	// message storms (each send fans out to every open SSE + NATS + the RAG
+	// outbox). The ceiling is generous so fast human chat never trips it;
+	// super-admins bypass. Wired in main.go; nil = no flood limit.
+	Flood *agentlimit.Limiter
 	// BaseURL is the public origin (e.g. https://chat.example.com) used to make
 	// a pasted (Ctrl+V) image's URL ABSOLUTE in the stored body_md, so a relayed
 	// bot (Matrix etc.) can fetch it — a host-relative /uploads/… path is
@@ -906,6 +917,15 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	if !id.IsSuperAdmin {
 		if age := id.User.Age(time.Now()); age < auth.NewUserPostDelay {
 			_ = sse.PatchElementTempl(webtempl.NewUserHoldNotice("chat-agent-notice", "post", auth.NewUserPostDelay-age))
+			return
+		}
+	}
+
+	// Per-user flood control — block scripted message storms before any work.
+	// Generous ceiling; super-admins bypass.
+	if !id.IsSuperAdmin && h.Flood != nil {
+		if ok, retry := h.Flood.AllowRecord("chatsend:"+h.cid(r.Context())+":"+id.User.ID, ChatSendPerMinute); !ok {
+			_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("chat-agent-notice", retry))
 			return
 		}
 	}
