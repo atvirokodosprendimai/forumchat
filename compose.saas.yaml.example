@@ -77,7 +77,7 @@ services:
       mailpit: { condition: service_started }
       garage-init: { condition: service_completed_successfully }
     volumes:
-      - app-data:/data
+      - ./data/app:/data
     ports:
       - "8080:8080"
     restart: unless-stopped
@@ -90,7 +90,7 @@ services:
     # environment:
     #   QDRANT__SERVICE__API_KEY: "${QDRANT_API_KEY}"
     volumes:
-      - qdrant-data:/qdrant/storage
+      - ./data/qdrant:/qdrant/storage
     ports:
       - "6333:6333"   # REST (the app talks here)
       - "6334:6334"   # gRPC (optional)
@@ -104,8 +104,8 @@ services:
       - source: garage_toml
         target: /etc/garage.toml
     volumes:
-      - garage-meta:/var/lib/garage/meta
-      - garage-data:/var/lib/garage/data
+      - ./data/garage/meta:/var/lib/garage/meta
+      - ./data/garage/data:/var/lib/garage/data
     ports:
       - "3900:3900"   # S3 API
       # - "3903:3903" # admin API (kept internal; used by garage-init)
@@ -171,7 +171,7 @@ services:
     image: nats:2.10-alpine
     command: ["-js", "-sd", "/data", "-m", "8222"]
     volumes:
-      - nats-data:/data
+      - ./data/nats:/data
     ports:
       - "4222:4222"
       - "8222:8222"   # monitoring
@@ -217,9 +217,12 @@ configs:
       api_bind_addr = "[::]:3903"
       admin_token = "${GARAGE_ADMIN_TOKEN}"
 
-volumes:
-  app-data:
-  qdrant-data:
-  garage-meta:
-  garage-data:
-  nats-data:
+# All persistent state lives in ./data/<service> bind mounts (no named volumes),
+# so it's visible on the host and easy to back up / wipe.
+#
+# PERMISSIONS: the app image runs as nonroot (uid 65532). On Linux, pre-create
+# its dir with that owner so it can write the SQLite db + upload scratch:
+#   mkdir -p ./data/app ./data/qdrant ./data/garage/meta ./data/garage/data ./data/nats
+#   sudo chown -R 65532:65532 ./data/app
+# (On Docker Desktop / macOS the bind-mount layer handles this automatically.)
+# The other services run as root and create their dirs on first start.
