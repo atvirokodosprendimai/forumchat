@@ -99,19 +99,15 @@ code, kbd, pre, samp { font-family: var(--font-mono); font-size: .9em; }
 .topbar {
   display: flex; gap: 1rem; align-items: center; justify-content: space-between;
   padding: .7rem 1.2rem;
-  background: oklch(100% 0 0 / 0.78);
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
   flex: 0 0 auto; z-index: 30;
 }
 .brand {
-  font-weight: 700; letter-spacing: -0.02em; color: var(--fg);
+  font-weight: 700; letter-spacing: -0.02em;
   font-size: 1.05rem;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--accent-strong);
 }
 
 main {
@@ -148,11 +144,11 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 
 button, .btn {
   cursor: pointer;
-  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  background: var(--accent);
   color: var(--accent-fg);
   border-color: transparent;
   font-weight: 600; letter-spacing: -0.005em;
-  box-shadow: var(--shadow-xs), inset 0 1px 0 rgb(255 255 255 / 0.15);
+  box-shadow: none;
 }
 /* `.btn` is also applied to <a> anchors (nav CTAs, "New thread", etc.). The
    base form rule above only sizes the <button> element, so without this an
@@ -166,21 +162,20 @@ button, .btn {
 }
 .btn:hover { text-decoration: none; }
 button:hover, .btn:hover {
-  background: linear-gradient(180deg, var(--accent-hover), var(--accent-strong));
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgb(255 255 255 / 0.2);
+  background: var(--accent-hover);
+  box-shadow: none;
 }
-.btn:hover { transform: translateY(-1px); }
-.btn:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
+.btn:active, button:active { transform: translateY(0.5px); }
 button.ghost, .btn.ghost {
   background: var(--surface); color: var(--fg);
   border-color: var(--border);
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
 }
 button.ghost:hover, .btn.ghost:hover {
   background: var(--surface-alt);
   border-color: var(--border-strong);
   color: var(--fg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 button.link, .link-button {
   background: transparent; color: var(--accent); border: none; padding: 0;
@@ -196,12 +191,11 @@ button.link:hover, .link-button:hover {
 .field label { font-size: .85rem; color: var(--fg-muted); font-weight: 500; }
 
 .card {
-  background:
-    linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.4rem;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-xs);
 }
 .card.narrow { max-width: 28rem; margin: 1.5rem auto; }
 
@@ -217,16 +211,16 @@ button.link:hover, .link-button:hover {
      this rule, but they're kept for now as belt-and-braces. */
   padding: .7rem 2.75rem .7rem .95rem;
   margin: .45rem 0;
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
   position: relative;
   /* Keep bubbles inside the scroll container: a long URL / unbreakable
      word in .body would otherwise widen the bubble past the viewport and
      trigger a horizontal scrollbar on .messages (mobile especially). */
   min-width: 0; max-width: 100%;
   transition: border-color var(--t-fast) var(--ease-out),
-              box-shadow var(--t-fast) var(--ease-out);
+              background-color var(--t-fast) var(--ease-out);
 }
-.bubble:hover { border-color: var(--border); box-shadow: var(--shadow-sm); }
+.bubble:hover { border-color: var(--border); background: var(--surface-alt); }
 .bubble .meta { display: flex; gap: .55rem; align-items: center; margin-bottom: .25rem; flex-wrap: wrap; row-gap: .25rem; padding-right: 2.5rem; }
 .bubble .meta > strong, .bubble .meta > .muted { line-height: 1.6; }
 
@@ -513,7 +507,7 @@ button.link:hover, .link-button:hover {
 
 .messages {
   background:
-    linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+    var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   /* Bigger bottom padding so the last bubble has breathing room
@@ -1199,7 +1193,7 @@ img.thread-announce-img {
    section cards. Background is a soft sunken band so the cards inside
    feel raised against it. */
 .rooms-admin-tray {
-  background: linear-gradient(180deg, var(--surface-alt), var(--bg));
+  background: var(--surface-alt);
   border-bottom: 1px solid var(--border);
   padding: 1rem 1rem 1.1rem;
   animation: rooms-tray-down .22s var(--ease-out);
@@ -2108,11 +2102,8 @@ img.thread-announce-img {
   top: 0; left: 0;
   width: var(--sb-width);
   height: 100vh;
-  background:
-    linear-gradient(180deg,
-      oklch(99% 0.004 260) 0%,
-      var(--bg) 100%);
-  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-alt);
+  border-right: 1px solid var(--border);
   padding: 1.1rem .8rem 1rem;
   z-index: 40;
   display: flex;
@@ -2130,9 +2121,7 @@ img.thread-announce-img {
   color: inherit;
   margin-bottom: 1rem;
   padding: .3rem .55rem;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--accent-strong);
   width: max-content;
 }
 .sidebar nav {
@@ -2268,7 +2257,7 @@ img.thread-announce-img {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; flex: 0 0 22px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-fg);
   font-size: .72rem; font-weight: 700;
 }
@@ -2433,7 +2422,7 @@ img.thread-announce-img {
   height: 40px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: linear-gradient(135deg, var(--surface), var(--surface-alt));
+  background: var(--surface-alt);
   color: var(--fg);
   font-size: 1.05rem;
   cursor: pointer;
@@ -2534,7 +2523,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
   border-color: var(--border-strong);
 }
 .forum-filters .filter.active, .filters .filter.active {
-  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  background: var(--accent);
   color: var(--accent-fg);
   border-color: transparent;
   box-shadow: var(--shadow-xs), inset 0 1px 0 rgb(255 255 255 / 0.15);
@@ -2575,7 +2564,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 
 /* Bubble system style refresh — softer warm */
 .bubble.system {
-  background: linear-gradient(180deg, var(--sys), oklch(98% 0.04 80));
+  background: var(--sys);
   border-color: var(--sys-border);
   border-radius: var(--radius);
 }
@@ -2669,7 +2658,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 
 /* Projects header card subtle gradient */
 .project-header {
-  background: linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  background: var(--surface);
   border-radius: var(--radius-lg);
 }
 .project-panel {
@@ -2937,7 +2926,7 @@ hr {
   width: 28px; height: 28px; flex: 0 0 28px;
   border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-fg);
   font-weight: 700; font-size: .82rem;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), var(--shadow-xs);
@@ -2954,7 +2943,7 @@ hr {
 }
 .profile-avatar-fallback {
   display: inline-flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-fg);
   font-weight: 700; font-size: 1.6rem;
 }
@@ -5300,7 +5289,7 @@ button.ghost.danger:hover:not([disabled]) {
   overflow-y: auto;
   overflow-x: hidden;
   padding: .35rem .35rem 1rem;
-  background: linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
@@ -5464,7 +5453,7 @@ button.ghost.danger:hover:not([disabled]) {
 /* ── Pastes (pastebin/hastebin) ─────────────────────────────────────── */
 .paste-page { max-width: 56rem; margin: 1.25rem auto; padding: 0 1rem; }
 .paste-card {
-  background: linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.4rem;
@@ -5741,7 +5730,7 @@ html.lp-doc body.lp {
 .lp-logo-mark {
   display: grid; place-items: center; width: 1.7rem; height: 1.7rem;
   border-radius: var(--radius-sm); font-size: .9rem; color: var(--accent-fg);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   box-shadow: var(--shadow-xs);
 }
 .lp-logo-word { font-weight: 700; font-size: 1.15rem; letter-spacing: -0.02em; color: var(--fg); }
@@ -5817,7 +5806,7 @@ html.lp-doc body.lp {
 }
 .lp-ava-a { background: oklch(62% 0.18 25); }
 .lp-ava-b { background: oklch(60% 0.16 200); }
-.lp-ava-bot { background: linear-gradient(135deg, var(--accent), var(--accent-strong)); }
+.lp-ava-bot { background: var(--accent); }
 .lp-bubble-body { display: flex; flex-direction: column; gap: .1rem; font-size: .8rem; }
 .lp-bubble-body strong { font-size: .72rem; color: var(--fg); }
 .lp-bubble-body span { color: var(--fg-muted); line-height: 1.4; }
@@ -5869,7 +5858,7 @@ html.lp-doc body.lp {
 .lp-step-num {
   display: grid; place-items: center; width: 2.4rem; height: 2.4rem; margin-bottom: .9rem;
   border-radius: 50%; font-weight: 700; font-size: 1.05rem; color: var(--accent-fg);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong)); box-shadow: var(--shadow-sm);
+  background: var(--accent); box-shadow: var(--shadow-sm);
 }
 .lp-step h3 { margin: 0 0 .35rem; font-size: 1.1rem; font-weight: 650; color: var(--fg); text-transform: none; letter-spacing: -0.01em; }
 .lp-step p { margin: 0; color: var(--fg-muted); line-height: 1.55; font-size: .95rem; }
@@ -5888,7 +5877,7 @@ html.lp-doc body.lp {
 .lp-cta-band {
   text-align: center; margin: 1.5rem auto 3rem; padding: 2.6rem 1.5rem;
   border-radius: var(--radius-xl);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-fg); box-shadow: var(--shadow-lg);
 }
 .lp-cta-title { margin: 0; font-size: clamp(1.8rem, 4vw, 2.6rem); letter-spacing: -0.02em; }
