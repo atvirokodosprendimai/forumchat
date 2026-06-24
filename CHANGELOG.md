@@ -192,3 +192,5 @@
 - 2026-06-24 `d506409` fix(billing): resolve subscription events via metadata; grant on trialing too
 - 2026-06-24 `af0cf6e` docs(changelog): auto-append
 - 2026-06-24 `b2fcc1c` docs(changelog): auto-append
+- 2026-06-24 `263291f` feat(chat): SaaS-scoped cross-community chat inbox
+- 2026-06-24 `08a1cb6` fix(css): chat 3-dots Delete rendered red-on-red
