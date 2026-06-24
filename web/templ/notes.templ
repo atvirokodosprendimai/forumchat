@@ -178,9 +178,13 @@ templ NotePage(d NotePageData) {
 
 templ noteEditor(d NotePageData) {
 	<div class="note-editor card" id="note-editor">
-		<div class="note-editor-head">
-			<input class="note-title-input" type="text" data-bind="note_title" placeholder="Title" autocomplete="off"/>
-			<div class="note-editor-tools">
+		<div class="note-editor-bar">
+			<button class="btn ghost note-edit-toggle" data-on:click="$_note_edit = !$_note_edit" title="Show or hide the editor and preview">
+				<span data-show="$_note_edit">👁 Hide editor</span>
+				<span data-show="!$_note_edit">✏️ Edit note</span>
+			</button>
+			<div class="note-editor-tools" data-show="$_note_edit">
+				<input class="note-title-input" type="text" data-bind="note_title" placeholder="Title" autocomplete="off"/>
 				<label class="note-vis">
 					<select data-bind="note_visibility">
 						<option value="private">🔒 Private</option>
@@ -192,21 +196,33 @@ templ noteEditor(d NotePageData) {
 				<button class="btn ghost danger" data-on:click={ "confirm('Delete this note?') && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/delete')" }>Delete</button>
 			</div>
 		</div>
-		<div class="note-editor-split">
-			<textarea
-				class="note-md"
-				data-bind="note_body"
-				spellcheck="false"
-				autocomplete="off"
-				placeholder="Write in markdown…"
-				data-on:input__debounce.300ms={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/preview')" }
-			>{ d.Note.Body }</textarea>
-			<div class="note-preview">
-				<div class="note-preview-label muted">Preview</div>
-				@NotePreview(d.Note.BodyHTML)
+		<div class="note-editor-body" data-show="$_note_edit">
+			<div class="note-editor-panebar">
+				<label class="note-live-toggle" title="Re-render the preview on every keystroke">
+					<input type="checkbox" data-bind="_note_live"/>
+					Live preview
+				</label>
+				<button class="link note-preview-refresh" data-show="!$_note_live" data-on:click={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/preview')" }>↻ Update preview</button>
 			</div>
+			<div class="note-editor-split">
+				<div class="note-pane">
+					<div class="note-pane-label muted">Markdown</div>
+					<textarea
+						class="note-md"
+						data-bind="note_body"
+						spellcheck="false"
+						autocomplete="off"
+						placeholder="Write in markdown…"
+						data-on:input__debounce.300ms={ "$_note_live && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/preview')" }
+					>{ d.Note.Body }</textarea>
+				</div>
+				<div class="note-pane note-preview">
+					<div class="note-pane-label muted">Preview</div>
+					@NotePreview(d.Note.BodyHTML)
+				</div>
+			</div>
+			@NoteError("")
 		</div>
-		@NoteError("")
 		@noteShareDialog(d)
 	</div>
 }
@@ -272,20 +288,18 @@ templ NoteReader(d NotePageData) {
 		data-comment-count={ commentBlocksAttr(d.Comments) }
 		data-on:fc:note-comment="$note_c_block = String(evt.detail.block); $note_c_quote = evt.detail.quote || ''; $_note_comment_open = true"
 	>
-		if !d.Edit {
-			<header class="note-reader-head">
-				<h1>{ noteTitle(d.Note.Title) }</h1>
-				<div class="note-reader-meta muted">
-					if d.Note.AuthorName != "" {
-						<span>{ d.Note.AuthorName }</span>
-					}
-					<span>{ d.Note.UpdatedAt.Format("Jan 2, 2006") }</span>
-					if !d.Note.IsPublic {
-						<span class="note-badge private">🔒 Private</span>
-					}
-				</div>
-			</header>
-		}
+		<header class="note-reader-head">
+			<h1>{ noteTitle(d.Note.Title) }</h1>
+			<div class="note-reader-meta muted">
+				if d.Note.AuthorName != "" {
+					<span>{ d.Note.AuthorName }</span>
+				}
+				<span>{ d.Note.UpdatedAt.Format("Jan 2, 2006") }</span>
+				if !d.Note.IsPublic {
+					<span class="note-badge private">🔒 Private</span>
+				}
+			</div>
+		</header>
 		<div class={ "note-reader-grid", templ.KV("solo", d.Shared) }>
 			<div id="note-body" class="note-rendered" data-can-comment={ boolAttr(d.CanComment) }>
 				@templ.Raw(d.BodyAnnotated)
@@ -431,5 +445,5 @@ func noteInitSignals(n NoteView) string {
 		`,"note_visibility":` + strconv.Quote(vis) +
 		`,"note_body":` + strconv.Quote(n.Body) +
 		`,"note_c_block":"0","note_c_quote":"","note_c_body":"","note_share_channel":"",` +
-		`"_note_share_open":false,"_note_comment_open":false}`
+		`"_note_share_open":false,"_note_comment_open":false,"_note_edit":true,"_note_live":false}`
 }

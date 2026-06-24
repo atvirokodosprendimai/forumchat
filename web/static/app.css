@@ -6242,3 +6242,15 @@ body:has(.chat-layout) .site-footer { display: none; }
 .note-mark, .note-mark * { color: inherit; }
 .note-mark:hover, .note-mark.note-mark-hi { background: var(--accent-soft-strong);
   box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* notes — editor collapse toggle + manual/live preview */
+.note-editor-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.note-edit-toggle { flex-shrink: 0; font-weight: 600; }
+.note-editor-bar .note-editor-tools { flex: 1; display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.note-editor-panebar { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; }
+.note-live-toggle { display: inline-flex; align-items: center; gap: .35rem; font-size: .85rem; color: var(--fg-muted); cursor: pointer; user-select: none; }
+.note-live-toggle input { width: auto; margin: 0; }
+.note-preview-refresh { font-size: .85rem; }
+.note-pane { display: flex; flex-direction: column; min-width: 0; }
+.note-pane-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: .35rem; }
+.note-pane .note-md { flex: 1; }
