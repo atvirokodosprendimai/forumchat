@@ -462,7 +462,9 @@ func (s *Service) ensureInboxProject(ctx context.Context, communityID, creatorID
 	}
 	s.inboxMu.Unlock()
 
-	pid, err := s.Projects.EnsureNamedProject(ctx, communityID, creatorID, "Inbox",
+	// Hidden: dropped emails are private to creator/admin + ACL members,
+	// never community-visible (§project permissions, migration 00063).
+	pid, err := s.Projects.EnsureHiddenProject(ctx, communityID, creatorID, "Inbox",
 		"Auto-generated container for emails that filters with `to_issue=true` turn into issues.")
 	if err != nil {
 		return "", err

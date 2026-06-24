@@ -19,7 +19,17 @@ var (
 	ErrNotFound      = errors.New("projects: not found")
 	ErrForbidden     = errors.New("projects: forbidden")
 	ErrInvalidStatus = errors.New("projects: invalid todo status")
+	ErrInvalidPerms  = errors.New("projects: invalid permission setting")
 )
+
+// PermOpts carries the optional permission setup for a new project. The
+// zero value (NeedsPerms false) creates a legacy open project — every
+// approved member reads + writes.
+type PermOpts struct {
+	NeedsPerms   bool
+	Visibility   string // VisibilityCommunity (default) | VisibilityRestricted
+	MemberAccess string // AccessRead (default) | AccessWrite
+}
 
 // Service composes Repo + Bus + uploads.Store into the business-level
 // API used by the HTTP handlers. Every mutator publishes a typed Event
@@ -40,13 +50,24 @@ func NewService(repo *Repo, bus *Bus, store *uploads.Store, editGrace time.Durat
 }
 
 // CreateProject persists a fresh project with rendered description HTML.
-func (s *Service) CreateProject(ctx context.Context, communityID, creatorID, title, descMD string) (Project, error) {
+// perms is normalised + validated; the zero value yields a legacy open
+// project.
+func (s *Service) CreateProject(ctx context.Context, communityID, creatorID, title, descMD string, perms PermOpts) (Project, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return Project{}, ErrEmptyTitle
 	}
 	if len(title) > 200 {
 		title = title[:200]
+	}
+	if perms.Visibility == "" {
+		perms.Visibility = VisibilityCommunity
+	}
+	if perms.MemberAccess == "" {
+		perms.MemberAccess = AccessRead
+	}
+	if !ValidVisibility(perms.Visibility) || !ValidAccess(perms.MemberAccess) {
+		return Project{}, ErrInvalidPerms
 	}
 	html, err := render.RenderMarkdown(strings.TrimSpace(descMD))
 	if err != nil {
@@ -60,6 +81,9 @@ func (s *Service) CreateProject(ctx context.Context, communityID, creatorID, tit
 		Title:           title,
 		DescriptionMD:   strings.TrimSpace(descMD),
 		DescriptionHTML: html,
+		NeedsPerms:      perms.NeedsPerms,
+		Visibility:      perms.Visibility,
+		MemberAccess:    perms.MemberAccess,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -69,22 +93,109 @@ func (s *Service) CreateProject(ctx context.Context, communityID, creatorID, tit
 	return p, nil
 }
 
+// manageGate loads a project and enforces the manage permission (creator
+// OR community admin/owner) shared by the perms / grant / revoke actions.
+func (s *Service) manageGate(ctx context.Context, projectID, callerUserID string, callerIsAdmin bool) (Project, error) {
+	p, err := s.Repo.ByID(ctx, projectID)
+	if err != nil {
+		return Project{}, fmt.Errorf("project lookup: %w", err)
+	}
+	if !(callerIsAdmin || p.CreatorUserID == callerUserID) {
+		return Project{}, ErrForbidden
+	}
+	return p, nil
+}
+
+// SetPerms changes a project's permission model (the needs_perms master
+// switch + visibility + community member default). Manage-gated. Publishes
+// a header event so every open page re-renders the perms panel + affords.
+func (s *Service) SetPerms(ctx context.Context, projectID, callerUserID string, callerIsAdmin, needsPerms bool, visibility, memberAccess string) error {
+	if _, err := s.manageGate(ctx, projectID, callerUserID, callerIsAdmin); err != nil {
+		return err
+	}
+	if visibility == "" {
+		visibility = VisibilityCommunity
+	}
+	if memberAccess == "" {
+		memberAccess = AccessRead
+	}
+	if !ValidVisibility(visibility) || !ValidAccess(memberAccess) {
+		return ErrInvalidPerms
+	}
+	if err := s.Repo.SetPerms(ctx, projectID, needsPerms, visibility, memberAccess, time.Now().UTC()); err != nil {
+		return fmt.Errorf("set perms: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "header"})
+	return nil
+}
+
+// GrantMember upserts a per-person ACL grant (read|write). Manage-gated.
+func (s *Service) GrantMember(ctx context.Context, projectID, callerUserID string, callerIsAdmin bool, targetUserID, access string) error {
+	if targetUserID == "" {
+		return ErrNotFound
+	}
+	if !ValidAccess(access) {
+		return ErrInvalidPerms
+	}
+	if _, err := s.manageGate(ctx, projectID, callerUserID, callerIsAdmin); err != nil {
+		return err
+	}
+	if err := s.Repo.SetProjectMember(ctx, projectID, targetUserID, access, time.Now().UTC()); err != nil {
+		return fmt.Errorf("grant member: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "header"})
+	return nil
+}
+
+// RevokeMember removes a per-person ACL grant. Manage-gated.
+func (s *Service) RevokeMember(ctx context.Context, projectID, callerUserID string, callerIsAdmin bool, targetUserID string) error {
+	if _, err := s.manageGate(ctx, projectID, callerUserID, callerIsAdmin); err != nil {
+		return err
+	}
+	if err := s.Repo.RemoveProjectMember(ctx, projectID, targetUserID); err != nil {
+		return fmt.Errorf("revoke member: %w", err)
+	}
+	s.Bus.PublishProject(projectID, Event{Kind: "header"})
+	return nil
+}
+
 // EnsureNamedProject finds (case-insensitive) an active project titled
-// `title` in the community, or creates one with descMD. Returns the
-// project id. The single find-or-create-by-title helper, shared by the
-// mailbox auto-issue inbox and the support-inbox boot seed. Caching, if
-// any, is the caller's concern (this hits the DB every call).
+// `title` in the community, or creates a legacy open one with descMD.
+// Returns the project id. Shared by the support-inbox boot seed.
 func (s *Service) EnsureNamedProject(ctx context.Context, communityID, creatorID, title, descMD string) (string, error) {
+	return s.ensureNamed(ctx, communityID, creatorID, title, descMD, false)
+}
+
+// EnsureHiddenProject is EnsureNamedProject for content that must stay
+// private — the mailbox Inbox where emails drop. A freshly created one is
+// restricted (only creator/admin + ACL members see it); an existing open
+// one is upgraded to restricted in place so dropped mail stops being
+// community-visible.
+func (s *Service) EnsureHiddenProject(ctx context.Context, communityID, creatorID, title, descMD string) (string, error) {
+	return s.ensureNamed(ctx, communityID, creatorID, title, descMD, true)
+}
+
+func (s *Service) ensureNamed(ctx context.Context, communityID, creatorID, title, descMD string, restricted bool) (string, error) {
 	rows, err := s.Repo.ListActiveForCommunity(ctx, communityID)
 	if err != nil {
 		return "", fmt.Errorf("list active projects: %w", err)
 	}
 	for _, r := range rows {
 		if strings.EqualFold(r.Title, title) {
+			if restricted && !(r.NeedsPerms && r.Visibility == VisibilityRestricted) {
+				// Idempotently hide an Inbox created before this feature.
+				if err := s.Repo.SetPerms(ctx, r.ID, true, VisibilityRestricted, AccessRead, time.Now().UTC()); err != nil {
+					return "", fmt.Errorf("hide %q project: %w", title, err)
+				}
+			}
 			return r.ID, nil
 		}
 	}
-	p, err := s.CreateProject(ctx, communityID, creatorID, title, descMD)
+	perms := PermOpts{}
+	if restricted {
+		perms = PermOpts{NeedsPerms: true, Visibility: VisibilityRestricted, MemberAccess: AccessRead}
+	}
+	p, err := s.CreateProject(ctx, communityID, creatorID, title, descMD, perms)
 	if err != nil {
 		return "", fmt.Errorf("create %q project: %w", title, err)
 	}

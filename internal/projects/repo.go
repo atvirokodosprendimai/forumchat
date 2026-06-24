@@ -65,36 +65,63 @@ func likeEscape(s string) string {
 
 // ListActiveForCommunity returns active (non-archived) projects ordered
 // most-recently-updated first. Aggregates todo / attachment / comment
-// counts in one query to avoid N+1 on the index page.
+// counts in one query to avoid N+1 on the index page. UNFILTERED — used by
+// find-or-create + move pickers where the caller already owns the context.
 func (r *Repo) ListActiveForCommunity(ctx context.Context, communityID string) ([]IndexRow, error) {
-	return r.listForCommunity(ctx, communityID, false)
+	return r.listForCommunity(ctx, communityID, false, nil)
 }
 
 // ListArchivedForCommunity is the same shape but returns archived rows
 // ordered most-recently-archived first.
 func (r *Repo) ListArchivedForCommunity(ctx context.Context, communityID string) ([]IndexRow, error) {
-	return r.listForCommunity(ctx, communityID, true)
+	return r.listForCommunity(ctx, communityID, true, nil)
 }
 
-func (r *Repo) listForCommunity(ctx context.Context, communityID string, archived bool) ([]IndexRow, error) {
+// ListVisibleForCommunity is the index-page variant: it hides restricted
+// projects that userID may not see (creator/admin/owner + ACL members
+// always see; community-visible + open projects are shown to all).
+func (r *Repo) ListVisibleForCommunity(ctx context.Context, communityID, userID string, isAdmin, archived bool) ([]IndexRow, error) {
+	return r.listForCommunity(ctx, communityID, archived, &viewerFilter{userID: userID, isAdmin: isAdmin})
+}
+
+func (r *Repo) listForCommunity(ctx context.Context, communityID string, archived bool, vis *viewerFilter) ([]IndexRow, error) {
 	where := "p.archived_at IS NULL"
 	order := "p.updated_at DESC"
 	if archived {
 		where = "p.archived_at IS NOT NULL"
 		order = "p.archived_at DESC"
 	}
+	args := []any{communityID}
+	// visClause hides restricted projects the viewer may not see. nil =
+	// no filter (internal find-or-create + move pickers). The predicate
+	// mirrors EffectiveAccess's read rule in SQL: open project, OR
+	// community-visible, OR the viewer is creator/admin, OR the viewer has
+	// an ACL row.
+	visClause := ""
+	if vis != nil {
+		if vis.isAdmin {
+			// Admin/owner of THIS community sees everything; no predicate.
+		} else {
+			visClause = ` AND (p.needs_perms = 0
+				OR p.visibility = 'community'
+				OR p.creator_user_id = ?
+				OR EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = ?))`
+			args = append(args, vis.userID, vis.userID)
+		}
+	}
 	q := fmt.Sprintf(`
 		SELECT p.id, p.community_id, p.creator_user_id, p.title,
 		       p.description_md, p.description_html, p.archived_at,
 		       p.created_at, p.updated_at,
+		       p.needs_perms, p.visibility, p.member_access,
 		       (SELECT COUNT(*) FROM project_todos t WHERE t.project_id = p.id) AS todo_total,
 		       (SELECT COUNT(*) FROM project_todos t WHERE t.project_id = p.id AND t.done = 1) AS todo_done,
 		       (SELECT COUNT(*) FROM project_attachments a WHERE a.project_id = p.id) AS att_count,
 		       (SELECT COUNT(*) FROM project_comments c WHERE c.project_id = p.id AND c.deleted_at IS NULL) AS cmt_count
 		FROM projects p
-		WHERE p.community_id = ? AND %s
-		ORDER BY %s`, where, order)
-	rows, err := r.DB.QueryContext(ctx, q, communityID)
+		WHERE p.community_id = ? AND %s%s
+		ORDER BY %s`, where, visClause, order)
+	rows, err := r.DB.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -104,11 +131,14 @@ func (r *Repo) listForCommunity(ctx context.Context, communityID string, archive
 		var row IndexRow
 		var arch sql.NullInt64
 		var cAt, uAt int64
+		var needsPerms int
 		if err := rows.Scan(&row.ID, &row.CommunityID, &row.CreatorUserID, &row.Title,
 			&row.DescriptionMD, &row.DescriptionHTML, &arch, &cAt, &uAt,
+			&needsPerms, &row.Visibility, &row.MemberAccess,
 			&row.TodoTotal, &row.TodoDone, &row.AttachmentCount, &row.CommentCount); err != nil {
 			return nil, err
 		}
+		row.NeedsPerms = needsPerms == 1
 		row.CreatedAt = time.UnixMilli(cAt).UTC()
 		row.UpdatedAt = time.UnixMilli(uAt).UTC()
 		if arch.Valid {
@@ -120,20 +150,30 @@ func (r *Repo) listForCommunity(ctx context.Context, communityID string, archive
 	return out, rows.Err()
 }
 
+// viewerFilter scopes a project list to what one caller may see.
+type viewerFilter struct {
+	userID  string
+	isAdmin bool
+}
+
 // ByID loads one project. Returns sql.ErrNoRows wrapped if missing.
 func (r *Repo) ByID(ctx context.Context, id string) (Project, error) {
 	var p Project
 	var arch sql.NullInt64
 	var cAt, uAt int64
+	var needsPerms int
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT id, community_id, creator_user_id, title,
-		       description_md, description_html, archived_at, created_at, updated_at
+		       description_md, description_html, archived_at, created_at, updated_at,
+		       needs_perms, visibility, member_access
 		FROM projects WHERE id = ?`, id).Scan(
 		&p.ID, &p.CommunityID, &p.CreatorUserID, &p.Title,
-		&p.DescriptionMD, &p.DescriptionHTML, &arch, &cAt, &uAt)
+		&p.DescriptionMD, &p.DescriptionHTML, &arch, &cAt, &uAt,
+		&needsPerms, &p.Visibility, &p.MemberAccess)
 	if err != nil {
 		return Project{}, err
 	}
+	p.NeedsPerms = needsPerms == 1
 	p.CreatedAt = time.UnixMilli(cAt).UTC()
 	p.UpdatedAt = time.UnixMilli(uAt).UTC()
 	if arch.Valid {
@@ -143,15 +183,109 @@ func (r *Repo) ByID(ctx context.Context, id string) (Project, error) {
 	return p, nil
 }
 
-// Insert persists a fresh project row.
+// Insert persists a fresh project row, including its permission columns.
 func (r *Repo) Insert(ctx context.Context, p Project) error {
+	visibility := p.Visibility
+	if visibility == "" {
+		visibility = VisibilityCommunity
+	}
+	memberAccess := p.MemberAccess
+	if memberAccess == "" {
+		memberAccess = AccessRead
+	}
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO projects
-		  (id, community_id, creator_user_id, title, description_md, description_html, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		  (id, community_id, creator_user_id, title, description_md, description_html,
+		   needs_perms, visibility, member_access, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID, p.CommunityID, p.CreatorUserID, p.Title,
 		p.DescriptionMD, p.DescriptionHTML,
+		boolToInt(p.NeedsPerms), visibility, memberAccess,
 		p.CreatedAt.UnixMilli(), p.UpdatedAt.UnixMilli())
+	return err
+}
+
+// boolToInt maps a Go bool to SQLite's 0/1 integer boolean.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// SetPerms updates a project's permission triple and bumps updated_at.
+func (r *Repo) SetPerms(ctx context.Context, projectID string, needsPerms bool, visibility, memberAccess string, now time.Time) error {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE projects SET needs_perms = ?, visibility = ?, member_access = ?, updated_at = ?
+		WHERE id = ?`,
+		boolToInt(needsPerms), visibility, memberAccess, now.UnixMilli(), projectID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// MemberAccessFor returns the ACL access level granted to userID on
+// projectID, and whether a row exists at all.
+func (r *Repo) MemberAccessFor(ctx context.Context, projectID, userID string) (string, bool) {
+	if userID == "" {
+		return "", false
+	}
+	var access string
+	err := r.DB.QueryRowContext(ctx,
+		`SELECT access FROM project_members WHERE project_id = ? AND user_id = ?`,
+		projectID, userID).Scan(&access)
+	if err != nil {
+		return "", false
+	}
+	return access, true
+}
+
+// ListMembers returns a project's ACL rows with a display-name snapshot
+// from the community roster, name-sorted for stable rendering.
+func (r *Repo) ListMembers(ctx context.Context, projectID string) ([]ProjectMember, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT pm.project_id, pm.user_id, pm.access, COALESCE(m.display_name, ''), pm.created_at
+		FROM project_members pm
+		JOIN projects p ON p.id = pm.project_id
+		LEFT JOIN memberships m ON m.user_id = pm.user_id AND m.community_id = p.community_id
+		WHERE pm.project_id = ?
+		ORDER BY m.display_name COLLATE NOCASE, pm.user_id`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list project members: %w", err)
+	}
+	defer rows.Close()
+	var out []ProjectMember
+	for rows.Next() {
+		var m ProjectMember
+		var cAt int64
+		if err := rows.Scan(&m.ProjectID, &m.UserID, &m.Access, &m.Name, &cAt); err != nil {
+			return nil, err
+		}
+		m.CreatedAt = time.UnixMilli(cAt).UTC()
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// SetProjectMember upserts one ACL grant (insert or change the access).
+func (r *Repo) SetProjectMember(ctx context.Context, projectID, userID, access string, now time.Time) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO project_members (project_id, user_id, access, created_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(project_id, user_id) DO UPDATE SET access = excluded.access`,
+		projectID, userID, access, now.UnixMilli())
+	return err
+}
+
+// RemoveProjectMember drops one ACL grant.
+func (r *Repo) RemoveProjectMember(ctx context.Context, projectID, userID string) error {
+	_, err := r.DB.ExecContext(ctx,
+		`DELETE FROM project_members WHERE project_id = ? AND user_id = ?`,
+		projectID, userID)
 	return err
 }
 

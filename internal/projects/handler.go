@@ -139,7 +139,12 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	title := r.FormValue("title")
 	desc := r.FormValue("description")
-	p, err := h.Svc.CreateProject(r.Context(), c.ID, id.User.ID, title, desc)
+	perms := PermOpts{
+		NeedsPerms:   r.FormValue("needs_perms") == "on" || r.FormValue("needs_perms") == "true",
+		Visibility:   r.FormValue("visibility"),
+		MemberAccess: r.FormValue("member_access"),
+	}
+	p, err := h.Svc.CreateProject(r.Context(), c.ID, id.User.ID, title, desc, perms)
 	if err != nil {
 		if errors.Is(err, ErrEmptyTitle) {
 			http.Redirect(w, r, "/c/"+c.Slug+"/projects", http.StatusSeeOther)

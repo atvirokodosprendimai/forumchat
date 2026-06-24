@@ -122,7 +122,7 @@ func TestAccessibleIssueRejectsNonInboxProject(t *testing.T) {
 
 	// A normal project + issue in the SAME (support) community but not the
 	// Inbox project.
-	other, err := svc.CreateProject(ctx, "sup", "uA", "Some other project", "")
+	other, err := svc.CreateProject(ctx, "sup", "uA", "Some other project", "", projects.PermOpts{})
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
