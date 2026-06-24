@@ -4197,7 +4197,7 @@ hr {
   z-index: 70;
   display: flex; align-items: center; justify-content: center;
 }
-.extract-dialog, .forward-dialog {
+.modal, .extract-dialog, .forward-dialog {
   background: var(--surface, #fff);
   border: 1px solid var(--border, #e4e4ea);
   border-radius: var(--radius, 0.6rem);
@@ -4220,6 +4220,10 @@ hr {
 .modal-body .form-row input,
 .modal-body .form-row select,
 .modal-body .form-row textarea {
+  /* Reset the global `.form-row input { flex: 1 1 12rem }` — in the column-
+     direction modal body its 12rem flex-basis becomes the element HEIGHT,
+     stretching inputs into tall boxes. */
+  flex: 0 0 auto;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border, #e4e4ea);
   border-radius: var(--radius-sm, 0.45rem);

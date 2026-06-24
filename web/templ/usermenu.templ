@@ -73,6 +73,10 @@ templ UserContextMenu(slug, currentUserID string, isAdmin bool) {
 					data-on:click={ "@post('/c/" + slug + "/admin/set-role?id=' + $_ctx_membership_id + '&role=member'); $_ctx_open=false" }>
 					<span class="ucm-icon">⚐</span><span class="ucm-label">Remove moderator</span>
 				</button>
+				<button class="ucm-item" role="menuitem"
+					data-on:click="$admin_nick=''; $_ctx_nick_open=true; $_ctx_open=false">
+					<span class="ucm-icon">✎</span><span class="ucm-label">Set display alias…</span>
+				</button>
 				<button class="ucm-item danger" role="menuitem"
 					data-show={ "$_ctx_user_id !== '" + currentUserID + "'" }
 					data-on:click={ "if(confirm('Remove ' + $_ctx_name + ' from the community?')){$cleanup_chat=false; $cleanup_threads=false; $cleanup_posts=false; @post('/c/" + slug + "/admin/remove?id=' + $_ctx_membership_id)}; $_ctx_open=false" }>
@@ -84,7 +88,37 @@ templ UserContextMenu(slug, currentUserID string, isAdmin bool) {
 	@ReportDialog(slug)
 	if isAdmin {
 		@BanDialog(slug)
+		@AliasDialog(slug)
 	}
+}
+
+// AliasDialog is the admin "set a display alias" modal launched from the user
+// context menu. The alias replaces how this member is shown to everyone else
+// (chat, forum, roster, @mentions); their own name stays as the fallback.
+// Posts the admin_nick signal to /admin/set-nick for the live
+// $_ctx_membership_id; a blank Save (or Clear) removes the alias. Visibility
+// on $_ctx_nick_open; placeholder shows the member's current shown name.
+templ AliasDialog(slug string) {
+	<div class="modal-overlay" data-cloak data-show="$_ctx_nick_open"
+		data-on:click="if(evt.target===el){$_ctx_nick_open=false}">
+		<div class="modal" data-on:click="evt.stopPropagation()">
+			<header class="modal-head">
+				<strong>Display alias for <span data-text="$_ctx_name"></span></strong>
+				<button class="link" data-on:click="$_ctx_nick_open=false">✕</button>
+			</header>
+			<div class="modal-body">
+				<p class="muted">Shown to everyone in chat, forum, roster and @mentions. Leave blank to remove the alias and fall back to the member's own name.</p>
+				<label class="form-row">
+					<span>Alias</span>
+					<input type="text" data-bind="admin_nick" maxlength="60" data-attr:placeholder="$_ctx_name"/>
+				</label>
+			</div>
+			<footer class="modal-foot">
+				<button class="btn ghost danger" data-on:click={ "$admin_nick=''; @post('/c/" + slug + "/admin/set-nick?id=' + $_ctx_membership_id); $_ctx_nick_open=false" }>Clear alias</button>
+				<button class="btn" data-on:click={ "@post('/c/" + slug + "/admin/set-nick?id=' + $_ctx_membership_id); $_ctx_nick_open=false" }>Save alias</button>
+			</footer>
+		</div>
+	</div>
 }
 
 // ReportDialog is the member-facing "report a user" modal. Any approved
