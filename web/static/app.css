@@ -148,6 +148,17 @@ button, .btn {
   font-weight: 600; letter-spacing: -0.005em;
   box-shadow: var(--shadow-xs), inset 0 1px 0 rgb(255 255 255 / 0.15);
 }
+/* `.btn` is also applied to <a> anchors (nav CTAs, "New thread", etc.). The
+   base form rule above only sizes the <button> element, so without this an
+   anchor .btn gets the accent background but no padding/radius/box — the fill
+   hugs the text with square corners and bleeds past the line box, reading as a
+   stray selection highlight. Give every .btn the button box model. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  padding: .6rem .8rem; border-radius: var(--radius-sm);
+  line-height: 1; text-decoration: none; white-space: nowrap;
+}
+.btn:hover { text-decoration: none; }
 button:hover, .btn:hover {
   background: linear-gradient(180deg, var(--accent-hover), var(--accent-strong));
   box-shadow: var(--shadow-sm), inset 0 1px 0 rgb(255 255 255 / 0.2);
