@@ -50,10 +50,8 @@ type GlobalIssuesPageData struct {
 templ GlobalIssuesPage(d GlobalIssuesPageData) {
 	@Layout("Issues", d.Viewer) {
 		<section class="inbox" data-init="@get('/issues/stream')">
-			<header class="inbox-head">
-				<h1>Issues</h1>
-				<p class="muted">Open issues across every community you administer. Newest activity first. Click a row to open the issue in its community.</p>
-			</header>
+			@PageHeader("Issues", "Open issues across every community you administer. Newest activity first. Click a row to open the issue in its community.") {
+			}
 			@globalIssuePicker(d.Communities)
 			<div class="inbox-toolbar">
 				<button

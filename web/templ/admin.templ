@@ -54,7 +54,8 @@ func agentLimitSignals(d AdminPageData) string {
 templ AdminPage(d AdminPageData) {
 	@Layout("Admin", d.Viewer) {
 		<section>
-			<h1>Admin — { d.Viewer.CommunityName }</h1>
+			@PageHeader("Admin", "") {
+			}
 			<p class="muted"><a href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin") }>refresh</a></p>
 
 			<section class="card narrow">

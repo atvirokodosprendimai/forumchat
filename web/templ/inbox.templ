@@ -81,10 +81,8 @@ templ InboxPage(d InboxPageData) {
 			data-init={ "@get('/inbox/stream?community=' + ($inbox_community || '') + ($inbox_attach ? '&attach=1' : ''))" }
 		>
 			@InboxToast()
-			<header class="inbox-head">
-				<h1>Inbox</h1>
-				<p class="muted">Emails matched by community filters land here. Move attachments into projects; create issues from full messages.</p>
-			</header>
+			@PageHeader("Inbox", "Emails matched by community filters land here. Move attachments into projects; create issues from full messages.") {
+			}
 			<nav class="inbox-pills" aria-label="Community filter">
 				@inboxPill("", "All", d.ActiveCommunity == "")
 				@inboxPill("_unassigned", "Unassigned", d.ActiveCommunity == "_unassigned")

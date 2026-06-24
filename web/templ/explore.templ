@@ -16,12 +16,8 @@ type ExploreData struct {
 templ ExplorePage(d ExploreData) {
 	@Layout("Explore communities", d.Viewer) {
 		<section>
-			<header class="page-head">
-				<div>
-					<h1>Explore communities</h1>
-					<p class="muted">Public communities you can request to join. Admins review every request.</p>
-				</div>
-			</header>
+			@PageHeader("Explore communities", "Public communities you can request to join. Admins review every request.") {
+			}
 			if len(d.Rows) == 0 {
 				<div class="empty-state">
 					<div class="empty-icon" aria-hidden="true">🔭</div>

@@ -97,10 +97,8 @@ templ SupportReportPage(d SupportReportPageData) {
 templ SupportInboxPage(d SupportInboxPageData) {
 	@Layout("Support inbox", d.Viewer) {
 		<section class="support">
-			<header class="support-head">
-				<h1>📨 Support inbox</h1>
-				<p class="muted">Every report filed from the “Report issue” button, across all communities. Only platform admins see this.</p>
-			</header>
+			@PageHeader("📨 Support inbox", "Every report filed from the “Report issue” button, across all communities. Only platform admins see this.") {
+			}
 			@SupportMyReports(d.Reports)
 		</section>
 	}

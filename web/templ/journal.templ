@@ -33,8 +33,8 @@ type JournalPageData struct {
 templ JournalPage(d JournalPageData) {
 	@Layout("Journal", d.Viewer) {
 		<section>
-			<h1>Journal</h1>
-			<p class="muted">A personal stopwatch and work diary — just for you, across every community.</p>
+			@PageHeader("Journal", "A personal stopwatch and work diary — just for you, across every community.") {
+			}
 			<script src={ "/static/timer.js?v=" + AssetVer("timer.js") } defer></script>
 			@WorklogPanel(d.Panel)
 		</section>
