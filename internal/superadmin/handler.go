@@ -18,6 +18,7 @@ import (
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/aiusage"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
@@ -71,7 +72,14 @@ type Handler struct {
 	// switch the dashboard exposes. Nil-safe (its methods guard a nil receiver),
 	// so the debug card simply shows "off" when unwired.
 	Debug *debuglog.Recorder
+	// Usage is the platform-AI metering ledger, read for the per-community cost
+	// table on the platform-AI card. Nil-safe — the card shows zero usage when
+	// unwired.
+	Usage *aiusage.Recorder
 }
+
+// usageWindow is the rolling lookback for the super-admin cost figures.
+const usageWindow = 30 * 24 * time.Hour
 
 var slugRE = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
@@ -115,11 +123,19 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load requests: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Platform-AI standings + usage (SaaS). Cheap and empty in self-host; the
+	// dashboard only renders the card under the SaaSEnabled gate.
+	platformAI, err := h.platformAIRows(r.Context())
+	if err != nil {
+		http.Error(w, "load platform AI: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	data := webtempl.SuperAdminPageData{
 		Viewer:       h.viewer(r),
 		Communities:  toSACommunities(comms),
 		Users:        toSAUsers(users),
 		Requests:     toSARequests(reqs),
+		PlatformAI:   platformAI,
 		DebugEnabled: h.Debug.Enabled(),
 		DebugCount:   debugCount,
 	}
@@ -227,6 +243,101 @@ func (h *Handler) renderRequests(r *http.Request, sse *datastar.ServerSentEventG
 		return
 	}
 	_ = sse.PatchElementTempl(webtempl.SARequestsCard(toSARequests(reqs)))
+}
+
+// platformAISignals carries the target community for a grant/revoke action.
+type platformAISignals struct {
+	CommunityID string `json:"sa_pai_cid"`
+}
+
+// PostGrantPlatformAI sponsors a community's platform AI for free (no Stripe),
+// then morphs the card. Super-admin gated by the route.
+func (h *Handler) PostGrantPlatformAI(w http.ResponseWriter, r *http.Request) {
+	var in platformAISignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-pai-error", "bad signals: "+err.Error()))
+		return
+	}
+	sse := render.NewSSE(w, r)
+	cid := strings.TrimSpace(in.CommunityID)
+	if cid != "" {
+		if err := h.Communities.GrantPlatformAI(r.Context(), cid); err != nil {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-pai-error", "Could not grant: "+err.Error()))
+			return
+		}
+		h.audit(r, "granted free platform AI", "community_id", cid)
+	}
+	h.renderPlatformAI(r, sse)
+}
+
+// PostRevokePlatformAI removes a free grant (a paying customer stays authorized
+// via their subscription), then morphs the card.
+func (h *Handler) PostRevokePlatformAI(w http.ResponseWriter, r *http.Request) {
+	var in platformAISignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-pai-error", "bad signals: "+err.Error()))
+		return
+	}
+	sse := render.NewSSE(w, r)
+	cid := strings.TrimSpace(in.CommunityID)
+	if cid != "" {
+		if err := h.Communities.RevokePlatformAI(r.Context(), cid); err != nil {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-pai-error", "Could not revoke: "+err.Error()))
+			return
+		}
+		h.audit(r, "revoked free platform AI", "community_id", cid)
+	}
+	h.renderPlatformAI(r, sse)
+}
+
+// renderPlatformAI reloads the standings + usage and morphs the #sa-platform-ai card.
+func (h *Handler) renderPlatformAI(r *http.Request, sse *datastar.ServerSentEventGenerator) {
+	rows, err := h.platformAIRows(r.Context())
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-pai-error", "Could not reload: "+err.Error()))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.SAPlatformAICard(rows))
+}
+
+// platformAIRows joins each engaged community's opt-in standing with its rolling
+// platform-compute usage for the cost table.
+func (h *Handler) platformAIRows(ctx context.Context) ([]webtempl.SAPlatformAIRow, error) {
+	reqs, err := h.Communities.ListPlatformAIRequests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	usage := map[string]aiusage.CommunityTotal{}
+	if totals, err := h.Usage.CommunityTotals(ctx, now.Add(-usageWindow).Unix(), now.Unix()); err == nil {
+		for _, t := range totals {
+			usage[t.CommunityID] = t
+		}
+	}
+	out := make([]webtempl.SAPlatformAIRow, 0, len(reqs))
+	for _, q := range reqs {
+		u := usage[q.CommunityID]
+		requested := ""
+		if q.RequestedAt != 0 {
+			requested = time.Unix(q.RequestedAt, 0).Format(dateFmt)
+		}
+		out = append(out, webtempl.SAPlatformAIRow{
+			CommunityID: q.CommunityID,
+			Name:        q.Name,
+			Slug:        q.Slug,
+			Status:      q.Status,
+			GrantedFree: q.GrantedFree,
+			Subscribed:  q.Subscribed,
+			On:          q.On,
+			Requested:   requested,
+			Requests:    u.Requests,
+			TokensIn:    u.TokensIn,
+			TokensOut:   u.TokensOut,
+		})
+	}
+	return out, nil
 }
 
 const dateFmt = "2006-01-02"

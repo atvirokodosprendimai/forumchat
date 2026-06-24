@@ -42,8 +42,25 @@ type SuperAdminPageData struct {
 	Communities  []SACommunity
 	Users        []SAUser
 	Requests     []SARequest
+	PlatformAI   []SAPlatformAIRow
 	DebugEnabled bool
 	DebugCount   int
+}
+
+// SAPlatformAIRow is one community's platform-AI standing plus its rolling
+// 30-day platform-compute usage, for the super-admin grant + cost table.
+type SAPlatformAIRow struct {
+	CommunityID string
+	Name        string
+	Slug        string
+	Status      string // requested | approved_unpaid | active | canceled | ""
+	GrantedFree bool
+	Subscribed  bool // active Stripe subscription
+	On          bool // owner master switch
+	Requested   string
+	Requests    int
+	TokensIn    int
+	TokensOut   int
 }
 
 // SARequest is one pending SaaS self-serve request for an ADDITIONAL community,
@@ -182,6 +199,7 @@ templ SuperAdminPage(data SuperAdminPageData) {
 
 		if SaaSEnabled {
 			@SARequestsCard(data.Requests)
+			@SAPlatformAICard(data.PlatformAI)
 		}
 
 		@SADebugCard(data.DebugEnabled, data.DebugCount)
@@ -412,6 +430,77 @@ templ SARequestsCard(reqs []SARequest) {
 							<td>
 								<button data-on:click={ approveReqJS(q) }>Approve</button>
 								<button class="ghost danger" data-on:click={ denyReqJS(q) }>Deny</button>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		}
+	</section>
+}
+
+func grantPaiJS(row SAPlatformAIRow) string {
+	return "if(confirm('Grant FREE platform AI to " + jsString(row.Name) +
+		"? You (the operator) pay its AI compute.')){$sa_pai_cid='" + row.CommunityID +
+		"'; @post('/superadmin/platform-ai/grant')}"
+}
+
+func revokePaiJS(row SAPlatformAIRow) string {
+	return "if(confirm('Revoke the free grant for " + jsString(row.Name) +
+		"? A paying customer keeps access via their subscription.')){$sa_pai_cid='" + row.CommunityID +
+		"'; @post('/superadmin/platform-ai/revoke')}"
+}
+
+// SAPlatformAICard is the operator's platform-AI control + cost view: every
+// community that opted into hosted compute, its authorization (free grant vs
+// subscription), and its rolling 30-day metered token usage. Stable id
+// #sa-platform-ai so grant/revoke morph it in place (§4.7).
+templ SAPlatformAICard(rows []SAPlatformAIRow) {
+	<section id="sa-platform-ai" class="card">
+		<h2>⚡ Platform AI ({ itoa(len(rows)) })</h2>
+		<p class="muted">Communities running RAG / translate / agents on the platform's hosted compute — <strong>you pay that compute</strong>. Grant a free sponsorship, or let them pay by subscription. Usage is metered tokens over the last 30 days.</p>
+		<div id="sa-pai-error"></div>
+		if len(rows) == 0 {
+			<p class="muted">No community has opted into platform AI yet.</p>
+		} else {
+			<table class="data-table">
+				<thead>
+					<tr><th>Community</th><th>Status</th><th>Access</th><th>Requests</th><th>Tokens (in / out)</th><th></th></tr>
+				</thead>
+				<tbody>
+					for _, row := range rows {
+						<tr>
+							<td><strong>{ row.Name }</strong> <span class="muted">/ { row.Slug }</span></td>
+							<td>
+								if row.Status == "active" {
+									<span class="role-pill active">● active</span>
+								} else if row.Status == "requested" {
+									<span class="role-pill">requested</span>
+								} else if row.Status == "canceled" {
+									<span class="muted">canceled</span>
+								} else if row.Status != "" {
+									<span class="muted">{ row.Status }</span>
+								} else {
+									<span class="muted">—</span>
+								}
+							</td>
+							<td class="muted">
+								if row.GrantedFree {
+									Sponsored
+								} else if row.Subscribed {
+									Subscription
+								} else {
+									—
+								}
+							</td>
+							<td>{ itoa(row.Requests) }</td>
+							<td class="muted">{ itoa(row.TokensIn) } / { itoa(row.TokensOut) }</td>
+							<td>
+								if row.GrantedFree {
+									<button class="ghost danger" data-on:click={ revokePaiJS(row) }>Revoke grant</button>
+								} else {
+									<button data-on:click={ grantPaiJS(row) }>Grant free</button>
+								}
 							</td>
 						</tr>
 					}
