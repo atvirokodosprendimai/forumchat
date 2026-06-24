@@ -18,10 +18,45 @@ type Project struct {
 	ArchivedAt      *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+
+	// Permission columns (migration 00063). When NeedsPerms is false the
+	// project is a legacy open project — every approved member reads and
+	// writes — and Visibility / MemberAccess are ignored.
+	NeedsPerms   bool
+	Visibility   string // VisibilityCommunity | VisibilityRestricted
+	MemberAccess string // AccessRead | AccessWrite (community-wide default)
 }
 
 // IsArchived reports whether the project is currently archived.
 func (p Project) IsArchived() bool { return p.ArchivedAt != nil }
+
+// Project visibility + access-grant constants. Visibility decides who may
+// SEE a perms-gated project; access decides what they may DO.
+const (
+	VisibilityCommunity  = "community"  // every approved member may read
+	VisibilityRestricted = "restricted" // only creator/admin + ACL rows
+
+	AccessRead  = "read"
+	AccessWrite = "write"
+)
+
+// ValidVisibility reports whether v is a known visibility mode.
+func ValidVisibility(v string) bool {
+	return v == VisibilityCommunity || v == VisibilityRestricted
+}
+
+// ValidAccess reports whether a is a known per-member access level.
+func ValidAccess(a string) bool { return a == AccessRead || a == AccessWrite }
+
+// ProjectMember is one row of a project's access-control list: it grants
+// one user read or write on one project.
+type ProjectMember struct {
+	ProjectID string
+	UserID    string
+	Access    string // AccessRead | AccessWrite
+	Name      string // display-name snapshot from the community roster
+	CreatedAt time.Time
+}
 
 // Project-todo status constants. `done` mirrors the legacy `done`
 // column (kept in sync on every write) so index-card counts and the
