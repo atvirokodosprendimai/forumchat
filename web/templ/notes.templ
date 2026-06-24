@@ -320,7 +320,7 @@ templ NoteReader(d NotePageData) {
 }
 
 templ noteCommentCard(slug string, c NoteCommentView) {
-	<div class={ "note-comment", templ.KV("orphaned", c.Orphaned) } data-nb-ref={ strconv.Itoa(c.BlockIndex) } id={ "note-comment-" + c.ID }>
+	<div class={ "note-comment", templ.KV("orphaned", c.Orphaned) } data-nb-ref={ strconv.Itoa(c.BlockIndex) } data-quote={ c.Quote } id={ "note-comment-" + c.ID }>
 		<div class="note-comment-meta">
 			<strong>{ c.AuthorName }</strong>
 			<span class="muted">{ c.CreatedAt.Format("Jan 2, 15:04") }</span>

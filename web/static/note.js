@@ -140,6 +140,68 @@
       a._wired = true;
       a.addEventListener('click', function () { highlight(a.getAttribute('data-nb-jump')); });
     });
+
+    // highlight the exact commented text range inline (selection comments only)
+    markRanges();
+  }
+
+  // markRanges wraps each open selection-comment's quoted text in a <mark> inside
+  // its block, so the reader sees WHERE a comment applies. Line comments (no
+  // quote) and orphaned comments (block moved → quote not found) get no mark.
+  function markRanges() {
+    document.querySelectorAll('.note-comment[data-quote]').forEach(function (card) {
+      const quote = (card.getAttribute('data-quote') || '').trim();
+      if (!quote) return;
+      const block = card.getAttribute('data-nb-ref');
+      const cid = card.id.replace('note-comment-', '');
+      const el = document.querySelector('#note-body [data-nb="' + block + '"]');
+      if (el) wrapQuote(el, quote, cid);
+    });
+  }
+
+  // wrapQuote finds `quote` in `block`'s text and wraps the first occurrence in
+  // <mark class="note-mark" data-comment-id=cid>. Walks text nodes (skipping our
+  // own gutter/badge UI), then wraps overlapping node segments back-to-front so
+  // earlier offsets stay valid as the DOM splits. Idempotent per comment id.
+  function wrapQuote(block, quote, cid) {
+    if (block.querySelector('.note-mark[data-comment-id="' + cid + '"]')) return;
+    const nodes = [];
+    let full = '';
+    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+    while (walker.nextNode()) {
+      const n = walker.currentNode;
+      if (n.parentElement && n.parentElement.closest('.note-gutter-add, .note-block-badge')) continue;
+      nodes.push({ node: n, start: full.length });
+      full += n.nodeValue;
+    }
+    const idx = full.indexOf(quote);
+    if (idx < 0) return; // selection text not found verbatim (edited / collapsed ws) — skip, keep badge
+    const end = idx + quote.length;
+    for (let k = nodes.length - 1; k >= 0; k--) {
+      const node = nodes[k].node, start = nodes[k].start;
+      const nodeEnd = start + node.nodeValue.length;
+      if (nodeEnd <= idx || start >= end) continue;
+      const from = Math.max(0, idx - start);
+      const to = Math.min(node.nodeValue.length, end - start);
+      try {
+        const range = document.createRange();
+        range.setStart(node, from);
+        range.setEnd(node, to);
+        const mark = document.createElement('mark');
+        mark.className = 'note-mark';
+        mark.setAttribute('data-comment-id', cid);
+        range.surroundContents(mark);
+      } catch (e) { /* segment crossed an element boundary — skip it */ }
+    }
+  }
+
+  // linkCid cross-highlights a comment's mark(s) and its rail card together.
+  function linkCid(cid, on) {
+    document.querySelectorAll('.note-mark[data-comment-id="' + cid + '"]').forEach(function (m) {
+      m.classList.toggle('note-mark-hi', on);
+    });
+    const card = document.getElementById('note-comment-' + cid);
+    if (card) card.classList.toggle('note-comment-hi', on);
   }
 
   function highlight(i) {
@@ -159,10 +221,31 @@
   function init() {
     document.addEventListener('mouseup', function () { setTimeout(onSelection, 0); });
     document.addEventListener('scroll', hideSelBtn, true);
-    // re-paint after fat-morphs of the reader (save / comment patches). The
-    // observer is detached during paint() so our own badge/button writes don't
-    // re-trigger it (that would be an infinite mutation loop).
     const reader = document.getElementById('note-reader');
+    // Bidirectional mark <-> rail-card linking, delegated on the stable reader
+    // root (survives fat-morphs): hover a mark or its card to light both up;
+    // click a mark to jump to its card.
+    if (reader) {
+      reader.addEventListener('mouseover', function (e) {
+        const t = e.target.closest('.note-mark, .note-comment');
+        if (!t) return;
+        linkCid(t.classList.contains('note-mark') ? t.getAttribute('data-comment-id') : t.id.replace('note-comment-', ''), true);
+      });
+      reader.addEventListener('mouseout', function (e) {
+        const t = e.target.closest('.note-mark, .note-comment');
+        if (!t) return;
+        linkCid(t.classList.contains('note-mark') ? t.getAttribute('data-comment-id') : t.id.replace('note-comment-', ''), false);
+      });
+      reader.addEventListener('click', function (e) {
+        const mark = e.target.closest('.note-mark');
+        if (!mark) return;
+        const card = document.getElementById('note-comment-' + mark.getAttribute('data-comment-id'));
+        if (card) { card.scrollIntoView({ block: 'center', behavior: 'smooth' }); card.classList.add('note-comment-hi'); setTimeout(function () { card.classList.remove('note-comment-hi'); }, 1600); }
+      });
+    }
+    // re-paint after fat-morphs of the reader (save / comment patches). The
+    // observer is detached during paint() so our own badge/mark writes don't
+    // re-trigger it (that would be an infinite mutation loop).
     if (reader && window.MutationObserver) {
       observer = new MutationObserver(function () { paint(); });
     }

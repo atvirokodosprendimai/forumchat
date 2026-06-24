@@ -6234,3 +6234,11 @@ body:has(.chat-layout) .site-footer { display: none; }
    reset. */
 .link.danger { background: transparent; color: var(--danger); padding: 0; border: none; }
 .link.danger:hover { background: transparent; color: var(--danger); text-decoration: underline; }
+
+/* notes — inline comment range marks */
+.note-mark { background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 2px; cursor: pointer; transition: background var(--t-fast) var(--ease-out); }
+.note-mark, .note-mark * { color: inherit; }
+.note-mark:hover, .note-mark.note-mark-hi { background: var(--accent-soft-strong);
+  box-shadow: inset 0 -2px 0 var(--accent); }
