@@ -82,6 +82,12 @@ type projectSignals struct {
 	TodoOrder    []string `json:"projects_todo_order"`
 	CommentBody  string   `json:"projects_comment_body"`
 	CommentEdit  string   `json:"projects_comment_edit"`
+	// Permission panel (manager-only).
+	NeedsPerms   bool   `json:"projects_needs_perms"`
+	Visibility   string `json:"projects_visibility"`
+	MemberAccess string `json:"projects_member_access"`
+	PermUser     string `json:"projects_perm_user"`
+	PermAccess   string `json:"projects_perm_access"`
 }
 
 // GetIndex renders /c/{slug}/projects: active projects on top, archived
@@ -900,6 +906,106 @@ func (h *Handler) archiveOrUnarchive(w http.ResponseWriter, r *http.Request, arc
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// managerFromContext resolves the acting user + whether they hold the
+// manage role for THIS community. Member-only routes only; identity is
+// already rebound to the slug community by RequireMember.
+func (h *Handler) managerFromContext(r *http.Request) (userID string, isAdmin, ok bool) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		return "", false, false
+	}
+	return id.User.ID, id.Membership.Role.AtLeast(auth.RoleAdmin), true
+}
+
+// PostPerms saves a project's permission model (needs_perms master switch +
+// visibility + community member default). Manage-gated in the service; the
+// stream re-renders the panel + every viewer's affordances.
+func (h *Handler) PostPerms(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	userID, isAdmin, ok := h.managerFromContext(r)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.Svc.SetPerms(r.Context(), pid, userID, isAdmin, in.NeedsPerms, in.Visibility, in.MemberAccess); err != nil {
+		h.permError(w, "set perms", pid, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PostPermsMember upserts one per-person ACL grant (read|write).
+func (h *Handler) PostPermsMember(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	userID, isAdmin, ok := h.managerFromContext(r)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in projectSignals
+	if err := datastar.ReadSignals(r, &in); err != nil && err != io.EOF {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	access := in.PermAccess
+	if access == "" {
+		access = AccessRead
+	}
+	if err := h.Svc.GrantMember(r.Context(), pid, userID, isAdmin, in.PermUser, access); err != nil {
+		h.permError(w, "grant member", pid, err)
+		return
+	}
+	// Clear the picker so the panel is ready for the next grant.
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"projects_perm_user":""}`))
+}
+
+// PostPermsMemberDelete revokes one per-person ACL grant.
+func (h *Handler) PostPermsMemberDelete(w http.ResponseWriter, r *http.Request) {
+	pid, ok := h.projectFromURL(w, r)
+	if !ok {
+		return
+	}
+	userID, isAdmin, ok := h.managerFromContext(r)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	target := chi.URLParam(r, "uid")
+	if err := h.Svc.RevokeMember(r.Context(), pid, userID, isAdmin, target); err != nil {
+		h.permError(w, "revoke member", pid, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// permError maps perms-action errors to HTTP status, logging unexpected
+// ones. Shared by the three perms handlers.
+func (h *Handler) permError(w http.ResponseWriter, op, pid string, err error) {
+	switch {
+	case errors.Is(err, ErrForbidden):
+		http.Error(w, "forbidden", http.StatusForbidden)
+	case errors.Is(err, ErrInvalidPerms), errors.Is(err, ErrNotFound):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	default:
+		h.Log.Warn("projects "+op, "err", err, "project", pid)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}
+}
+
 // PostDeleteProject hard-deletes a project. Redirects to the index via
 // SSE redirect so the user lands somewhere sensible.
 func (h *Handler) PostDeleteProject(w http.ResponseWriter, r *http.Request) {
@@ -1120,7 +1226,7 @@ func (h *Handler) pushComments(r *http.Request, sse *datastar.ServerSentEventGen
 	now := time.Now().UTC()
 	views := toCommentViews(comments, id.User.ID, id.Membership.Role.AtLeast(auth.RoleAdmin), h.Svc.EditGrace, now)
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectCommentsFragment(c.Slug, pid, views, false),
+		webtempl.ProjectCommentsFragment(c.Slug, pid, views, !h.viewerCanWrite(r, pid)),
 		datastar.WithSelector("#proj-comments"),
 		datastar.WithModeOuter(),
 	)
@@ -1169,7 +1275,7 @@ func (h *Handler) pushAttachments(r *http.Request, sse *datastar.ServerSentEvent
 	id, _ := auth.FromContext(r.Context())
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectAttachmentsFragment(c.Slug, pid, h.toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role.AtLeast(auth.RoleAdmin)), false),
+		webtempl.ProjectAttachmentsFragment(c.Slug, pid, h.toAttachmentViews(atts, p.CreatorUserID, id.User.ID, id.Membership.Role.AtLeast(auth.RoleAdmin)), !h.viewerCanWrite(r, pid)),
 		datastar.WithSelector("#proj-attachments"),
 		datastar.WithModeOuter(),
 	)
@@ -1206,7 +1312,7 @@ func (h *Handler) pushTodos(r *http.Request, sse *datastar.ServerSentEventGenera
 	}
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos), h.memberOptions(r.Context(), c.ID), false),
+		webtempl.ProjectTodosFragment(c.Slug, pid, toTodoViews(todos), h.memberOptions(r.Context(), c.ID), !h.viewerCanWrite(r, pid)),
 		datastar.WithSelector("#proj-todos"),
 		datastar.WithModeOuter(),
 	)
@@ -1261,18 +1367,65 @@ func (h *Handler) pushHeader(r *http.Request, sse *datastar.ServerSentEventGener
 		return
 	}
 	id, _ := auth.FromContext(r.Context())
+	caller := Identity{UserID: id.User.ID, Role: id.Membership.Role}
+	grant, grantOK := h.Repo.MemberAccessFor(r.Context(), p.ID, caller.UserID)
+	access := EffectiveAccess(p, caller, grant, grantOK)
+	canManage := caller.UserID != "" && (p.CreatorUserID == caller.UserID || caller.Role.AtLeast(auth.RoleAdmin))
 	view := webtempl.ProjectView{
 		ID:              p.ID,
 		Title:           p.Title,
 		DescriptionMD:   p.DescriptionMD,
 		DescriptionHTML: p.DescriptionHTML,
 		IsArchived:      p.IsArchived(),
-		CanDelete:       id.User.ID != "" && (p.CreatorUserID == id.User.ID || id.Membership.Role.AtLeast(auth.RoleAdmin)),
+		CanDelete:       canManage,
+		CanWrite:        access.CanWrite(),
+		CanManage:       canManage,
+		NeedsPerms:      p.NeedsPerms,
+		Visibility:      p.Visibility,
+		MemberAccess:    p.MemberAccess,
 	}
 	c, _ := community.FromContext(r.Context())
 	_ = sse.PatchElementTempl(
-		webtempl.ProjectHeaderFragment(c.Slug, view, false),
+		webtempl.ProjectHeaderFragment(c.Slug, view, !view.CanWrite),
 		datastar.WithSelector("#proj-header"),
+		datastar.WithModeOuter(),
+	)
+	h.pushPerms(r, sse, c.Slug, view)
+}
+
+// viewerCanWrite computes the SSE viewer's write capability on pid so the
+// per-fragment push helpers hide write affordances for read-only members
+// live, matching the initial page render. Defaults to false on any error.
+func (h *Handler) viewerCanWrite(r *http.Request, pid string) bool {
+	p, err := h.Repo.ByID(r.Context(), pid)
+	if err != nil {
+		return false
+	}
+	id, _ := auth.FromContext(r.Context())
+	caller := Identity{UserID: id.User.ID, Role: id.Membership.Role}
+	grant, grantOK := h.Repo.MemberAccessFor(r.Context(), pid, caller.UserID)
+	return EffectiveAccess(p, caller, grant, grantOK).CanWrite()
+}
+
+// pushPerms re-renders the manager-only permissions panel for THIS viewer.
+// Non-managers get an empty panel (the stable id stays so a later promotion
+// can morph content in). Driven by header events alongside pushHeader.
+func (h *Handler) pushPerms(r *http.Request, sse *datastar.ServerSentEventGenerator, slug string, view webtempl.ProjectView) {
+	var members []webtempl.ProjectMemberACLView
+	var roster []webtempl.ProjectMemberOption
+	if view.CanManage {
+		if rows, err := h.Repo.ListMembers(r.Context(), view.ID); err == nil {
+			for _, m := range rows {
+				members = append(members, webtempl.ProjectMemberACLView{UserID: m.UserID, Name: m.Name, Access: m.Access})
+			}
+		}
+		if c, ok := community.FromContext(r.Context()); ok {
+			roster = h.memberOptions(r.Context(), c.ID)
+		}
+	}
+	_ = sse.PatchElementTempl(
+		webtempl.ProjectPermsPanel(slug, view, members, roster),
+		datastar.WithSelector("#proj-perms"),
 		datastar.WithModeOuter(),
 	)
 }
@@ -1343,6 +1496,29 @@ func (h *Handler) projectAccess(w http.ResponseWriter, r *http.Request) (Identit
 	}
 	grant, grantOK := h.Repo.MemberAccessFor(r.Context(), p.ID, caller.UserID)
 	return caller, p, EffectiveAccess(p, caller, grant, grantOK), true
+}
+
+// RequireWrite is middleware that gates project mutations on write access.
+// Share-link guests pass through (their issue/comment flows are author-gated
+// inside each handler, preserving the existing guest behaviour); authed
+// members need EffectiveAccess >= write, else 403. A no-read caller 404s so
+// a restricted project stays invisible even on a write attempt.
+func (h *Handler) RequireWrite(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caller, _, access, ok := h.projectAccess(w, r)
+		if !ok {
+			return
+		}
+		if !access.CanRead() {
+			http.NotFound(w, r)
+			return
+		}
+		if access.CanWrite() || caller.IsGuest() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, "read-only access to this project", http.StatusForbidden)
+	})
 }
 
 // GetGlobalIssues renders /issues — the cross-community open-issue

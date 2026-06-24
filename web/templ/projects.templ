@@ -192,9 +192,34 @@ templ ProjectsGrid(d ProjectsGridData) {
 			@PageHeader("Projects", "Shared pages for documents, checklists, and discussion. Any member can create one.") {
 				<button class="btn" type="button" data-on:click="document.querySelector('#new-project-title')?.focus()">+ New project</button>
 			}
-			<form class="projects-new toolbar" method="post" action={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>
-				<input id="new-project-title" class="toolbar-grow" type="text" name="title" placeholder="New project title" maxlength="120" required/>
-				<button class="btn" type="submit">Create</button>
+			<form class="projects-new" method="post" action={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>
+				<div class="toolbar">
+					<input id="new-project-title" class="toolbar-grow" type="text" name="title" placeholder="New project title" maxlength="120" required/>
+					<button class="btn" type="submit">Create</button>
+				</div>
+				<details class="projects-new-perms">
+					<summary>Access &amp; visibility</summary>
+					<div class="projects-new-perms-grid">
+						<label class="projects-new-perms-toggle">
+							<input type="checkbox" name="needs_perms" value="on"/>
+							<span>Restrict access (permissions). Leave off to let every member read &amp; write.</span>
+						</label>
+						<label>
+							Who can see it
+							<select name="visibility">
+								<option value="community">Everyone in the community</option>
+								<option value="restricted">Hidden — only people I add later</option>
+							</select>
+						</label>
+						<label>
+							Members can
+							<select name="member_access">
+								<option value="read">read only</option>
+								<option value="write">read &amp; write</option>
+							</select>
+						</label>
+					</div>
+				</details>
 			</form>
 			if len(d.Active) == 0 {
 				<div class="empty-state">
@@ -274,7 +299,7 @@ templ projectShell(d ProjectPageData, active string) {
 		if !d.IsGuestViewer {
 			<div id="proj-stream-open" hidden data-init={ "@get('/c/" + d.CommunitySlug + "/projects/" + d.Project.ID + "/stream?tab=" + active + "', {openWhenHidden: true})" }></div>
 		}
-		@ProjectHeaderFragment(d.CommunitySlug, d.Project, d.IsGuestViewer)
+		@ProjectHeaderFragment(d.CommunitySlug, d.Project, !d.Project.CanWrite)
 		@ProjectTabs(d.CommunitySlug, d.Project.ID, active)
 		<div class="project-body project-body-single">
 			{ children... }
@@ -298,6 +323,9 @@ templ ProjectOverviewPage(d ProjectPageData) {
 					<p class="muted">Use the Edit button above to add a description.</p>
 				}
 			</section>
+			if d.Project.CanManage {
+				@ProjectPermsPanel(d.CommunitySlug, d.Project, d.PermMembers, d.PermRoster)
+			}
 			if d.Share.Visible {
 				@projectSharePanel(d.CommunitySlug, d.Project.ID, d.Share)
 			}
@@ -350,10 +378,96 @@ templ projectSharePanel(slug, projectID string, s ProjectShareView) {
 	</section>
 }
 
+// permPanelSignals builds the datastar signal bag for the permissions
+// panel, seeded from the project's current state.
+func permPanelSignals(p ProjectView) string {
+	vis := p.Visibility
+	if vis == "" {
+		vis = "community"
+	}
+	ma := p.MemberAccess
+	if ma == "" {
+		ma = "read"
+	}
+	return "{projects_needs_perms:" + strconv.FormatBool(p.NeedsPerms) +
+		",projects_visibility:'" + vis + "'" +
+		",projects_member_access:'" + ma + "'" +
+		",projects_perm_user:'',projects_perm_access:'read'}"
+}
+
+// ProjectPermsPanel is the manager-only permissions editor: the needs_perms
+// master switch, visibility + community-default selects, and the per-person
+// ACL list with an add-member picker. SSE morphs the whole `#proj-perms`
+// section on every header event. Renders empty for non-managers so the
+// stable id survives for a later live promotion.
+templ ProjectPermsPanel(slug string, p ProjectView, members []ProjectMemberACLView, roster []ProjectMemberOption) {
+	<section id="proj-perms" class="project-panel project-panel-perms">
+		if p.CanManage {
+			<h3>Permissions</h3>
+			<div class="project-perms-box" data-signals={ permPanelSignals(p) }>
+				<label class="project-perms-toggle">
+					<input type="checkbox" data-bind="projects_needs_perms"/>
+					<span>Restrict this project (turn on read/write permissions)</span>
+				</label>
+				<div class="project-perms-detail" data-show="$projects_needs_perms">
+					<label>
+						Who can see it
+						<select data-bind="projects_visibility">
+							<option value="community">Everyone in the community</option>
+							<option value="restricted">Hidden — only people I add</option>
+						</select>
+					</label>
+					<label data-show="$projects_visibility === 'community'">
+						Members can
+						<select data-bind="projects_member_access">
+							<option value="read">read only</option>
+							<option value="write">read &amp; write</option>
+						</select>
+					</label>
+					<p class="muted" data-show="$projects_visibility === 'restricted'">Only the creator, admins, and the people listed below can open this project.</p>
+				</div>
+				<button class="btn" data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/perms')" }>Save permissions</button>
+			</div>
+			<div class="project-perms-members" data-show="$projects_needs_perms">
+				<h4>People with access</h4>
+				if len(members) == 0 {
+					<p class="muted">No individual grants yet — add someone below.</p>
+				} else {
+					<ul class="project-perms-list">
+						for _, m := range members {
+							<li class="project-perms-row">
+								<span class="project-perms-name">{ m.Name }</span>
+								<span class={ "projects-pill", "projects-pill-" + m.Access }>{ m.Access }</span>
+								<button class="btn ghost danger project-perms-remove"
+									title="Remove access"
+									data-on:click={ "@post('/c/" + slug + "/projects/" + p.ID + "/perms/member/" + m.UserID + "/delete')" }>×</button>
+							</li>
+						}
+					</ul>
+				}
+				<div class="project-perms-add rooms-row">
+					<select data-bind="projects_perm_user">
+						<option value="">Choose a member…</option>
+						for _, o := range roster {
+							<option value={ o.ID }>{ o.Name }</option>
+						}
+					</select>
+					<select data-bind="projects_perm_access">
+						<option value="read">read</option>
+						<option value="write">write</option>
+					</select>
+					<button class="btn"
+						data-on:click={ "$projects_perm_user !== '' && @post('/c/" + slug + "/projects/" + p.ID + "/perms/member')" }>Add</button>
+				</div>
+			</div>
+		}
+	</section>
+}
+
 templ ProjectTodosPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Todos", d.Viewer) {
 		@projectShell(d, "todos") {
-			@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos, d.TodoMembers, d.IsGuestViewer)
+			@ProjectTodosFragment(d.CommunitySlug, d.Project.ID, d.Todos, d.TodoMembers, !d.Project.CanWrite)
 		}
 	}
 }
@@ -361,7 +475,7 @@ templ ProjectTodosPage(d ProjectPageData) {
 templ ProjectDocsPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Docs", d.Viewer) {
 		@projectShell(d, "docs") {
-			@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments, d.IsGuestViewer)
+			@ProjectAttachmentsFragment(d.CommunitySlug, d.Project.ID, d.Attachments, !d.Project.CanWrite)
 		}
 	}
 }
@@ -369,7 +483,7 @@ templ ProjectDocsPage(d ProjectPageData) {
 templ ProjectCommentsPage(d ProjectPageData) {
 	@Layout(d.Project.Title+" — Comments", d.Viewer) {
 		@projectShell(d, "comments") {
-			@ProjectCommentsFragment(d.CommunitySlug, d.Project.ID, d.Comments, d.IsGuestViewer)
+			@ProjectCommentsFragment(d.CommunitySlug, d.Project.ID, d.Comments, !d.Project.CanWrite)
 		}
 	}
 }
@@ -1032,9 +1146,9 @@ func fileLabel(mime string) string {
 // inline-edit affordances driven by datastar signals
 // `$projects_edit_header`, `$projects_title`, and `$projects_desc`.
 // SSE re-renders this fragment via WithModeOuter on header events.
-// `isGuest` hides every write affordance (members can edit, guests
+// `readOnly` hides every write affordance (members can edit, guests
 // can only read).
-templ ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) {
+templ ProjectHeaderFragment(slug string, p ProjectView, readOnly bool) {
 	<section id="proj-header" class="project-header"
 		data-signals={ "{projects_edit_header:false,projects_title:'" + jsQuoteAttr(p.Title) + "',projects_desc:'" + jsQuoteAttr(p.DescriptionMD) + "',projects_todo_body:'',projects_todo_edit:'',projects_todo_edit_id:'',projects_todo_status:'',projects_todo_assignee:'',projects_comment_body:'',projects_comment_edit:'',projects_comment_edit_id:''}" }>
 		<div class="project-header-display" data-show="!$projects_edit_header">
@@ -1043,13 +1157,20 @@ templ ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) {
 				if p.IsArchived {
 					<span class="projects-pill projects-pill-archived">archived</span>
 				}
+				if p.NeedsPerms {
+					if p.Visibility == "restricted" {
+						<span class="projects-pill projects-pill-locked" title="Restricted — only invited people can see this project">🔒 hidden</span>
+					} else {
+						<span class="projects-pill projects-pill-perms" title="Permissions on — members read; only granted people write">🔑 perms</span>
+					}
+				}
 			</h1>
 			if p.DescriptionHTML != "" {
 				<div class="project-description">@templ.Raw(render.RichHTML(p.DescriptionHTML))</div>
 			} else {
 				<p class="project-description-empty muted">No description yet.</p>
 			}
-			if !isGuest {
+			if !readOnly {
 				<div class="project-header-actions">
 					<button class="btn ghost project-edit-btn"
 						data-on:click="$projects_edit_header = true">Edit</button>
@@ -1088,14 +1209,14 @@ templ ProjectHeaderFragment(slug string, p ProjectView, isGuest bool) {
 
 // ProjectTodosFragment renders the entire checklist panel. SSE morphs
 // this whole `<section id="proj-todos">` on every add/edit/toggle/delete/
-// reorder event. `isGuest` hides every write affordance.
-templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView, members []ProjectMemberOption, isGuest bool) {
+// reorder event. `readOnly` hides every write affordance.
+templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView, members []ProjectMemberOption, readOnly bool) {
 	<section id="proj-todos" class="project-panel project-panel-todos">
 		<h3>Checklist</h3>
 		<ul class="project-todos">
 			for _, t := range todos {
 				<li class={ "project-todo", "project-todo-status-" + t.Status, templ.KV("project-todo-done", t.Done) } data-todo-id={ t.ID }>
-					if isGuest {
+					if readOnly {
 						<span class={ "project-todo-status-chip", "status-" + t.Status }>{ projectTodoStatusLabel(t.Status) }</span>
 						<span class="project-todo-body">{ t.Body }</span>
 						if t.AssigneeName != "" {
@@ -1138,7 +1259,7 @@ templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView, memb
 				</li>
 			}
 		</ul>
-		if !isGuest {
+		if !readOnly {
 			<form class="project-todo-add" data-on:submit__prevent={ "@post('/c/" + slug + "/projects/" + projectID + "/todo')" }>
 				<input type="text" maxlength="500" placeholder="Add a todo…"
 					data-bind="projects_todo_body"/>
@@ -1153,10 +1274,10 @@ templ ProjectTodosFragment(slug, projectID string, todos []ProjectTodoView, memb
 // ProjectAttachmentsFragment renders the drag-drop zone + file list.
 // The whole `<section id="proj-attachments">` is SSE-morphed on every
 // add/delete event.
-templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmentView, isGuest bool) {
+templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmentView, readOnly bool) {
 	<section id="proj-attachments" class="project-panel project-panel-attachments">
 		<h3>Attachments</h3>
-		if !isGuest {
+		if !readOnly {
 			<div class="project-upload-bar">
 				<label class="project-upload-label">
 					<span class="muted">Category</span>
@@ -1180,7 +1301,7 @@ templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmen
 		if len(atts) == 0 {
 			<p class="muted">No attachments yet.</p>
 		} else {
-			@projectAttachmentsByCategory(slug, projectID, atts, isGuest)
+			@projectAttachmentsByCategory(slug, projectID, atts, readOnly)
 		}
 	</section>
 }
@@ -1188,7 +1309,7 @@ templ ProjectAttachmentsFragment(slug, projectID string, atts []ProjectAttachmen
 // projectAttachmentsByCategory groups the rows by category and renders
 // one bucket per category, in alphabetical order with common pinned
 // first so it stays the obvious default landing spot.
-templ projectAttachmentsByCategory(slug, projectID string, atts []ProjectAttachmentView, isGuest bool) {
+templ projectAttachmentsByCategory(slug, projectID string, atts []ProjectAttachmentView, readOnly bool) {
 	for _, grp := range groupAttachmentsByCategory(atts) {
 		<div class="project-attachment-group">
 			<header class="project-attachment-group-head">
@@ -1199,7 +1320,7 @@ templ projectAttachmentsByCategory(slug, projectID string, atts []ProjectAttachm
 				for _, a := range grp.Items {
 					<li class={ "project-attachment", templ.KV("project-attachment-embed", isEmbeddableMIME(a.MIME)) }>
 						@projectAttachmentBody(slug, projectID, a)
-						if a.CanDelete && !isGuest {
+						if a.CanDelete && !readOnly {
 							<button class="btn ghost project-attachment-delete"
 								title="Delete this attachment"
 								data-on:click={ "@post('/c/" + slug + "/projects/" + projectID + "/attachment/" + a.ID + "/delete')" }>×</button>
@@ -1339,7 +1460,7 @@ func projectTodoStatusLabel(s string) string {
 // ProjectCommentsFragment renders the full comment thread + new-comment
 // textarea. SSE morphs the whole `<section id="proj-comments">` on
 // every add/edit/delete.
-templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentView, isGuest bool) {
+templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentView, readOnly bool) {
 	<section id="proj-comments" class="project-panel project-panel-comments">
 		<h3>Comments</h3>
 		<ul class="project-comments">
@@ -1371,7 +1492,7 @@ templ ProjectCommentsFragment(slug, projectID string, comments []ProjectCommentV
 				</li>
 			}
 		</ul>
-		if isGuest {
+		if readOnly {
 			<p class="muted">Read-only — open an issue if you'd like to suggest a change.</p>
 		} else {
 			<form class="project-comment-add"

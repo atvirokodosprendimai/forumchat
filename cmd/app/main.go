@@ -1908,7 +1908,9 @@ func run() error {
 		r.Route("/c/{slug}/projects", func(r chi.Router) {
 			r.Use(community.LoadCommunity(cRepo, cfg))
 
-			// Open — auth member OR share-link guest.
+			// Open reads — auth member OR share-link guest. loadProjectData
+			// read-gates (404 on no-read), so a restricted project stays
+			// invisible and unreachable to non-granted members.
 			r.Group(func(r chi.Router) {
 				r.Get("/{id}", projectsHandler.GetOverview)
 				r.Get("/{id}/todos", projectsHandler.GetTodosTab)
@@ -1916,9 +1918,18 @@ func run() error {
 				r.Get("/{id}/comments", projectsHandler.GetCommentsTab)
 				r.Get("/{id}/activity", projectsHandler.GetActivityTab)
 				r.Get("/{id}/issues", projectsHandler.GetIssuesTab)
+				r.Get("/{id}/issues/{iid}", projectsHandler.GetIssue)
+				r.Get("/{id}/discussions", projectsHandler.GetDiscussionsTab)
+				r.Get("/{id}/discussions/{did}", projectsHandler.GetDiscussionThread)
+			})
+
+			// Open writes — member OR share-link guest. RequireWrite blocks
+			// read-only members (403); guests pass (their issue/comment flows
+			// are author-gated inside each handler, unchanged).
+			r.Group(func(r chi.Router) {
+				r.Use(projectsHandler.RequireWrite)
 				r.Post("/{id}/issues", projectsHandler.PostCreateIssue)
 				r.Post("/{id}/issues/close-all", projectsHandler.PostCloseAllIssues)
-				r.Get("/{id}/issues/{iid}", projectsHandler.GetIssue)
 				r.Post("/{id}/issues/{iid}", projectsHandler.PostIssueEdit)
 				r.Post("/{id}/issues/{iid}/delete", projectsHandler.PostIssueDelete)
 				r.Post("/{id}/issues/{iid}/move", projectsHandler.PostIssueMove)
@@ -1929,9 +1940,7 @@ func run() error {
 				r.Post("/{id}/issues/{iid}/attachment", projectsHandler.PostIssueAttachmentUpload)
 				r.Post("/{id}/issues/{iid}/attachment/{aid}/delete", projectsHandler.PostIssueAttachmentDelete)
 				r.Post("/{id}/issues/{iid}/attachment/{aid}/copy-to-docs", projectsHandler.PostIssueAttachmentCopyToDocs)
-				r.Get("/{id}/discussions", projectsHandler.GetDiscussionsTab)
 				r.Post("/{id}/discussions", projectsHandler.PostCreateDiscussionThread)
-				r.Get("/{id}/discussions/{did}", projectsHandler.GetDiscussionThread)
 				r.Post("/{id}/discussions/{did}", projectsHandler.PostEditDiscussionThread)
 				r.Post("/{id}/discussions/{did}/delete", projectsHandler.PostDeleteDiscussionThread)
 				r.Post("/{id}/discussions/{did}/reply", projectsHandler.PostDiscussionReply)
@@ -1940,14 +1949,16 @@ func run() error {
 
 				// Share-to-chat: per-resource POSTs that emit a chat message
 				// with a clickable link + the user's optional one-liner.
-				// Member-only — guests don't have a chat to write into.
 				r.Post("/{id}/share-to-chat", projectsHandler.PostShareProjectToChat)
 				r.Post("/{id}/issues/{iid}/share-to-chat", projectsHandler.PostShareIssueToChat)
 				r.Post("/{id}/discussions/{did}/share-to-chat", projectsHandler.PostShareDiscussionToChat)
 			})
 
-			// Member-only — index, create, edits, lifecycle, share mint,
-			// issue status change. Auth + RequireMember + RequireApproved.
+			// Member-only reads + manage — index, create, stream, download,
+			// lifecycle, share, permissions. Auth + RequireMember +
+			// RequireApproved. NOT RequireWrite: lifecycle/share/perms carry
+			// their own creator-or-admin (manage) gate in the service, so a
+			// write-granted member can't delete or re-permission a project.
 			r.Group(func(r chi.Router) {
 				r.Use(auth.RequireAuth)
 				r.Use(community.RequireMember(aRepo))
@@ -1955,6 +1966,24 @@ func run() error {
 				r.Get("/", projectsHandler.GetIndex)
 				r.Post("/", projectsHandler.PostCreate)
 				r.Get("/{id}/stream", projectsHandler.GetStream)
+				r.Get("/{id}/attachment/{aid}/download", projectsHandler.GetAttachmentDownload)
+				r.Post("/{id}/archive", projectsHandler.PostArchive)
+				r.Post("/{id}/unarchive", projectsHandler.PostUnarchive)
+				r.Post("/{id}/delete", projectsHandler.PostDeleteProject)
+				r.Post("/{id}/share", projectsHandler.PostShareMint)
+				r.Post("/{id}/share/revoke", projectsHandler.PostShareRevoke)
+				r.Post("/{id}/perms", projectsHandler.PostPerms)
+				r.Post("/{id}/perms/member", projectsHandler.PostPermsMember)
+				r.Post("/{id}/perms/member/{uid}/delete", projectsHandler.PostPermsMemberDelete)
+			})
+
+			// Member-only writes — the core mutators + issue status. Gated by
+			// RequireWrite so a read-only member gets 403.
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireAuth)
+				r.Use(community.RequireMember(aRepo))
+				r.Use(auth.RequireApproved)
+				r.Use(projectsHandler.RequireWrite)
 				r.Post("/{id}/title", projectsHandler.PostTitle)
 				r.Post("/{id}/desc", projectsHandler.PostDescription)
 				r.Post("/{id}/todo", projectsHandler.PostTodoAdd)
@@ -1965,17 +1994,11 @@ func run() error {
 				r.Post("/{id}/todo/{tid}/delete", projectsHandler.PostTodoDelete)
 				r.Post("/{id}/todo/reorder", projectsHandler.PostTodoReorder)
 				r.Post("/{id}/attachment", projectsHandler.PostAttachmentUpload)
-				r.Get("/{id}/attachment/{aid}/download", projectsHandler.GetAttachmentDownload)
 				r.Post("/{id}/attachment/{aid}/delete", projectsHandler.PostAttachmentDelete)
 				r.Post("/{id}/attachment/{aid}/move", projectsHandler.PostAttachmentMove)
 				r.Post("/{id}/comment", projectsHandler.PostComment)
 				r.Post("/{id}/comment/{cid}", projectsHandler.PostCommentEdit)
 				r.Post("/{id}/comment/{cid}/delete", projectsHandler.PostCommentDelete)
-				r.Post("/{id}/archive", projectsHandler.PostArchive)
-				r.Post("/{id}/unarchive", projectsHandler.PostUnarchive)
-				r.Post("/{id}/delete", projectsHandler.PostDeleteProject)
-				r.Post("/{id}/share", projectsHandler.PostShareMint)
-				r.Post("/{id}/share/revoke", projectsHandler.PostShareRevoke)
 				r.Post("/{id}/issues/{iid}/status", projectsHandler.PostIssueStatus)
 			})
 		})
