@@ -290,9 +290,11 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 	}
 	// MovePeers feeds the per-attachment + per-issue "Move to project"
 	// pickers. Built once per page render — every active project in
-	// this community minus the current one.
+	// this community the caller can SEE, minus the current one. Using the
+	// visibility-filtered list keeps restricted project titles out of the
+	// picker for non-granted members.
 	if !isGuest {
-		peers, err := h.Repo.ListActiveForCommunity(r.Context(), p.CommunityID)
+		peers, err := h.Repo.ListVisibleForCommunity(r.Context(), p.CommunityID, caller.UserID, isAdmin, false)
 		if err == nil {
 			for _, peer := range peers {
 				if peer.ID == p.ID {
@@ -621,10 +623,15 @@ func (h *Handler) PostAttachmentUpload(w http.ResponseWriter, r *http.Request) {
 // Content-Disposition header so the browser saves it under the
 // original filename instead of the on-disk content-hash name.
 func (h *Handler) GetAttachmentDownload(w http.ResponseWriter, r *http.Request) {
-	pid, ok := h.projectFromURL(w, r)
+	_, p, access, ok := h.projectAccess(w, r)
 	if !ok {
 		return
 	}
+	if !access.CanRead() {
+		http.NotFound(w, r) // restricted project — no download for non-granted members
+		return
+	}
+	pid := p.ID
 	aid := chi.URLParam(r, "aid")
 	a, err := h.Repo.AttachmentByID(r.Context(), aid)
 	if err != nil {
@@ -733,6 +740,12 @@ func (h *Handler) PostAttachmentMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !(caller.Role.AtLeast(auth.RoleAdmin) || (caller.UserID != "" && att.UploaderID == caller.UserID)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	// The caller must also be able to WRITE the target project — else an
+	// attachment could be pushed into a restricted/read-only project.
+	if !h.callerAccessTo(r.Context(), caller, to).CanWrite() {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -846,6 +859,12 @@ func (h *Handler) PostIssueMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !issueEditable(caller, issue) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	// The caller must also be able to WRITE the target project — else an
+	// issue could be relocated into a restricted/read-only project.
+	if !h.callerAccessTo(r.Context(), caller, to).CanWrite() {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -963,6 +982,15 @@ func (h *Handler) PostPermsMember(w http.ResponseWriter, r *http.Request) {
 	access := in.PermAccess
 	if access == "" {
 		access = AccessRead
+	}
+	// Only grant to a current member of THIS community — never a bare
+	// users(id). Otherwise a stale ACL row could silently activate if that
+	// user later joins. The picker only offers members; enforce it here too.
+	if c, ok := community.FromContext(r.Context()); ok && h.AuthRepo != nil {
+		if _, err := h.AuthRepo.MembershipFor(r.Context(), in.PermUser, c.ID); err != nil {
+			http.Error(w, "not a member of this community", http.StatusBadRequest)
+			return
+		}
 	}
 	if err := h.Svc.GrantMember(r.Context(), pid, userID, isAdmin, in.PermUser, access); err != nil {
 		h.permError(w, "grant member", pid, err)
@@ -1171,6 +1199,13 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		case <-ticker.C:
 			_ = sse.PatchSignals([]byte(`{}`))
 		case ev := <-events:
+			// Re-check access on every event: a permission change or a
+			// revoked grant must stop fragments flowing to a viewer who can
+			// no longer read the project. Closing the stream is enough — a
+			// reconnect hits projectAccess and 404s.
+			if !h.viewerCanRead(r, pid) {
+				return
+			}
 			switch ev.Kind {
 			case "header", "archive":
 				h.pushHeader(r, sse, pid)
@@ -1393,18 +1428,32 @@ func (h *Handler) pushHeader(r *http.Request, sse *datastar.ServerSentEventGener
 	h.pushPerms(r, sse, c.Slug, view)
 }
 
-// viewerCanWrite computes the SSE viewer's write capability on pid so the
-// per-fragment push helpers hide write affordances for read-only members
-// live, matching the initial page render. Defaults to false on any error.
-func (h *Handler) viewerCanWrite(r *http.Request, pid string) bool {
+// viewerAccess resolves the SSE viewer's effective access on pid, re-read
+// from the DB each call so live permission/grant changes take effect.
+// Returns AccessNone on any error.
+func (h *Handler) viewerAccess(r *http.Request, pid string) AccessLevel {
 	p, err := h.Repo.ByID(r.Context(), pid)
 	if err != nil {
-		return false
+		return AccessNone
 	}
 	id, _ := auth.FromContext(r.Context())
 	caller := Identity{UserID: id.User.ID, Role: id.Membership.Role}
 	grant, grantOK := h.Repo.MemberAccessFor(r.Context(), pid, caller.UserID)
-	return EffectiveAccess(p, caller, grant, grantOK).CanWrite()
+	return EffectiveAccess(p, caller, grant, grantOK)
+}
+
+// viewerCanWrite reports whether the SSE viewer may mutate pid, so the
+// per-fragment push helpers hide write affordances for read-only members
+// live, matching the initial render.
+func (h *Handler) viewerCanWrite(r *http.Request, pid string) bool {
+	return h.viewerAccess(r, pid).CanWrite()
+}
+
+// viewerCanRead reports whether the SSE viewer may still see pid — the
+// stream loop calls this on every event to stop streaming after a grant
+// is revoked or perms are tightened.
+func (h *Handler) viewerCanRead(r *http.Request, pid string) bool {
+	return h.viewerAccess(r, pid).CanRead()
 }
 
 // pushPerms re-renders the manager-only permissions panel for THIS viewer.
@@ -1496,6 +1545,15 @@ func (h *Handler) projectAccess(w http.ResponseWriter, r *http.Request) (Identit
 	}
 	grant, grantOK := h.Repo.MemberAccessFor(r.Context(), p.ID, caller.UserID)
 	return caller, p, EffectiveAccess(p, caller, grant, grantOK), true
+}
+
+// callerAccessTo computes a caller's effective access to an ARBITRARY
+// project (not necessarily the URL project) — used by the move handlers to
+// gate the TARGET project, so content can't be relocated into a project the
+// caller can't write (or can't even see).
+func (h *Handler) callerAccessTo(ctx context.Context, caller Identity, p Project) AccessLevel {
+	grant, grantOK := h.Repo.MemberAccessFor(ctx, p.ID, caller.UserID)
+	return EffectiveAccess(p, caller, grant, grantOK)
 }
 
 // RequireWrite is middleware that gates project mutations on write access.

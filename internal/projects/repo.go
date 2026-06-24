@@ -40,12 +40,18 @@ func (r *Repo) SearchRefs(ctx context.Context, communityID, q string, limit int)
 			}
 		}
 	}
-	add("project", `SELECT id, title FROM projects
-		WHERE community_id = ? AND title LIKE ? ESCAPE '\' ORDER BY title LIMIT ?`)
+	// Restricted projects (and their issues / discussions) are excluded
+	// from the reference autocomplete so their titles never leak to members
+	// without a grant. This is a blunt cut (managers lose autocomplete for
+	// their own restricted projects too) — acceptable versus a title leak,
+	// and avoids threading a caller identity through this read path.
+	const notRestricted = ` AND (p.needs_perms = 0 OR p.visibility = 'community')`
+	add("project", `SELECT id, title FROM projects p
+		WHERE p.community_id = ? AND p.title LIKE ? ESCAPE '\'`+notRestricted+` ORDER BY p.title LIMIT ?`)
 	add("issue", `SELECT i.id, i.title FROM project_issues i JOIN projects p ON i.project_id = p.id
-		WHERE p.community_id = ? AND i.title LIKE ? ESCAPE '\' ORDER BY i.updated_at DESC LIMIT ?`)
+		WHERE p.community_id = ? AND i.title LIKE ? ESCAPE '\'`+notRestricted+` ORDER BY i.updated_at DESC LIMIT ?`)
 	add("discussion", `SELECT t.id, t.subject FROM project_discussion_threads t JOIN projects p ON t.project_id = p.id
-		WHERE p.community_id = ? AND t.subject LIKE ? ESCAPE '\' AND t.deleted_at IS NULL LIMIT ?`)
+		WHERE p.community_id = ? AND t.subject LIKE ? ESCAPE '\' AND t.deleted_at IS NULL`+notRestricted+` LIMIT ?`)
 	return out
 }
 
