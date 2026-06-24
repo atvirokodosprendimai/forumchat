@@ -204,3 +204,5 @@
 - 2026-06-24 `f2e98f9` feat(notes): compact comment moderation actions
 - 2026-06-24 `f65fc9c` fix(notes): comments rail is a viewport-bounded scroll panel
 - 2026-06-24 `a21542b` docs(notes): collaborative editing + draft/published model
+- 2026-06-24 `753c1de` feat(notes): remote collaborator cursors (Phase 2)
+- 2026-06-24 `f12f1eb` feat(render): server-side syntax highlighting for fenced code blocks
