@@ -63,6 +63,7 @@ templ AdminPage(d AdminPageData) {
 			}
 			<p class="muted"><a href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin") }>refresh</a></p>
 
+			<div class="admin-cards">
 			<section class="card narrow">
 				<h2>Visibility</h2>
 				if d.IsPublic {
@@ -141,6 +142,7 @@ templ AdminPage(d AdminPageData) {
 				</label>
 				<button data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/admin/add-member')" }>Add</button>
 			</section>
+			</div>
 
 			<h2>Reports ({ itoa(len(d.Reports)) })</h2>
 			<div id="admin-reports">

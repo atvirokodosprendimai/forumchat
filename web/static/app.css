@@ -649,6 +649,17 @@ label.icon-btn {
 .explore-actions form { margin: 0; }
 .explore-join-form { display: flex; flex-direction: column; gap: .5rem; align-items: stretch; }
 .explore-join-reason { width: 100%; min-height: 0; resize: vertical; }
+/* Admin settings — tidy responsive grid instead of a stack of individually
+   centered .card.narrow (margin:auto) that floats with dead side-space. */
+.admin-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+  max-width: 56rem;
+  margin: 0 0 1.5rem;
+}
+.admin-cards > .card.narrow { max-width: none; margin: 0; }
 .admin-join-reason {
   margin: .4rem 0 0; padding: .4rem .7rem;
   border-left: 3px solid var(--border-strong);
