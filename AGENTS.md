@@ -951,6 +951,17 @@ cycle), then extended. Full detail: `internal/notes/CLAUDE.md`. Key invariants:
   explicit "↻ Update preview" button. The per-line gutter "+" lives in each block's
   OWN left padding (`#note-body > [data-nb]`), NOT a negative offset, so hovering
   toward it doesn't end `:hover` and hide it.
+- **Collaborative editing** (server-OT diff-sync, migrations 00066/00067): a few
+  mods/admins edit one note's markdown at once without data loss. Collab edits a
+  shared **`draft_body`**; **`body`** (rendered + FTS/RAG-indexed) is published
+  only on **Save** — so drafts never leak into search/reader and Save can't
+  clobber a concurrent editor. Client (`note-collab.js` + vendored
+  `diff_match_patch.js`) diffs shadow→local → POSTs a dmp patch to `/sync`;
+  `MergeBody` fuzzy-merges into `draft_body` under the single-writer tx (the
+  sequencer), bumps `version`; the `/collab` SSE stream pushes the canonical as
+  `_note_canon`/`_note_ver` **signals (PatchSignals, not html morph)**; the client
+  merges into its textarea preserving the caret. Malformed patches → `ErrBadPatch`
+  (no write). Codex-reviewed. Remote cursor carets are Phase 2.
 - **Nav:** a top-bar **Notes** pill (§ project_nav_topbar_community), not a sidebar
   entry.
 

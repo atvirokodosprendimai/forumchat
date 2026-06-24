@@ -89,6 +89,36 @@ OWN left padding (`#note-body > [data-nb]`, toggled via opacity+pointer-events),
 NOT a negative offset — a negative offset put it outside the block box so moving
 toward it ended `:hover` and hid it before a click.
 
+## Collaborative editing (server-OT diff-sync)
+
+A few mods/admins edit one note's markdown at once without losing data
+(migrations 00066 `version`, 00067 `draft_body`). Server-mediated differential
+sync — the single-writer SQLite DB is the sequencer:
+
+- **Draft vs published.** Collab edits a shared **`draft_body`**; **`body`** (+
+  `body_html`, FTS/RAG) is the *published* copy, updated only on **Save**. So
+  in-progress edits never hit the public search index or the rendered reader, and
+  Save never clobbers a concurrent editor (the draft is the one canonical the
+  merge owns). The editor textarea shows `draft_body` (`toView.Body = DraftBody`);
+  the reader renders published `body_html`.
+- **Flow.** `note-collab.js` keeps a `shadow` (last canonical); on debounced input
+  it diffs shadow→local, POSTs a diff-match-patch patch as the `note_patch` signal
+  to `/sync`. `Repo.MergeBody` fuzzy-applies it onto `draft_body` in a tx, bumps
+  `version`. The per-note `Bus` + NATS (`natsx.NoteSubject`) fan out; the
+  **`/collab` SSE stream** pushes `draft_body`+`version` as `_note_canon`/`_note_ver`
+  signals (PatchSignals — NOT html morph); the client merges into its textarea
+  preserving the caret (`fcNoteCollabApply`). dmp patch text interops Go↔JS.
+- **Save flushes then publishes.** `PostSave` sends the final `note_patch`;
+  `Service.Save` merges it into the draft (no clobber), then sets `body = draft`,
+  renders `body_html`, persists. A non-collab caller (no patch) sets the draft
+  from `note_body` directly — last-writer-wins, fine single-editor.
+- **Hardening (Codex):** `MergeBody` returns `ErrBadPatch` on a malformed patch
+  (no write, no version bump → `/sync` 400s); `MaxBytesReader` caps `/sync`;
+  `SyncBody`/`GetCollab` enforce community + `CanEdit` (a non-editor can't sync or
+  even subscribe). `SetMaxOpenConns(1)` makes the read-modify-write atomic.
+- **TODO (Phase 2):** remote cursor carets (each editor's caret shown to others)
+  + smoother caret mapping under same-instant typing.
+
 ## CQRS shape (AGENTS §6b)
 
 `notes.go` = types + Repo (SQL) + Service (write orchestration: render, token
