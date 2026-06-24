@@ -27,14 +27,14 @@
   --fg-muted: oklch(50% 0.018 260);
   --fg-subtle: oklch(65% 0.015 260);
 
-  /* Accent — vibrant indigo-violet for 2026 */
-  --accent: oklch(60% 0.22 270);
-  --accent-hover: oklch(55% 0.23 270);
-  --accent-strong: oklch(48% 0.24 270);
+  /* Accent — refined indigo: confident + professional, not neon */
+  --accent: oklch(57% 0.19 272);
+  --accent-hover: oklch(52% 0.2 272);
+  --accent-strong: oklch(46% 0.2 272);
   --accent-fg: #ffffff;
-  --accent-soft: oklch(96% 0.04 270);
-  --accent-soft-strong: oklch(92% 0.06 270);
-  --accent-ring: oklch(60% 0.22 270 / 0.28);
+  --accent-soft: oklch(96.5% 0.03 272);
+  --accent-soft-strong: oklch(92% 0.05 272);
+  --accent-ring: oklch(57% 0.19 272 / 0.3);
 
   /* Semantic */
   --sys: oklch(97% 0.05 80);
@@ -3182,7 +3182,7 @@ hr {
   align-self: flex-end;
   background: var(--accent-soft, color-mix(in srgb, var(--accent) 18%, var(--surface)));
   color: var(--fg);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-bottom-right-radius: 6px;
 }
 .bubble-group.other {
