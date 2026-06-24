@@ -51,6 +51,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/netguard"
+	"github.com/atvirokodosprendimai/forumchat/internal/notes"
 	"github.com/atvirokodosprendimai/forumchat/internal/pastes"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
@@ -1024,6 +1025,43 @@ func run() error {
 		return p.ID
 	}
 
+	// ----- Notes (per-community shared notes) -------------------------------
+	notesRepo := notes.NewRepo(db)
+	notesHandler := &notes.Handler{
+		Svc:           notes.NewService(notesRepo),
+		Repo:          notesRepo,
+		ChatRepo:      chatRepo,
+		BaseURL:       cfg.BaseURL,
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		Log:           log,
+	}
+	// PostToChat drops a shared note's URL into a channel as the member and fans
+	// it out — identical shape to the pastes closure above (keeps notes free of a
+	// chat import cycle).
+	notesHandler.PostToChat = func(ctx context.Context, communityID, channelID, authorID, bodyMD string) error {
+		if _, err := chatSvc.Send(ctx, chat.SendInput{
+			CommunityID:  communityID,
+			ChannelID:    channelID,
+			AuthorID:     authorID,
+			BodyMarkdown: bodyMD,
+		}); err != nil {
+			return err
+		}
+		chatBus.Broadcast(channelID)
+		chatNewMsgBus.Broadcast(channelID)
+		if nc != nil && nc.IsConnected() {
+			_ = nc.Publish(natsx.ChatSubject(communityID), []byte(channelID))
+			_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+		}
+		if chatHandler.RelayOut != nil {
+			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
+				chatHandler.RelayOut(communityID, channelID, "", bodyMD, ch.Name, "", "", nil)
+			}
+		}
+		return nil
+	}
+
 	// ----- Web Push (VAPID) -------------------------------------------------
 	vapidPub, vapidPriv, err := push.LoadOrCreateVAPID(cfg.VAPIDPublic, cfg.VAPIDPrivate, cfg.VAPIDKeysFile, log)
 	if err != nil {
@@ -1713,6 +1751,17 @@ func run() error {
 		r.Post("/pastes/new", pastesHandler.PostNew)
 		r.Get("/pastes/{id}", pastesHandler.GetPage)
 		r.Post("/pastes/{id}/save", pastesHandler.PostSave)
+
+		// Notes — community shared notes: index, editor at /notes/{id}, live
+		// markdown preview, save, delete. Static "new" wins over the {id}
+		// wildcard. Share-to-channel + the public token reader are added with
+		// their own routes (the reader mounts as a public route, no approval gate).
+		r.Get("/notes", notesHandler.GetIndex)
+		r.Post("/notes/new", notesHandler.PostNew)
+		r.Get("/notes/{id}", notesHandler.GetPage)
+		r.Post("/notes/{id}/save", notesHandler.PostSave)
+		r.Post("/notes/{id}/preview", notesHandler.PostPreview)
+		r.Post("/notes/{id}/delete", notesHandler.PostDelete)
 
 		// Agent — per-community AI chat with threads + history. Static
 		// segments (new) win over the {thread} wildcard in chi. Gated by the

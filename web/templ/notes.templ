@@ -1,0 +1,239 @@
+package templ
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
+)
+
+// NoteView is the leaf-package view model for one note (no domain import).
+type NoteView struct {
+	ID         string
+	Title      string
+	Body       string // markdown source — editor textarea
+	BodyHTML   string // pre-rendered, sanitized HTML for the reader
+	IsPublic   bool
+	ShareToken string
+	AuthorName string
+	CanEdit    bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// NoteCommentView is one inline comment anchored to a rendered block.
+type NoteCommentView struct {
+	ID          string
+	BlockIndex  int
+	Quote       string
+	BodyHTML    string
+	AuthorName  string
+	CreatedAt   time.Time
+	Resolved    bool
+	Orphaned    bool // its block_index no longer resolves (note was edited)
+	CanModerate bool
+}
+
+// NoteListItem is one row in the notes index.
+type NoteListItem struct {
+	ID         string
+	Title      string
+	IsPublic   bool
+	AuthorName string
+	Snippet    string
+	UpdatedAt  time.Time
+}
+
+// NoteChannelOption is one channel choice for the share dialog.
+type NoteChannelOption struct {
+	ID   string
+	Slug string
+	Name string
+}
+
+type NotesPageData struct {
+	Viewer Viewer
+	Slug   string
+	Public []NoteListItem
+	Mine   []NoteListItem
+}
+
+type NotePageData struct {
+	Viewer     Viewer
+	Slug       string
+	BaseURL    string
+	Note       NoteView
+	Comments   []NoteCommentView
+	BlockCount int
+	Channels   []NoteChannelOption
+	Edit       bool // viewer may edit (author/mod) — show the editor zone
+	CanComment bool // viewer is an approved member — show comment affordances
+	Shared     bool // rendered via the public token link (read-only, anon)
+}
+
+// noteTitle returns a note's title or a sensible fallback.
+func noteTitle(t string) string {
+	if t == "" {
+		return "Untitled note"
+	}
+	return t
+}
+
+// --- index -----------------------------------------------------------------
+
+templ NotesIndex(d NotesPageData) {
+	@Layout("Notes", d.Viewer) {
+		<section class="notes-page">
+			@PageHeader("📝 Notes", "Shared community notes — write in markdown, read as a page.") {
+				<button class="primary" data-on:click={ "@post('/c/" + d.Slug + "/notes/new')" }>+ New note</button>
+			}
+			<div class="notes-cols">
+				<div class="notes-col">
+					<h2 class="notes-col-h">Shared</h2>
+					if len(d.Public) == 0 {
+						<p class="muted notes-empty">No shared notes yet. A public note shows up here for everyone.</p>
+					} else {
+						<ul class="note-list">
+							for _, n := range d.Public {
+								@noteRow(d.Slug, n)
+							}
+						</ul>
+					}
+				</div>
+				<div class="notes-col">
+					<h2 class="notes-col-h">My notes</h2>
+					if len(d.Mine) == 0 {
+						<p class="muted notes-empty">Notes you write — public or private — live here.</p>
+					} else {
+						<ul class="note-list">
+							for _, n := range d.Mine {
+								@noteRow(d.Slug, n)
+							}
+						</ul>
+					}
+				</div>
+			</div>
+		</section>
+	}
+}
+
+templ noteRow(slug string, n NoteListItem) {
+	<li class="note-row">
+		<a class="note-row-link" href={ templ.URL("/c/" + slug + "/notes/" + n.ID) }>
+			<span class="note-row-title">{ noteTitle(n.Title) }</span>
+			if n.Snippet != "" {
+				<span class="note-row-snippet muted">{ n.Snippet }</span>
+			}
+		</a>
+		<span class="note-row-meta">
+			if n.IsPublic {
+				<span class="note-badge public" title="Public — listed for the whole community">🌐 Public</span>
+			} else {
+				<span class="note-badge private" title="Private — only readable with the share link">🔒 Private</span>
+			}
+			<span class="muted">{ n.UpdatedAt.Format("Jan 2") }</span>
+		</span>
+	</li>
+}
+
+// --- single note: editor zone (editors) + reader zone (everyone) -----------
+
+templ NotePage(d NotePageData) {
+	@Layout(noteTitle(d.Note.Title), d.Viewer) {
+		<section class="note-page" data-signals={ noteInitSignals(d.Note) }>
+			if d.Edit {
+				@noteEditor(d)
+			}
+			@NoteReader(d)
+		</section>
+		if !d.Shared {
+			<script src={ "/static/note.js?v=" + AssetVer("note.js") } defer></script>
+		}
+	}
+}
+
+templ noteEditor(d NotePageData) {
+	<div class="note-editor card" id="note-editor">
+		<div class="note-editor-head">
+			<input class="note-title-input" type="text" data-bind="note_title" placeholder="Title" autocomplete="off"/>
+			<div class="note-editor-tools">
+				<label class="note-vis">
+					<select data-bind="note_visibility">
+						<option value="private">🔒 Private</option>
+						<option value="public">🌐 Public</option>
+					</select>
+				</label>
+				<button class="primary" data-on:click={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/save')" }>Save</button>
+				<button class="btn ghost danger" data-on:click={ "confirm('Delete this note?') && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/delete')" }>Delete</button>
+			</div>
+		</div>
+		<div class="note-editor-split">
+			<textarea
+				class="note-md"
+				data-bind="note_body"
+				spellcheck="false"
+				autocomplete="off"
+				placeholder="Write in markdown…"
+				data-on:input__debounce.300ms={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/preview')" }
+			>{ d.Note.Body }</textarea>
+			<div class="note-preview">
+				<div class="note-preview-label muted">Preview</div>
+				@NotePreview(d.Note.BodyHTML)
+			</div>
+		</div>
+		@NoteError("")
+	</div>
+}
+
+// NoteReader is the rendered article everyone sees: editors (below their
+// editor), members, and anonymous token visitors. Inline comments are layered
+// onto it in a later phase. Stable id #note-reader so it can be re-morphed after
+// a save or a comment change without disturbing the editor zone.
+templ NoteReader(d NotePageData) {
+	<article id="note-reader" class="note-reader card">
+		if !d.Edit {
+			<header class="note-reader-head">
+				<h1>{ noteTitle(d.Note.Title) }</h1>
+				<div class="note-reader-meta muted">
+					if d.Note.AuthorName != "" {
+						<span>{ d.Note.AuthorName }</span>
+					}
+					<span>{ d.Note.UpdatedAt.Format("Jan 2, 2006") }</span>
+					if !d.Note.IsPublic {
+						<span class="note-badge private">🔒 Private</span>
+					}
+				</div>
+			</header>
+		}
+		<div id="note-body" class="note-rendered">
+			@templ.Raw(render.RichHTML(d.Note.BodyHTML))
+		</div>
+	</article>
+}
+
+// NotePreview is the live HTML preview pane, morphed on each debounced edit.
+templ NotePreview(html string) {
+	<div id="note-preview-body" class="note-rendered">
+		@templ.Raw(render.RichHTML(html))
+	</div>
+}
+
+// NoteError is the editor's inline error region. Hidden via CSS when empty.
+templ NoteError(msg string) {
+	<div id="note-error" class="note-error">{ msg }</div>
+}
+
+// noteInitSignals seeds the page-local signal bag. Kept OUT of the global
+// InitialSignals bag so note_body (which can be large) doesn't ride every
+// unrelated request. _-prefixed signals are FE-only (never posted).
+func noteInitSignals(n NoteView) string {
+	vis := "private"
+	if n.IsPublic {
+		vis = "public"
+	}
+	return `{"note_title":` + strconv.Quote(n.Title) +
+		`,"note_visibility":` + strconv.Quote(vis) +
+		`,"note_body":` + strconv.Quote(n.Body) +
+		`,"note_c_block":"0","note_c_quote":"","note_c_body":"",` +
+		`"_note_share_open":false,"_note_comment_open":false,"_note_share_channel":""}`
+}
