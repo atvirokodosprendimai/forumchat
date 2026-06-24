@@ -83,23 +83,22 @@ func searchHighlight(snippet string) string {
 templ SearchPage(d SearchPageData) {
 	@Layout("Search", d.Viewer) {
 		<section class="search-page">
-			<header class="search-head">
-				<h1>Search { d.Viewer.CommunityName }</h1>
-				<input
-					class="search-input"
-					type="search"
-					autofocus
-					autocomplete="off"
-					placeholder="Search chat, threads, issues, discussions, projects…"
-					data-bind="q"
-					data-on:input__debounce.300ms={ "@get('/c/" + d.Viewer.CommunitySlug + "/search/results')" }
-				/>
-				if RAGEnabled {
-					<p class="search-hint muted">Blends full-text and semantic (AI) matches, ranked together.</p>
-				} else {
-					<p class="search-hint muted">Full-text search. Enable semantic search (RAG) to also match by meaning.</p>
-				}
-			</header>
+			@PageHeader("Search", "Find anything across "+d.Viewer.CommunityName+" — chat, threads, issues, discussions, and projects.") {
+			}
+			<input
+				class="search-input"
+				type="search"
+				autofocus
+				autocomplete="off"
+				placeholder="Search chat, threads, issues, discussions, projects…"
+				data-bind="q"
+				data-on:input__debounce.300ms={ "@get('/c/" + d.Viewer.CommunitySlug + "/search/results')" }
+			/>
+			if RAGEnabled {
+				<p class="search-hint muted">Blends full-text and semantic (AI) matches, ranked together.</p>
+			} else {
+				<p class="search-hint muted">Full-text search. Enable semantic search (RAG) to also match by meaning.</p>
+			}
 			@SearchResults(d.Initial)
 		</section>
 	}

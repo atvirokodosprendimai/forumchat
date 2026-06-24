@@ -39,11 +39,11 @@ type TodosPageData struct {
 templ TodosPage(d TodosPageData) {
 	@Layout("Todos", d.Viewer) {
 		<section>
-			<h1>Todos</h1>
-			<p class="muted">Items you saved from chat or forum, scoped to { d.Viewer.CommunityName }.</p>
-
-			<div class="forum-toolbar">
+			@PageHeader("Todos", "Items you saved from chat or forum, scoped to "+d.Viewer.CommunityName+".") {
 				<button class="btn" data-on:click={ todoClickJS("manual", "") }>+ New todo</button>
+			}
+
+			<div class="forum-toolbar toolbar">
 				<nav class="forum-filters">
 					<a class={ todosFilterClass("active", d.Status) } href={ templ.URL(todosFilterHref(d.Viewer.CommunitySlug, "active", d.Category)) }>Active</a>
 					<a class={ todosFilterClass("doing", d.Status) } href={ templ.URL(todosFilterHref(d.Viewer.CommunitySlug, "doing", d.Category)) }>Doing</a>

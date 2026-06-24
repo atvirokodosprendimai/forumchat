@@ -5105,7 +5105,7 @@ button.ghost.danger:hover:not([disabled]) {
 .agent-form-title { font-size: 1.05rem; margin: 0 0 .3rem; }
 
 /* ---- Search (RRF fusion page) ---------------------------------------- */
-.search-page { max-width: 46rem; margin: 0 auto; }
+.search-page { max-width: 60rem; }
 .search-head { margin-bottom: 1rem; }
 .search-head h1 { margin: 0 0 .75rem; }
 .search-input {

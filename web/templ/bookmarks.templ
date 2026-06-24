@@ -28,8 +28,8 @@ type BookmarksPageData struct {
 templ BookmarksPage(d BookmarksPageData) {
 	@Layout("Bookmarks", d.Viewer) {
 		<section>
-			<h1>Your bookmarks</h1>
-			<p class="muted">Save chat messages you want to come back to. Filter by title, category, or date.</p>
+			@PageHeader("Bookmarks", "Save chat messages you want to come back to. Filter by title, category, or date.") {
+			}
 
 			<section class="card">
 				<h3>Filter</h3>

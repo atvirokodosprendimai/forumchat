@@ -74,14 +74,11 @@ type PostView struct {
 templ ForumIndex(v Viewer, threads []ThreadRow, status string, q string) {
 	@Layout("Threads", v) {
 		<section>
-			<header class="page-head">
-				<h1>Threads</h1>
-				<div class="page-head-actions">
-					<a class="btn" href={ templ.URL("/c/" + v.CommunitySlug + "/forum/new") }>+ New thread</a>
-				</div>
-			</header>
+			@PageHeader("Threads", "Long-form discussion — ask, answer, and resolve.") {
+				<a class="btn" href={ templ.URL("/c/" + v.CommunitySlug + "/forum/new") }>+ New thread</a>
+			}
 
-			<div class="forum-toolbar">
+			<div class="forum-toolbar toolbar">
 				<nav class="forum-filters">
 					<a class={ filterClass("unresolved", status) } href={ templ.URL(forumFilterHref(v.CommunitySlug, "unresolved", q)) }>Open</a>
 					<a class={ filterClass("resolved", status) } href={ templ.URL(forumFilterHref(v.CommunitySlug, "resolved", q)) }>Resolved</a>
