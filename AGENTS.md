@@ -961,7 +961,10 @@ cycle), then extended. Full detail: `internal/notes/CLAUDE.md`. Key invariants:
   sequencer), bumps `version`; the `/collab` SSE stream pushes the canonical as
   `_note_canon`/`_note_ver` **signals (PatchSignals, not html morph)**; the client
   merges into its textarea preserving the caret. Malformed patches → `ErrBadPatch`
-  (no write). Codex-reviewed. Remote cursor carets are Phase 2.
+  (no write). Codex-reviewed. **Remote carets:** `notes.Presence` tracks each
+  editor's caret; `/sync` carries `note_cursor`, the `/collab` stream pushes the
+  others' carets as the `_note_cursors` signal, and `note-cursors.js` renders a
+  colored named caret per remote editor (mirror-div coordinates).
 - **Nav:** a top-bar **Notes** pill (§ project_nav_topbar_community), not a sidebar
   entry.
 

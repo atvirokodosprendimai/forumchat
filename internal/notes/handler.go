@@ -44,6 +44,8 @@ type Handler struct {
 	// (same-process Bus, cross-process NATS). Nil-safe.
 	Bus             *Bus
 	NATS            *nats.Conn
+	// Presence tracks each editor's caret per note for the remote-cursor overlay.
+	Presence        *Presence
 	CommunityID     string
 	CommunityName   string
 	Log             *slog.Logger
@@ -59,11 +61,23 @@ func (h *Handler) broadcast(ctx context.Context, communityID, noteID string) {
 	}
 }
 
-// canonSignals JSON-encodes the canonical body + version as a datastar signal
-// patch. _-prefixed so they stay FE-only (the large body never rides back in a
-// @post bag); the client merges _note_canon into its textarea preserving caret.
-func canonSignals(body string, version int) ([]byte, error) {
-	return json.Marshal(map[string]any{"_note_canon": body, "_note_ver": version})
+// stateSignals JSON-encodes a collab signal patch: the OTHER editors' carets
+// (_note_cursors, a JSON string), plus the canonical body+version (_note_canon/
+// _note_ver) only when includeCanon (the body is large — skip it on cursor-only
+// updates). All _-prefixed so they stay FE-only.
+func (h *Handler) stateSignals(noteID, exceptID, draft string, version int, includeCanon bool) []byte {
+	m := map[string]any{}
+	if h.Presence != nil {
+		if cs, err := json.Marshal(h.Presence.Others(noteID, exceptID)); err == nil {
+			m["_note_cursors"] = string(cs)
+		}
+	}
+	if includeCanon {
+		m["_note_canon"] = draft
+		m["_note_ver"] = version
+	}
+	b, _ := json.Marshal(m)
+	return b
 }
 
 func (h *Handler) cid(ctx context.Context) string {
@@ -364,7 +378,8 @@ func (h *Handler) PostSave(w http.ResponseWriter, r *http.Request) {
 }
 
 type syncSignals struct {
-	Patch string `json:"note_patch"`
+	Patch  string `json:"note_patch"`
+	Cursor int    `json:"note_cursor"`
 }
 
 // PostSync merges one editor's diff-match-patch into the note's canonical body
@@ -397,14 +412,13 @@ func (h *Handler) PostSync(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if h.Presence != nil {
+		h.Presence.Set(noteID, id.User.ID, id.Membership.DisplayName, in.Cursor)
+	}
 	sse := render.NewSSE(w, r)
-	if sig, err := canonSignals(body, version); err == nil {
-		_ = sse.PatchSignals(sig)
-	}
-	// Fan the merge out to the OTHER open editors (the sender already has it above).
-	if in.Patch != "" {
-		h.broadcast(r.Context(), cid, noteID)
-	}
+	_ = sse.PatchSignals(h.stateSignals(noteID, id.User.ID, body, version, in.Patch != ""))
+	// Always fan out — a text merge OR a cursor move should reach other editors.
+	h.broadcast(r.Context(), cid, noteID)
 }
 
 // GetCollab is the per-note collab SSE stream: editors subscribe here and the
@@ -422,12 +436,17 @@ func (h *Handler) GetCollab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	noteID := n.ID
-	sse := render.NewSSE(w, r)
-	if sig, err := canonSignals(n.DraftBody, n.Version); err == nil {
-		_ = sse.PatchSignals(sig)
+	if h.Presence != nil {
+		h.Presence.Set(noteID, id.User.ID, id.Membership.DisplayName, 0)
+		defer h.Presence.Remove(noteID, id.User.ID)
 	}
+	sse := render.NewSSE(w, r)
+	lastVer := n.Version
+	_ = sse.PatchSignals(h.stateSignals(noteID, id.User.ID, n.DraftBody, n.Version, true))
 	local, unsubscribe := h.Bus.Subscribe(noteID)
 	defer unsubscribe()
+	// Tell the others this editor joined so their cursor list refreshes.
+	h.broadcast(r.Context(), n.CommunityID, noteID)
 	var natsCh chan *nats.Msg
 	if h.NATS != nil && h.NATS.IsConnected() {
 		natsCh = make(chan *nats.Msg, 32)
@@ -452,11 +471,11 @@ func (h *Handler) GetCollab(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		sig, err := canonSignals(fresh.DraftBody, fresh.Version)
-		if err != nil {
-			continue
-		}
-		if err := sse.PatchSignals(sig); err != nil {
+		// Always push cursors; include the (large) canonical only when the body
+		// actually changed, so cursor-only moves stay cheap.
+		includeCanon := fresh.Version != lastVer
+		lastVer = fresh.Version
+		if err := sse.PatchSignals(h.stateSignals(noteID, id.User.ID, fresh.DraftBody, fresh.Version, includeCanon)); err != nil {
 			return
 		}
 	}

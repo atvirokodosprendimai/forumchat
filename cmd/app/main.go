@@ -1034,6 +1034,7 @@ func run() error {
 		BaseURL:       cfg.BaseURL,
 		Bus:           notes.NewBus(),
 		NATS:          nc,
+		Presence:      notes.NewPresence(),
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,

@@ -86,5 +86,6 @@
     ta.value = merged;
     if (focused) { try { ta.setSelectionRange(newPos, newPos); } catch (e) {} }
     fireInput(ta); // keep datastar's note_body signal + preview in step
+    if (window.fcNoteRenderCursors) window.fcNoteRenderCursors(); // re-place remote carets
   };
 })();

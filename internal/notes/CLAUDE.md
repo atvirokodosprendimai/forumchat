@@ -116,8 +116,15 @@ sync — the single-writer SQLite DB is the sequencer:
   (no write, no version bump → `/sync` 400s); `MaxBytesReader` caps `/sync`;
   `SyncBody`/`GetCollab` enforce community + `CanEdit` (a non-editor can't sync or
   even subscribe). `SetMaxOpenConns(1)` makes the read-modify-write atomic.
-- **TODO (Phase 2):** remote cursor carets (each editor's caret shown to others)
-  + smoother caret mapping under same-instant typing.
+- **Remote carets (Phase 2).** `notes.Presence` (in-memory, per-note) tracks each
+  editor's caret offset; the textarea reports `note_cursor` on input/keyup/click,
+  `/sync` updates presence and always broadcasts (so cursor moves propagate). The
+  `/collab` stream pushes the OTHER editors' carets as the `_note_cursors` signal
+  (JSON string), and includes the canonical body only when `version` changed
+  (cursor-only moves stay cheap). `note-cursors.js` renders a colored caret + name
+  label per remote editor via the mirror-div caret-coordinates technique; colour
+  is a stable hash of the editor id. Caret position is approximate (mirror
+  technique) and best-effort under same-instant typing.
 
 ## CQRS shape (AGENTS §6b)
 

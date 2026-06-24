@@ -6292,3 +6292,12 @@ body:has(.chat-layout) .site-footer { display: none; }
 .note-pane { display: flex; flex-direction: column; min-width: 0; }
 .note-pane-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: .35rem; }
 .note-pane .note-md { flex: 1; }
+
+/* notes — remote collaborator carets */
+.note-md-wrap { position: relative; flex: 1; display: flex; min-height: 0; }
+.note-md-wrap .note-md { flex: 1; }
+.note-cursors-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: var(--radius-sm); }
+.note-remote-caret { position: absolute; width: 2px; border-radius: 1px; }
+.note-remote-label { position: absolute; top: -1.05em; left: -1px; font-size: .62rem; line-height: 1.4;
+  color: #fff; padding: 0 .28rem; border-radius: 3px 3px 3px 0; white-space: nowrap;
+  font-family: var(--font-sans, system-ui); font-weight: 600; }
