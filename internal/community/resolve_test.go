@@ -157,12 +157,29 @@ func TestResolveTranslate_PlatformTier(t *testing.T) {
 }
 
 func TestResolveAgent_PlatformTier(t *testing.T) {
-	got := ResolveAgent(platformOn(), platformCfg())
+	cfg := platformCfg()
+	cfg.PlatformAIAgentVisionModel = "gemma4"
+
+	// Text agent → text model.
+	got := ResolveAgent(platformOn(), cfg, false)
 	if !got.Platform || got.BaseURL != "http://platform:11434" || got.Model != "llama" || got.Provider != "ollama" {
-		t.Fatalf("authorized opt-in must override agent compute, got %+v", got)
+		t.Fatalf("text agent must use platform text model, got %+v", got)
+	}
+	// Vision agent → vision model.
+	if v := ResolveAgent(platformOn(), cfg, true); !v.Platform || v.Model != "gemma4" {
+		t.Fatalf("vision agent must use platform vision model, got %+v", v)
+	}
+	// Vision agent but operator configured no vision model → stays BYO.
+	noVis := platformCfg() // vision model empty
+	if ResolveAgent(platformOn(), noVis, true).Platform {
+		t.Fatal("vision agent with no platform vision model must stay BYO")
+	}
+	// Text agent still works when only the text model is set.
+	if !ResolveAgent(platformOn(), noVis, false).Platform {
+		t.Fatal("text agent must still platform-route when text model is set")
 	}
 	// Not opted in → agent runs on its own backend (Platform false).
-	if ResolveAgent(Settings{CommunityID: "c1"}, platformCfg()).Platform {
+	if ResolveAgent(Settings{CommunityID: "c1"}, cfg, false).Platform {
 		t.Fatal("no opt-in must leave the agent on its BYO backend")
 	}
 }

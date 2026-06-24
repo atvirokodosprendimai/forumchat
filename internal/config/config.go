@@ -263,7 +263,8 @@ type Config struct {
 	PlatformAITranslateModel   string `env:"PLATFORM_AI_TRANSLATE_MODEL" envDefault:""`
 	PlatformAIAgentProvider    string `env:"PLATFORM_AI_AGENT_PROVIDER" envDefault:""`
 	PlatformAIAgentBaseURL     string `env:"PLATFORM_AI_AGENT_BASEURL" envDefault:""`
-	PlatformAIAgentModel       string `env:"PLATFORM_AI_AGENT_MODEL" envDefault:""`
+	PlatformAIAgentModel       string `env:"PLATFORM_AI_AGENT_MODEL" envDefault:""`        // text model (e.g. glm-5.2)
+	PlatformAIAgentVisionModel string `env:"PLATFORM_AI_AGENT_VISION_MODEL" envDefault:""` // vision model (e.g. gemma4); used for agents with vision on
 	PlatformAIAgentAPIKey      string `env:"PLATFORM_AI_AGENT_API_KEY" envDefault:""`
 
 	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate

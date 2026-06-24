@@ -95,7 +95,9 @@ re-add it under a **distinct `PLATFORM_AI_*` namespace** (NOT the BYO
   `PLATFORM_AI_QDRANT_URL`, `PLATFORM_AI_QDRANT_API_KEY`
 - `PLATFORM_AI_TRANSLATE_BASEURL`, `PLATFORM_AI_TRANSLATE_MODEL`
 - `PLATFORM_AI_AGENT_PROVIDER`, `PLATFORM_AI_AGENT_BASEURL`,
-  `PLATFORM_AI_AGENT_MODEL`, `PLATFORM_AI_AGENT_API_KEY`
+  `PLATFORM_AI_AGENT_MODEL` (text, e.g. `glm-5.2`),
+  `PLATFORM_AI_AGENT_VISION_MODEL` (vision, e.g. `gemma4`),
+  `PLATFORM_AI_AGENT_API_KEY`
 
 Unset → platform AI is simply unavailable (the super-admin can't grant what isn't
 configured; an owner's request stays pending). Setting them is what the operator
@@ -107,11 +109,31 @@ operator pays zero.**
 
 - Today each agent is BYO (`ai_agents.provider/base_url/model/api_key_enc`). When
   a community runs on platform AI, its agents' **generation** routes to
-  `PLATFORM_AI_AGENT_*` (provider/host/model/key) instead of the agent's own
-  config. The agent's **identity** (name, avatar, system_prompt, tools) is
-  unchanged — only the compute backend is swapped.
+  `PLATFORM_AI_AGENT_*` (provider/host/key) instead of the agent's own config.
+  The agent's **identity** (name, avatar, system_prompt, tools) is unchanged —
+  only the compute backend is swapped.
 - This is a community-level decision (the one master switch), not per-agent: "use
   system settings" means all of the community's AI uses platform compute.
+- **Two platform models, picked by capability.** A vision agent forwards images
+  to the model, and a text-only model errors on image input — so the platform
+  offers a **text** model (`PLATFORM_AI_AGENT_MODEL`) and a **vision** model
+  (`PLATFORM_AI_AGENT_VISION_MODEL`). `ResolveAgent(s, cfg, vision)` returns the
+  vision model for a vision-capable agent, the text model otherwise. If a vision
+  agent is requested but no platform vision model is configured, that agent stays
+  **BYO** (never route images to a text model) rather than silently degrading.
+- **The `/summary` summarizer routes to the vision model.** A channel summary can
+  include image messages, so the `IsSummarizer` agent is resolved with
+  `vision = a.Vision || a.IsSummarizer` → it uses the platform vision model (and
+  falls back to BYO if none is configured). This covers the synchronous
+  `Service.SummarizeToThread` path as well as the streaming pane.
+- **One seam, three call paths.** Agent generation happens in three places — the
+  streaming pane (`agent.Runner`), the synchronous `/summary`
+  (`agent.Service.SummarizeToThread`), and forum-thread bots
+  (`chatagents.ThreadRunner`). All three take the same `agent.ComputeResolver`
+  closure (wired once in `main.go`), which returns the metered platform provider
+  + the model-overridden agent, or the agent on its bare BYO provider. The
+  returned agent (not the input) drives the generation, since the streamed model
+  name comes from `Agent.Model`.
 
 ### RAG embedding on platform compute
 

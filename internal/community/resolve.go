@@ -165,20 +165,36 @@ func ResolveTranslate(s Settings, cfg config.Config) EffectiveTranslate {
 
 // ResolveAgent resolves the compute backend for a community's agents. On the
 // platform branch (opted-in + authorized + configured) it returns the operator's
-// hosted provider/host/model/key with Platform=true, so the caller overrides the
+// hosted provider/host/key with Platform=true, so the caller overrides the
 // agent's BYO backend and meters it. Otherwise Platform is false and the agent
 // runs on its own configured backend (the unchanged default).
-func ResolveAgent(s Settings, cfg config.Config) EffectiveAgent {
-	if usePlatform(s, cfg, cfg.PlatformAIAgentBaseURL) {
-		return EffectiveAgent{
-			Platform: true,
-			Provider: cfg.PlatformAIAgentProvider,
-			BaseURL:  cfg.PlatformAIAgentBaseURL,
-			Model:    cfg.PlatformAIAgentModel,
-			APIKey:   cfg.PlatformAIAgentAPIKey,
-		}
+//
+// The model is selected by the agent's vision capability: a vision agent needs a
+// vision-capable model (an image sent to a text model errors), so it uses
+// PLATFORM_AI_AGENT_VISION_MODEL. If a vision agent is requested but the operator
+// configured no vision model, the agent stays BYO (Platform false) rather than
+// silently sending images to the text model.
+func ResolveAgent(s Settings, cfg config.Config, vision bool) EffectiveAgent {
+	if !usePlatform(s, cfg, cfg.PlatformAIAgentBaseURL) {
+		return EffectiveAgent{}
 	}
-	return EffectiveAgent{}
+	model := cfg.PlatformAIAgentModel
+	if vision {
+		if cfg.PlatformAIAgentVisionModel == "" {
+			return EffectiveAgent{} // no platform vision model → vision agent stays BYO
+		}
+		model = cfg.PlatformAIAgentVisionModel
+	}
+	if model == "" {
+		return EffectiveAgent{} // capability not configured → BYO
+	}
+	return EffectiveAgent{
+		Platform: true,
+		Provider: cfg.PlatformAIAgentProvider,
+		BaseURL:  cfg.PlatformAIAgentBaseURL,
+		Model:    model,
+		APIKey:   cfg.PlatformAIAgentAPIKey,
+	}
 }
 
 // ResolveStorage resolves a community's blob-storage backend. Self-hosted →

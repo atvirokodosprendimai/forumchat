@@ -71,16 +71,21 @@ count platform-compute tokens and store them."
 5. [x] Table tests: authorization matrix (grant / sub-active / canceled / unauthorized), platform-tier RAG+translate+agent, unset-endpoint fallthrough, kill-switch over platform; `SAAS=false` unchanged (existing tests green)
    - => `go test ./...` green; committed + pushed
 
-### Phase 2b - main.go / runner / worker live wiring - status: open
+### Phase 2b - main.go / runner / worker live wiring - status: done
 
 The risky part — installs platform-wrapped vs BYO-bare clients on the real
 request paths. Kept separate from 2a so the pure resolver lands verified first.
 
-1. [ ] RAG worker: per-community embedder built from `ResolveRAG`; when `.Platform`, wrap with `rag.NewMeteredEmbedder(_, rec, communityID)`
-2. [ ] Translate handler: when `ResolveTranslate(...).Platform`, call `agent.MeteredTranslate(_, rec, cid, uid, ...)` else `agent.Translate(...)`
-3. [ ] Agent runner / thread runner: when `ResolveAgent(...).Platform`, build provider from platform config + wrap with `agent.NewMeteredProvider(_, rec, cid, uid)`; else the agent's BYO provider (bare)
-4. [ ] Build `aiusage.New(db, log)` recorder in main.go; thread it to worker + translate + runners via the existing closure seams
-5. [ ] Smoke: opted-in+authorized community → agent/translate/embed each write a ledger row; BYO community writes none
+1. [x] RAG worker (`EmbedderFor` closure): bare embedder cached by (host|model|dim); wrapped per-community with `rag.NewMeteredEmbedder` when `ResolveRAG(...).Platform` (wrap AFTER cache, since the cache is shared across platform communities)
+2. [x] Translate closure: when `ResolveTranslate(...).Platform`, `agent.MeteredTranslate` attributing to the requesting member (`auth.FromContext`); else bare `agent.Translate`
+3. [x] **Three** agent generation paths via ONE shared `agent.ComputeResolver` seam (commit 2): `agent.Runner` (pane), `agent.Service.SummarizeToThread` (/summary), `chatagents.ThreadRunner` (forum bots). The closure returns the metered platform provider + the model-overridden agent, or the bare BYO provider. Returned agent drives the gen (model comes from `Agent.Model`)
+   - => user req: platform offers a TEXT model + a VISION model; `ResolveAgent(s, cfg, vision)` picks by capability; vision agent with no platform vision model stays BYO (never images→text model)
+   - => user req: `/summary` summarizer routes to the vision model — `wantsVision = a.Vision || a.IsSummarizer` in the main.go closure (channel summaries include images)
+   - => `PLATFORM_AI_AGENT_VISION_MODEL` env added
+4. [x] `aiusage.New(db, log)` recorder built in main.go (near debugRec); threaded to the embedder/translate/agent closures
+5. [x] Tests: `resolveProvider` seam (override vs BYO), resolver matrix incl. vision; `go test ./...` green. (Full live smoke against a real Ollama deferred to Phase 5.)
+   - => agent metering attributes to community (UserID="") for the 3 detached gen paths; translate is per-user. Per-user agent attribution noted as a Phase 5 polish (would thread userID through `Runner.Start`)
+   - => committed across 2 commits (2b-i RAG+translate, 2b-ii agent seam + vision)
 
 ### Phase 3 - Request → approve lifecycle (no Stripe yet) - status: open
 
@@ -129,3 +134,4 @@ signatures.
 - 2606241000 — Phase 0 done. Migration 00059 ai_usage_events; `internal/aiusage` (Event + nil-safe Recorder + Rollup/CommunityTotals); `StreamResult.Usage` surfacing Ollama prompt_eval_count/eval_count. Tests green (`go test ./...`). Design note: metering will be per-provider-turn rows in the Phase-1 decorator, so `Generate` stays unchanged. Branch `task/saas-platform-ai-phase0`.
 - 2606241030 — Phase 1 done. Metering decorators: `agent.NewMeteredProvider` (real token usage per turn), `rag.NewMeteredEmbedder` + `agent.MeteredTranslate` (estimated via `aiusage.EstimateTokens`). All nil-safe passthrough when unwired. Tests prove meter-iff-platform (wrapped records, bare records zero). `go test ./...` green. Branch `task/saas-platform-ai-phase1`.
 - 2606241100 — Phase 2a done. `PLATFORM_AI_*` env (separate namespace) + migration 00060 (community_settings platform cols) + Settings load/save + `PlatformAI()`/`ResolveAgent()` + platform tier in `ResolveRAG`/`ResolveTranslate` with `Platform` markers. Resolver table tests cover the full authorization matrix + fallthrough + kill-switch. `go test ./...` green. Branch `task/saas-platform-ai-phase2a`. Split Phase 2 into 2a (pure/done) + 2b (live main.go/runner/worker wiring — next, riskier).
+- 2606241200 — Phase 2b done (2 commits). 2b-i: RAG embed + translate metering wired on the existing per-community closures. 2b-ii: shared `agent.ComputeResolver` seam threaded into all THREE agent gen paths (pane Runner, /summary Service, forum ThreadRunner), wired once in main.go. User-driven design additions this session: platform offers TEXT + VISION agent models (`ResolveAgent(s,cfg,vision)` picks by capability; vision-agent-without-vision-model stays BYO), and the `/summary` summarizer routes to the vision model (`wantsVision = a.Vision || a.IsSummarizer`) since channel summaries include images. `go test ./...` green; vet clean. Branch `task/saas-platform-ai-phase2b-wiring`. NEXT: Phase 3 (request→approve lifecycle + owner/super-admin usage UI), then Phase 4 (Stripe).

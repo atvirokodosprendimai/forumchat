@@ -34,6 +34,11 @@ type ThreadRunner struct {
 	Tools        func(ctx context.Context, a agent.Agent) (agent.ToolSet, error)
 	ContextLimit int
 
+	// Resolve routes the bot reply onto platform compute (metered) for an
+	// opted-in community, mirroring agent.Runner.Resolve. Wired in main.go
+	// (SaaS); nil → the agent's own provider, unchanged.
+	Resolve agent.ComputeResolver
+
 	mu     sync.Mutex
 	active map[string]context.CancelFunc // threadID -> cancel
 }
@@ -69,7 +74,17 @@ func (r *ThreadRunner) run(ctx context.Context, cancel context.CancelFunc, commu
 		r.mu.Unlock()
 	}()
 
-	prov, err := agent.NewProvider(a)
+	// Resolve compute — platform branch overrides a's provider/host/model and
+	// returns a metered provider; a (not the input) drives the generation.
+	var (
+		prov agent.Provider
+		err  error
+	)
+	if r.Resolve != nil {
+		prov, a, err = r.Resolve(ctx, communityID, a)
+	} else {
+		prov, err = agent.NewProvider(a)
+	}
 	if err != nil {
 		r.Log.Warn("chatagents: provider", "agent", a.ID, "err", err)
 		return

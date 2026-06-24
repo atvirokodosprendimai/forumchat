@@ -58,6 +58,26 @@ type Provider interface {
 // generation against an agent's configured model.
 func NewProvider(a Agent) (Provider, error) { return newProvider(a) }
 
+// ComputeResolver resolves the Provider and the effective Agent for a generation
+// in communityID. In SaaS it lets main.go route an opted-in community's agent
+// onto the operator's hosted compute — returning a metered provider plus the
+// agent with its Provider/BaseURL/Model overridden to the platform model — or
+// return the agent unchanged on its own BYO provider. The returned Agent (not
+// the input) MUST be used for the generation, since the streamed model name
+// comes from Agent.Model. A nil ComputeResolver means BYO (newProvider),
+// unchanged — the self-hosted and non-opted-in path.
+type ComputeResolver func(ctx context.Context, communityID string, a Agent) (Provider, Agent, error)
+
+// resolveProvider applies rsv when set, else falls back to the agent's own
+// provider with the agent unchanged.
+func resolveProvider(ctx context.Context, rsv ComputeResolver, communityID string, a Agent) (Provider, Agent, error) {
+	if rsv != nil {
+		return rsv(ctx, communityID, a)
+	}
+	p, err := newProvider(a)
+	return p, a, err
+}
+
 // newProvider selects the Provider for an agent. Ollama needs no key; the
 // Claude/OpenAI branches land here later, reading a.APIKeyEnc.
 func newProvider(a Agent) (Provider, error) {

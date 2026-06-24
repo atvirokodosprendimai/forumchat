@@ -631,9 +631,35 @@ func run() error {
 	agentRepo := agent.NewRepo(db)
 	agentBus := agent.NewBus()
 	agentRunner := agent.NewRunner(agentRepo, agentBus, nc, log)
+	agentSvc := agent.NewService(agentRepo)
+	// Platform-AI compute routing (SaaS): an opted-in + authorized community runs
+	// its agents on the operator's hosted model (metered into ai_usage_events),
+	// else the agent's own BYO provider (bare). The summarizer routes to the
+	// platform VISION model so a /summary that includes channel images is
+	// understood. Shared by the streaming pane (Runner) and synchronous /summary
+	// (Service). On any Settings lookup miss it falls back to BYO.
+	resolveCompute := func(ctx context.Context, communityID string, a agent.Agent) (agent.Provider, agent.Agent, error) {
+		if cfg.SAAS {
+			if s, err := cRepo.Settings(ctx, communityID); err == nil {
+				wantsVision := a.Vision || a.IsSummarizer
+				if ea := community.ResolveAgent(s, cfg, wantsVision); ea.Platform {
+					a.Provider, a.BaseURL, a.Model = ea.Provider, ea.BaseURL, ea.Model
+					p, perr := agent.NewProvider(a)
+					if perr != nil {
+						return nil, a, perr
+					}
+					return agent.NewMeteredProvider(p, usageRec, communityID, ""), a, nil
+				}
+			}
+		}
+		p, err := agent.NewProvider(a)
+		return p, a, err
+	}
+	agentRunner.Resolve = resolveCompute
+	agentSvc.Resolve = resolveCompute
 	agentHandler := &agent.Handler{
 		Repo:          agentRepo,
-		Svc:           agent.NewService(agentRepo),
+		Svc:           agentSvc,
 		Runner:        agentRunner,
 		Bus:           agentBus,
 		NATS:          nc,
@@ -862,7 +888,8 @@ func run() error {
 		// seam over chat + agent + forum; the loop guard lives in Dispatch
 		// (user-kind only).
 		threadRunner := chatagents.NewThreadRunner(forumRepo, forumBus, nc, 0, log)
-		threadRunner.Tools = mcpMgr.Build // same internal-search + MCP tools as the agent pane
+		threadRunner.Tools = mcpMgr.Build     // same internal-search + MCP tools as the agent pane
+		threadRunner.Resolve = resolveCompute // same platform-compute routing + metering as the pane
 		// Per-community agent prompt rate limiter, shared by both trigger
 		// surfaces (chat send + agent-thread reply). Limits come from the
 		// community row; super-admins bypass inside the Gate.

@@ -35,6 +35,11 @@ type Runner struct {
 	// generation ends.
 	Tools func(ctx context.Context, a Agent) (ToolSet, error)
 
+	// Resolve routes the generation onto platform compute (metered) for an
+	// opted-in community, or leaves it on the agent's own provider. Wired in
+	// main.go (SaaS); nil → the agent's BYO provider, unchanged.
+	Resolve ComputeResolver
+
 	mu     sync.Mutex
 	active map[string]context.CancelFunc // threadID -> cancel
 }
@@ -68,7 +73,10 @@ func (r *Runner) Stop(threadID string) {
 // ErrGenerating) if a generation is already in flight for the thread. The
 // caller has already inserted the empty assistant placeholder (status=generating).
 func (r *Runner) Start(communityID, threadID, assistantMsgID string, a Agent, history []ChatMessage) error {
-	prov, err := newProvider(a)
+	// Resolve compute first — on the platform branch this overrides a's
+	// provider/host/model and returns a metered provider; a (not the input) is
+	// what the generation must run with, since Generate streams against a.Model.
+	prov, a, err := resolveProvider(context.Background(), r.Resolve, communityID, a)
 	if err != nil {
 		return err
 	}

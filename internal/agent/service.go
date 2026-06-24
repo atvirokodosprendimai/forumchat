@@ -13,7 +13,14 @@ import (
 // rendering markdown at write time, and assembling the model history. It never
 // talks to the Bus/NATS — broadcasting is the runner's and handler's job — so
 // it stays trivially testable.
-type Service struct{ Repo *Repo }
+//
+// Resolve routes the synchronous /summary generation onto platform compute
+// (metered) for an opted-in community, mirroring Runner.Resolve. Wired in
+// main.go (SaaS); nil → the agent's BYO provider, unchanged.
+type Service struct {
+	Repo    *Repo
+	Resolve ComputeResolver
+}
 
 func NewService(repo *Repo) *Service { return &Service{Repo: repo} }
 
@@ -165,6 +172,13 @@ func (s *Service) Regenerate(ctx context.Context, threadID string) (assistantID 
 // a.Vision before reading the files).
 func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID string, a Agent, title, prompt string, images []string) (threadID, answer string, err error) {
 	now := nowUnix()
+	// Resolve compute first — on the platform branch a's provider/host/model is
+	// overridden (the summarizer routes to the platform VISION model so an
+	// image-bearing channel summary is understood) and prov is metered.
+	prov, a, err := resolveProvider(ctx, s.Resolve, communityID, a)
+	if err != nil {
+		return "", "", err
+	}
 	t := Thread{
 		ID: uuid.NewString(), CommunityID: communityID, UserID: userID, AgentID: a.ID,
 		Visibility: VisibilityShared, Title: title, Model: a.Model, CreatedAt: now, UpdatedAt: now,
@@ -180,10 +194,6 @@ func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID str
 		return "", "", err
 	}
 
-	prov, err := newProvider(a)
-	if err != nil {
-		return "", "", err
-	}
 	if !a.Vision {
 		images = nil // a text-only model 400s on image input
 	}
