@@ -64,7 +64,7 @@ func TestSaveRendersAndMintsToken(t *testing.T) {
 	if n.ShareToken == "" {
 		t.Fatalf("draft should mint a share token up-front")
 	}
-	saved, err := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, Title: "Hi", Body: "# Heading\n\nbody", Visibility: "public"})
+	saved, err := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, CommunityID: cid, Title: "Hi", Body: "# Heading\n\nbody", Visibility: "public"})
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -83,8 +83,8 @@ func TestSaveTokenStableAcrossSaves(t *testing.T) {
 	svc, _, cid, uid := setup(t)
 	ctx := context.Background()
 	n, _ := svc.CreateDraft(ctx, cid, "", uid)
-	first, _ := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, Body: "one", Visibility: "private"})
-	second, err := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, Body: "two", Visibility: "private"})
+	first, _ := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, CommunityID: cid, Body: "one", Visibility: "private"})
+	second, err := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, CommunityID: cid, Body: "two", Visibility: "private"})
 	if err != nil {
 		t.Fatalf("second save: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestSaveEmptyRejected(t *testing.T) {
 	svc, _, cid, uid := setup(t)
 	ctx := context.Background()
 	n, _ := svc.CreateDraft(ctx, cid, "", uid)
-	if _, err := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, Body: "   "}); err != ErrEmpty {
+	if _, err := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, CommunityID: cid, Body: "   "}); err != ErrEmpty {
 		t.Fatalf("want ErrEmpty, got %v", err)
 	}
 }
@@ -123,8 +123,21 @@ func TestCanEditMatrix(t *testing.T) {
 		t.Fatalf("super-admin must be able to edit")
 	}
 
-	if _, err := svc.Save(ctx, other, SaveInput{ID: n.ID, Body: "x"}); err != ErrForbidden {
+	if _, err := svc.Save(ctx, other, SaveInput{ID: n.ID, CommunityID: cid, Body: "x"}); err != ErrForbidden {
 		t.Fatalf("Save by a non-editor must be ErrForbidden, got %v", err)
+	}
+}
+
+// A moderator of a DIFFERENT community must not be able to save this note even
+// though their role clears the CanEdit role gate — the community guard wins.
+func TestSaveCrossCommunityRejected(t *testing.T) {
+	svc, _, cid, uid := setup(t)
+	ctx := context.Background()
+	n, _ := svc.CreateDraft(ctx, cid, "", uid)
+
+	otherCommunityMod := auth.Identity{User: auth.User{ID: "mod-of-B"}, Membership: auth.Membership{Role: auth.RoleMod}}
+	if _, err := svc.Save(ctx, otherCommunityMod, SaveInput{ID: n.ID, CommunityID: "community-B", Body: "pwn"}); err != ErrForbidden {
+		t.Fatalf("cross-community save must be ErrForbidden, got %v", err)
 	}
 }
 
@@ -132,7 +145,7 @@ func TestByShareTokenRoundTrip(t *testing.T) {
 	svc, repo, cid, uid := setup(t)
 	ctx := context.Background()
 	n, _ := svc.CreateDraft(ctx, cid, "", uid)
-	saved, _ := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, Body: "secret", Visibility: "private"})
+	saved, _ := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, CommunityID: cid, Body: "secret", Visibility: "private"})
 
 	got, err := repo.ByShareToken(ctx, saved.ShareToken)
 	if err != nil {
@@ -147,7 +160,7 @@ func TestAddAndListComments(t *testing.T) {
 	svc, repo, cid, uid := setup(t)
 	ctx := context.Background()
 	n, _ := svc.CreateDraft(ctx, cid, "", uid)
-	svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, Body: "para one\n\npara two", Visibility: "public"})
+	svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, CommunityID: cid, Body: "para one\n\npara two", Visibility: "public"})
 
 	if _, err := svc.AddComment(ctx, cid, authorID(uid), CommentInput{NoteID: n.ID, BlockIndex: 1, Quote: "two", Body: "nice"}); err != nil {
 		t.Fatalf("add comment: %v", err)

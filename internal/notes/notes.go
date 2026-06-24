@@ -328,19 +328,24 @@ func (s *Service) CreateDraft(ctx context.Context, communityID, channelID, autho
 
 // SaveInput carries the editor's fields for a note save.
 type SaveInput struct {
-	ID         string
-	Title      string
-	Body       string
-	Visibility string
+	ID          string
+	CommunityID string
+	Title       string
+	Body        string
+	Visibility  string
 }
 
-// Save renders and persists a note. The caller must have already authorized the
-// edit (Note.CanEdit). A share_token is minted on first save so a private note's
-// link is stable. Returns the saved note.
+// Save renders and persists a note. It enforces BOTH that the note belongs to
+// the caller's community (no cross-tenant write) AND that the caller may edit it
+// (Note.CanEdit). A share_token is minted on first save so a private note's link
+// is stable. Returns the saved note.
 func (s *Service) Save(ctx context.Context, id auth.Identity, in SaveInput) (Note, error) {
 	n, err := s.Repo.ByID(ctx, in.ID)
 	if err != nil {
 		return Note{}, err
+	}
+	if n.CommunityID != in.CommunityID {
+		return Note{}, ErrForbidden
 	}
 	if !n.CanEdit(id) {
 		return Note{}, ErrForbidden

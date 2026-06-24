@@ -229,6 +229,7 @@ func (h *Handler) PostShare(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	var in shareSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals", http.StatusBadRequest)
@@ -315,10 +316,11 @@ func (h *Handler) PostSave(w http.ResponseWriter, r *http.Request) {
 	}
 	sse := render.NewSSE(w, r)
 	n, err := h.Svc.Save(r.Context(), id, SaveInput{
-		ID:         chi.URLParam(r, "id"),
-		Title:      in.Title,
-		Body:       in.Body,
-		Visibility: in.Visibility,
+		ID:          chi.URLParam(r, "id"),
+		CommunityID: h.cid(r.Context()),
+		Title:       in.Title,
+		Body:        in.Body,
+		Visibility:  in.Visibility,
 	})
 	if err != nil {
 		switch {
