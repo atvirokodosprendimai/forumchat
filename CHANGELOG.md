@@ -200,3 +200,4 @@
 - 2026-06-24 `eaedeb2` docs(changelog): auto-append
 - 2026-06-24 `4e49c5b` feat(notes): highlight commented text range inline
 - 2026-06-24 `b61b37f` docs(notes): private-note author FTS + editor UX changes
+- 2026-06-24 `84966e8` feat(notes): reading-first — editor hidden by default + line-comment markers
