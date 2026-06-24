@@ -198,3 +198,4 @@
 - 2026-06-24 `d9e90e5` docs(changelog): auto-append
 - 2026-06-24 `1fd6173` feat(landing): link the GitHub repo from nav + footer
 - 2026-06-24 `eaedeb2` docs(changelog): auto-append
+- 2026-06-24 `4e49c5b` feat(notes): highlight commented text range inline
