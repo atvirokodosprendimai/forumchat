@@ -38,6 +38,7 @@ const (
 	kindDiscussionReply = "discussion_reply"
 	kindProject         = "project"
 	kindAI              = "ai"
+	kindPaste           = "paste"
 )
 
 // rrfK is the Reciprocal Rank Fusion constant. 60 is the value from the original
@@ -198,6 +199,10 @@ func kindWeight(kind string) float64 {
 		return 1.45
 	case kindThread, kindPost:
 		return 1.3
+	case kindPaste:
+		// A paste is a durable, authored, titled code/text snippet — rank it
+		// alongside threads, above ephemeral chat.
+		return 1.3
 	case kindDiscussion, kindDiscussionReply:
 		return 1.2
 	case kindAI:
@@ -293,6 +298,8 @@ func (s *Service) resolveLinks(ctx context.Context, slug string, rs []Result) {
 			rs[i].URL = base + "/forum/" + rs[i].RefID
 		case kindProject:
 			rs[i].URL = base + "/projects/" + rs[i].RefID
+		case kindPaste:
+			rs[i].URL = base + "/pastes/" + rs[i].RefID
 		case kindChat:
 			// No per-message permalink exists; the history day-log anchors each
 			// chat row as <li id="msg-{id}">, so jump there by date.

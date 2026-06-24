@@ -104,6 +104,10 @@ var loaders = map[string]loaderSpec{
 	KindAI: {query: `SELECT t.community_id, m.body_md, m.created_at
 		FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id
 		WHERE m.id = ? AND m.role = 'assistant' AND m.status = 'done' AND t.visibility = 'shared'`},
+	// Pastes: only POSTED pastes are community-public (a draft is unsent,
+	// author-private work-in-progress). body is the raw paste source.
+	KindPaste: {hasTitle: true, query: `SELECT community_id, title, body, created_at FROM pastes
+		WHERE id = ? AND posted_at IS NOT NULL`},
 }
 
 // LoadDoc resolves a content row. ok=false means the row is gone or no longer
@@ -162,6 +166,9 @@ var enqueueAll = []string{
 		SELECT 'ai', m.id, 'upsert', ? FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id
 		WHERE m.role='assistant' AND m.status='done' AND t.visibility='shared'
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
+	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
+		SELECT 'paste', id, 'upsert', ? FROM pastes WHERE posted_at IS NOT NULL
+		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 }
 
 // EnqueueAll queues every community-public row across all communities for
@@ -213,6 +220,9 @@ var enqueueCommunity = []string{
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'ai', m.id, 'upsert', ? FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id
 		WHERE m.role='assistant' AND m.status='done' AND t.visibility='shared' AND t.community_id = ?
+		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
+	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
+		SELECT 'paste', id, 'upsert', ? FROM pastes WHERE posted_at IS NOT NULL AND community_id = ?
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 }
 

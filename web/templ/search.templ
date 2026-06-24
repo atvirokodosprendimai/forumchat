@@ -6,7 +6,7 @@ import "strings"
 
 // SearchResultView is one fused search hit, link-resolved and ready to render.
 type SearchResultView struct {
-	Kind       string // chat|thread|post|issue|issue_comment|discussion|discussion_reply|project|ai
+	Kind       string // chat|thread|post|issue|issue_comment|discussion|discussion_reply|project|ai|paste
 	Title      string
 	Snippet    string // FTS «»-highlighted when full-text matched, else plain text
 	URL        string // deep link into the UI
@@ -43,6 +43,8 @@ func searchKindIcon(kind string) string {
 		return "📂"
 	case "ai":
 		return "🤖"
+	case "paste":
+		return "📄"
 	}
 	return "•"
 }
@@ -67,6 +69,8 @@ func searchKindLabel(kind string) string {
 		return "project"
 	case "ai":
 		return "agent thread"
+	case "paste":
+		return "paste"
 	}
 	return kind
 }
@@ -83,14 +87,14 @@ func searchHighlight(snippet string) string {
 templ SearchPage(d SearchPageData) {
 	@Layout("Search", d.Viewer) {
 		<section class="search-page">
-			@PageHeader("Search", "Find anything across "+d.Viewer.CommunityName+" — chat, threads, issues, discussions, and projects.") {
+			@PageHeader("Search", "Find anything across "+d.Viewer.CommunityName+" — chat, threads, issues, discussions, projects, and pastes.") {
 			}
 			<input
 				class="search-input"
 				type="search"
 				autofocus
 				autocomplete="off"
-				placeholder="Search chat, threads, issues, discussions, projects…"
+				placeholder="Search chat, threads, issues, discussions, projects, pastes…"
 				data-bind="q"
 				data-on:input__debounce.300ms={ "@get('/c/" + d.Viewer.CommunitySlug + "/search/results')" }
 			/>
@@ -264,6 +268,8 @@ func searchResultTitle(r SearchResultView) string {
 		return "Discussion reply"
 	case "ai":
 		return "Agent message"
+	case "paste":
+		return "Paste"
 	}
 	return "Untitled"
 }

@@ -28,6 +28,7 @@ const (
 	KindDiscussionReply = "discussion_reply"
 	KindProject         = "project"
 	KindAI              = "ai"
+	KindPaste           = "paste"
 )
 
 // Outbox ops.

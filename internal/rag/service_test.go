@@ -222,6 +222,44 @@ func TestAIVisibilityGating(t *testing.T) {
 	}
 }
 
+func TestPasteIndexingGating(t *testing.T) {
+	svc, repo, store, exec := newTestSvc(t)
+	cid, uid, pid := "c1", "u1", "p1"
+	seedCommunityUser(exec, cid, uid)
+	now := time.Now().Unix()
+
+	// Draft paste (posted_at NULL) — author-private, must NOT be indexed. The
+	// INSERT trigger is gated on posted_at IS NOT NULL, so nothing is enqueued.
+	exec(`INSERT INTO pastes(id, community_id, author_id, title, language, body, body_html, posted_at, created_at, updated_at)
+		VALUES(?,?,?,?,?,?,?,NULL,?,?)`, pid, cid, uid, "Snippet", "go", "func main() { println(\"hi\") }", "", now, now)
+	drain(t, repo, svc)
+	if got := store.countRef(KindPaste, pid); got != 0 {
+		t.Fatalf("draft paste must NOT be indexed, got %d chunks", got)
+	}
+
+	// Post it (Save stamps posted_at) — the UPDATE trigger enqueues, the loader
+	// now resolves it → indexed and findable.
+	exec(`UPDATE pastes SET posted_at = ? WHERE id = ?`, now, pid)
+	drain(t, repo, svc)
+	if got := store.countRef(KindPaste, pid); got != 1 {
+		t.Fatalf("posted paste must be indexed, got %d chunks", got)
+	}
+	hits, err := svc.Search(context.Background(), cid, "func main println", 5)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].RefID != pid {
+		t.Fatalf("search: want one hit for %s, got %#v", pid, hits)
+	}
+
+	// Delete → trigger enqueues a delete → vectors removed.
+	exec(`DELETE FROM pastes WHERE id = ?`, pid)
+	drain(t, repo, svc)
+	if got := store.countRef(KindPaste, pid); got != 0 {
+		t.Fatalf("after delete: want 0 chunks, got %d", got)
+	}
+}
+
 func TestReindexCommunity(t *testing.T) {
 	svc, repo, store, exec := newTestSvc(t)
 	cid, uid := "c1", "u1"
