@@ -184,7 +184,18 @@ visibility=restricted (no grant)            → none     (hidden)
   threaded `CanWrite` through the push helpers (`viewerCanWrite`) so read-only
   members see no write affordances live, matching initial render.
 - Codex read-only review launched on the diff (auth/visibility/migration =
-  security surface).
+  security surface). Returned 4 HIGH + 2 MEDIUM + 1 LOW; folded the actionable
+  ones in (commit `0f738c0`):
+  - `MovePeers` + `SearchRefs` leaked restricted project titles → filtered.
+  - `GetAttachmentDownload` was community-scope only → now read-gated.
+  - `PostIssueMove` / `PostAttachmentMove` didn't check the TARGET project →
+    now require write on the target (`callerAccessTo` helper).
+  - `GetStream` only checked access at open → now re-checks per event and
+    closes the stream on revocation (the actual live SSE leak).
+  - ACL grants restricted to current community members (LOW hardening).
+  - MEDIUM `EnsureHiddenProject` reusing a user-named "Inbox" left as-is —
+    pre-existing find-by-title behaviour; auto-restricting it is acceptable
+    (dropped mail becomes private). Noted, not changed.
 
 ## Friction / risks
 
