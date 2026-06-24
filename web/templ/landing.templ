@@ -24,6 +24,10 @@ func brandName() string {
 // built for small communities, not enterprises.
 const landingTagline = "A calm home for your community"
 
+// landingRepoURL is the public source repository, linked from the landing nav
+// and footer — this is open source.
+const landingRepoURL = "https://github.com/atvirokodosprendimai/forumchat"
+
 // ctaPrimaryLabel adapts the hero/nav primary button to the instance's signup
 // mode: open self-serve registration vs invite-only. Mirrors the gate in
 // internal/auth/handlers.go (OpenRegistration) so the copy never over-promises.
@@ -94,6 +98,7 @@ templ landingNav() {
 			<a href="#features">Features</a>
 			<a href="#how">How it works</a>
 			<a href="#use-cases">Use cases</a>
+			<a href={ templ.URL(landingRepoURL) } target="_blank" rel="noopener">GitHub</a>
 		</nav>
 		<div class="lp-nav-cta">
 			<a href="/login" class="btn ghost">Sign in</a>
@@ -294,6 +299,7 @@ templ landingFooter() {
 		<nav class="lp-footer-links" aria-label="Footer">
 			<a href="/login">Sign in</a>
 			<a href="/register">{ ctaPrimaryLabel() }</a>
+			<a href={ templ.URL(landingRepoURL) } target="_blank" rel="noopener">GitHub</a>
 		</nav>
 		<div class="lp-footer-meta">
 			<span>Built by <a href="https://ituoga.lt" target="_blank" rel="noopener">ituoga.lt</a> and Claude</span>
