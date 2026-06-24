@@ -166,6 +166,26 @@ visibility=restricted (no grant)            → none     (hidden)
 - Mailbox `Inbox` is restricted after this ships.
 - `access_test.go` covers every branch of `EffectiveAccess`.
 
+## Progress log
+
+- 2606241313 — Phases 0–6 implemented. Commits on `task/project-permissions`:
+  migration+access core → repo+service → read gate+index/stream → write gate+UI
+  → spec. `go test ./...` green throughout; `make build` clean.
+- Adjustment: **Phase 3 action 9 dropped** — `ProjectsForCommunities` (global
+  `/issues`) needs NO visibility filter; the route is already scoped to
+  `AdminCommunityIDs`, and admins see all projects per `EffectiveAccess`, so
+  there's no leak.
+- Adjustment: discovered + fixed an SSE **fragment leak** not in the original
+  plan — `GetStream` only checked community membership; added the shared
+  `projectAccess` helper + a `CanRead` gate so a restricted project's fragments
+  never stream to a non-granted member.
+- UI hiding: replaced the fragments' `isGuest` write-gate param with a
+  `readOnly` flag fed by `!CanWrite` (guests already resolve to read-only), and
+  threaded `CanWrite` through the push helpers (`viewerCanWrite`) so read-only
+  members see no write affordances live, matching initial render.
+- Codex read-only review launched on the diff (auth/visibility/migration =
+  security surface).
+
 ## Friction / risks
 
 - Write gate spans two route groups (member-only core + open issues/discussions).
