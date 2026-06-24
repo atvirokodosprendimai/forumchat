@@ -75,6 +75,98 @@ func TestJoinPolicy(t *testing.T) {
 	}
 }
 
+// platformCfg is a SaaS config with the operator's hosted AI fully configured.
+func platformCfg() config.Config {
+	return config.Config{
+		SAAS: true, RAGEnabled: true, TranslateEnabled: true,
+		PlatformAIRAGBaseURL: "http://platform:11434", PlatformAIRAGModel: "bge-m3", PlatformAIRAGDim: 1024,
+		PlatformAIQdrantURL: "http://platform-qdrant:6333", PlatformAIQdrantAPIKey: "pkey",
+		PlatformAITranslateBaseURL: "http://platform:11434", PlatformAITranslateModel: "gemma",
+		PlatformAIAgentProvider: "ollama", PlatformAIAgentBaseURL: "http://platform:11434", PlatformAIAgentModel: "llama",
+	}
+}
+
+// platformOn is a community opted into platform AI and authorized via grant.
+func platformOn() Settings {
+	return Settings{CommunityID: "c1", UsePlatformAI: ptrBool(true), PlatformAIGrantedFree: ptrBool(true)}
+}
+
+func TestPlatformAI_Authorization(t *testing.T) {
+	cfg := config.Config{SAAS: true}
+	// Self-hosted: never platform.
+	if on, _ := PlatformAI(Settings{UsePlatformAI: ptrBool(true)}, config.Config{SAAS: false}); on {
+		t.Fatal("self-host has no platform tier")
+	}
+	// Opted in but unauthorized.
+	if on, auth := PlatformAI(Settings{UsePlatformAI: ptrBool(true)}, cfg); !on || auth {
+		t.Fatalf("opted-in unauthorized: on=%v auth=%v, want true,false", on, auth)
+	}
+	// Granted free → authorized.
+	if _, auth := PlatformAI(Settings{UsePlatformAI: ptrBool(true), PlatformAIGrantedFree: ptrBool(true)}, cfg); !auth {
+		t.Fatal("granted-free must authorize")
+	}
+	// Active subscription → authorized.
+	if _, auth := PlatformAI(Settings{UsePlatformAI: ptrBool(true), StripeSubscriptionStatus: "active"}, cfg); !auth {
+		t.Fatal("active subscription must authorize")
+	}
+	// Canceled subscription, no grant → unauthorized.
+	if _, auth := PlatformAI(Settings{UsePlatformAI: ptrBool(true), StripeSubscriptionStatus: "canceled"}, cfg); auth {
+		t.Fatal("canceled subscription must not authorize")
+	}
+}
+
+func TestResolveRAG_PlatformTier(t *testing.T) {
+	cfg := platformCfg()
+	got := ResolveRAG(platformOn(), cfg)
+	if !got.Platform || !got.Enabled {
+		t.Fatalf("authorized opt-in must use platform + be enabled, got %+v", got)
+	}
+	if got.EmbedBaseURL != "http://platform:11434" || got.EmbedModel != "bge-m3" || got.QdrantURL != "http://platform-qdrant:6333" {
+		t.Fatalf("platform RAG must source PLATFORM_AI_*, got %+v", got)
+	}
+	if got.QdrantColl != "forumchat_c1" {
+		t.Fatalf("per-community collection isolation must hold on platform, got %q", got.QdrantColl)
+	}
+
+	// Opted in but NOT authorized → BYO path (Platform false), not platform.
+	unauth := Settings{CommunityID: "c1", UsePlatformAI: ptrBool(true)}
+	if ResolveRAG(unauth, cfg).Platform {
+		t.Fatal("unauthorized opt-in must fall through to BYO, not platform")
+	}
+
+	// Authorized but operator hasn't configured PLATFORM_AI_RAG_BASEURL → BYO.
+	noPlat := cfg
+	noPlat.PlatformAIRAGBaseURL = ""
+	if ResolveRAG(platformOn(), noPlat).Platform {
+		t.Fatal("unset platform endpoint must fall through to BYO")
+	}
+
+	// Kill-switch off disables even on the platform branch.
+	killed := platformCfg()
+	killed.RAGEnabled = false
+	if ResolveRAG(platformOn(), killed).Enabled {
+		t.Fatal("kill-switch off must disable platform RAG too")
+	}
+}
+
+func TestResolveTranslate_PlatformTier(t *testing.T) {
+	got := ResolveTranslate(platformOn(), platformCfg())
+	if !got.Platform || !got.Enabled || got.BaseURL != "http://platform:11434" || got.Model != "gemma" {
+		t.Fatalf("authorized opt-in must use platform translate, got %+v", got)
+	}
+}
+
+func TestResolveAgent_PlatformTier(t *testing.T) {
+	got := ResolveAgent(platformOn(), platformCfg())
+	if !got.Platform || got.BaseURL != "http://platform:11434" || got.Model != "llama" || got.Provider != "ollama" {
+		t.Fatalf("authorized opt-in must override agent compute, got %+v", got)
+	}
+	// Not opted in → agent runs on its own backend (Platform false).
+	if ResolveAgent(Settings{CommunityID: "c1"}, platformCfg()).Platform {
+		t.Fatal("no opt-in must leave the agent on its BYO backend")
+	}
+}
+
 func TestResolveStorage_OwnBucketOptOut(t *testing.T) {
 	cfg := config.Config{SAAS: true, StorageBackend: "s3", S3Bucket: "platform", S3Region: "us-east-1"}
 	// Community migrated to its own bucket.

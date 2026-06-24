@@ -40,6 +40,17 @@ type Settings struct {
 	StorageMigratedAt int64
 
 	JoinPolicy string // "" | open | request
+
+	// Platform AI (SaaS) — opt-in to the operator's hosted compute (migration
+	// 00060). Authorized = PlatformAIGrantedFree OR StripeSubscriptionStatus ==
+	// "active"; see resolve.go PlatformAI. Non-secret (no sealing).
+	UsePlatformAI            *bool
+	PlatformAIStatus         string // "" | requested | approved_unpaid | active | canceled
+	PlatformAIGrantedFree    *bool
+	StripeCustomerID         string
+	StripeSubscriptionID     string
+	StripeSubscriptionStatus string
+	PlatformAIRequestedAt    int64
 }
 
 // box returns the repo's secretbox, or a passthrough box when none is wired
@@ -64,6 +75,10 @@ func (r *Repo) Settings(ctx context.Context, communityID string) (Settings, erro
 		stBackend, s3Endpoint, s3Region  sql.NullString
 		s3Bucket, s3AccEnc, s3SecEnc     sql.NullString
 		joinPolicy                       sql.NullString
+		usePlatformAI, grantedFree       sql.NullInt64
+		platReqAt                        sql.NullInt64
+		platStatus, stripeCust           sql.NullString
+		stripeSub, stripeSubStatus       sql.NullString
 	)
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT ai_enabled,
@@ -72,7 +87,10 @@ func (r *Repo) Settings(ctx context.Context, communityID string) (Settings, erro
 		       translate_enabled, translate_base_url, translate_model,
 		       storage_backend, storage_s3_endpoint, storage_s3_region,
 		       storage_s3_bucket, storage_s3_access_key_enc, storage_s3_secret_key_enc,
-		       storage_migrated_at, join_policy
+		       storage_migrated_at, join_policy,
+		       use_platform_ai, platform_ai_status, platform_ai_granted_free,
+		       stripe_customer_id, stripe_subscription_id, stripe_subscription_status,
+		       platform_ai_requested_at
 		FROM community_settings WHERE community_id = ?`, communityID).
 		Scan(&aiEnabled,
 			&ragEnabled, &ragBase, &ragModel, &ragDim,
@@ -80,7 +98,10 @@ func (r *Repo) Settings(ctx context.Context, communityID string) (Settings, erro
 			&trEnabled, &trBase, &trModel,
 			&stBackend, &s3Endpoint, &s3Region,
 			&s3Bucket, &s3AccEnc, &s3SecEnc,
-			&migAt, &joinPolicy)
+			&migAt, &joinPolicy,
+			&usePlatformAI, &platStatus, &grantedFree,
+			&stripeCust, &stripeSub, &stripeSubStatus,
+			&platReqAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, nil
 	}
@@ -104,6 +125,13 @@ func (r *Repo) Settings(ctx context.Context, communityID string) (Settings, erro
 	s.S3Bucket = s3Bucket.String
 	s.StorageMigratedAt = migAt.Int64
 	s.JoinPolicy = joinPolicy.String
+	s.UsePlatformAI = nullBool(usePlatformAI)
+	s.PlatformAIStatus = platStatus.String
+	s.PlatformAIGrantedFree = nullBool(grantedFree)
+	s.StripeCustomerID = stripeCust.String
+	s.StripeSubscriptionID = stripeSub.String
+	s.StripeSubscriptionStatus = stripeSubStatus.String
+	s.PlatformAIRequestedAt = platReqAt.Int64
 
 	// Tolerate decrypt failures (e.g. a rotated SECRETS_KEY orphans old
 	// ciphertext): leave the secret empty rather than failing the whole load, so
@@ -139,8 +167,11 @@ func (r *Repo) SaveSettings(ctx context.Context, s Settings) error {
 			translate_enabled, translate_base_url, translate_model,
 			storage_backend, storage_s3_endpoint, storage_s3_region,
 			storage_s3_bucket, storage_s3_access_key_enc, storage_s3_secret_key_enc,
-			storage_migrated_at, join_policy, updated_at
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			storage_migrated_at, join_policy,
+			use_platform_ai, platform_ai_status, platform_ai_granted_free,
+			stripe_customer_id, stripe_subscription_id, stripe_subscription_status,
+			platform_ai_requested_at, updated_at
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(community_id) DO UPDATE SET
 			ai_enabled=excluded.ai_enabled,
 			rag_enabled=excluded.rag_enabled,
@@ -161,6 +192,13 @@ func (r *Repo) SaveSettings(ctx context.Context, s Settings) error {
 			storage_s3_secret_key_enc=excluded.storage_s3_secret_key_enc,
 			storage_migrated_at=excluded.storage_migrated_at,
 			join_policy=excluded.join_policy,
+			use_platform_ai=excluded.use_platform_ai,
+			platform_ai_status=excluded.platform_ai_status,
+			platform_ai_granted_free=excluded.platform_ai_granted_free,
+			stripe_customer_id=excluded.stripe_customer_id,
+			stripe_subscription_id=excluded.stripe_subscription_id,
+			stripe_subscription_status=excluded.stripe_subscription_status,
+			platform_ai_requested_at=excluded.platform_ai_requested_at,
 			updated_at=excluded.updated_at`,
 		s.CommunityID, boolToNull(s.AIEnabled),
 		boolToNull(s.RAGEnabled), strToNull(s.RAGEmbedBaseURL), strToNull(s.RAGEmbedModel), intToNull(s.RAGEmbedDim),
@@ -168,7 +206,10 @@ func (r *Repo) SaveSettings(ctx context.Context, s Settings) error {
 		boolToNull(s.TranslateEnabled), strToNull(s.TranslateBaseURL), strToNull(s.TranslateModel),
 		strToNull(s.StorageBackend), strToNull(s.S3Endpoint), strToNull(s.S3Region),
 		strToNull(s.S3Bucket), strToNull(s3Acc), strToNull(s3Sec),
-		intToNull64(s.StorageMigratedAt), strToNull(s.JoinPolicy), time.Now().Unix())
+		intToNull64(s.StorageMigratedAt), strToNull(s.JoinPolicy),
+		boolToNull(s.UsePlatformAI), strToNull(s.PlatformAIStatus), boolToNull(s.PlatformAIGrantedFree),
+		strToNull(s.StripeCustomerID), strToNull(s.StripeSubscriptionID), strToNull(s.StripeSubscriptionStatus),
+		intToNull64(s.PlatformAIRequestedAt), time.Now().Unix())
 	return err
 }
 

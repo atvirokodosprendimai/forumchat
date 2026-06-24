@@ -13,7 +13,9 @@ import "github.com/atvirokodosprendimai/forumchat/internal/config"
 // subsystem's own shape by closures in main.go, so this package never imports
 // rag / uploads (no cycles).
 
-// EffectiveRAG is the resolved RAG config for one community.
+// EffectiveRAG is the resolved RAG config for one community. Platform is true
+// when the values come from the operator's hosted compute (PLATFORM_AI_*), which
+// means the embedder must be wrapped in the aiusage metering decorator.
 type EffectiveRAG struct {
 	Enabled      bool
 	EmbedBaseURL string
@@ -22,13 +24,28 @@ type EffectiveRAG struct {
 	QdrantURL    string
 	QdrantAPIKey string
 	QdrantColl   string // per-community collection name (qdrant backend)
+	Platform     bool   // served on platform compute → meter it
 }
 
 // EffectiveTranslate is the resolved translation config for one community.
+// Platform is true when served on the operator's hosted compute (meter it).
 type EffectiveTranslate struct {
-	Enabled bool
-	BaseURL string
-	Model   string
+	Enabled  bool
+	BaseURL  string
+	Model    string
+	Platform bool
+}
+
+// EffectiveAgent is the resolved agent-generation compute for one community.
+// When Platform is true, an agent's BYO provider/host/model/key is overridden by
+// the operator's hosted compute and metered; when false the agent runs on its
+// own configured backend (the default — Platform stays the zero value).
+type EffectiveAgent struct {
+	Platform bool
+	Provider string
+	BaseURL  string
+	Model    string
+	APIKey   string
 }
 
 // EffectiveStorage is the resolved blob-storage config for one community.
@@ -56,9 +73,37 @@ func EffectiveAIEnabled(s Settings, cfg config.Config) bool {
 	return boolOr(s.AIEnabled, true)
 }
 
+// PlatformAI reports whether a community runs its AI on the operator's hosted
+// compute. on is the owner's master switch (use_platform_ai); authorized is
+// granted-free OR an active Stripe subscription. Both must be true (and SAAS on)
+// for the resolvers to return platform compute. Self-hosted always returns
+// (false, false) — there is no platform tier in single-tenant mode.
+func PlatformAI(s Settings, cfg config.Config) (on, authorized bool) {
+	if !cfg.SAAS {
+		return false, false
+	}
+	on = boolOr(s.UsePlatformAI, false)
+	authorized = boolOr(s.PlatformAIGrantedFree, false) || s.StripeSubscriptionStatus == "active"
+	return on, authorized
+}
+
+// usePlatform reports whether the platform-compute branch applies: the kill
+// switch is on, the community opted in, it is authorized, and the platform has
+// the relevant endpoint configured (an unset PLATFORM_AI_* means the operator
+// hasn't opened that capability, so fall through to BYO).
+func usePlatform(s Settings, cfg config.Config, endpoint string) bool {
+	if endpoint == "" {
+		return false
+	}
+	on, authorized := PlatformAI(s, cfg)
+	return on && authorized
+}
+
 // ResolveRAG resolves a community's RAG config. Self-hosted → env (single
-// embedder + single collection). SaaS → per-community override, opt-in
-// (default off), with a dedicated collection name.
+// embedder + single collection). SaaS → platform compute when opted-in +
+// authorized + configured (metered), else per-community override, opt-in
+// (default off). The per-community Qdrant collection name is preserved on the
+// platform branch so tenant isolation holds even on shared platform Qdrant.
 func ResolveRAG(s Settings, cfg config.Config) EffectiveRAG {
 	if !cfg.SAAS {
 		return EffectiveRAG{
@@ -67,6 +112,18 @@ func ResolveRAG(s Settings, cfg config.Config) EffectiveRAG {
 			EmbedModel:   cfg.RAGEmbedModel,
 			EmbedDim:     cfg.RAGEmbedDim,
 			QdrantURL:    cfg.QdrantURL,
+		}
+	}
+	if usePlatform(s, cfg, cfg.PlatformAIRAGBaseURL) {
+		return EffectiveRAG{
+			Enabled:      cfg.RAGEnabled && boolOr(s.RAGEnabled, true),
+			EmbedBaseURL: cfg.PlatformAIRAGBaseURL,
+			EmbedModel:   cfg.PlatformAIRAGModel,
+			EmbedDim:     cfg.PlatformAIRAGDim,
+			QdrantURL:    cfg.PlatformAIQdrantURL,
+			QdrantAPIKey: cfg.PlatformAIQdrantAPIKey,
+			QdrantColl:   "forumchat_" + s.CommunityID,
+			Platform:     true,
 		}
 	}
 	return EffectiveRAG{
@@ -80,8 +137,9 @@ func ResolveRAG(s Settings, cfg config.Config) EffectiveRAG {
 	}
 }
 
-// ResolveTranslate resolves a community's translation config. Self-hosted →
-// env; SaaS → per-community override, opt-in (default off).
+// ResolveTranslate resolves a community's translation config. Self-hosted → env;
+// SaaS → platform compute when opted-in + authorized + configured (metered),
+// else per-community override, opt-in (default off).
 func ResolveTranslate(s Settings, cfg config.Config) EffectiveTranslate {
 	if !cfg.SAAS {
 		return EffectiveTranslate{
@@ -90,11 +148,37 @@ func ResolveTranslate(s Settings, cfg config.Config) EffectiveTranslate {
 			Model:   cfg.TranslateModel,
 		}
 	}
+	if usePlatform(s, cfg, cfg.PlatformAITranslateBaseURL) {
+		return EffectiveTranslate{
+			Enabled:  cfg.TranslateEnabled && boolOr(s.TranslateEnabled, true),
+			BaseURL:  cfg.PlatformAITranslateBaseURL,
+			Model:    cfg.PlatformAITranslateModel,
+			Platform: true,
+		}
+	}
 	return EffectiveTranslate{
 		Enabled: cfg.TranslateEnabled && boolOr(s.TranslateEnabled, false),
 		BaseURL: strOr(s.TranslateBaseURL, cfg.TranslateBaseURL),
 		Model:   strOr(s.TranslateModel, cfg.TranslateModel),
 	}
+}
+
+// ResolveAgent resolves the compute backend for a community's agents. On the
+// platform branch (opted-in + authorized + configured) it returns the operator's
+// hosted provider/host/model/key with Platform=true, so the caller overrides the
+// agent's BYO backend and meters it. Otherwise Platform is false and the agent
+// runs on its own configured backend (the unchanged default).
+func ResolveAgent(s Settings, cfg config.Config) EffectiveAgent {
+	if usePlatform(s, cfg, cfg.PlatformAIAgentBaseURL) {
+		return EffectiveAgent{
+			Platform: true,
+			Provider: cfg.PlatformAIAgentProvider,
+			BaseURL:  cfg.PlatformAIAgentBaseURL,
+			Model:    cfg.PlatformAIAgentModel,
+			APIKey:   cfg.PlatformAIAgentAPIKey,
+		}
+	}
+	return EffectiveAgent{}
 }
 
 // ResolveStorage resolves a community's blob-storage backend. Self-hosted →

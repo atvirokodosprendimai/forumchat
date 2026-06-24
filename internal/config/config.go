@@ -245,6 +245,27 @@ type Config struct {
 	TranslateBaseURL string `env:"TRANSLATE_BASEURL" envDefault:"http://localhost:11434"`
 	TranslateModel   string `env:"TRANSLATE_MODEL" envDefault:""`
 
+	// Platform AI (SaaS only) — the operator's OWN hosted AI compute, offered to
+	// communities that opt into "use system-wide settings" and are authorized
+	// (super-admin grant OR active Stripe subscription). It is a DISTINCT
+	// namespace from the BYO RAG_*/TRANSLATE_* env above (which remain
+	// per-community inheritance defaults): leaving these unset keeps the
+	// 2026-06-23 invariant intact — no community can use platform compute, so the
+	// operator pays zero. Every request served on this compute is metered into
+	// ai_usage_events (internal/aiusage). See
+	// eidos/spec - saas-platform-ai …
+	PlatformAIRAGBaseURL       string `env:"PLATFORM_AI_RAG_BASEURL" envDefault:""`
+	PlatformAIRAGModel         string `env:"PLATFORM_AI_RAG_MODEL" envDefault:""`
+	PlatformAIRAGDim           int    `env:"PLATFORM_AI_RAG_DIM" envDefault:"0"`
+	PlatformAIQdrantURL        string `env:"PLATFORM_AI_QDRANT_URL" envDefault:""`
+	PlatformAIQdrantAPIKey     string `env:"PLATFORM_AI_QDRANT_API_KEY" envDefault:""`
+	PlatformAITranslateBaseURL string `env:"PLATFORM_AI_TRANSLATE_BASEURL" envDefault:""`
+	PlatformAITranslateModel   string `env:"PLATFORM_AI_TRANSLATE_MODEL" envDefault:""`
+	PlatformAIAgentProvider    string `env:"PLATFORM_AI_AGENT_PROVIDER" envDefault:""`
+	PlatformAIAgentBaseURL     string `env:"PLATFORM_AI_AGENT_BASEURL" envDefault:""`
+	PlatformAIAgentModel       string `env:"PLATFORM_AI_AGENT_MODEL" envDefault:""`
+	PlatformAIAgentAPIKey      string `env:"PLATFORM_AI_AGENT_API_KEY" envDefault:""`
+
 	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate
 	// on first boot and persist to VAPID_KEYS_FILE so subsequent boots
 	// keep the same key pair (otherwise every browser subscription would
