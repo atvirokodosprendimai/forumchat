@@ -1,5 +1,5 @@
 ---
-status: active
+status: completed
 created: 2026-06-24
 claim: community-wide shared "iNotes" — markdown source / HTML render, visibility split, share-to-channel, inline line+selection comments
 ---
@@ -86,7 +86,7 @@ Reused seams / references:
    - => verify: run app, create note, edit markdown, see live HTML preview, save,
      reopen, list — screenshot ([[feedback_ux_first]]).
 
-### Phase 2 — share-to-channel + public token reader — status: open
+### Phase 2 — share-to-channel + public token reader — status: completed
 7. [ ] `PostToChat` closure for notes (clone `main.go:994`); `noteMessage`
    absolute-URL builder (clone `handler.go:195`). PostShare: public note → member
    URL; private note → `/notes/{id}/shared?token=` absolute URL. Channel picker
@@ -97,7 +97,7 @@ Reused seams / references:
    - => verify: share public + private; open private token URL logged-out → reads;
      bad/no token → 404.
 
-### Phase 3 — inline comments (line + selection) — status: open
+### Phase 3 — inline comments (line + selection) — status: completed
 9. [ ] `render.AnnotateBlocks(html) (html, n)` — x/net/html (already a dep via
    bluemonday) tags each top-level block `data-nb="<i>"`; display-time, cheap.
 10. [ ] Reader/editor render under one stable root `#note-reader` (article +
@@ -115,7 +115,7 @@ Reused seams / references:
     - => verify: line comment + selection comment, resolve, delete; edit note to
       shift blocks → orphaned shown.
 
-### Phase 4 — search/RAG index + docs — status: open
+### Phase 4 — search/RAG index + docs — status: completed
 13. [ ] Migration `00064_search_notes.sql`: FTS5 + embed_outbox triggers for
     `kind='note'`, gated `visibility='public'` (clone `00062_search_pastes.sql`).
     Wire the rag loader case if the loader switches on kind.
@@ -136,6 +136,24 @@ Reused seams / references:
   template, memory reinforces. Decisions locked via AskUserQuestion.
 - 2606241420 — Phase 0 done: migration 00063 (notes + note_comments), domain
   Repo+Service, 7 tests green. CanEdit=author|mod|superadmin one authority.
+- 2606241500 — Phase 3 done: inline comments. render.AnnotateBlocks (data-nb),
+  note.js (selection btn + gutter + badges + jump via one fc:note-comment EDA
+  event), comments rail, composer, resolve/delete, orphan-on-edit. Verified e2e.
+  Fixes folded: MutationObserver infinite loop (detach during paint), .link.danger
+  red-on-red. Codex earlier pass (Phase 2) → community-guard + body-cap fixes.
+- 2606241510 — Phase 4 done: migration 00064 (FTS5 + RAG triggers gated
+  visibility='public'), rag KindNote loader, search kind='note' rendering, docs
+  (internal/notes/CLAUDE.md + AGENTS §5j). Verified: public note in search,
+  private excluded. ALL PHASES COMPLETE. Branch task/community-notes pushed;
+  not yet merged to main (awaiting user).
+- 2606241432 — Phase 2 done: share dialog (channel picker + copy link) posts
+  note URL to chat via PostToChat; token minted at draft-create so the copy link
+  is correct pre-save; public /n/{token} read-only reader (anon-readable, miss →
+  generic "unavailable"). Verified e2e (5 shots incl. logged-out token read).
+  Codex review folded in: HIGH cross-community Save guard + MEDIUM PostShare
+  body cap; regression test added. Note: chat link shows the bare URL (shared
+  sanitizeUserMarkdown flattens [label](url) anti-phishing — same as pastes;
+  clickable in prod where GFM linkify sees a dotted host).
 - 2606241425 — Phase 1 done: Notes topnav pill; index (shared + my notes) +
   editor (title/visibility/debounced live preview/save morphs reader in place/
   delete) + reader. Verified via Playwright (4 screenshots). Fixed grid overflow
