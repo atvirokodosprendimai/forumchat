@@ -206,3 +206,4 @@
 - 2026-06-24 `a21542b` docs(notes): collaborative editing + draft/published model
 - 2026-06-24 `753c1de` feat(notes): remote collaborator cursors (Phase 2)
 - 2026-06-24 `f12f1eb` feat(render): server-side syntax highlighting for fenced code blocks
+- 2026-06-24 `7eaca4d` docs(changelog): auto-append
