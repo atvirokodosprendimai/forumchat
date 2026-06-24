@@ -119,6 +119,7 @@ templ MessagesThread(d MessagesThreadData) {
 			if d.Status == "accepted" || (d.Status == "pending" && !d.ViewerIsRecipient) {
 				<div class="pm-composer composer">
 					<div class="composer-row">
+						@EmojiButton("input[data-bind='pm_send_body']")
 						<input type="text" data-bind="pm_send_body" placeholder="Write a message — markdown ok" autocomplete="off"
 							data-on:keydown={ "evt.key === 'Enter' && @post('/messages/" + d.ThreadID + "/send')" }/>
 						<button data-on:click={ "@post('/messages/" + d.ThreadID + "/send')" }>Send</button>

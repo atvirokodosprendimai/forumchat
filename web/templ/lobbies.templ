@@ -266,6 +266,7 @@ templ LobbyComposer(slug, lobbyID string) {
 				<input type="file" accept="image/*" style="display:none"
 					data-on:change="window.fcPickImage(evt,'lobby_image_data')"/>
 			</label>
+			@EmojiButton(".composer-text")
 			<textarea
 				class="composer-text"
 				data-bind="lobby_body"
@@ -339,6 +340,7 @@ templ GuestComposer(token string) {
 				<input type="file" accept="image/*" style="display:none"
 					data-on:change="window.fcPickImage(evt,'lobby_image_data')"/>
 			</label>
+			@EmojiButton(".composer-text")
 			<textarea
 				class="composer-text"
 				data-bind="lobby_body"
@@ -380,6 +382,7 @@ templ GuestLayout(title string) {
 			@InlineStyle("app.css")
 			<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"></script>
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
+			<script src={ "/static/emoji.js?v=" + AssetVer("emoji.js") } defer></script>
 		</head>
 		<body class="guest-body" data-signals={ InitialSignals }>
 			<main class="guest-main">
