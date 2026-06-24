@@ -358,7 +358,9 @@ templ ChatComposer(slug, channelSlug string) {
 				data-on:blur="setTimeout(()=>{$_mention_open=false; $_translate_open=false},150)"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
 				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false; $_translate_open=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && $_translate_open){evt.preventDefault(); document.querySelector('#translate-popup .translate-row')?.click()} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open && !$_translate_open){evt.preventDefault(); @post('/c/" + slug + "/chat/" + channelSlug + "/send'); el.style.height='auto'}" }></textarea>
-			<button id="composer-send" data-on:click={ "@post('/c/" + slug + "/chat/" + channelSlug + "/send'); document.querySelector('.composer-text').style.height='auto'" }>Send</button>
+			<button id="composer-send" aria-label="Send message" title="Send (Enter)" data-on:click={ "@post('/c/" + slug + "/chat/" + channelSlug + "/send'); document.querySelector('.composer-text').style.height='auto'" }>
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+			</button>
 		</div>
 	</div>
 }

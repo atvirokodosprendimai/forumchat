@@ -5903,3 +5903,171 @@ button.danger[disabled] { opacity: .45; cursor: not-allowed; }
 }
 .delete-disclosure > summary::-webkit-details-marker { display: none; }
 .delete-disclosure[open] > summary { margin-bottom: .5rem; }
+
+/* ============================================================
+   Messenger shell — Slack / Telegram / WhatsApp GUI concept.
+   All rules are scoped under .chat-layout (or body/main :has it)
+   so the forum thread-feed and lobbies guest chat, which reuse
+   .bubble / .messages, keep their card styling untouched.
+   ============================================================ */
+
+/* Full-bleed: the chat owns the whole content viewport. Drop main's
+   page padding and hide the global footer so the composer pins to the
+   bottom edge like a real chat app. */
+main:has(.chat-layout) { padding: 0; }
+body:has(.chat-layout) .site-footer { display: none; }
+
+/* Three-pane shell: content column + flush member rail, no gutter.
+   Column widths apply only ≥900px — below that the existing
+   `.chat-layout { grid-template-columns: 1fr }` mobile rule must win.
+   Setting columns unconditionally here would override that media query
+   by source order and squish the content column into a thin strip. */
+.chat-layout {
+  gap: 0;
+  background: var(--surface);
+}
+@media (min-width: 900px) {
+  .chat-layout { grid-template-columns: 1fr minmax(240px, 300px); }
+}
+.chat-layout > div:first-child {
+  /* children (header bar, message scroller, composer bar) own their
+     own padding so the message list can run edge-to-edge. */
+  padding: 0;
+  background: var(--chat-wallpaper, var(--surface-alt));
+}
+
+/* ---- Channel header bar ---- */
+.chat-layout .chat-head {
+  margin: 0;
+  padding: .6rem 1.1rem .55rem;
+  background: oklch(100% 0 0 / 0.85);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-xs);
+  z-index: 5;
+}
+/* Community name becomes a small kicker; the channel switcher is the
+   real title. */
+.chat-layout .chat-community {
+  font-size: .72rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--fg-subtle);
+  margin: 0 0 .3rem;
+}
+.chat-layout .chat-topic { margin-top: .3rem; }
+
+/* ---- Message list: flat, full-bleed, soft wallpaper ---- */
+.chat-layout .messages {
+  background: var(--chat-wallpaper, var(--surface-alt));
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1.1rem 1.1rem 1.4rem;
+  gap: .35rem;
+  scroll-behavior: smooth;
+}
+
+/* Own bubbles read clearly as "mine" — a confident accent tint with a
+   trailing tail. Other bubbles are crisp white cards that lift off the
+   wallpaper. */
+.chat-layout .bubble-group {
+  max-width: min(68ch, 78%);
+  padding: .5rem .8rem;
+  box-shadow: var(--shadow-xs);
+}
+.chat-layout .bubble-group.own {
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.chat-layout .bubble-group.other {
+  background: var(--surface);
+  border-color: var(--border-subtle);
+}
+/* Telegram-style coloured sender name on other people's bubbles. */
+.chat-layout .bubble-group.other .meta > strong { color: var(--accent-strong); }
+.chat-layout .bubble-group .meta { margin-bottom: .15rem; }
+.chat-layout .bubble-group .meta .muted { font-size: .72rem; }
+
+/* ---- Service / system messages → small centered pill ---- */
+.chat-layout .bubble-group.system { margin: .25rem auto; }
+.chat-layout .bubble-group.system .bubble.system {
+  display: inline-block;
+  width: auto;
+  margin: 0 auto;
+  padding: .3rem .85rem;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+  font-size: .8rem; color: var(--fg-muted);
+}
+.chat-layout .bubble-group.system .bubble.system .muted { color: var(--fg-subtle); }
+.chat-layout .bubble-group.system .bubble.system .body { display: inline; }
+.chat-layout .bubble-group.system .bubble.system .body p { display: inline; margin: 0; }
+
+/* ---- Composer: WhatsApp-style bottom bar with a rounded input
+   and a circular send button ---- */
+.chat-layout .composer {
+  margin: 0;
+  padding: .6rem .9rem calc(.6rem + env(safe-area-inset-bottom));
+  background: oklch(100% 0 0 / 0.9);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-top: 1px solid var(--border-subtle);
+  gap: .4rem;
+}
+.chat-layout .composer-row { align-items: flex-end; gap: .4rem; }
+.chat-layout .composer-text {
+  border-radius: var(--radius-xl);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  padding: .6rem .95rem;
+}
+.chat-layout .composer-text:focus {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+/* Attach / paste become flat circular icon buttons. */
+.chat-layout .composer-row .icon-btn {
+  width: 42px; height: 42px; padding: 0;
+  border-radius: 50%;
+  background: transparent; border-color: transparent;
+  box-shadow: none; color: var(--fg-muted);
+  font-size: 1.2rem;
+}
+.chat-layout .composer-row .icon-btn:hover {
+  background: var(--surface-alt); color: var(--accent);
+}
+/* Send: circular accent button holding an arrow glyph. */
+.chat-layout #composer-send {
+  width: 42px; height: 42px; padding: 0;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 1.15rem; line-height: 1; flex: 0 0 auto;
+}
+
+/* ---- Member rail: flush right panel, not a floating card ---- */
+.chat-layout .presence {
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--surface);
+  padding: .9rem .85rem;
+}
+.chat-layout .presence h3 {
+  position: sticky; top: 0;
+  background: var(--surface);
+  padding-bottom: .5rem; margin-bottom: .25rem;
+  z-index: 1;
+}
+
+/* On small screens the wallpaper + bars still apply; the member rail
+   stays a slide-in drawer (existing .presence-fab rules). Re-card the
+   drawer so it reads as an overlay, not a flush rail. */
+@media (max-width: 899px) {
+  .chat-layout .presence {
+    border-left: 0;
+    box-shadow: var(--shadow-lg);
+  }
+}
