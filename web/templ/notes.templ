@@ -335,6 +335,12 @@ templ NoteReader(d NotePageData) {
 
 templ noteCommentCard(slug string, c NoteCommentView) {
 	<div class={ "note-comment", templ.KV("orphaned", c.Orphaned) } data-nb-ref={ strconv.Itoa(c.BlockIndex) } data-quote={ c.Quote } id={ "note-comment-" + c.ID }>
+		if c.CanModerate {
+			<div class="note-comment-actions">
+				<button class="note-comment-act" title="Resolve" aria-label="Resolve comment" data-on:click={ "@post('/c/" + slug + "/notes/comments/" + c.ID + "/resolve')" }>✓</button>
+				<button class="note-comment-act danger" title="Delete" aria-label="Delete comment" data-on:click={ "@post('/c/" + slug + "/notes/comments/" + c.ID + "/delete')" }>✕</button>
+			</div>
+		}
 		<div class="note-comment-meta">
 			<strong>{ c.AuthorName }</strong>
 			<span class="muted">{ c.CreatedAt.Format("Jan 2, 15:04") }</span>
@@ -351,12 +357,6 @@ templ noteCommentCard(slug string, c NoteCommentView) {
 			}
 		</div>
 		<div class="note-comment-body">@templ.Raw(render.RichHTML(c.BodyHTML))</div>
-		if c.CanModerate {
-			<div class="note-comment-actions">
-				<button class="link" data-on:click={ "@post('/c/" + slug + "/notes/comments/" + c.ID + "/resolve')" }>Resolve</button>
-				<button class="link danger" data-on:click={ "@post('/c/" + slug + "/notes/comments/" + c.ID + "/delete')" }>Delete</button>
-			</div>
-		}
 	</div>
 }
 

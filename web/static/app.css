@@ -6215,11 +6215,11 @@ body:has(.chat-layout) .site-footer { display: none; }
 @media (max-width: 900px) { .note-comments { border-left: none; padding-left: 0; border-top: 1px solid var(--border-subtle); padding-top: 1rem; } }
 .note-comments-head { display: flex; align-items: baseline; justify-content: space-between; }
 .note-comments-empty { font-size: .85rem; }
-.note-comment { background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius);
+.note-comment { position: relative; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius);
   padding: .55rem .65rem; display: flex; flex-direction: column; gap: .35rem; }
 .note-comment.orphaned { opacity: .7; border-style: dashed; }
 .note-comment-hi { box-shadow: var(--ring); }
-.note-comment-meta { display: flex; align-items: baseline; gap: .4rem; flex-wrap: wrap; font-size: .8rem; }
+.note-comment-meta { display: flex; align-items: baseline; gap: .4rem; flex-wrap: wrap; font-size: .8rem; padding-right: 2.7rem; }
 .note-comment-meta strong { font-size: .85rem; }
 .note-comment-anchor { font-size: .75rem; color: var(--accent); background: none; border: none; padding: 0; cursor: pointer;
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
@@ -6228,7 +6228,20 @@ body:has(.chat-layout) .site-footer { display: none; }
   background: var(--surface-2); border-radius: var(--radius-pill); padding: .05rem .4rem; }
 .note-comment-body { font-size: .9rem; line-height: 1.5; word-wrap: break-word; }
 .note-comment-body > :first-child { margin-top: 0; } .note-comment-body > :last-child { margin-bottom: 0; }
-.note-comment-actions { display: flex; gap: .6rem; }
+/* Compact moderation: tiny icon buttons in the card's top-right, revealed on
+   hover/focus so they cost no vertical space at rest. */
+.note-comment-actions { position: absolute; top: .3rem; right: .35rem; display: flex; gap: .15rem;
+  opacity: 0; transition: opacity var(--t-fast) var(--ease-out); }
+.note-comment:hover .note-comment-actions, .note-comment:focus-within .note-comment-actions { opacity: 1; }
+.note-comment-act { display: inline-flex; align-items: center; justify-content: center; width: 1.35rem; height: 1.35rem;
+  padding: 0; font-size: .72rem; line-height: 1; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--surface); color: var(--fg-muted); cursor: pointer; }
+.note-comment-act:hover { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-ring); }
+/* Reset the global button.danger filled-red bg (red-on-red, §danger-button trap):
+   a neutral icon button with a red glyph, red-soft fill only on hover. */
+.note-comment-act.danger { background: var(--surface); color: var(--danger); }
+.note-comment-act.danger:hover { background: var(--danger-soft); color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
 .note-comment-context { font-size: .85rem; background: var(--surface-sunken); border-radius: var(--radius-sm);
   padding: .35rem .55rem; }
 .note-comment-input { width: 100%; resize: vertical; }
