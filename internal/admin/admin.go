@@ -543,6 +543,44 @@ func (h *Handler) PostSetRole(w http.ResponseWriter, r *http.Request) {
 	h.refreshAdminLists(w, r)
 }
 
+type nickSignals struct {
+	AdminNick string `json:"admin_nick"`
+}
+
+// PostSetNick sets (or clears, when blank) the admin display-name override
+// for a member. The override is what everyone else sees in chat, the forum,
+// the roster and @mentions; the member's own self-chosen name is left intact
+// as the fallback. Admin-gated by the route; cross-tenant-guarded by
+// membershipInCommunity. Reached from the member row in /admin.
+func (h *Handler) PostSetNick(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	// ReadSignals MUST come before NewSSE — NewSSE closes the request body.
+	var in nickSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, ok := h.membershipInCommunity(w, r, id); !ok {
+		return
+	}
+	nick := strings.TrimSpace(in.AdminNick)
+	if rs := []rune(nick); len(rs) > 60 {
+		nick = strings.TrimSpace(string(rs[:60]))
+	}
+	if err := h.Repo.SetAdminDisplayName(r.Context(), id, nick); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// The override changes how this member is shown to everyone, so refresh
+	// open rosters and re-render the admin member list.
+	h.bumpRoster(r)
+	h.refreshAdminLists(w, r)
+}
+
 type createCommunitySignals struct {
 	Name        string `json:"cc_name"`
 	Slug        string `json:"cc_slug"`
@@ -780,7 +818,9 @@ func memberRowsToAdminMembers(rows []auth.MemberRow, now time.Time) []webtempl.A
 			MembershipID: r.ID,
 			UserID:       r.UserID,
 			Email:        r.Email,
-			DisplayName:  r.DisplayName,
+			DisplayName:  r.EffectiveDisplayName,
+			RealName:     r.Membership.DisplayName,
+			AdminNick:    r.AdminDisplayName,
 			Role:         string(r.Role),
 			IsBanned:     r.IsBanned(now),
 			BannedUntil:  r.BannedUntil,

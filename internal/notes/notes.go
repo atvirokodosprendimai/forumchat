@@ -278,7 +278,7 @@ func (r *Repo) CommentByID(ctx context.Context, id string) (Comment, error) {
 // ListComments returns a note's comments ordered by block then time.
 func (r *Repo) ListComments(ctx context.Context, noteID string) ([]Comment, error) {
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT c.id, c.note_id, c.author_id, COALESCE(m.display_name, 'member'),
+		SELECT c.id, c.note_id, c.author_id, COALESCE(m.effective_display_name, 'member'),
 			c.block_index, c.quote, c.body, c.body_html, c.resolved_at, c.created_at
 		FROM note_comments c
 		JOIN notes n ON n.id = c.note_id

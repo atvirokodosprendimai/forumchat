@@ -1914,6 +1914,7 @@ func run() error {
 			r.Post("/admin/unban", adminHandler.PostUnban)
 			r.Post("/admin/remove", adminHandler.PostRemoveMember)
 			r.Post("/admin/set-role", adminHandler.PostSetRole)
+			r.Post("/admin/set-nick", adminHandler.PostSetNick)
 			r.Post("/admin/report/resolve", adminHandler.PostResolveReport)
 			r.Post("/admin/invite", adminHandler.PostInvite)
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)

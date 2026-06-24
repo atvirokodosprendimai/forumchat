@@ -151,7 +151,7 @@ func (h *Handler) eventsBetween(ctx context.Context, from, to time.Time) ([]webt
 
 	rows, err := h.DB.QueryContext(ctx, `
 		SELECT m.id, m.body_html, m.kind, m.created_at,
-		       COALESCE(mb.display_name, '(unknown)')
+		       COALESCE(mb.effective_display_name, '(unknown)')
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
 		WHERE m.community_id = ? AND m.deleted_at IS NULL

@@ -125,7 +125,7 @@ func (h *Handler) push(ctx context.Context, sse *datastar.ServerSentEventGenerat
 		rm := webtempl.RosterMember{
 			UserID:       mr.UserID,
 			MembershipID: mr.ID,
-			DisplayName:  mr.DisplayName,
+			DisplayName:  mr.EffectiveDisplayName,
 			AvatarURL:    mr.AvatarURL,
 			Role:         string(mr.Role),
 			Online:       online[mr.UserID],

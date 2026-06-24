@@ -145,7 +145,7 @@ func (r *Repo) ListEntries(ctx context.Context, communityID, ym string) ([]Entry
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT e.id, e.community_id, COALESCE(e.project_id, ''), e.minutes, e.note,
 		       e.occurred_on, e.created_by, e.created_at,
-		       COALESCE(p.title, ''), COALESCE(m.display_name, '')
+		       COALESCE(p.title, ''), COALESCE(m.effective_display_name, '')
 		FROM time_entries e
 		LEFT JOIN projects p ON p.id = e.project_id
 		LEFT JOIN memberships m ON m.user_id = e.created_by AND m.community_id = e.community_id

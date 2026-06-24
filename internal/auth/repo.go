@@ -404,6 +404,17 @@ func (r *Repo) UpdateMembershipProfile(ctx context.Context, membershipID, displa
 	return err
 }
 
+// SetAdminDisplayName sets (or, with an empty name, clears) the admin
+// override for how this membership is shown to everyone else. It never
+// touches display_name, so the member's own name is preserved and re-used
+// as the fallback once the override is cleared.
+func (r *Repo) SetAdminDisplayName(ctx context.Context, membershipID, name string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE memberships SET admin_display_name = ? WHERE id = ?`,
+		strings.TrimSpace(name), membershipID)
+	return err
+}
+
 // UserIDsByDisplayName resolves a list of (case-insensitive) display
 // names to the user_ids backing the matching memberships in this
 // community. Used by chat to map @mention tokens to push targets.
@@ -422,7 +433,7 @@ func (r *Repo) UserIDsByDisplayName(ctx context.Context, communityID string, nam
 		SELECT DISTINCT user_id
 		FROM memberships
 		WHERE community_id = ?
-		AND lower(display_name) IN (` + strings.Join(placeholders, ",") + `)
+		AND lower(effective_display_name) IN (` + strings.Join(placeholders, ",") + `)
 	`
 	rows, err := r.DB.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -462,11 +473,11 @@ func (r *Repo) SearchMembersByDisplayName(ctx context.Context, communityID, pref
 		limit = 7
 	}
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT user_id, display_name
+		SELECT user_id, effective_display_name
 		FROM memberships
 		WHERE community_id = ?
-		AND lower(display_name) LIKE ? || '%'
-		ORDER BY display_name
+		AND lower(effective_display_name) LIKE ? || '%'
+		ORDER BY effective_display_name
 		LIMIT ?`,
 		communityID, strings.ToLower(prefix), limit)
 	if err != nil {
@@ -537,6 +548,12 @@ func (r *Repo) RejectMembership(ctx context.Context, membershipID string) error 
 type MemberRow struct {
 	Membership
 	Email string
+	// AdminDisplayName is the admin-set per-community override ("" = none).
+	// DisplayName (embedded) stays the member's own self-chosen name, so the
+	// admin UI can show both. EffectiveDisplayName is the resolved name shown
+	// to everyone else (override when set, else the member's own name).
+	AdminDisplayName     string
+	EffectiveDisplayName string
 }
 
 // ListPendingMemberships returns memberships with approved_at IS NULL —
@@ -544,7 +561,8 @@ type MemberRow struct {
 func (r *Repo) ListPendingMemberships(ctx context.Context, communityID string) ([]MemberRow, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.user_id, m.community_id, m.display_name, m.avatar_url, m.role,
-		       m.trust_level, m.banned_until, m.approved_at, m.created_at, m.join_reason, u.email
+		       m.trust_level, m.banned_until, m.approved_at, m.created_at, m.join_reason, u.email,
+		       m.admin_display_name, m.effective_display_name
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.community_id = ? AND m.approved_at IS NULL
@@ -560,11 +578,12 @@ func (r *Repo) ListPendingMemberships(ctx context.Context, communityID string) (
 func (r *Repo) ListMembers(ctx context.Context, communityID string) ([]MemberRow, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.user_id, m.community_id, m.display_name, m.avatar_url, m.role,
-		       m.trust_level, m.banned_until, m.approved_at, m.created_at, m.join_reason, u.email
+		       m.trust_level, m.banned_until, m.approved_at, m.created_at, m.join_reason, u.email,
+		       m.admin_display_name, m.effective_display_name
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
 		WHERE m.community_id = ? AND m.approved_at IS NOT NULL
-		ORDER BY m.display_name ASC`, communityID)
+		ORDER BY m.effective_display_name ASC`, communityID)
 	if err != nil {
 		return nil, err
 	}
@@ -579,9 +598,10 @@ func scanMemberRows(rows *sql.Rows) ([]MemberRow, error) {
 		var role string
 		var banned, approved sql.NullInt64
 		var created int64
-		var email string
+		var email, adminName, effName string
 		if err := rows.Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL,
-			&role, &m.TrustLevel, &banned, &approved, &created, &m.JoinReason, &email); err != nil {
+			&role, &m.TrustLevel, &banned, &approved, &created, &m.JoinReason, &email,
+			&adminName, &effName); err != nil {
 			return nil, err
 		}
 		m.Role = Role(role)
@@ -594,7 +614,7 @@ func scanMemberRows(rows *sql.Rows) ([]MemberRow, error) {
 			m.ApprovedAt = &t
 		}
 		m.CreatedAt = time.Unix(created, 0)
-		out = append(out, MemberRow{Membership: m, Email: email})
+		out = append(out, MemberRow{Membership: m, Email: email, AdminDisplayName: adminName, EffectiveDisplayName: effName})
 	}
 	return out, rows.Err()
 }
@@ -1057,8 +1077,8 @@ func (r *Repo) CreateUserReport(ctx context.Context, id, reporterID, reportedUse
 // with display names resolved from memberships in the same community.
 func (r *Repo) ListOpenReports(ctx context.Context, communityID string) ([]UserReport, error) {
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT ur.id, ur.reporter_id, COALESCE(rm.display_name, ''),
-		       ur.reported_user_id, COALESCE(tm.display_name, ''),
+		SELECT ur.id, ur.reporter_id, COALESCE(rm.effective_display_name, ''),
+		       ur.reported_user_id, COALESCE(tm.effective_display_name, ''),
 		       ur.reason, ur.context_ref, ur.status, ur.created_at
 		FROM user_reports ur
 		LEFT JOIN memberships rm ON rm.user_id = ur.reporter_id      AND rm.community_id = ur.community_id
