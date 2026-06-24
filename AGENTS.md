@@ -835,6 +835,67 @@ URL**. Lives in `internal/dataexport` (no domain imports → no cycle; imports
 - **Media** copies each upload's bytes (`uploads.Store.ListByCommunity` +
   `OpenBlob`, honouring per-row `store_key`) into `media/<id>-<filename>`.
 
+## 5i. Platform AI — operator-provided, metered, billed compute (Jun 2026)
+
+Spec: `eidos/spec - saas-platform-ai …`. Plan: `memory/plan - 2606240915 …`. The
+**reversal** of the 2026-06-23 "platform = storage, NOT compute" rule — but only
+behind metering + billing, so the original unbounded-cost fear is neutralised.
+When `SAAS=true` a community can opt to run RAG/translate/agents on the
+**operator's** hosted AI instead of BYO; default stays BYO and inert.
+
+- **The resolver gains ONE tier** (`internal/community/resolve.go`):
+  `effective = SAAS && use_platform_ai && authorized ? PLATFORM config + METER :
+  (BYO override ?? env)`, kill-switch gated. `PlatformAI(s,cfg) → (on,
+  authorized)`; `authorized = granted_free OR SubscriptionGrantsAccess(status)`
+  (`active`|`trialing`). `ResolveRAG`/`ResolveTranslate`/`ResolveAgent` each
+  return platform config (sourced from the **separate** `PLATFORM_AI_*` env, NOT
+  the BYO `RAG_*`/`TRANSLATE_*`) with `Platform=true` when on+authorized. Keeping
+  the env namespaces separate is what keeps "unset ⇒ operator pays zero".
+- **Metering = a decorator, installed ONLY on the platform branch.** `internal/
+  aiusage` is the leaf ledger (nil-safe `Recorder` like `debuglog`, append-only
+  `ai_usage_events`, migration 00059). `agent.NewMeteredProvider` /
+  `rag.NewMeteredEmbedder` / `agent.MeteredTranslate` wrap the platform client; a
+  BYO community keeps the bare client → records nothing. So "meter iff platform"
+  is **structural**, not a per-call-site discipline. Agent token counts are real
+  (Ollama `prompt_eval_count`/`eval_count`, surfaced via `StreamResult.Usage`);
+  embed/translate are estimated (`aiusage.EstimateTokens`, `estimated=1`).
+- **Agents: text + vision models.** A vision agent forwards images (a text model
+  400s), so the platform offers `PLATFORM_AI_AGENT_MODEL` (text) +
+  `PLATFORM_AI_AGENT_VISION_MODEL` (vision). `ResolveAgent(s,cfg,vision)` picks;
+  a vision agent with no vision model configured **stays BYO**. The `/summary`
+  summarizer routes to the vision model (`wantsVision = a.Vision ||
+  a.IsSummarizer`, in the main.go closure). **One** `agent.ComputeResolver`
+  closure (wired once in main.go) feeds all THREE generation paths —
+  `agent.Runner` (pane), `agent.Service.SummarizeToThread` (/summary),
+  `chatagents.ThreadRunner` (forum bots). The returned **Agent** (model
+  overridden) drives the gen, since `Generate` streams against `Agent.Model`.
+  Agent usage is community-attributed (detached gen, no request user); translate
+  is per-user.
+- **Lifecycle = owner requests → super-admin approves** (state on
+  `community_settings`, migration 00060 — mutable per-community state, NOT the
+  append-only `community_requests` table). `community.RequestPlatformAI` /
+  `GrantPlatformAI` (free sponsorship) / `RevokePlatformAI` (keeps a paying
+  customer via their sub) / `CancelPlatformAIRequest` / `ListPlatformAIRequests`.
+  UI: owner card `#owner-platform-ai` (`internal/admin/settings.go`, outside the
+  form save-morph) + super-admin card `#sa-platform-ai` (grant/revoke + rolling
+  30-day cost table from `aiusage.CommunityTotals`).
+- **Billing = Stripe** (`internal/billing`, `stripe-go/v82`). Owner checkout
+  (`/c/{slug}/settings/billing/checkout`) → Checkout Session
+  (`client_reference_id` = community). **Public webhook** `/billing/webhook` is
+  the SOLE authority on subscription state: HMAC-verified, **idempotent** by
+  event id (`stripe_events`, migration 00061), with a **stale-subscription
+  guard** (ignore a lifecycle event for a non-current sub id → a late old-sub
+  `deleted` can't deactivate a live one). Transient store errors → 5xx (Stripe
+  retries); unknown customer → 200. Inert unless all three `STRIPE_*` set. The
+  webhook is the **security-review surface** — it was Codex-reviewed; re-run
+  `/codex:review` before relying on live payments.
+- **Still TODO** (deferred, low-risk): switching BYO↔platform changes the embed
+  model/dim → a **reindex** should fire (today only `admin.PostSettings`
+  auto-reindexes on a RAG change; the grant/request flow does not — vectors
+  converge on next content write or a manual `/admin` reindex). Per-community
+  monthly **soft cap** (warn/suspend on the ledger) is spec-Future. No live
+  end-to-end smoke yet (needs a real Ollama + Stripe price id).
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing

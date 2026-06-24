@@ -1,6 +1,6 @@
 ---
 tldr: Bring platform-provided AI compute back as an authorized, metered, billed per-community opt-in (RAG embed + translate + agents). Super-admin grants free OR Stripe subscription; owner requests → super-admin approves; every platform-compute request metered by token count (in/out) in an append-only ai_usage_events ledger via a decorator installed only on the platform branch of the resolver. Reverses the 2026-06-23 "platform = storage not compute" decision behind metering+billing.
-status: open
+status: completed
 ---
 
 # Plan: SaaS platform AI — metered, billed per-community compute
@@ -115,13 +115,13 @@ request paths. Kept separate from 2a so the pure resolver lands verified first.
 7. [x] `ai_usage_events` already excluded from export (the dataexport manifest is an explicit table allowlist; the ledger was never added) — verified, no change needed
    - => `go build ./...` + `go test ./...` green; committed + pushed
 
-### Phase 5 - Polish + guards - status: open
+### Phase 5 - Polish + guards - status: done (docs); 2 items deferred
 
-1. [ ] Per-community monthly **soft cap** (warn + optional suspend) reading the ledger (defer hard quota)
-2. [ ] BYO↔platform model-swap reindex prompt on the toggle (different embed dim)
-3. [ ] Docs: README env table (`PLATFORM_AI_*`, `STRIPE_*`); forumchat CLAUDE.md §5f/§5h sibling section; super-admin CLAUDE.md note
-4. [ ] Full smoke (spec Verification): request → grant → agent prompt → ledger row → both panels show it
-   - => commit + push
+1. [p] Per-community monthly **soft cap** (warn + optional suspend) reading the ledger — deferred (spec `## Future`; the ledger + `agentlimit` precedent are ready). Not needed for the feature to work.
+2. [p] BYO↔platform model-swap **reindex** on the switch (different embed dim) — deferred. Today only `admin.PostSettings` auto-reindexes on a RAG change; the grant/request flow does not, so after a switch the platform Qdrant collection is empty until next content write or a manual `/admin` reindex. Documented as a known gap in AGENTS.md §5i. Low-risk (no data loss, converges).
+3. [x] Docs: README env tables (`PLATFORM_AI_*` incl. text/vision, `STRIPE_*`) + AGENTS.md (`CLAUDE.md` symlink) **§5i** full feature section
+4. [p] Full live smoke (request → grant → agent prompt → ledger row → both panels) — deferred: needs a real Ollama + a Stripe price id. Build + `go test ./...` green is the verification to date; webhook unit-tested + Codex-reviewed.
+   - => committed + pushed
 
 ## Verification
 

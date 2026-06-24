@@ -789,6 +789,43 @@ Full-text search (FTS5) is always on. The semantic half is opt-in:
 | `TRANSLATE_BASEURL`  | `http://localhost:11434`     | Ollama endpoint (independent of agent + RAG endpoints).            |
 | `TRANSLATE_MODEL`    | _(empty)_                    | Model name. Empty → the command is silently inert.                 |
 
+### Platform AI (SaaS — operator-provided, metered, billed compute)
+
+When `SAAS=true`, a community can opt to run RAG / translate / agents on the
+**platform's own** hosted AI instead of BYO. Access is authorized two ways — a
+super-admin grants it free (`/superadmin` → Platform AI card), or the owner
+subscribes via Stripe. Every request on platform compute is metered by token
+count into `ai_usage_events`. Leave the `PLATFORM_AI_*` vars unset and no
+community can use platform compute → the operator pays nothing (BYO is unchanged).
+
+| Variable                          | Default | Purpose                                                                     |
+|-----------------------------------|---------|-----------------------------------------------------------------------------|
+| `PLATFORM_AI_RAG_BASEURL`         | _(empty)_ | Operator's Ollama embed endpoint for opted-in communities.                |
+| `PLATFORM_AI_RAG_MODEL`           | _(empty)_ | Embed model.                                                               |
+| `PLATFORM_AI_RAG_DIM`             | `0`       | Embed vector size (per-community Qdrant collection sized to it).          |
+| `PLATFORM_AI_QDRANT_URL`          | _(empty)_ | Operator's Qdrant for opted-in communities' vectors.                      |
+| `PLATFORM_AI_QDRANT_API_KEY`      | _(empty)_ | Qdrant API key.                                                           |
+| `PLATFORM_AI_TRANSLATE_BASEURL`   | _(empty)_ | Operator's Ollama translate endpoint.                                     |
+| `PLATFORM_AI_TRANSLATE_MODEL`     | _(empty)_ | Translate model.                                                          |
+| `PLATFORM_AI_AGENT_PROVIDER`      | _(empty)_ | Agent provider (`ollama`).                                                |
+| `PLATFORM_AI_AGENT_BASEURL`       | _(empty)_ | Agent generation endpoint.                                                |
+| `PLATFORM_AI_AGENT_MODEL`         | _(empty)_ | **Text** model (e.g. `glm-5.2`).                                          |
+| `PLATFORM_AI_AGENT_VISION_MODEL`  | _(empty)_ | **Vision** model (e.g. `gemma4`) — used for vision agents + the `/summary` summarizer (channel summaries include images). A vision agent with no vision model configured stays BYO. |
+| `PLATFORM_AI_AGENT_API_KEY`       | _(empty)_ | Agent API key (hosted providers; Ollama ignores).                        |
+
+### Stripe billing (SaaS — paid platform AI)
+
+All three required to enable the paid path; otherwise communities reach platform
+AI only via a free super-admin grant. The webhook is the sole authority on
+subscription state (HMAC-verified, idempotent). Point the Stripe endpoint at
+`BASE_URL/billing/webhook`.
+
+| Variable                       | Default   | Purpose                                                       |
+|--------------------------------|-----------|---------------------------------------------------------------|
+| `STRIPE_SECRET_KEY`            | _(empty)_ | Stripe secret key (creates Checkout Sessions).               |
+| `STRIPE_WEBHOOK_SECRET`        | _(empty)_ | Webhook signing secret (verifies callbacks).                 |
+| `STRIPE_PLATFORM_AI_PRICE_ID`  | _(empty)_ | The subscription Price id sold for platform AI.              |
+
 ### Email ingest (mailbox)
 
 | Variable                | Default                   | Purpose                                                            |
