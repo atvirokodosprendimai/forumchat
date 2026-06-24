@@ -107,6 +107,79 @@ func (r *Repo) RevokePlatformAI(ctx context.Context, communityID string) error {
 	return r.SaveSettings(ctx, s)
 }
 
+// LinkStripeCheckout records a completed Stripe Checkout: the customer +
+// subscription ids and the subscription status. An active subscription
+// authorizes platform AI and marks it active (the owner had already opted in to
+// reach checkout).
+func (r *Repo) LinkStripeCheckout(ctx context.Context, communityID, customerID, subscriptionID, status string) error {
+	s, err := r.Settings(ctx, communityID)
+	if err != nil {
+		return err
+	}
+	s.StripeCustomerID = customerID
+	s.StripeSubscriptionID = subscriptionID
+	s.StripeSubscriptionStatus = status
+	if SubscriptionGrantsAccess(status) {
+		on := true
+		s.UsePlatformAI = &on
+		s.PlatformAIStatus = PlatformAIStatusActive
+	}
+	return r.SaveSettings(ctx, s)
+}
+
+// MarkStripeEventProcessed records a Stripe event id and reports whether it is
+// NEW (true) or a duplicate redelivery already handled (false). The webhook
+// skips duplicates, making event handling idempotent against Stripe's
+// at-least-once delivery (a replayed checkout.session.completed must not
+// re-activate a since-canceled subscription).
+func (r *Repo) MarkStripeEventProcessed(ctx context.Context, eventID string) (bool, error) {
+	res, err := r.DB.ExecContext(ctx,
+		`INSERT OR IGNORE INTO stripe_events (id, created_at) VALUES (?, ?)`,
+		eventID, time.Now().Unix())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// CommunityByStripeCustomer resolves a Stripe customer id back to its community.
+// Subscription lifecycle webhooks carry the customer, not our community id.
+func (r *Repo) CommunityByStripeCustomer(ctx context.Context, customerID string) (string, error) {
+	var cid string
+	err := r.DB.QueryRowContext(ctx,
+		`SELECT community_id FROM community_settings WHERE stripe_customer_id = ?`, customerID).Scan(&cid)
+	return cid, err
+}
+
+// SetSubscriptionStatus updates a community's Stripe subscription status from a
+// lifecycle webhook and recomputes platform_ai_status: an active subscription
+// (or a standing free grant) keeps it active; otherwise it lapses to canceled
+// (the resolver then falls the community back to BYO).
+func (r *Repo) SetSubscriptionStatus(ctx context.Context, communityID, subscriptionID, status string) error {
+	s, err := r.Settings(ctx, communityID)
+	if err != nil {
+		return err
+	}
+	// Stale-event guard: ignore a lifecycle event for a subscription that is no
+	// longer this community's current one. Stripe can deliver an OLD
+	// subscription's deleted/updated event AFTER a newer subscription is active;
+	// applying it would wrongly deactivate a live, paying customer.
+	if s.StripeSubscriptionID != "" && subscriptionID != "" && s.StripeSubscriptionID != subscriptionID {
+		return nil
+	}
+	if subscriptionID != "" {
+		s.StripeSubscriptionID = subscriptionID
+	}
+	s.StripeSubscriptionStatus = status
+	if SubscriptionGrantsAccess(status) || boolOr(s.PlatformAIGrantedFree, false) {
+		s.PlatformAIStatus = PlatformAIStatusActive
+	} else {
+		s.PlatformAIStatus = PlatformAIStatusCanceled
+	}
+	return r.SaveSettings(ctx, s)
+}
+
 // ListPlatformAIRequests returns every community that has engaged the platform-AI
 // flow (requested, granted, subscribed, or simply opted-in), newest request
 // first, for the super-admin queue. Communities that never touched it are

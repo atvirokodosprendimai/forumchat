@@ -33,6 +33,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/aiusage"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
+	"github.com/atvirokodosprendimai/forumchat/internal/billing"
 	"github.com/atvirokodosprendimai/forumchat/internal/bookmarks"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/chatagents"
@@ -143,6 +144,11 @@ func run() error {
 		return fmt.Errorf("bootstrap community: %w", err)
 	}
 	log.Info("community ready", "slug", bootCommunity.Slug, "id", bootCommunity.ID)
+
+	// Stripe billing for paid platform AI (SaaS). Inert unless all three Stripe
+	// secrets are set — then the owner Subscribe button + /billing/webhook mount.
+	// cRepo is the subscription Store (the resolver reads the status it writes).
+	billingSvc := billing.New(cfg.StripeSecretKey, cfg.StripeWebhookSecret, cfg.StripePlatformAIPriceID, cfg.BaseURL, cRepo, log)
 
 	nc, err := natsx.Connect(cfg.NATSURL, log)
 	if err != nil {
@@ -490,6 +496,7 @@ func run() error {
 		Cfg:           cfg,
 		Uploads:       uploadStore,
 		Usage:         usageRec,
+		Billing:       billingSvc,
 		Log:           log,
 	}
 
@@ -1840,6 +1847,7 @@ func run() error {
 				r.Post("/settings/migrate-storage", adminHandler.PostMigrateStorage)
 				r.Post("/settings/platform-ai/request", adminHandler.PostRequestPlatformAI)
 				r.Post("/settings/platform-ai/cancel", adminHandler.PostCancelPlatformAI)
+				r.Post("/settings/billing/checkout", adminHandler.PostBillingCheckout)
 				r.Post("/settings/delete", adminHandler.PostDeleteCommunity)
 				// Owner-initiated data export: live status card (SSE) + request.
 				// The download itself is a public token-gated route (see below).
@@ -1964,6 +1972,14 @@ func run() error {
 	// bearer capability (valid until the 7-day expiry); no session required.
 	r.Get("/exports/{id}", exportHandler.GetLanding)
 	r.Post("/exports/{id}/download", exportHandler.PostDownload)
+
+	// Public Stripe webhook — no session/CSRF; authenticity is the HMAC signature
+	// verified in billing.Service.Webhook against STRIPE_WEBHOOK_SECRET. It is the
+	// sole authority on subscription state. Mounted only when billing is fully
+	// configured.
+	if billingSvc.Enabled() {
+		r.Post("/billing/webhook", billingSvc.Webhook)
+	}
 
 	// Private messages are global — no community membership required.
 	// The handler authenticates via the session directly.

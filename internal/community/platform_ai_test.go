@@ -91,6 +91,53 @@ func TestPlatformAI_RevokeKeepsActiveSubscription(t *testing.T) {
 	}
 }
 
+func TestSetSubscriptionStatus_StaleEventIgnored(t *testing.T) {
+	ctx := context.Background()
+	r := newTestRepo(t)
+	cfg := saasCfg()
+	c, _ := r.Create(ctx, "acme", "Acme")
+
+	// Current subscription sub_new is active.
+	if err := r.SaveSettings(ctx, Settings{
+		CommunityID: c.ID, UsePlatformAI: ptrBool(true),
+		StripeCustomerID: "cus_1", StripeSubscriptionID: "sub_new",
+		StripeSubscriptionStatus: "active", PlatformAIStatus: PlatformAIStatusActive,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// A late "canceled" for the OLD subscription must NOT deactivate the live one.
+	if err := r.SetSubscriptionStatus(ctx, c.ID, "sub_old", "canceled"); err != nil {
+		t.Fatalf("stale event: %v", err)
+	}
+	s, _ := r.Settings(ctx, c.ID)
+	if _, auth := PlatformAI(s, cfg); !auth || s.StripeSubscriptionStatus != "active" {
+		t.Fatalf("stale old-sub event must not deactivate live sub: %+v", s)
+	}
+
+	// The current subscription's own cancellation IS applied.
+	if err := r.SetSubscriptionStatus(ctx, c.ID, "sub_new", "canceled"); err != nil {
+		t.Fatalf("current event: %v", err)
+	}
+	s, _ = r.Settings(ctx, c.ID)
+	if _, auth := PlatformAI(s, cfg); auth {
+		t.Fatal("current-sub cancellation must deactivate")
+	}
+}
+
+func TestSubscriptionGrantsAccess(t *testing.T) {
+	for _, st := range []string{"active", "trialing"} {
+		if !SubscriptionGrantsAccess(st) {
+			t.Fatalf("%q should grant", st)
+		}
+	}
+	for _, st := range []string{"", "past_due", "canceled", "unpaid", "incomplete", "paused"} {
+		if SubscriptionGrantsAccess(st) {
+			t.Fatalf("%q should NOT grant", st)
+		}
+	}
+}
+
 func TestListPlatformAIRequests(t *testing.T) {
 	ctx := context.Background()
 	r := newTestRepo(t)

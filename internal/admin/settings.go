@@ -320,6 +320,7 @@ func (h *Handler) settingsData(r *http.Request, c community.Community, s communi
 		d.PlatformAIStatus = s.PlatformAIStatus
 		d.PlatformAIGrantedFree = s.PlatformAIGrantedFree != nil && *s.PlatformAIGrantedFree
 		d.PlatformAISubscribed = s.StripeSubscriptionStatus == "active"
+		d.BillingEnabled = h.billingEnabled()
 		if h.Usage != nil && on && authorized {
 			now := time.Now()
 			if rows, err := h.Usage.Rollup(r.Context(), c.ID, now.Add(-30*24*time.Hour).Unix(), now.Unix()); err == nil {
@@ -365,6 +366,24 @@ func (h *Handler) PostCancelPlatformAI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.morphPlatformAICard(w, r, sse, c)
+}
+
+// PostBillingCheckout creates a Stripe Checkout Session for the community's
+// paid platform-AI subscription and client-navigates the owner to Stripe.
+// Owner-gated by the route; 404s when billing is unconfigured.
+func (h *Handler) PostBillingCheckout(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok || !h.billingEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	url, err := h.Billing.Checkout(r.Context(), c.ID, c.Slug)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-pai-error", "Could not start checkout: "+err.Error()))
+		return
+	}
+	_ = sse.Redirect(url)
 }
 
 // morphPlatformAICard reloads settings and re-renders the #owner-platform-ai card.

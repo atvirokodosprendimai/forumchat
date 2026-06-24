@@ -25,6 +25,7 @@ require (
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/starfederation/datastar-go v1.2.2
+	github.com/stripe/stripe-go/v82 v82.5.1
 	github.com/yuin/goldmark v1.4.13
 	golang.org/x/crypto v0.53.0
 	modernc.org/sqlite v1.52.0

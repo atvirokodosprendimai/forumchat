@@ -304,9 +304,18 @@ A new leaf package wrapping `stripe-go`:
   verified with the webhook secret) → on `customer.subscription.*` events updates
   `community_settings.stripe_subscription_status` + `platform_ai_status`.
 - The webhook is the only authority on subscription state; the app never trusts a
-  client-reported "I paid." Signature verification + idempotency by Stripe event
-  id. (This handler is the security-review gate at implementation time —
-  Codex/`/codex:review` before merge.)
+  client-reported "I paid." Signature verification (HMAC) + idempotency by Stripe
+  event id (a `stripe_events` dedup table) + a stale-subscription guard (ignore a
+  lifecycle event for a subscription that is no longer the community's current
+  one, so a late old-sub `deleted` can't deactivate a live one). Transient
+  storage failures return 5xx so Stripe retries; "not ours / unknown customer"
+  returns 200. (This handler is the security-review gate at implementation time —
+  Codex/`/codex:review` before merge; the first pass already folded in
+  replay/out-of-order/lost-event findings.)
+- **Granting statuses:** platform AI is authorized when the subscription status is
+  `active` **or** `trialing` (`community.SubscriptionGrantsAccess`); `past_due`,
+  `canceled`, `unpaid`, `incomplete`, `paused` do not grant — the resolver then
+  reverts the community to BYO/off.
 - Stripe keys are env (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
   `STRIPE_PLATFORM_AI_PRICE_ID`); platform-AI billing is unavailable if unset.
 

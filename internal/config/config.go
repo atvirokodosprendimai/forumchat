@@ -267,6 +267,16 @@ type Config struct {
 	PlatformAIAgentVisionModel string `env:"PLATFORM_AI_AGENT_VISION_MODEL" envDefault:""` // vision model (e.g. gemma4); used for agents with vision on
 	PlatformAIAgentAPIKey      string `env:"PLATFORM_AI_AGENT_API_KEY" envDefault:""`
 
+	// Stripe billing for PAID platform-AI access (SaaS). All three required to
+	// enable: the secret key (create checkout), the price id (the subscription
+	// product to sell), and the webhook secret (verify Stripe's callbacks — the
+	// sole authority on subscription state). Any unset → billing off, no
+	// Subscribe button, no webhook route; communities reach platform AI only via
+	// a super-admin free grant.
+	StripeSecretKey         string `env:"STRIPE_SECRET_KEY" envDefault:""`
+	StripeWebhookSecret     string `env:"STRIPE_WEBHOOK_SECRET" envDefault:""`
+	StripePlatformAIPriceID string `env:"STRIPE_PLATFORM_AI_PRICE_ID" envDefault:""`
+
 	// Web Push (VAPID) — leave VAPID_PRIVATE/PUBLIC empty to auto-generate
 	// on first boot and persist to VAPID_KEYS_FILE so subsequent boots
 	// keep the same key pair (otherwise every browser subscription would

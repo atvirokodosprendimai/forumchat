@@ -98,16 +98,22 @@ request paths. Kept separate from 2a so the pure resolver lands verified first.
    - => `templ generate` for both `superadmin.templ` + `owner_settings.templ`; `go build ./...` + `go test ./...` green
    - => committed (3a state machine, 3b super-admin card, 3b owner card) + pushed
 
-### Phase 4 - Stripe billing - status: open
+### Phase 4 - Stripe billing - status: done
 
-1. [ ] `internal/billing` leaf pkg over `stripe-go`; env `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PLATFORM_AI_PRICE_ID`
-2. [ ] `POST /c/{slug}/settings/billing/checkout` (owner) → Stripe Checkout Session → redirect
-3. [ ] `POST /billing/webhook` (public, **untrusted**) — verify signature, idempotent by event id, update `stripe_subscription_status` + `platform_ai_status` on `customer.subscription.*`
-4. [ ] Super-admin "Approve (paid)" path: status=approved_unpaid → owner checkout → webhook active
-5. [ ] Owner "Subscribe" button + lapsed-subscription notice; canceled/past_due → unauthorized → revert to BYO/off
-6. [ ] **Security gate**: Codex review (`codex:codex-rescue` read-only) on the webhook diff before merge; recommend `/codex:review` to user. Tests: forged signature rejected, valid event applied, replay idempotent
-7. [ ] Exclude `ai_usage_events` from `internal/dataexport` manifest (platform property)
-   - => commit + push
+1. [x] `internal/billing` leaf pkg over `stripe-go/v82`; env `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PLATFORM_AI_PRICE_ID` (all three required → `Enabled()`)
+2. [x] `POST /c/{slug}/settings/billing/checkout` (owner, `BillingCheckout` seam in admin) → Checkout Session (subscription mode, `client_reference_id`=community) → `sse.Redirect` to Stripe
+3. [x] `POST /billing/webhook` (public, **untrusted**) — HMAC signature verify (`ConstructEventWithOptions`, ignore API-version), idempotent by event id, updates subscription status on `checkout.session.completed` + `customer.subscription.updated/deleted`
+4. [p] Super-admin "Approve (paid)" intermediate `approved_unpaid` state — deferred: the owner Subscribe button drives checkout directly; super-admin grant is the free path. Not needed for the paid flow to work
+5. [x] Owner "Subscribe & activate" button (shown when awaiting + `BillingEnabled`); canceled/past_due/unpaid → `SubscriptionGrantsAccess` false → resolver reverts to BYO automatically
+6. [x] **Security gate**: Codex `codex-rescue` read-only review of the webhook diff. Folded confirmed findings:
+   - => HIGH (replay/out-of-order): migration **00061** `stripe_events` dedup table (`MarkStripeEventProcessed`, INSERT-OR-IGNORE gate) + stale-subscription guard in `SetSubscriptionStatus` (ignore a lifecycle event for a non-current subscription id) — stops a replayed checkout re-activating a canceled sub, and a late old-sub `deleted` deactivating a live one
+   - => HIGH (lost events): customer lookup distinguishes `sql.ErrNoRows` (ignore→200) from transient errors (→5xx so Stripe retries); dedup write error →5xx
+   - => MEDIUM (status): `community.SubscriptionGrantsAccess` allowlist (`active`+`trialing`), not a hardcoded `=="active"`
+   - => INFO: `http.MaxBytesReader` (clean reject); partial UNIQUE index on `stripe_customer_id` (deterministic customer→community)
+   - => tests: forged/missing signature rejected, checkout links + **replay no-ops**, subscription cancel applied, stale-sub guard, status allowlist
+   - => recommend user run `/codex:review` or `/codex:adversarial-review` on the branch before relying on live payments
+7. [x] `ai_usage_events` already excluded from export (the dataexport manifest is an explicit table allowlist; the ledger was never added) — verified, no change needed
+   - => `go build ./...` + `go test ./...` green; committed + pushed
 
 ### Phase 5 - Polish + guards - status: open
 
@@ -136,5 +142,6 @@ signatures.
 - 2606241000 — Phase 0 done. Migration 00059 ai_usage_events; `internal/aiusage` (Event + nil-safe Recorder + Rollup/CommunityTotals); `StreamResult.Usage` surfacing Ollama prompt_eval_count/eval_count. Tests green (`go test ./...`). Design note: metering will be per-provider-turn rows in the Phase-1 decorator, so `Generate` stays unchanged. Branch `task/saas-platform-ai-phase0`.
 - 2606241030 — Phase 1 done. Metering decorators: `agent.NewMeteredProvider` (real token usage per turn), `rag.NewMeteredEmbedder` + `agent.MeteredTranslate` (estimated via `aiusage.EstimateTokens`). All nil-safe passthrough when unwired. Tests prove meter-iff-platform (wrapped records, bare records zero). `go test ./...` green. Branch `task/saas-platform-ai-phase1`.
 - 2606241100 — Phase 2a done. `PLATFORM_AI_*` env (separate namespace) + migration 00060 (community_settings platform cols) + Settings load/save + `PlatformAI()`/`ResolveAgent()` + platform tier in `ResolveRAG`/`ResolveTranslate` with `Platform` markers. Resolver table tests cover the full authorization matrix + fallthrough + kill-switch. `go test ./...` green. Branch `task/saas-platform-ai-phase2a`. Split Phase 2 into 2a (pure/done) + 2b (live main.go/runner/worker wiring — next, riskier).
+- 2606241400 — Phase 4 done. `internal/billing` (Stripe v82): owner checkout + signature-verified public webhook as the sole authority on subscription state. Codex review caught real payment-webhook bugs — folded in: event-id dedup (migration 00061), stale-subscription guard, 5xx-on-transient so Stripe retries, status allowlist (active+trialing), MaxBytesReader, unique customer index. Owner Subscribe button + Stripe env. `go test ./...` green. Branch `task/saas-platform-ai-phase4-stripe`. Verified `ai_usage_events` not in the export allowlist. NEXT: Phase 5 polish (soft cap, docs, live smoke) — and the user should run `/codex:review` before live payments + provide real Stripe price id to test end-to-end.
 - 2606241300 — Phase 3 done (3 commits). State machine (`RequestPlatformAI`/`Grant`/`Revoke`/`Cancel`/`ListPlatformAIRequests`) + super-admin grant/revoke + cost table card (`#sa-platform-ai`) + owner request/usage card (`#owner-platform-ai`). Direct `community_settings` columns (not the append-only `community_requests` table) since platform-AI standing is mutable per-community state. `templ generate` both files; build + suite green. NEXT: Phase 4 (Stripe — untrusted webhook, Codex gate, needs the user's Stripe price id), Phase 5 (polish: soft cap, docs, live smoke).
 - 2606241200 — Phase 2b done (2 commits). 2b-i: RAG embed + translate metering wired on the existing per-community closures. 2b-ii: shared `agent.ComputeResolver` seam threaded into all THREE agent gen paths (pane Runner, /summary Service, forum ThreadRunner), wired once in main.go. User-driven design additions this session: platform offers TEXT + VISION agent models (`ResolveAgent(s,cfg,vision)` picks by capability; vision-agent-without-vision-model stays BYO), and the `/summary` summarizer routes to the vision model (`wantsVision = a.Vision || a.IsSummarizer`) since channel summaries include images. `go test ./...` green; vet clean. Branch `task/saas-platform-ai-phase2b-wiring`. NEXT: Phase 3 (request→approve lifecycle + owner/super-admin usage UI), then Phase 4 (Stripe).

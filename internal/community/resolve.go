@@ -83,8 +83,16 @@ func PlatformAI(s Settings, cfg config.Config) (on, authorized bool) {
 		return false, false
 	}
 	on = boolOr(s.UsePlatformAI, false)
-	authorized = boolOr(s.PlatformAIGrantedFree, false) || s.StripeSubscriptionStatus == "active"
+	authorized = boolOr(s.PlatformAIGrantedFree, false) || SubscriptionGrantsAccess(s.StripeSubscriptionStatus)
 	return on, authorized
+}
+
+// SubscriptionGrantsAccess reports whether a Stripe subscription status entitles
+// a community to platform AI. Both a fully-active and an in-trial subscription
+// pay (or will pay), so both grant; past_due / canceled / unpaid / incomplete /
+// paused do not.
+func SubscriptionGrantsAccess(status string) bool {
+	return status == "active" || status == "trialing"
 }
 
 // usePlatform reports whether the platform-compute branch applies: the kill

@@ -38,6 +38,15 @@ type Reindexer interface {
 	ReindexCommunity(ctx context.Context, communityID string) (int, error)
 }
 
+// BillingCheckout creates a Stripe Checkout Session for paid platform AI.
+// Implemented by *billing.Service; nil (or Enabled()==false) hides the Subscribe
+// button and 404s the checkout route. Declared here so admin never imports
+// billing (which imports stripe).
+type BillingCheckout interface {
+	Enabled() bool
+	Checkout(ctx context.Context, communityID, slug string) (string, error)
+}
+
 type Handler struct {
 	Repo        *auth.Repo
 	Svc         *auth.Service
@@ -71,6 +80,14 @@ type Handler struct {
 	// Usage is the platform-AI metering ledger, read for the owner's own usage
 	// summary on the Platform AI card. Nil-safe.
 	Usage *aiusage.Recorder
+	// Billing creates Stripe checkout sessions for paid platform AI. Nil (or
+	// disabled) hides the Subscribe button. Nil-safe via billingEnabled().
+	Billing BillingCheckout
+}
+
+// billingEnabled reports whether a Stripe Subscribe path is available.
+func (h *Handler) billingEnabled() bool {
+	return h.Billing != nil && h.Billing.Enabled()
 }
 
 func (h *Handler) cid(r *http.Request) string {

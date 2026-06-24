@@ -37,6 +37,7 @@ type OwnerSettingsData struct {
 	PlatformAIStatus      string // requested | approved_unpaid | active | canceled | ""
 	PlatformAIGrantedFree bool
 	PlatformAISubscribed  bool
+	BillingEnabled        bool // Stripe configured → show Subscribe
 	PlatformUsage         []OwnerUsageRow
 }
 
@@ -121,8 +122,13 @@ templ OwnerPlatformAICard(d OwnerSettingsData) {
 		} else {
 			<p>
 				<span class="role-pill">Requested</span>
-				<span class="muted">— awaiting operator approval. You'll switch to platform AI as soon as it's granted.</span>
+				<span class="muted">— awaiting operator approval, or subscribe to start now.</span>
 			</p>
+			if d.BillingEnabled {
+				<button data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings/billing/checkout')" }>
+					Subscribe &amp; activate
+				</button>
+			}
 			<button class="ghost" data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings/platform-ai/cancel')" }>
 				Cancel request
 			</button>
