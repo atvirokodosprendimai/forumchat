@@ -1587,7 +1587,9 @@ func run() error {
 	// /search chat slash command — reuses the fused search, rendered as an
 	// ephemeral panel for the sender. Closure keeps chat decoupled from search.
 	chatHandler.Search = func(ctx context.Context, communityID, slug, query string, limit int) []webtempl.SearchResultView {
-		results, err := searchSvc.Search(ctx, communityID, slug, query, limit)
+		// viewerID "" — the chat /search slash command stays community-public
+		// only; private-note author search lives on the /search page.
+		results, err := searchSvc.Search(ctx, communityID, "", slug, query, limit)
 		if err != nil {
 			log.Error("chat /search", "err", err)
 			return nil

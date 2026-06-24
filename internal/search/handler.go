@@ -69,7 +69,11 @@ func (h *Handler) GetResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.Svc.Search(r.Context(), h.cid(r.Context()), h.cslug(r.Context()), in.Q, DefaultLimit)
+	viewerID := ""
+	if id, ok := auth.FromContext(r.Context()); ok {
+		viewerID = id.User.ID
+	}
+	results, err := h.Svc.Search(r.Context(), h.cid(r.Context()), viewerID, h.cslug(r.Context()), in.Q, DefaultLimit)
 	sse := render.NewSSE(w, r)
 	if err != nil {
 		h.Log.Error("search results", "err", err)
