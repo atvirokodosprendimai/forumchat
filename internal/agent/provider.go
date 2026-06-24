@@ -24,12 +24,23 @@ type ChatMessage struct {
 	ToolName  string     `json:"-"`
 }
 
+// Usage reports the token counts for one provider turn. PromptTokens is the
+// input (context) the model read; CompletionTokens is what it generated. Zero
+// when the provider does not report usage. Used by the platform-AI metering
+// decorator (internal/aiusage) to bill the operator's hosted compute.
+type Usage struct {
+	PromptTokens     int
+	CompletionTokens int
+}
+
 // StreamResult reports the outcome of one provider turn. When ToolCalls is
 // non-empty the model paused to call tools (no content was streamed this turn);
 // the runner executes them, appends the results, and calls Stream again. When
 // empty, the assistant content was streamed via onDelta and the turn is final.
+// Usage carries the turn's token counts when the provider reports them.
 type StreamResult struct {
 	ToolCalls []ToolCall
+	Usage     Usage
 }
 
 // Provider runs one assistant turn. With no tools it streams the answer via
@@ -118,8 +129,11 @@ type ollamaChatChunk struct {
 		Content   string           `json:"content"`
 		ToolCalls []ollamaToolCall `json:"tool_calls"`
 	} `json:"message"`
-	Done  bool   `json:"done"`
-	Error string `json:"error"`
+	Done bool `json:"done"`
+	// Token counts: Ollama reports these only on the final (done:true) object.
+	PromptEvalCount int    `json:"prompt_eval_count"`
+	EvalCount       int    `json:"eval_count"`
+	Error           string `json:"error"`
 }
 
 func toOllamaMsgs(msgs []ChatMessage) []ollamaMsg {
@@ -205,6 +219,7 @@ func (o *Ollama) Stream(ctx context.Context, model string, msgs []ChatMessage, t
 			}
 		}
 		if chunk.Done {
+			res.Usage = Usage{PromptTokens: chunk.PromptEvalCount, CompletionTokens: chunk.EvalCount}
 			return res, nil
 		}
 	}

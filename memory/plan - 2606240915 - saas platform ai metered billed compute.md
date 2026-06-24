@@ -28,23 +28,25 @@ status: open
 
 ## Phases
 
-### Phase 0 - Metering bedrock (ledger + recorder + token surfacing) - status: open
+### Phase 0 - Metering bedrock (ledger + recorder + token surfacing) - status: done
 
 The foundation everything else needs. No billing, no toggle yet — just "can we
 count platform-compute tokens and store them."
 
-1. [ ] Migration `00059_ai_usage_events.sql` — append-only ledger
+1. [x] Migration `00059_ai_usage_events.sql` — append-only ledger
    - cols per spec: id, community_id (FK cascade), feature, user_id (FK SET NULL), model, tokens_in, tokens_out, estimated, created_at
    - index `(community_id, created_at)` for date-range rollups
-2. [ ] New leaf package `internal/aiusage` — `Event` struct, `Recorder` interface, `SQLRecorder` (async/buffered insert, nil-safe no-op like `debuglog.Recorder`)
-   - must NOT import community/rag/agent (leaf; consumers declare the interface)
-   - read-side: `Rollup(ctx, communityID, from, to) → []FeatureTotal` + `AllCommunityTotals(ctx, from, to)` for the panels
-3. [ ] Surface token usage from the provider
-   - add `Usage struct{PromptTokens, CompletionTokens int}` to `StreamResult` (`internal/agent/provider.go:31`)
-   - parse Ollama `done` object `prompt_eval_count` + `eval_count` into `ollamaChatChunk` (provider.go:116) → `StreamResult.Usage`
-   - `agent.Generate` (`internal/agent/generate.go:27`) sums usage across the agentic loop and returns it
-4. [ ] Unit tests: ledger insert/rollup round-trip; Ollama usage parse; Generate sums multi-turn
-   - => commit + push
+2. [x] New leaf package `internal/aiusage` — `Event` struct + nil-safe concrete `Recorder` (mirrors `debuglog.Recorder` exactly: concrete `*Recorder`, nil-safe, log-not-return on write failure)
+   - => chose concrete nil-safe `*Recorder` over an interface — matches the established `debuglog` precedent the spec cites; decorators (Phase 1) hold the concrete type
+   - => imports only `database/sql` + `uuid` (true leaf); read-side `Rollup(communityID, from, to) → []FeatureTotal` + `CommunityTotals(from, to) → []CommunityTotal`
+   - => `Record` synchronous (not async) — small insert at end of a generation that already writes every 100ms; deterministic to test. Async buffering noted as a possible later optimization, not needed now
+3. [x] Surface token usage from the provider
+   - `Usage{PromptTokens, CompletionTokens int}` added to `StreamResult` (`internal/agent/provider.go`)
+   - Ollama `done` object `prompt_eval_count` + `eval_count` parsed into `ollamaChatChunk` → `res.Usage` on the done chunk
+   - => `Generate` NOT changed to sum/return usage — Phase-1 decorator wraps `Provider.Stream`, recording one ledger row per provider turn; the agentic loop's turns sum naturally via multiple rows + rollup. Simpler than threading a return value through the shared core
+4. [x] Unit tests: ledger insert/rollup/totals round-trip + nil-safe + dropped-when-missing-dims; Ollama usage parse (httptest NDJSON)
+   - => `go build ./...` ok, `go test ./...` green
+   - => committed + pushed
 
 ### Phase 1 - Metering decorators (meter iff platform) - status: open
 
@@ -110,3 +112,4 @@ signatures.
 ## Progress Log
 
 - 2606240915 — Bootstrapped session (effective-go + specs + code graph + palace). Surfaced the conflict with the 2026-06-23 BYO-only decision; user confirmed the reversal is intended behind metering+billing. Clarified 4 scoping decisions. Wrote spec `[[spec - saas-platform-ai - ...]]` + this plan. No code.
+- 2606241000 — Phase 0 done. Migration 00059 ai_usage_events; `internal/aiusage` (Event + nil-safe Recorder + Rollup/CommunityTotals); `StreamResult.Usage` surfacing Ollama prompt_eval_count/eval_count. Tests green (`go test ./...`). Design note: metering will be per-provider-turn rows in the Phase-1 decorator, so `Generate` stays unchanged. Branch `task/saas-platform-ai-phase0`.
