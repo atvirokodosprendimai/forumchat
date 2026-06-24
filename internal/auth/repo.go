@@ -375,9 +375,9 @@ func (r *Repo) MembershipFor(ctx context.Context, userID, communityID string) (M
 	var banned, approved sql.NullInt64
 	var created int64
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at
+		SELECT id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at, effective_display_name
 		FROM memberships WHERE user_id = ? AND community_id = ?`, userID, communityID).
-		Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL, &role, &m.TrustLevel, &banned, &approved, &created)
+		Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL, &role, &m.TrustLevel, &banned, &approved, &created, &m.EffectiveDisplayName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Membership{}, ErrNotFound
 	}
@@ -1146,9 +1146,9 @@ func (r *Repo) MembershipByID(ctx context.Context, id string) (Membership, error
 	var banned, approved sql.NullInt64
 	var created int64
 	err := r.DB.QueryRowContext(ctx, `
-		SELECT id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at
+		SELECT id, user_id, community_id, display_name, avatar_url, role, trust_level, banned_until, approved_at, created_at, effective_display_name
 		FROM memberships WHERE id = ?`, id).
-		Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL, &role, &m.TrustLevel, &banned, &approved, &created)
+		Scan(&m.ID, &m.UserID, &m.CommunityID, &m.DisplayName, &m.AvatarURL, &role, &m.TrustLevel, &banned, &approved, &created, &m.EffectiveDisplayName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Membership{}, ErrNotFound
 	}

@@ -220,7 +220,7 @@ func (h *Handler) PostApprove(w http.ResponseWriter, r *http.Request) {
 	// notices the new member. Best-effort — if any of this fails the approve
 	// itself still succeeded.
 	if h.Chat != nil {
-		h.Chat.Welcome(r.Context(), m.CommunityID, m.DisplayName)
+		h.Chat.Welcome(r.Context(), m.CommunityID, m.ShownName())
 	}
 	h.bumpRoster(r)
 	h.refreshAdminLists(w, r)

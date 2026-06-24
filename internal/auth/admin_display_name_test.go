@@ -26,6 +26,14 @@ func TestAdminDisplayNameOverride(t *testing.T) {
 		t.Fatalf("set nick: %v", err)
 	}
 
+	// MembershipFor carries the effective name so ShownName() — used by every
+	// push/relay/announce path — reflects the alias for names shown to others.
+	if reloaded, err := repo.MembershipFor(ctx, userID, cid); err != nil {
+		t.Fatalf("reload membership: %v", err)
+	} else if reloaded.ShownName() != "Clean Name" {
+		t.Fatalf("ShownName should be the alias, got %q", reloaded.ShownName())
+	}
+
 	// ListMembers carries own name, override and resolved effective name.
 	members, err := repo.ListMembers(ctx, cid)
 	if err != nil {
@@ -81,5 +89,8 @@ func TestAdminDisplayNameOverride(t *testing.T) {
 		if mr.UserID == userID && mr.EffectiveDisplayName != "uglyname123" {
 			t.Fatalf("effective should fall back to own name, got %q", mr.EffectiveDisplayName)
 		}
+	}
+	if reloaded, _ := repo.MembershipFor(ctx, userID, cid); reloaded.ShownName() != "uglyname123" {
+		t.Fatalf("ShownName should fall back to own name after clear, got %q", reloaded.ShownName())
 	}
 }

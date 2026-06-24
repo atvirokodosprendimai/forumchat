@@ -519,7 +519,7 @@ func (s *Service) AddComment(ctx context.Context, communityID string, id auth.Id
 	if err := s.Repo.InsertComment(ctx, communityID, c); err != nil {
 		return Comment{}, fmt.Errorf("insert comment: %w", err)
 	}
-	c.AuthorName = id.Membership.DisplayName
+	c.AuthorName = id.Membership.ShownName()
 	return c, nil
 }
 

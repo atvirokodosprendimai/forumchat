@@ -413,7 +413,7 @@ func (h *Handler) PostSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Presence != nil {
-		h.Presence.Set(noteID, id.User.ID, id.Membership.DisplayName, in.Cursor)
+		h.Presence.Set(noteID, id.User.ID, id.Membership.ShownName(), in.Cursor)
 	}
 	sse := render.NewSSE(w, r)
 	_ = sse.PatchSignals(h.stateSignals(noteID, id.User.ID, body, version, in.Patch != ""))
@@ -437,7 +437,7 @@ func (h *Handler) GetCollab(w http.ResponseWriter, r *http.Request) {
 	}
 	noteID := n.ID
 	if h.Presence != nil {
-		h.Presence.Set(noteID, id.User.ID, id.Membership.DisplayName, 0)
+		h.Presence.Set(noteID, id.User.ID, id.Membership.ShownName(), 0)
 		defer h.Presence.Remove(noteID, id.User.ID)
 	}
 	sse := render.NewSSE(w, r)

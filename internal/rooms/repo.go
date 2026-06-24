@@ -262,7 +262,7 @@ func (r *Repo) ActiveInviteForRoom(ctx context.Context, roomID string) (Invite, 
 // recent membership display_name. Returns empty when the user has no rows.
 func (r *Repo) displayNameForUser(ctx context.Context, userID string) (string, error) {
 	row := r.DB.QueryRowContext(ctx, `
-		SELECT display_name FROM memberships
+		SELECT effective_display_name FROM memberships
 		WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`, userID)
 	var n string
 	err := row.Scan(&n)

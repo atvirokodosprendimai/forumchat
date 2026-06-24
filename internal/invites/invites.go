@@ -106,7 +106,7 @@ func (h *Handler) PostJoinConfirm(w http.ResponseWriter, r *http.Request) {
 	_ = h.AuthRepo.ConsumeSignupToken(r.Context(), code)
 	// Welcome ping — existing-user invitee just arrived.
 	if h.Chat != nil {
-		h.Chat.Welcome(r.Context(), c.ID, id.Membership.DisplayName)
+		h.Chat.Welcome(r.Context(), c.ID, id.Membership.ShownName())
 	}
 	sse := render.NewSSE(w, r)
 	_ = sse.Redirect("/c/" + c.Slug + "/chat")
@@ -168,7 +168,7 @@ func (h *Handler) PostJoinSetPassword(w http.ResponseWriter, r *http.Request) {
 	// Welcome ping — new placeholder invitee just activated and joined.
 	if h.Chat != nil {
 		if m, err := h.AuthRepo.MembershipFor(r.Context(), target.ID, c.ID); err == nil {
-			h.Chat.Welcome(r.Context(), c.ID, m.DisplayName)
+			h.Chat.Welcome(r.Context(), c.ID, m.ShownName())
 		}
 	}
 	sse := render.NewSSE(w, r)

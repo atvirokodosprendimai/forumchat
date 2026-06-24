@@ -61,7 +61,7 @@ func caller(r *http.Request) (projects.Identity, auth.Identity, bool) {
 	if !ok || aid.User.ID == "" {
 		return projects.Identity{}, auth.Identity{}, false
 	}
-	name := strings.TrimSpace(aid.Membership.DisplayName)
+	name := strings.TrimSpace(aid.Membership.ShownName())
 	if name == "" {
 		name = aid.User.Email
 	}
