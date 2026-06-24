@@ -523,9 +523,9 @@ func noteEditor(d NotePageData) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var18 string
-		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/save')")
+		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue("$note_patch = (window.fcNoteCollabPatch ? window.fcNoteCollabPatch() : ''); @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/save')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/notes.templ`, Line: 203, Col: 101}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/notes.templ`, Line: 203, Col: 177}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 		if templ_7745c5c3_Err != nil {

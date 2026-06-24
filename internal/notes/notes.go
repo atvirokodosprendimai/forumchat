@@ -44,6 +44,8 @@ var (
 	ErrForbidden = errors.New("notes: not allowed")
 	// ErrNotFound is returned when a note id / token resolves to nothing.
 	ErrNotFound = errors.New("notes: not found")
+	// ErrBadPatch is returned when a collab sync patch can't be parsed.
+	ErrBadPatch = errors.New("notes: malformed patch")
 )
 
 // Note is one shared note. Body is the markdown source (shown in the editor);
@@ -56,7 +58,8 @@ type Note struct {
 	ChannelID   *string
 	AuthorID    string
 	Title       string
-	Body        string
+	Body        string // published markdown (rendered to BodyHTML, FTS/RAG indexed)
+	DraftBody   string // live collaborative draft; published to Body on Save
 	BodyHTML    string
 	Visibility  string
 	ShareToken  string
@@ -114,14 +117,14 @@ type Repo struct{ DB *sql.DB }
 
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 
-const noteCols = `id, community_id, channel_id, author_id, title, body, body_html, visibility, share_token, created_at, updated_at, version`
+const noteCols = `id, community_id, channel_id, author_id, title, body, draft_body, body_html, visibility, share_token, created_at, updated_at, version`
 
 func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 	var n Note
 	var channel sql.NullString
 	var created, updated int64
 	if err := row.Scan(&n.ID, &n.CommunityID, &channel, &n.AuthorID, &n.Title,
-		&n.Body, &n.BodyHTML, &n.Visibility, &n.ShareToken, &created, &updated, &n.Version); err != nil {
+		&n.Body, &n.DraftBody, &n.BodyHTML, &n.Visibility, &n.ShareToken, &created, &updated, &n.Version); err != nil {
 		return Note{}, err
 	}
 	if channel.Valid {
@@ -136,9 +139,9 @@ func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 func (r *Repo) Create(ctx context.Context, n Note) error {
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO notes (`+noteCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.ID, n.CommunityID, channelArg(n.ChannelID), n.AuthorID, n.Title,
-		n.Body, n.BodyHTML, n.Visibility, n.ShareToken, n.CreatedAt.Unix(), n.UpdatedAt.Unix(), n.Version)
+		n.Body, n.DraftBody, n.BodyHTML, n.Visibility, n.ShareToken, n.CreatedAt.Unix(), n.UpdatedAt.Unix(), n.Version)
 	return err
 }
 
@@ -158,41 +161,54 @@ func (r *Repo) ByShareToken(ctx context.Context, token string) (Note, error) {
 // any open collaborative editors re-sync to the saved body.
 func (r *Repo) Update(ctx context.Context, n Note) error {
 	_, err := r.DB.ExecContext(ctx, `
-		UPDATE notes SET channel_id = ?, title = ?, body = ?, body_html = ?,
+		UPDATE notes SET channel_id = ?, title = ?, body = ?, draft_body = ?, body_html = ?,
 			visibility = ?, share_token = ?, updated_at = ?, version = version + 1
 		WHERE id = ?`,
-		channelArg(n.ChannelID), n.Title, n.Body, n.BodyHTML, n.Visibility,
+		channelArg(n.ChannelID), n.Title, n.Body, n.DraftBody, n.BodyHTML, n.Visibility,
 		n.ShareToken, n.UpdatedAt.Unix(), n.ID)
 	return err
 }
 
-// MergeBody applies a fuzzy diff-match-patch to the note's canonical body in one
+// MergeBody applies a fuzzy diff-match-patch to the note's DRAFT body in one
 // transaction (read current → patch → write), bumping version. The single-writer
 // DB serializes concurrent merges, so the server is the sequencer and edits from
-// several editors converge. Returns the merged body + new version.
+// several editors converge. The published body / body_html are untouched (Save
+// publishes the draft). Returns the merged draft + new version. A malformed
+// patch is rejected (ErrBadPatch, no write, no version bump).
 func (r *Repo) MergeBody(ctx context.Context, id, patchText string) (string, int, error) {
+	dmp := diffmatchpatch.New()
+	patches, perr := dmp.PatchFromText(patchText)
+	if perr != nil {
+		return "", 0, ErrBadPatch
+	}
+	if len(patches) == 0 {
+		// nothing to apply — return current draft+version without a bump.
+		var draft string
+		var version int
+		if err := r.DB.QueryRowContext(ctx, `SELECT draft_body, version FROM notes WHERE id = ?`, id).
+			Scan(&draft, &version); err != nil {
+			return "", 0, err
+		}
+		return draft, version, nil
+	}
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, err
 	}
 	defer tx.Rollback()
-	var body string
+	var draft string
 	var version int
-	if err := tx.QueryRowContext(ctx, `SELECT body, version FROM notes WHERE id = ?`, id).
-		Scan(&body, &version); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT draft_body, version FROM notes WHERE id = ?`, id).
+		Scan(&draft, &version); err != nil {
 		return "", 0, err
 	}
-	merged := body
-	dmp := diffmatchpatch.New()
-	if patches, perr := dmp.PatchFromText(patchText); perr == nil && len(patches) > 0 {
-		merged, _ = dmp.PatchApply(patches, body)
-	}
+	merged, _ := dmp.PatchApply(patches, draft)
 	if len(merged) > MaxBodyBytes {
 		merged = merged[:MaxBodyBytes]
 	}
 	version++
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE notes SET body = ?, version = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE notes SET draft_body = ?, version = ?, updated_at = ? WHERE id = ?`,
 		merged, version, time.Now().Unix(), id); err != nil {
 		return "", 0, err
 	}
@@ -365,19 +381,23 @@ func (s *Service) CreateDraft(ctx context.Context, communityID, channelID, autho
 	return n, nil
 }
 
-// SaveInput carries the editor's fields for a note save.
+// SaveInput carries the editor's fields for a note save. Patch is the final
+// collab delta to flush before publishing; Body is used only when no patch is
+// present (a non-collaborative full save).
 type SaveInput struct {
 	ID          string
 	CommunityID string
 	Title       string
 	Body        string
+	Patch       string
 	Visibility  string
 }
 
-// Save renders and persists a note. It enforces BOTH that the note belongs to
-// the caller's community (no cross-tenant write) AND that the caller may edit it
-// (Note.CanEdit). A share_token is minted on first save so a private note's link
-// is stable. Returns the saved note.
+// Save publishes the note's draft to its rendered `body`/`body_html` (what the
+// reader and FTS/RAG see). It enforces community ownership + CanEdit. When a
+// collab Patch is present it is merged into the draft FIRST (so Save never
+// clobbers a concurrent editor); otherwise a non-empty Body sets the draft
+// directly (single-editor save). A share_token is minted on first save.
 func (s *Service) Save(ctx context.Context, id auth.Identity, in SaveInput) (Note, error) {
 	n, err := s.Repo.ByID(ctx, in.ID)
 	if err != nil {
@@ -389,7 +409,19 @@ func (s *Service) Save(ctx context.Context, id auth.Identity, in SaveInput) (Not
 	if !n.CanEdit(id) {
 		return Note{}, ErrForbidden
 	}
-	body := strings.TrimSpace(in.Body)
+	if in.Patch != "" {
+		// Flush the final delta into the shared draft (merge, not overwrite).
+		if _, _, err := s.Repo.MergeBody(ctx, in.ID, in.Patch); err != nil && err != ErrBadPatch {
+			return Note{}, fmt.Errorf("flush draft: %w", err)
+		}
+		n, err = s.Repo.ByID(ctx, in.ID)
+		if err != nil {
+			return Note{}, err
+		}
+	} else if strings.TrimSpace(in.Body) != "" {
+		n.DraftBody = strings.TrimSpace(in.Body)
+	}
+	body := strings.TrimSpace(n.DraftBody)
 	if body == "" {
 		return Note{}, ErrEmpty
 	}
@@ -402,6 +434,7 @@ func (s *Service) Save(ctx context.Context, id auth.Identity, in SaveInput) (Not
 	}
 	n.Title = clip(strings.TrimSpace(in.Title), 160)
 	n.Body = body
+	n.DraftBody = body // draft == published after a save
 	n.BodyHTML = html
 	n.Visibility = normalizeVisibility(in.Visibility)
 	if n.ShareToken == "" {
@@ -434,7 +467,7 @@ func (s *Service) SyncBody(ctx context.Context, id auth.Identity, communityID, n
 		return "", 0, ErrForbidden
 	}
 	if strings.TrimSpace(patchText) == "" {
-		return n.Body, n.Version, nil
+		return n.DraftBody, n.Version, nil
 	}
 	return s.Repo.MergeBody(ctx, noteID, patchText)
 }

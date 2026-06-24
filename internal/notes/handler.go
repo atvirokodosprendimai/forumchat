@@ -319,6 +319,7 @@ func noteMessage(url, title string) string {
 type saveSignals struct {
 	Title      string `json:"note_title"`
 	Body       string `json:"note_body"`
+	Patch      string `json:"note_patch"`
 	Visibility string `json:"note_visibility"`
 }
 
@@ -341,6 +342,7 @@ func (h *Handler) PostSave(w http.ResponseWriter, r *http.Request) {
 		CommunityID: h.cid(r.Context()),
 		Title:       in.Title,
 		Body:        in.Body,
+		Patch:       in.Patch,
 		Visibility:  in.Visibility,
 	})
 	if err != nil {
@@ -384,12 +386,15 @@ func (h *Handler) PostSync(w http.ResponseWriter, r *http.Request) {
 	cid := h.cid(r.Context())
 	body, version, err := h.Svc.SyncBody(r.Context(), id, cid, noteID, in.Patch)
 	if err != nil {
-		if errors.Is(err, ErrForbidden) {
+		switch {
+		case errors.Is(err, ErrForbidden):
 			http.Error(w, "forbidden", http.StatusForbidden)
-			return
+		case errors.Is(err, ErrBadPatch):
+			http.Error(w, "bad patch", http.StatusBadRequest)
+		default:
+			h.Log.Error("note sync", "err", err)
+			http.Error(w, "sync failed", http.StatusInternalServerError)
 		}
-		h.Log.Error("note sync", "err", err)
-		http.Error(w, "sync failed", http.StatusInternalServerError)
 		return
 	}
 	sse := render.NewSSE(w, r)
@@ -418,7 +423,7 @@ func (h *Handler) GetCollab(w http.ResponseWriter, r *http.Request) {
 	}
 	noteID := n.ID
 	sse := render.NewSSE(w, r)
-	if sig, err := canonSignals(n.Body, n.Version); err == nil {
+	if sig, err := canonSignals(n.DraftBody, n.Version); err == nil {
 		_ = sse.PatchSignals(sig)
 	}
 	local, unsubscribe := h.Bus.Subscribe(noteID)
@@ -447,7 +452,7 @@ func (h *Handler) GetCollab(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		sig, err := canonSignals(fresh.Body, fresh.Version)
+		sig, err := canonSignals(fresh.DraftBody, fresh.Version)
 		if err != nil {
 			continue
 		}
@@ -652,9 +657,11 @@ func toCommentViews(cs []Comment, n Note, id auth.Identity, blockCount int) []we
 
 func (h *Handler) toView(ctx context.Context, n Note, canEdit bool) webtempl.NoteView {
 	return webtempl.NoteView{
-		ID:         n.ID,
-		Title:      n.Title,
-		Body:       n.Body,
+		ID:    n.ID,
+		Title: n.Title,
+		// The editor textarea edits the live DRAFT (the collab canonical); the
+		// reader renders the published BodyHTML.
+		Body:       n.DraftBody,
 		BodyHTML:   n.BodyHTML,
 		IsPublic:   n.IsPublic(),
 		ShareToken: n.ShareToken,

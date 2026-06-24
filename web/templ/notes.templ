@@ -200,7 +200,7 @@ templ noteEditor(d NotePageData) {
 						<option value="public">🌐 Public</option>
 					</select>
 				</label>
-				<button class="primary" data-on:click={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/save')" }>Save</button>
+				<button class="primary" data-on:click={ "$note_patch = (window.fcNoteCollabPatch ? window.fcNoteCollabPatch() : ''); @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/save')" }>Save</button>
 				<button class="btn ghost" data-on:click="$_note_share_open = true">Share…</button>
 				<button class="btn ghost danger" data-on:click={ "confirm('Delete this note?') && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/delete')" }>Delete</button>
 			</div>
