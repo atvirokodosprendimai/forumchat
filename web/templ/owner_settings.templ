@@ -28,6 +28,25 @@ type OwnerSettingsData struct {
 	S3Bucket         string
 	HasS3Secret      bool
 	Saved            bool
+
+	// Platform AI (SaaS) — run RAG/translate/agents on the operator's hosted
+	// compute instead of BYO. PlatformAIAvailable gates the whole card.
+	PlatformAIAvailable   bool
+	PlatformAIOn          bool   // owner master switch (requested/active)
+	PlatformAIAuthorized  bool   // granted free OR active subscription
+	PlatformAIStatus      string // requested | approved_unpaid | active | canceled | ""
+	PlatformAIGrantedFree bool
+	PlatformAISubscribed  bool
+	PlatformUsage         []OwnerUsageRow
+}
+
+// OwnerUsageRow is one feature's rolling 30-day platform-compute usage, shown to
+// the owner on the Platform AI card.
+type OwnerUsageRow struct {
+	Feature   string
+	Requests  int
+	TokensIn  int
+	TokensOut int
 }
 
 func ownerSettingsSignals(d OwnerSettingsData) string {
@@ -55,10 +74,80 @@ func ownerSettingsSignals(d OwnerSettingsData) string {
 templ OwnerSettingsPage(d OwnerSettingsData) {
 	@Layout("Settings · "+d.CommunityName, d.Viewer) {
 		<div class="container">
+			if d.PlatformAIAvailable {
+				@OwnerPlatformAICard(d)
+			}
 			@OwnerSettingsForm(d)
 			@DataExportCard(d.CommunitySlug)
 			@ownerDangerZone(d)
 		</div>
+	}
+}
+
+// OwnerPlatformAICard lets the owner opt into the platform's hosted AI compute
+// (no servers to run) instead of configuring their own RAG/translate/agent
+// endpoints below. It lives OUTSIDE the OwnerSettingsForm save-morph and carries
+// its own stable id #owner-platform-ai so request/cancel morph it in place
+// without disturbing the form. Authorization is the operator's call (free grant)
+// or a subscription; until then the request sits "awaiting approval".
+templ OwnerPlatformAICard(d OwnerSettingsData) {
+	<section id="owner-platform-ai" class="card">
+		<h2>⚡ Platform AI</h2>
+		<p class="muted">
+			Run RAG search, translation and agents on the platform's hosted AI —
+			no Ollama/Qdrant servers to set up. When on, it replaces the BYO
+			endpoints in the settings below. Access is granted by the platform
+			operator, or via subscription.
+		</p>
+		<div id="owner-pai-error"></div>
+		if !d.PlatformAIOn {
+			<p class="muted">You're using your own AI configuration (BYO).</p>
+			<button data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings/platform-ai/request')" }>
+				Use platform AI
+			</button>
+		} else if d.PlatformAIAuthorized {
+			<p>
+				<span class="role-pill active">● Active</span>
+				if d.PlatformAIGrantedFree {
+					<span class="muted">— sponsored by the platform</span>
+				} else if d.PlatformAISubscribed {
+					<span class="muted">— via your subscription</span>
+				}
+			</p>
+			@ownerUsageTable(d.PlatformUsage)
+			<button class="ghost danger" data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings/platform-ai/cancel')" }>
+				Stop using platform AI
+			</button>
+		} else {
+			<p>
+				<span class="role-pill">Requested</span>
+				<span class="muted">— awaiting operator approval. You'll switch to platform AI as soon as it's granted.</span>
+			</p>
+			<button class="ghost" data-on:click={ "@post('/c/" + d.CommunitySlug + "/settings/platform-ai/cancel')" }>
+				Cancel request
+			</button>
+		}
+	</section>
+}
+
+templ ownerUsageTable(rows []OwnerUsageRow) {
+	if len(rows) == 0 {
+		<p class="muted">No usage yet this period.</p>
+	} else {
+		<table class="data-table">
+			<thead><tr><th>Feature</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th></tr></thead>
+			<tbody>
+				for _, u := range rows {
+					<tr>
+						<td>{ u.Feature }</td>
+						<td>{ itoa(u.Requests) }</td>
+						<td>{ itoa(u.TokensIn) }</td>
+						<td>{ itoa(u.TokensOut) }</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+		<p class="muted">Metered token usage over the last 30 days.</p>
 	}
 }
 

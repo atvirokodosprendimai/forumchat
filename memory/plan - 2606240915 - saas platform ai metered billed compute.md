@@ -87,14 +87,16 @@ request paths. Kept separate from 2a so the pure resolver lands verified first.
    - => agent metering attributes to community (UserID="") for the 3 detached gen paths; translate is per-user. Per-user agent attribution noted as a Phase 5 polish (would thread userID through `Runner.Start`)
    - => committed across 2 commits (2b-i RAG+translate, 2b-ii agent seam + vision)
 
-### Phase 3 - Request → approve lifecycle (no Stripe yet) - status: open
+### Phase 3 - Request → approve lifecycle (no Stripe yet) - status: done
 
-1. [ ] Owner `POST` "request platform AI" → status=requested (reuse `community_requests` shape or extend it)
-2. [ ] Super-admin `/superadmin` Platform AI section: pending requests, **Grant free** (granted_free=1 → active) / **Deny**
-3. [ ] Owner `/c/{slug}/settings` Platform AI card: toggle + status display + usage summary (Phase 0 rollup)
-4. [ ] Super-admin usage table: per-community tokens/requests by feature + grand totals (shared-id morph like `SADebugCard`)
-5. [ ] Authorization transition tests: grant → authorized → platform path; grant removed → BYO/off path, no new ledger rows
-   - => commit + push
+1. [x] Owner `POST /c/{slug}/settings/platform-ai/request` + `/cancel` → `community.RequestPlatformAI`/`CancelPlatformAIRequest`; owner-gated routes
+2. [x] Super-admin `/superadmin` Platform AI card: every engaged community + **Grant free** (`GrantPlatformAI`) / **Revoke grant** (`RevokePlatformAI`), audit-logged
+3. [x] Owner `/c/{slug}/settings` Platform AI card (stable id `#owner-platform-ai`, outside the form save-morph): request/active/awaiting states + own 30-day usage table
+4. [x] Super-admin per-community cost table: rolling 30-day tokens (in/out) + request count from `aiusage.CommunityTotals`, shared-id morph `#sa-platform-ai`
+5. [x] State-machine tests (Phase 3a): grant→authorized→platform, revoke→BYO, revoke-keeps-subscription, queue listing
+   - => decision: chose direct `community_settings` columns over reusing the `community_requests` table — platform-AI standing is per-community state (one row, mutable), not an append-only request log; `ListPlatformAIRequests` is the queue view
+   - => `templ generate` for both `superadmin.templ` + `owner_settings.templ`; `go build ./...` + `go test ./...` green
+   - => committed (3a state machine, 3b super-admin card, 3b owner card) + pushed
 
 ### Phase 4 - Stripe billing - status: open
 
@@ -134,4 +136,5 @@ signatures.
 - 2606241000 — Phase 0 done. Migration 00059 ai_usage_events; `internal/aiusage` (Event + nil-safe Recorder + Rollup/CommunityTotals); `StreamResult.Usage` surfacing Ollama prompt_eval_count/eval_count. Tests green (`go test ./...`). Design note: metering will be per-provider-turn rows in the Phase-1 decorator, so `Generate` stays unchanged. Branch `task/saas-platform-ai-phase0`.
 - 2606241030 — Phase 1 done. Metering decorators: `agent.NewMeteredProvider` (real token usage per turn), `rag.NewMeteredEmbedder` + `agent.MeteredTranslate` (estimated via `aiusage.EstimateTokens`). All nil-safe passthrough when unwired. Tests prove meter-iff-platform (wrapped records, bare records zero). `go test ./...` green. Branch `task/saas-platform-ai-phase1`.
 - 2606241100 — Phase 2a done. `PLATFORM_AI_*` env (separate namespace) + migration 00060 (community_settings platform cols) + Settings load/save + `PlatformAI()`/`ResolveAgent()` + platform tier in `ResolveRAG`/`ResolveTranslate` with `Platform` markers. Resolver table tests cover the full authorization matrix + fallthrough + kill-switch. `go test ./...` green. Branch `task/saas-platform-ai-phase2a`. Split Phase 2 into 2a (pure/done) + 2b (live main.go/runner/worker wiring — next, riskier).
+- 2606241300 — Phase 3 done (3 commits). State machine (`RequestPlatformAI`/`Grant`/`Revoke`/`Cancel`/`ListPlatformAIRequests`) + super-admin grant/revoke + cost table card (`#sa-platform-ai`) + owner request/usage card (`#owner-platform-ai`). Direct `community_settings` columns (not the append-only `community_requests` table) since platform-AI standing is mutable per-community state. `templ generate` both files; build + suite green. NEXT: Phase 4 (Stripe — untrusted webhook, Codex gate, needs the user's Stripe price id), Phase 5 (polish: soft cap, docs, live smoke).
 - 2606241200 — Phase 2b done (2 commits). 2b-i: RAG embed + translate metering wired on the existing per-community closures. 2b-ii: shared `agent.ComputeResolver` seam threaded into all THREE agent gen paths (pane Runner, /summary Service, forum ThreadRunner), wired once in main.go. User-driven design additions this session: platform offers TEXT + VISION agent models (`ResolveAgent(s,cfg,vision)` picks by capability; vision-agent-without-vision-model stays BYO), and the `/summary` summarizer routes to the vision model (`wantsVision = a.Vision || a.IsSummarizer`) since channel summaries include images. `go test ./...` green; vet clean. Branch `task/saas-platform-ai-phase2b-wiring`. NEXT: Phase 3 (request→approve lifecycle + owner/super-admin usage UI), then Phase 4 (Stripe).

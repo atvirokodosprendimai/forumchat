@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	datastar "github.com/starfederation/datastar-go/datastar"
 
@@ -308,5 +309,70 @@ func (h *Handler) settingsData(r *http.Request, c community.Community, s communi
 	d.S3Region = s.S3Region
 	d.S3Bucket = s.S3Bucket
 	d.HasS3Secret = s.S3SecretKey != ""
+
+	// Platform AI card (SaaS only): the owner's opt-in standing + their own
+	// rolling 30-day usage when active.
+	if h.Cfg.SAAS {
+		on, authorized := community.PlatformAI(s, h.Cfg)
+		d.PlatformAIAvailable = true
+		d.PlatformAIOn = on
+		d.PlatformAIAuthorized = authorized
+		d.PlatformAIStatus = s.PlatformAIStatus
+		d.PlatformAIGrantedFree = s.PlatformAIGrantedFree != nil && *s.PlatformAIGrantedFree
+		d.PlatformAISubscribed = s.StripeSubscriptionStatus == "active"
+		if h.Usage != nil && on && authorized {
+			now := time.Now()
+			if rows, err := h.Usage.Rollup(r.Context(), c.ID, now.Add(-30*24*time.Hour).Unix(), now.Unix()); err == nil {
+				for _, ft := range rows {
+					d.PlatformUsage = append(d.PlatformUsage, webtempl.OwnerUsageRow{
+						Feature: ft.Feature, Requests: ft.Requests, TokensIn: ft.TokensIn, TokensOut: ft.TokensOut,
+					})
+				}
+			}
+		}
+	}
 	return d
+}
+
+// PostRequestPlatformAI records the owner's opt-in to platform AI (queued for
+// operator grant, or active immediately if already authorized) and morphs the
+// card. Owner-gated by the route.
+func (h *Handler) PostRequestPlatformAI(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if err := h.Communities.RequestPlatformAI(r.Context(), c.ID); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-pai-error", "Could not request: "+err.Error()))
+		return
+	}
+	h.morphPlatformAICard(w, r, sse, c)
+}
+
+// PostCancelPlatformAI withdraws the owner's opt-in (keeping any grant/sub state)
+// and morphs the card.
+func (h *Handler) PostCancelPlatformAI(w http.ResponseWriter, r *http.Request) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if err := h.Communities.CancelPlatformAIRequest(r.Context(), c.ID); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-pai-error", "Could not cancel: "+err.Error()))
+		return
+	}
+	h.morphPlatformAICard(w, r, sse, c)
+}
+
+// morphPlatformAICard reloads settings and re-renders the #owner-platform-ai card.
+func (h *Handler) morphPlatformAICard(w http.ResponseWriter, r *http.Request, sse *datastar.ServerSentEventGenerator, c community.Community) {
+	s, err := h.Communities.Settings(r.Context(), c.ID)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-pai-error", err.Error()))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.OwnerPlatformAICard(h.settingsData(r, c, s, false)))
 }

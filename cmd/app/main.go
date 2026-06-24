@@ -489,6 +489,7 @@ func run() error {
 		CommunityName: bootCommunity.Name,
 		Cfg:           cfg,
 		Uploads:       uploadStore,
+		Usage:         usageRec,
 		Log:           log,
 	}
 
@@ -1837,6 +1838,8 @@ func run() error {
 				r.Get("/settings", adminHandler.GetSettings)
 				r.Post("/settings", adminHandler.PostSettings)
 				r.Post("/settings/migrate-storage", adminHandler.PostMigrateStorage)
+				r.Post("/settings/platform-ai/request", adminHandler.PostRequestPlatformAI)
+				r.Post("/settings/platform-ai/cancel", adminHandler.PostCancelPlatformAI)
 				r.Post("/settings/delete", adminHandler.PostDeleteCommunity)
 				// Owner-initiated data export: live status card (SSE) + request.
 				// The download itself is a public token-gated route (see below).

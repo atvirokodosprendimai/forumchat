@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/aiusage"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
@@ -67,6 +68,9 @@ type Handler struct {
 	// Uploads is used by the owner Storage card to migrate a community to its
 	// own S3 bucket. Optional — nil disables the migrate action.
 	Uploads *uploads.Store
+	// Usage is the platform-AI metering ledger, read for the owner's own usage
+	// summary on the Platform AI card. Nil-safe.
+	Usage *aiusage.Recorder
 }
 
 func (h *Handler) cid(r *http.Request) string {
