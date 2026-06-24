@@ -113,6 +113,14 @@ type SAChatRow struct {
 type SAChatPageData struct {
 	Viewer Viewer
 	Rows   []SAChatRow
+	// StreamPath is the SSE endpoint the page opens on mount — differs by
+	// surface: "/superadmin/chat/stream" (god-mode) or "/chats/stream"
+	// (member-scoped).
+	StreamPath string
+	// GodMode true → the self-hosted super-admin's every-community feed (intro
+	// copy says so). False → the SaaS member feed scoped to the viewer's own
+	// communities.
+	GodMode bool
 }
 
 // sysBanJS builds the per-user "Ban + wipe" click expression: a confirm that
@@ -172,7 +180,11 @@ templ SuperAdminPage(data SuperAdminPageData) {
 		<section class="card">
 			<h1>🛡 Platform admin</h1>
 			<p class="muted">Super-admin god-mode. You can open any community’s admin, create communities, and disable accounts platform-wide. <strong>Delete is permanent</strong> — it erases the community and cascades its members, messages and threads; you must type the slug to confirm.</p>
-			<p><a href="/superadmin/chat">💬 All chats — live cross-community feed →</a></p>
+			if SaaSEnabled {
+				<p><a href="/chats">💬 Your communities’ chats — live readonly feed →</a></p>
+			} else {
+				<p><a href="/superadmin/chat">💬 All chats — live cross-community feed →</a></p>
+			}
 			<div id="sa-result"></div>
 		</section>
 
@@ -293,18 +305,22 @@ templ SuperAdminPage(data SuperAdminPageData) {
 // global SSE stream which fat-morphs #sa-messages on any chat write anywhere
 // on the platform. There is no composer — this view is strictly readonly.
 templ SAChatPage(data SAChatPageData) {
-	@Layout("All chats", data.Viewer) {
+	@Layout("Chats", data.Viewer) {
 		<div class="sa-chat-page">
 			<section class="card sa-chat-intro">
-				<h1>💬 All chats</h1>
-				<p class="muted">Live, readonly feed of the latest 100 messages across every community and channel, oldest→newest like a chat. Click any row to open it in its community. <a href="/superadmin">← back to platform admin</a></p>
+				<h1>💬 Chats</h1>
+				if data.GodMode {
+					<p class="muted">Live, readonly feed of the latest 100 messages across <strong>every</strong> community and channel, oldest→newest like a chat. Click any row to open it in its community. <a href="/superadmin">← back to platform admin</a></p>
+				} else {
+					<p class="muted">Live, readonly feed of the latest 100 messages across <strong>your</strong> communities and channels, oldest→newest like a chat. Click any row to open it in its community.</p>
+				}
 			</section>
 			// data-init lives on this STABLE wrapper, not on #sa-messages — the
 			// feed is outer-morphed on every event and would re-open the stream
 			// if it carried the init. openWhenHidden keeps the SSE alive when the
 			// tab is backgrounded (same as chat.templ), so live updates don't
-			// stop when the admin switches tabs.
-			<div class="sa-chat-stream-wrap" data-init="@get('/superadmin/chat/stream', {openWhenHidden: true})">
+			// stop when the viewer switches tabs.
+			<div class="sa-chat-stream-wrap" data-init={ "@get('" + data.StreamPath + "', {openWhenHidden: true})" }>
 				@SAChatMessages(data.Rows)
 			</div>
 		</div>

@@ -487,9 +487,18 @@ templ Layout(title string, v Viewer) {
 						if IsAdminOfAnyCommunity(ctx) {
 							<a href="/issues" aria-current={ navActive(ctx, "/issues") }><span class="sb-icon" aria-hidden="true">🐞</span>Issues</a>
 						}
+						if SaaSEnabled {
+							// Cross-community readonly inbox scoped to the viewer's own
+							// communities — every member sees their chats, not everyone's.
+							<a href="/chats" aria-current={ navActive(ctx, "/chats") }><span class="sb-icon" aria-hidden="true">💬</span>Chats</a>
+						}
 						if IsSuperAdmin(ctx) {
 							<a href="/superadmin" aria-current={ navActive(ctx, "/superadmin") }><span class="sb-icon" aria-hidden="true">🛡</span>Platform</a>
-							<a href="/superadmin/chat" aria-current={ navActive(ctx, "/superadmin/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chats</a>
+							if !SaaSEnabled {
+								// Self-hosted god-mode feed across every community. In SaaS the
+								// super-admin uses the scoped /chats above (no sniffing).
+								<a href="/superadmin/chat" aria-current={ navActive(ctx, "/superadmin/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chats</a>
+							}
 							if SupportInboxEnabled {
 								<a href="/support-inbox" aria-current={ navActive(ctx, "/support-inbox") }><span class="sb-icon" aria-hidden="true">📨</span>Support inbox</a>
 							}

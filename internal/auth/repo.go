@@ -739,6 +739,34 @@ type UserMembership struct {
 // UserMemberships returns every community the user belongs to with their
 // membership id, role, state and live activity counts, ordered by community
 // name. Counts ignore soft-deleted rows so they reflect what's still visible.
+// CommunityIDsForUser returns the IDs of the communities a user may currently
+// read: approved, not-currently-banned memberships only. It backs the
+// member-facing cross-community chat inbox (chat.RecentForCommunities), so a
+// pending or banned membership never streams that community's chat. `now` is
+// the current unix time used to expire timed bans (banned_until <= now).
+func (r *Repo) CommunityIDsForUser(ctx context.Context, userID string, now int64) ([]string, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT m.community_id
+		FROM memberships m
+		WHERE m.user_id = ?
+		  AND m.approved_at IS NOT NULL
+		  AND (m.banned_until IS NULL OR m.banned_until <= ?)
+		ORDER BY m.community_id`, userID, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repo) UserMemberships(ctx context.Context, userID string) ([]UserMembership, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, c.id, c.slug, c.name, m.role,

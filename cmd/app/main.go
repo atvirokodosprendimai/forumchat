@@ -2077,9 +2077,25 @@ func run() error {
 		})
 	}
 
+	// Cross-community readonly chat inbox. ONE engine, two surfaces:
+	//   - SaaS member feed (/chats): scoped to the viewer's own communities so a
+	//     tenant sees their own chats, not every community's ("no sniffing").
+	//   - self-hosted super-admin god-mode (/superadmin/chat): every community.
+	// In SaaS the super-admin gets the scoped feed too (god-mode disabled);
+	// /superadmin/chat redirects to /chats.
+	memberChatInbox := &chat.InboxHandler{Repo: chatRepo, Bus: chatHandler.Bus, NATS: nc, Members: aRepo, GodMode: false, StreamPath: "/chats/stream"}
+	godChatInbox := &chat.InboxHandler{Repo: chatRepo, Bus: chatHandler.Bus, NATS: nc, GodMode: true, StreamPath: "/superadmin/chat/stream"}
+	if cfg.SAAS {
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth)
+			r.Get("/chats", memberChatInbox.GetPage)
+			r.Get("/chats/stream", memberChatInbox.GetStream)
+		})
+	}
+
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
-	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, ChatRepo: chatRepo, NATS: nc, Chat: chatHandler, Debug: debugRec, Usage: usageRec}
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, Chat: chatHandler, Debug: debugRec, Usage: usageRec}
 	if ragSvc != nil {
 		superHandler.RAG = ragSvc
 	}
@@ -2087,8 +2103,16 @@ func run() error {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireSuperAdmin)
 		r.Get("/superadmin", superHandler.GetIndex)
-		r.Get("/superadmin/chat", superHandler.GetChat)
-		r.Get("/superadmin/chat/stream", superHandler.GetChatStream)
+		if cfg.SAAS {
+			// No god-mode all-communities feed in SaaS — the super-admin uses the
+			// same scoped /chats as every member.
+			r.Get("/superadmin/chat", func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/chats", http.StatusSeeOther)
+			})
+		} else {
+			r.Get("/superadmin/chat", godChatInbox.GetPage)
+			r.Get("/superadmin/chat/stream", godChatInbox.GetStream)
+		}
 		r.Get("/superadmin/debug", superHandler.GetDebug)
 		r.Post("/superadmin/debug/toggle", superHandler.PostDebugToggle)
 		r.Post("/superadmin/debug/clear", superHandler.PostDebugClear)

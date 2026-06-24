@@ -42,7 +42,7 @@ func newTestHandler(t *testing.T) (*Handler, *auth.Repo, *community.Repo) {
 			return err
 		},
 	}
-	return &Handler{AuthRepo: aRepo, Communities: cRepo, ChatRepo: chatRepo, Provision: prov}, aRepo, cRepo
+	return &Handler{AuthRepo: aRepo, Communities: cRepo, Provision: prov}, aRepo, cRepo
 }
 
 // seedCommunityWithMember creates a community plus one approved member, so a
@@ -390,7 +390,6 @@ func TestPostDeleteCommunity_CorrectSlugCascades(t *testing.T) {
 func TestPostCreateCommunity_SeedsDefaultChannel(t *testing.T) {
 	h, aRepo, cRepo := newTestHandler(t)
 	chatRepo := chat.NewRepo(aRepo.DB)
-	h.ChatRepo = chatRepo
 	ctx := context.Background()
 
 	uid := uuid.NewString()

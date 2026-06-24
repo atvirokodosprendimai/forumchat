@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/aiusage"
@@ -23,7 +22,6 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
-	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
@@ -55,14 +53,8 @@ type Handler struct {
 	Log       *slog.Logger
 	// Bus fans out a chat refresh after a system-ban wipes content so open
 	// chat tabs drop the soft-deleted messages live. It is the process-wide
-	// chat bus, so the global chat inbox (GetChatStream) subscribes to it to
-	// see every community's writes in-process. Nil-safe (tests omit it).
+	// chat bus. Nil-safe (tests omit it).
 	Bus *chat.Bus
-	// ChatRepo backs the cross-community readonly chat inbox (RecentGlobal).
-	ChatRepo *chat.Repo
-	// NATS lets the chat inbox fan in cross-process writes via the
-	// community.*.chat wildcard. Nil/disconnected → in-process Bus only.
-	NATS *nats.Conn
 	// RAG triggers a global vector reindex. Nil when RAG is disabled.
 	RAG Reindexer
 	// Chat fans an announcement into every community's #general live. Wired in
@@ -828,163 +820,6 @@ func plural(n int) string {
 		return "y"
 	}
 	return "ies"
-}
-
-// globalChatLimit caps the cross-community inbox. The FE never holds more
-// than this in the DOM (matches chat.RecentLimit's intent).
-const globalChatLimit = 100
-
-// GetChat renders the platform-wide readonly chat inbox: the latest messages
-// from every community + channel, newest first. The page's data-init opens
-// the global SSE stream which keeps it live.
-func (h *Handler) GetChat(w http.ResponseWriter, r *http.Request) {
-	rows, err := h.globalChatRows(r.Context())
-	if err != nil {
-		http.Error(w, "load chat: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	data := webtempl.SAChatPageData{Viewer: h.viewer(r), Rows: rows}
-	_ = webtempl.SAChatPage(data).Render(r.Context(), w)
-}
-
-// GetChatStream is the global chat inbox SSE. It subscribes to the
-// process-wide chat Bus (every community's writes) plus the NATS
-// community.*.chat wildcard (cross-process), and fat-morphs #sa-messages with
-// the freshest cross-community feed on any chat event anywhere. Readonly — it
-// never writes.
-func (h *Handler) GetChatStream(w http.ResponseWriter, r *http.Request) {
-	sse := render.NewSSE(w, r)
-
-	// Initial sync on every (re)connect so a reconnecting client isn't stale.
-	// force=true → scroll to the newest on (re)connect.
-	if rows, err := h.globalChatRows(r.Context()); err == nil {
-		_ = saChatMorph(sse, rows, true)
-	}
-
-	var local <-chan string
-	if h.Bus != nil {
-		ch, unsubscribe := h.Bus.Subscribe()
-		defer unsubscribe()
-		local = ch
-	}
-
-	var natsCh chan *nats.Msg
-	if h.NATS != nil && h.NATS.IsConnected() {
-		natsCh = make(chan *nats.Msg, 64)
-		sub, err := h.NATS.ChanSubscribe(natsx.AllChatSubject(), natsCh)
-		if err == nil {
-			defer sub.Unsubscribe()
-		} else {
-			if h.Log != nil {
-				h.Log.Warn("superadmin chat nats subscribe", "err", err)
-			}
-			natsCh = nil
-		}
-	}
-
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case <-local:
-		case _, ok := <-natsCh:
-			if !ok {
-				natsCh = nil
-				continue
-			}
-		}
-		rows, err := h.globalChatRows(r.Context())
-		if err != nil {
-			continue
-		}
-		// force=false → stick-to-bottom: only auto-scroll if the viewer is
-		// already near the bottom, so scrolling up to read older messages
-		// isn't yanked back when an unrelated chat event re-morphs the feed.
-		if err := saChatMorph(sse, rows, false); err != nil {
-			return
-		}
-	}
-}
-
-// saChatMorph outer-morphs the whole feed (idiomorph keeps #sa-messages the
-// same node, preserving the viewer's scrollTop). Scroll-to-bottom is sticky:
-// a pre-morph script records whether the viewer was near the bottom, and a
-// post-morph script scrolls only if so (or if force — used on first connect).
-// This is why scrolling up to read does NOT snap back on every event.
-func saChatMorph(sse *datastar.ServerSentEventGenerator, rows []webtempl.SAChatRow, force bool) error {
-	if force {
-		if err := sse.ExecuteScript(`window.__saStick = true`); err != nil {
-			return err
-		}
-	} else {
-		if err := sse.ExecuteScript(`window.__saStick = (() => { const f = document.getElementById('sa-messages'); return !f || (f.scrollHeight - f.scrollTop - f.clientHeight) < 120; })()`); err != nil {
-			return err
-		}
-	}
-	if err := sse.PatchElementTempl(webtempl.SAChatMessages(rows), datastar.WithModeOuter()); err != nil {
-		return err
-	}
-	return sse.ExecuteScript(`(() => { const f = document.getElementById('sa-messages'); if (window.__saStick && f) { f.scrollTop = f.scrollHeight; } })()`)
-}
-
-// globalChatRows loads the latest cross-community messages and maps them to
-// view rows (the read model reused by both GetChat and GetChatStream).
-func (h *Handler) globalChatRows(ctx context.Context) ([]webtempl.SAChatRow, error) {
-	if h.ChatRepo == nil {
-		return nil, nil
-	}
-	msgs, err := h.ChatRepo.RecentGlobal(ctx, globalChatLimit)
-	if err != nil {
-		return nil, err
-	}
-	// RecentGlobal returns newest-first; the inbox renders oldest→newest with
-	// the newest at the bottom and auto-scrolls there — same order as the
-	// per-community chat (which reverses its DESC query the same way).
-	out := make([]webtempl.SAChatRow, 0, len(msgs))
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
-		body := strings.TrimSpace(m.BodyHTML)
-		text := ""
-		if body == "" {
-			// Some system rows carry no rendered HTML — fall back to the raw
-			// markdown as text so the row isn't blank.
-			text = strings.TrimSpace(m.BodyMarkdown)
-		}
-		out = append(out, webtempl.SAChatRow{
-			ID:            m.ID,
-			Community:     m.CommunityName,
-			CommunitySlug: m.CommunitySlug,
-			Channel:       m.ChannelSlug,
-			Kind:          string(m.Kind),
-			Author:        m.AuthorName,
-			BodyHTML:      body,
-			BodyText:      text,
-			Deleted:       m.Deleted,
-			CreatedAt:     m.CreatedAt.Format("Jan 2 15:04"),
-			HRef:          chatHRef(m),
-		})
-	}
-	return out, nil
-}
-
-// chatHRef builds the deep link for a global inbox row. Thread-bound rows
-// (promoted-to-thread, or thread announcements) jump to the forum thread;
-// everything else opens the source channel's chat page. Project routing is
-// deliberately out of scope — chat rows carry no project ref, so any project
-// links live inside the body HTML and remain clickable there.
-func chatHRef(m chat.GlobalMessage) string {
-	base := "/c/" + m.CommunitySlug
-	if m.PromotedThreadID != nil && *m.PromotedThreadID != "" {
-		return base + "/forum/" + *m.PromotedThreadID
-	}
-	if m.Kind == chat.KindThreadAnnounce && m.RefThreadID != nil && *m.RefThreadID != "" {
-		return base + "/forum/" + *m.RefThreadID
-	}
-	channel := m.ChannelSlug
-	if channel == "" {
-		channel = "general"
-	}
-	return base + "/chat/" + channel
 }
 
 func (h *Handler) audit(r *http.Request, msg string, kv ...any) {

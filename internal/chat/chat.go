@@ -412,12 +412,34 @@ type GlobalMessage struct {
 }
 
 // RecentGlobal returns the latest `limit` chat messages across EVERY
-// community and channel, newest first, for the super-admin's readonly inbox.
-// It joins community + channel identity so each row can deep-link back to its
-// source. Soft-deleted rows are included (the caller marks them) — this is a
-// god-mode view. Single SELECT, no N+1.
+// community and channel, newest first, for the super-admin's god-mode readonly
+// inbox (self-hosted only). Soft-deleted rows are included (the caller marks
+// them). Single SELECT, no N+1.
 func (r *Repo) RecentGlobal(ctx context.Context, limit int) ([]GlobalMessage, error) {
-	rows, err := r.DB.QueryContext(ctx, `
+	return r.recentFeed(ctx, true, nil, limit, true)
+}
+
+// RecentForCommunities returns the latest `limit` chat messages scoped to the
+// given communities, newest first — the member-facing cross-community inbox.
+// An empty communityIDs returns NO rows (never the god-mode all-communities
+// feed): a viewer with no memberships sees an empty inbox, not everything.
+// includeDeleted=false drops soft-deleted rows so a readonly member never sees
+// removed content.
+func (r *Repo) RecentForCommunities(ctx context.Context, communityIDs []string, limit int, includeDeleted bool) ([]GlobalMessage, error) {
+	if len(communityIDs) == 0 {
+		return nil, nil
+	}
+	return r.recentFeed(ctx, false, communityIDs, limit, includeDeleted)
+}
+
+// recentFeed is the shared cross-community read model behind RecentGlobal
+// (god-mode) and RecentForCommunities (member-scoped). It joins community +
+// channel identity so each row can deep-link back to its source. all=true
+// scans every community (god-mode) and IGNORES communityIDs; all=false scopes
+// to communityIDs. includeDeleted keeps soft-deleted rows.
+func (r *Repo) recentFeed(ctx context.Context, all bool, communityIDs []string, limit int, includeDeleted bool) ([]GlobalMessage, error) {
+	var b strings.Builder
+	b.WriteString(`
 		SELECT m.id, m.community_id, c.slug, c.name,
 		       COALESCE(m.channel_id, ''), COALESCE(ch.slug, ''), COALESCE(ch.name, ''),
 		       COALESCE(mb.display_name, ''), m.kind, m.body_html, m.body_md,
@@ -425,9 +447,28 @@ func (r *Repo) RecentGlobal(ctx context.Context, limit int) ([]GlobalMessage, er
 		FROM chat_messages m
 		JOIN communities c ON c.id = m.community_id
 		LEFT JOIN chat_channels ch ON ch.id = m.channel_id
-		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
-		ORDER BY m.created_at DESC, m.rowid DESC
-		LIMIT ?`, limit)
+		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id`)
+	args := make([]any, 0, len(communityIDs)+1)
+	conds := make([]string, 0, 2)
+	if !all {
+		ph := make([]string, len(communityIDs))
+		for i, id := range communityIDs {
+			ph[i] = "?"
+			args = append(args, id)
+		}
+		conds = append(conds, "m.community_id IN ("+strings.Join(ph, ",")+")")
+	}
+	if !includeDeleted {
+		conds = append(conds, "m.deleted_at IS NULL")
+	}
+	if len(conds) > 0 {
+		b.WriteString("\n\t\tWHERE ")
+		b.WriteString(strings.Join(conds, " AND "))
+	}
+	b.WriteString("\n\t\tORDER BY m.created_at DESC, m.rowid DESC\n\t\tLIMIT ?")
+	args = append(args, limit)
+
+	rows, err := r.DB.QueryContext(ctx, b.String(), args...)
 	if err != nil {
 		return nil, err
 	}
