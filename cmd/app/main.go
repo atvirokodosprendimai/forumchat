@@ -31,6 +31,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/agent"
 	"github.com/atvirokodosprendimai/forumchat/internal/agent/mcpx"
 	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
+	"github.com/atvirokodosprendimai/forumchat/internal/aiusage"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/bookmarks"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
@@ -108,6 +109,12 @@ func run() error {
 	// payload capture into debug_logs. Shared by webhooks (capture) and the
 	// super-admin surface (toggle + view + clear).
 	debugRec := debuglog.New(db, log)
+
+	// usageRec meters PLATFORM AI compute: every RAG-embed / translate / agent
+	// request a community runs on the operator's hosted AI (the "use system-wide
+	// settings" opt-in) appends one ai_usage_events row. BYO requests stay bare
+	// and record nothing. See eidos/spec - saas-platform-ai …
+	usageRec := aiusage.New(db, log)
 
 	// Secrets box seals per-community tenant secrets (Qdrant/S3 keys) at rest.
 	// Empty SECRETS_KEY (dev) yields a passthrough; prod+SaaS requires a real
@@ -395,14 +402,14 @@ func run() error {
 	chatBus := chat.NewBus()
 	chatNewMsgBus := chat.NewBus()
 	chatHandler := &chat.Handler{
-		Svc:           chatSvc,
-		Repo:          chatRepo,
-		NATS:          nc,
-		Bus:           chatBus,
-		NewMsgBus:     chatNewMsgBus,
-		Uploads:       uploadStore,
-		AuthRepo:      aRepo,
-		Flood:         agentlimit.New(), // per-user chat flood control
+		Svc:       chatSvc,
+		Repo:      chatRepo,
+		NATS:      nc,
+		Bus:       chatBus,
+		NewMsgBus: chatNewMsgBus,
+		Uploads:   uploadStore,
+		AuthRepo:  aRepo,
+		Flood:     agentlimit.New(), // per-user chat flood control
 
 		BaseURL:       cfg.BaseURL,
 		CommunityID:   bootCommunity.ID,
@@ -590,15 +597,25 @@ func run() error {
 				}
 				r := community.ResolveRAG(s, cfg)
 				key := r.EmbedBaseURL + "|" + r.EmbedModel + "|" + strconv.Itoa(r.EmbedDim)
+				var emb rag.Embedder
 				if v, ok := embCache.Load(key); ok {
-					return v.(rag.Embedder), nil
+					emb = v.(rag.Embedder)
+				} else {
+					e := rag.NewOllamaEmbedder(r.EmbedBaseURL, r.EmbedModel, r.EmbedDim)
+					// Tenant-supplied Ollama host: reject internal/metadata addresses
+					// at dial time (rebinding-safe) on top of the save-time guard.
+					e.HTTP = netguard.GuardedClient(2 * time.Minute)
+					embCache.Store(key, e)
+					emb = e
 				}
-				e := rag.NewOllamaEmbedder(r.EmbedBaseURL, r.EmbedModel, r.EmbedDim)
-				// Tenant-supplied Ollama host: reject internal/metadata addresses
-				// at dial time (rebinding-safe) on top of the save-time guard.
-				e.HTTP = netguard.GuardedClient(2 * time.Minute)
-				embCache.Store(key, e)
-				return e, nil
+				// Platform compute (operator pays): meter this community's embeds.
+				// The bare embedder is cached by (host|model|dim) and shared across
+				// platform communities, so the per-community metering wrapper is
+				// applied here, after the cache, not stored in it.
+				if r.Platform {
+					return rag.NewMeteredEmbedder(emb, usageRec, communityID), nil
+				}
+				return emb, nil
 			}
 		}
 		log.Info("rag enabled", "backend", ragBackend, "model", cfg.RAGEmbedModel, "store", cfg.RAGStorePath)
@@ -1503,6 +1520,15 @@ func run() error {
 			tr := community.ResolveTranslate(s, cfg)
 			if !tr.Enabled || tr.Model == "" {
 				return nil, nil
+			}
+			// Platform compute (operator pays): meter, attributing to the
+			// requesting member. BYO stays bare.
+			if tr.Platform {
+				var uid string
+				if id, ok := auth.FromContext(ctx); ok {
+					uid = id.User.ID
+				}
+				return agent.MeteredTranslate(ctx, usageRec, c.ID, uid, tr.BaseURL, tr.Model, text)
 			}
 			return agent.Translate(ctx, tr.BaseURL, tr.Model, text)
 		}
