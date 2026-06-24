@@ -184,3 +184,4 @@
 - 2026-06-24 `cc5dfb7` docs(saas): spec + plan for platform-provided metered, billed AI compute
 - 2026-06-24 `af92829` docs(saas): platform-AI feature section + env reference
 - 2026-06-24 `2430fd1` docs(changelog): record platform-AI feature commits
+- 2026-06-24 `d149612` fix(billing): harden webhook per 2nd Codex pass — lost-event, checkout-trust, race
