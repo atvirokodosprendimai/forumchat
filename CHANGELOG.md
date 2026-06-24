@@ -191,3 +191,4 @@
 - 2026-06-24 `1b16c96` docs(changelog): auto-append
 - 2026-06-24 `d506409` fix(billing): resolve subscription events via metadata; grant on trialing too
 - 2026-06-24 `af0cf6e` docs(changelog): auto-append
+- 2026-06-24 `b2fcc1c` docs(changelog): auto-append
