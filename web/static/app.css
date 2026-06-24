@@ -4,6 +4,12 @@
 [data-cloak] { display: none !important; }
 
 :root {
+  /* Force light rendering of native UA controls (inputs, selects, checkboxes,
+     scrollbars, date/time pickers, autofill backgrounds). Without this the
+     app — which is a light theme — renders those controls with the OS dark
+     theme on dark-mode devices, producing dark-on-light contrast bugs. */
+  color-scheme: light;
+
   /* Surfaces — cool-neutral, paper-like */
   --bg: oklch(98.5% 0.004 260);
   --surface: oklch(100% 0 0);
@@ -283,6 +289,27 @@ button.link:hover, .link-button:hover {
 .msg-menu-item.danger { background: transparent; color: var(--danger); }
 .msg-menu-item.danger .mi-icon { color: var(--danger); }
 .msg-menu-item.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+/* Desktop declutter: the per-message ⋮ action menu is hidden at rest and
+   revealed when the bubble is hovered, a control inside it is focused, or the
+   menu is open — the standard messenger pattern (Slack/Discord/Telegram).
+   Without this, every bubble shows a permanent ⋮; rapid grouped messages
+   stack into a ladder of dots down the right edge. Scoped to hover-capable
+   pointers so touch devices (no :hover) keep the trigger permanently visible
+   and the mobile bottom-sheet stays reachable. */
+@media (hover: hover) and (pointer: fine) {
+  .bubble .msg-menu > summary {
+    opacity: 0;
+    transition: opacity var(--t-fast) var(--ease-out),
+                background .12s, border-color .12s, color .12s;
+  }
+  .bubble:hover .msg-menu > summary,
+  .bubble:focus-within .msg-menu > summary,
+  .bubble .msg-menu[open] > summary,
+  .bubble .msg-menu > summary:focus-visible {
+    opacity: 1;
+  }
+}
 
 /* Mobile bottom-sheet */
 @media (max-width: 720px) {
