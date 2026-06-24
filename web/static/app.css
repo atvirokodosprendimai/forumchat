@@ -5037,9 +5037,6 @@ button.ghost.danger:hover:not([disabled]) {
 .agent-send:hover { background: var(--accent-hover); }
 .agent-stop { background: var(--danger); color: #fff; }
 
-.agent-banner { padding: .6rem 1rem; background: var(--warning); color: oklch(25% 0.05 75); font-size: .88rem; }
-.agent-banner a { color: inherit; font-weight: 600; }
-
 .agent-modal-overlay { position: fixed; inset: 0; background: oklch(20% 0.05 260 / .4); z-index: 40; }
 .agent-modal {
   position: fixed; z-index: 41; top: 50%; left: 50%; transform: translate(-50%, -50%);
