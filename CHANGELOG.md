@@ -194,3 +194,4 @@
 - 2026-06-24 `b2fcc1c` docs(changelog): auto-append
 - 2026-06-24 `263291f` feat(chat): SaaS-scoped cross-community chat inbox
 - 2026-06-24 `08a1cb6` fix(css): chat 3-dots Delete rendered red-on-red
+- 2026-06-24 `620ae14` docs(changelog): auto-append
