@@ -6210,10 +6210,17 @@ body:has(.chat-layout) .site-footer { display: none; }
   box-shadow: var(--shadow-md); cursor: pointer; }
 .note-sel-btn:hover { background: var(--accent-hover); }
 
-.note-comments { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: .6rem;
-  border-left: 1px solid var(--border-subtle); padding-left: 1rem; }
-@media (max-width: 900px) { .note-comments { border-left: none; padding-left: 0; border-top: 1px solid var(--border-subtle); padding-top: 1rem; } }
-.note-comments-head { display: flex; align-items: baseline; justify-content: space-between; }
+/* Side rail: a sticky, viewport-bounded scroll panel. A short note with many
+   comments must not stretch the page — the rail caps at the viewport and scrolls
+   its own list (Docs-style margin) while staying pinned beside the article. */
+.note-comments { position: sticky; top: 1rem; align-self: start;
+  max-height: calc(100vh - 6rem); overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: .6rem;
+  border-left: 1px solid var(--border-subtle); padding-left: 1rem; padding-right: .25rem; }
+@media (max-width: 900px) { .note-comments { position: static; max-height: none; overflow: visible;
+  border-left: none; padding-left: 0; padding-right: 0; border-top: 1px solid var(--border-subtle); padding-top: 1rem; } }
+.note-comments-head { position: sticky; top: 0; z-index: 1; background: var(--surface);
+  display: flex; align-items: baseline; justify-content: space-between; padding-bottom: .4rem; }
 .note-comments-empty { font-size: .85rem; }
 .note-comment { position: relative; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius);
   padding: .55rem .65rem; display: flex; flex-direction: column; gap: .35rem; }
