@@ -264,7 +264,12 @@ button.link:hover, .link-button:hover {
 .msg-menu-item:hover, .msg-menu-item:focus-visible {
   background: var(--surface-alt); text-decoration: none; outline: none;
 }
-.msg-menu-item.danger { color: var(--danger); }
+/* A danger menu item is a `<button class="msg-menu-item danger">`, so it also
+   matches `button.danger` (filled red bg + white text). That rule's bg wins
+   over `.msg-menu-item`'s transparent base, while this rule's red color wins on
+   specificity → red-on-red, unreadable. Re-assert the flat transparent bg here
+   so the item stays a red-text row, not a red block. */
+.msg-menu-item.danger { background: transparent; color: var(--danger); }
 .msg-menu-item.danger .mi-icon { color: var(--danger); }
 .msg-menu-item.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
@@ -4688,7 +4693,9 @@ hr {
   cursor: pointer; width: 100%; min-height: 38px;
 }
 .ucm-item:hover { background: var(--surface-alt); }
-.ucm-item.danger { color: oklch(55% 0.2 25); }
+/* Same red-on-red trap as .msg-menu-item.danger: a `<button class="ucm-item
+   danger">` also matches button.danger's red fill. Keep the flat bg. */
+.ucm-item.danger { background: transparent; color: oklch(55% 0.2 25); }
 .ucm-item.danger:hover { background: oklch(95% 0.04 25); }
 .ucm-icon { flex: 0 0 1.1rem; text-align: center; opacity: .8; }
 .ucm-sep { height: 1px; background: var(--border-subtle); margin: .2rem .3rem; }
