@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -149,6 +150,21 @@ func (r *Recorder) CommunityTotals(ctx context.Context, from, to int64) ([]Commu
 		out = append(out, ct)
 	}
 	return out, rows.Err()
+}
+
+// EstimateTokens approximates the token count of text for providers that don't
+// report usage — Ollama's /api/embed and the translation turn. It uses the same
+// ~4-chars-per-token heuristic as the RAG chunker; events recorded with it carry
+// Estimated=true. Exact counts replace it when hosted LLM providers land.
+func EstimateTokens(text string) int {
+	if text == "" {
+		return 0
+	}
+	n := utf8.RuneCountInString(text) / 4
+	if n == 0 {
+		return 1
+	}
+	return n
 }
 
 func nullStr(s string) any {

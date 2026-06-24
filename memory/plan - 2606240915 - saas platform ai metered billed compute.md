@@ -48,14 +48,17 @@ count platform-compute tokens and store them."
    - => `go build ./...` ok, `go test ./...` green
    - => committed + pushed
 
-### Phase 1 - Metering decorators (meter iff platform) - status: open
+### Phase 1 - Metering decorators (meter iff platform) - status: done
 
-1. [ ] `agent.meteredProvider` wrapping `Provider` — records on `Stream` (community/user/agent/model + usage)
-2. [ ] `rag.meteredEmbedder` wrapping `Embedder` — records on Embed (estimated token count from input len, `estimated=1`)
-3. [ ] `agent.meteredTranslator` (or wrap the translate client in `internal/agent/translate.go`) — records on Translate (estimated)
-4. [ ] Each decorator implements the SAME interface it wraps (accept-interfaces); callers untouched
-5. [ ] Tests: wrapped client records exactly one row with right tokens; bare client records zero
-   - => commit + push
+1. [x] `agent.meteredProvider` wrapping `Provider` — records one row per turn on `Stream` (community/user/agent/model + real usage); `internal/agent/metering.go`
+2. [x] `rag.meteredEmbedder` wrapping `Embedder` — records on Embed, tokens estimated from input len, `Estimated=true`; `internal/rag/metering.go`
+3. [x] `agent.MeteredTranslate` — wraps the package-level `Translate` (not an interface), records estimated in/out tokens; same file
+   - => `Translate` is a func, not an interface, so a metered *function* wrapper (not a type) is the right shape; the platform-vs-BYO choice (Phase 2) calls `MeteredTranslate` vs `Translate`
+4. [x] Each decorator implements the SAME interface it wraps; `New*` returns the inner client unwrapped when `rec==nil || communityID==""` so the BYO path pays nothing
+   - => shared token estimate lives in `aiusage.EstimateTokens` (utf8 runes/4) — DRY across both decorators rather than duplicated per package
+5. [x] Tests: wrapped client records exactly one correctly-dimensioned row; bare/nil-rec client records zero (`agent` + `rag` external test packages, real recorder + temp DB + seeded community/user FK)
+   - => agent test caught the `user_id` FK: a fake user id fails the insert (silently, since Record swallows errors) — must seed a real users row; documented in the test
+   - => `go test ./...` green; committed + pushed
 
 ### Phase 2 - Platform config + resolver tier - status: open
 
@@ -113,3 +116,4 @@ signatures.
 
 - 2606240915 — Bootstrapped session (effective-go + specs + code graph + palace). Surfaced the conflict with the 2026-06-23 BYO-only decision; user confirmed the reversal is intended behind metering+billing. Clarified 4 scoping decisions. Wrote spec `[[spec - saas-platform-ai - ...]]` + this plan. No code.
 - 2606241000 — Phase 0 done. Migration 00059 ai_usage_events; `internal/aiusage` (Event + nil-safe Recorder + Rollup/CommunityTotals); `StreamResult.Usage` surfacing Ollama prompt_eval_count/eval_count. Tests green (`go test ./...`). Design note: metering will be per-provider-turn rows in the Phase-1 decorator, so `Generate` stays unchanged. Branch `task/saas-platform-ai-phase0`.
+- 2606241030 — Phase 1 done. Metering decorators: `agent.NewMeteredProvider` (real token usage per turn), `rag.NewMeteredEmbedder` + `agent.MeteredTranslate` (estimated via `aiusage.EstimateTokens`). All nil-safe passthrough when unwired. Tests prove meter-iff-platform (wrapped records, bare records zero). `go test ./...` green. Branch `task/saas-platform-ai-phase1`. NEXT: Phase 2 — `PLATFORM_AI_*` env + migration 00060 + the resolver platform tier + main.go wiring of platform-wrapped vs BYO-bare clients.
