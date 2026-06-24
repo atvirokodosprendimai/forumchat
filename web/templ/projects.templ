@@ -43,6 +43,16 @@ type ProjectView struct {
 	DescriptionHTML string
 	IsArchived      bool
 	CanDelete       bool
+	// CanWrite gates every mutating affordance (header edit, todos,
+	// attachments, comments). False for read-only members + guests.
+	CanWrite bool
+	// CanManage is true for the creator + community admin/owner — they may
+	// open the permissions panel, change visibility, and edit the ACL.
+	CanManage bool
+	// Permission state, shown in the manage panel.
+	NeedsPerms   bool
+	Visibility   string // community | restricted
+	MemberAccess string // read | write
 }
 
 // ProjectPageData is the project-page payload.
@@ -68,6 +78,18 @@ type ProjectPageData struct {
 	IssuesActiveStatus string
 	// IssuesCounts maps status -> count for the per-tab badges.
 	IssuesCounts map[string]int
+	// PermMembers are the current per-person ACL grants; PermRoster is the
+	// community roster to pick new grantees from. Both populated only when
+	// the viewer CanManage the project.
+	PermMembers []ProjectMemberACLView
+	PermRoster  []ProjectMemberOption
+}
+
+// ProjectMemberACLView is one row in the permissions ACL editor.
+type ProjectMemberACLView struct {
+	UserID string
+	Name   string
+	Access string // read | write
 }
 
 // ProjectMovePeer is one option in the "Move to project" picker.

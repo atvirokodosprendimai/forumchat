@@ -93,13 +93,18 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no community", http.StatusInternalServerError)
 		return
 	}
-	active, err := h.Repo.ListActiveForCommunity(r.Context(), c.ID)
+	// The index hides restricted projects the viewer may not see. Identity
+	// here is rebound to the slug community by RequireMember, so the role
+	// is correct for THIS community.
+	id, _ := auth.FromContext(r.Context())
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin) || id.IsSuperAdmin
+	active, err := h.Repo.ListVisibleForCommunity(r.Context(), c.ID, id.User.ID, isAdmin, false)
 	if err != nil {
 		h.Log.Error("projects list active", "err", err, "community", c.ID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	archived, err := h.Repo.ListArchivedForCommunity(r.Context(), c.ID)
+	archived, err := h.Repo.ListVisibleForCommunity(r.Context(), c.ID, id.User.ID, isAdmin, true)
 	if err != nil {
 		h.Log.Error("projects list archived", "err", err, "community", c.ID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -203,10 +208,22 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 
 	isAdmin := caller.Role.AtLeast(auth.RoleAdmin)
 	isGuest := caller.IsGuest()
+
+	// Permission gate. EffectiveAccess is the single read/write authority;
+	// no-read 404s so a restricted project is not even discoverable.
+	grant, grantOK := h.Repo.MemberAccessFor(r.Context(), p.ID, caller.UserID)
+	access := EffectiveAccess(p, caller, grant, grantOK)
+	if !access.CanRead() {
+		http.NotFound(w, r)
+		return webtempl.ProjectPageData{}, false
+	}
+	canWrite := access.CanWrite()
+	canManage := !isGuest && (p.CreatorUserID == caller.UserID || isAdmin)
+
 	v := h.layoutViewer(r)
 	v.CommunityName = c.Name
 	v.CommunitySlug = c.Slug
-	share := webtempl.ProjectShareView{Visible: !isGuest && (p.CreatorUserID == caller.UserID || isAdmin)}
+	share := webtempl.ProjectShareView{Visible: canManage}
 	if share.Visible {
 		if inv, err := h.Repo.ActiveGuestInviteForProject(r.Context(), p.ID); err == nil {
 			scheme, host := publicSchemeHost(r)
@@ -227,10 +244,26 @@ func (h *Handler) loadProjectData(w http.ResponseWriter, r *http.Request, want s
 			DescriptionMD:   p.DescriptionMD,
 			DescriptionHTML: p.DescriptionHTML,
 			IsArchived:      p.IsArchived(),
-			CanDelete:       !isGuest && (p.CreatorUserID == caller.UserID || isAdmin),
+			CanDelete:       canManage,
+			CanWrite:        canWrite,
+			CanManage:       canManage,
+			NeedsPerms:      p.NeedsPerms,
+			Visibility:      p.Visibility,
+			MemberAccess:    p.MemberAccess,
 		},
 		Share:         share,
 		IsGuestViewer: isGuest,
+	}
+	// ACL editor state — only the manager needs the grant list + roster.
+	if canManage {
+		if members, err := h.Repo.ListMembers(r.Context(), p.ID); err == nil {
+			for _, m := range members {
+				data.PermMembers = append(data.PermMembers, webtempl.ProjectMemberACLView{
+					UserID: m.UserID, Name: m.Name, Access: m.Access,
+				})
+			}
+		}
+		data.PermRoster = h.memberOptions(r.Context(), c.ID)
 	}
 	if want.Todos {
 		todos, err := h.Repo.ListTodos(r.Context(), p.ID)
@@ -1003,10 +1036,15 @@ func sanitizeFilename(s string) string {
 // handler re-renders the affected fragment with WithModeOuter() so
 // morphdom swaps the subtree in place.
 func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
-	pid, ok := h.projectFromURL(w, r)
+	_, p, access, ok := h.projectAccess(w, r)
 	if !ok {
 		return
 	}
+	if !access.CanRead() {
+		http.NotFound(w, r) // restricted project — don't stream its fragments
+		return
+	}
+	pid := p.ID
 	sse := render.NewSSE(w, r)
 	events, unsub := h.Bus.SubscribeProject(pid)
 	defer unsub()
@@ -1279,6 +1317,32 @@ func (h *Handler) projectFromURL(w http.ResponseWriter, r *http.Request) (string
 		return "", false
 	}
 	return pid, true
+}
+
+// projectAccess resolves the caller's effective access to the {id} project
+// scoped to the URL community. It is the shared gate behind the SSE stream
+// and the RequireWrite middleware — both lean on EffectiveAccess so the
+// rule lives in one place. ok=false (response already written) when the
+// caller can't be identified or the project isn't in this community; a
+// missing project / cross-community access 404s (no existence oracle).
+func (h *Handler) projectAccess(w http.ResponseWriter, r *http.Request) (Identity, Project, AccessLevel, bool) {
+	c, ok := community.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "no community", http.StatusInternalServerError)
+		return Identity{}, Project{}, AccessNone, false
+	}
+	caller, ok := h.callerIdentity(r)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return Identity{}, Project{}, AccessNone, false
+	}
+	p, err := h.Repo.ByID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil || p.CommunityID != c.ID {
+		http.NotFound(w, r)
+		return Identity{}, Project{}, AccessNone, false
+	}
+	grant, grantOK := h.Repo.MemberAccessFor(r.Context(), p.ID, caller.UserID)
+	return caller, p, EffectiveAccess(p, caller, grant, grantOK), true
 }
 
 // GetGlobalIssues renders /issues — the cross-community open-issue
