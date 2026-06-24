@@ -937,9 +937,20 @@ cycle), then extended. Full detail: `internal/notes/CLAUDE.md`. Key invariants:
   listener on `#note-reader` opens the composer (EDA §4.12). **note.js detaches its
   MutationObserver while painting** — unconditional badge writes otherwise
   re-trigger it into an infinite loop. The reader is one stable-id fat-morph (§4.7).
-- **Search/RAG:** indexed gated on `visibility='public'` (migration 00064, mirrors
-  pastes' 00062; `KindNote` loader re-applies the gate). `kind='note'` rendered in
+- **Search/RAG:** PUBLIC notes are indexed into community search gated on
+  `visibility='public'` (migration 00064, mirrors pastes' 00062; `KindNote` loader
+  re-applies the gate; FTS + RAG). PRIVATE notes are full-text searchable by their
+  **author only** via a SEPARATE `note_private_fts` index (migration 00065) — never
+  `search_fts` (community-wide). `search.Service.Search` takes a `viewerID`; when
+  set it also queries `note_private_fts WHERE community_id=? AND author_id=viewer`.
+  A note lives in exactly ONE index per its visibility. `kind='note'` rendered in
   `internal/search` (📝, URL `/c/{slug}/notes/{id}`).
+- **Editor UX:** the edit+preview zone collapses via a Hide/Edit toggle (FE-only
+  `_note_edit`) so an editor can read clean. Live preview is OPT-IN (`_note_live`,
+  default off) — `data-on:input` is `"$_note_live && @post('…/preview')"`, plus an
+  explicit "↻ Update preview" button. The per-line gutter "+" lives in each block's
+  OWN left padding (`#note-body > [data-nb]`), NOT a negative offset, so hovering
+  toward it doesn't end `:hover` and hide it.
 - **Nav:** a top-bar **Notes** pill (§ project_nav_topbar_community), not a sidebar
   entry.
 

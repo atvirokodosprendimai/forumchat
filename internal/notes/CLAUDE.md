@@ -64,11 +64,30 @@ where GFM linkify sees a dotted host.
 
 ## Search / RAG
 
-Wired into BOTH indexes gated on `visibility='public'` (migration 00064, mirrors
-00062 for pastes): `search_fts` (live triggers) + `embed_outbox` (RAG, async; the
-loader in `internal/rag/repo.go` `KindNote` re-applies the gate, so a private
-note's enqueued row resolves to a no-op delete). `kind='note'` rendered in
-`internal/search` (URL `/c/{slug}/notes/{id}`, 📝 icon, "note" label).
+PUBLIC notes go into BOTH community indexes gated on `visibility='public'`
+(migration 00064, mirrors 00062 for pastes): `search_fts` (live triggers) +
+`embed_outbox` (RAG, async; the loader in `internal/rag/repo.go` `KindNote`
+re-applies the gate, so a private note's enqueued row resolves to a no-op
+delete). `kind='note'` rendered in `internal/search` (URL `/c/{slug}/notes/{id}`,
+📝 icon, "note" label).
+
+PRIVATE notes are full-text searchable by their **author only**, via a SEPARATE
+`note_private_fts` index (migration 00065) keyed by `author_id` — they never
+enter `search_fts`. `search.Service.Search(ctx, communityID, viewerID, slug, …)`
+queries it scoped to `(community_id, author_id=viewerID)` when viewerID is set;
+the `/search` page passes the session user, the chat `/search` slash command
+passes `""` (public-only). Codex-reviewed for the privacy boundary.
+
+## Editor UX
+
+The edit+preview zone collapses via a Hide/Edit toggle (FE-only `_note_edit`) so
+an editor can read clean; the reader header always renders so the title shows
+when collapsed. Live preview is OPT-IN (`_note_live`, default off) — the textarea
+is `data-on:input__debounce.300ms="$_note_live && @post('…/preview')"` plus an
+explicit "↻ Update preview" button. The per-line gutter "+" sits in each block's
+OWN left padding (`#note-body > [data-nb]`, toggled via opacity+pointer-events),
+NOT a negative offset — a negative offset put it outside the block box so moving
+toward it ended `:hover` and hid it before a click.
 
 ## CQRS shape (AGENTS §6b)
 
