@@ -202,3 +202,4 @@
 - 2026-06-24 `b61b37f` docs(notes): private-note author FTS + editor UX changes
 - 2026-06-24 `84966e8` feat(notes): reading-first — editor hidden by default + line-comment markers
 - 2026-06-24 `f2e98f9` feat(notes): compact comment moderation actions
+- 2026-06-24 `f65fc9c` fix(notes): comments rail is a viewport-bounded scroll panel
