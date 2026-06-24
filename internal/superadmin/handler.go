@@ -532,6 +532,10 @@ func (h *Handler) PostForceVerify(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No user selected"))
 		return
 	}
+	if h.Auth == nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Verification recovery is unavailable"))
+		return
+	}
 	if err := h.Auth.ForceVerify(r.Context(), uid); err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Verify failed: "+err.Error()))
 		return
@@ -553,6 +557,10 @@ func (h *Handler) PostResendVerification(w http.ResponseWriter, r *http.Request)
 	uid := strings.TrimSpace(in.UID)
 	if uid == "" {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No user selected"))
+		return
+	}
+	if h.Auth == nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Verification recovery is unavailable"))
 		return
 	}
 	url, err := h.Auth.ResendVerification(r.Context(), uid)

@@ -412,8 +412,11 @@ func (s *Service) ForceVerify(ctx context.Context, userID string) error {
 	if err != nil {
 		return err
 	}
-	if u.Status == StatusDisabled {
-		return ErrUserDisabled
+	switch u.Status {
+	case StatusDisabled:
+		return ErrUserDisabled // never silently re-enable a disabled account
+	case StatusActive:
+		return nil // already verified — idempotent no-op
 	}
 	return s.activateAndJoin(ctx, userID, s.CommunityID, u.Email)
 }
