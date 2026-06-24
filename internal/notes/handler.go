@@ -5,7 +5,9 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar-go/datastar"
@@ -143,14 +145,8 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	data := webtempl.NotePageData{
-		Viewer:     h.viewer(r),
-		Slug:       h.cslug(r.Context()),
-		BaseURL:    h.BaseURL,
-		Note:       h.toView(r.Context(), n, canEdit),
-		Edit:       canEdit,
-		CanComment: true,
-	}
+	data := h.readerData(r.Context(), n, id, canEdit, true)
+	data.Viewer = h.viewer(r)
 	if canEdit {
 		data.Channels = h.channelOptions(r.Context(), n.CommunityID)
 	}
@@ -202,12 +198,13 @@ func (h *Handler) GetShared(w http.ResponseWriter, r *http.Request) {
 		v.DisplayName = id.Membership.DisplayName
 		v.Role = string(id.Membership.Role)
 	}
-	data := webtempl.NotePageData{
-		Viewer: v,
-		Slug:   slug,
-		Note:   h.toView(r.Context(), n, false),
-		Shared: true,
+	var anon auth.Identity
+	if got, authed := auth.FromContext(r.Context()); authed {
+		anon = got
 	}
+	data := h.readerDataSlug(r.Context(), n, anon, false, false, slug)
+	data.Viewer = v
+	data.Shared = true
 	_ = webtempl.NotePage(data).Render(r.Context(), w)
 }
 
@@ -335,7 +332,7 @@ func (h *Handler) PostSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = sse.PatchElementTempl(webtempl.NoteError(""))
-	_ = sse.PatchElementTempl(webtempl.NoteReader(h.reader(r.Context(), n, true, true)))
+	_ = sse.PatchElementTempl(webtempl.NoteReader(h.readerData(r.Context(), n, id, true, true)))
 }
 
 type previewSignals struct {
@@ -388,15 +385,147 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/notes")
 }
 
-// reader builds the reader-zone component for a note.
-func (h *Handler) reader(ctx context.Context, n Note, edit, canComment bool) webtempl.NotePageData {
-	return webtempl.NotePageData{
-		Slug:       h.cslug(ctx),
-		BaseURL:    h.BaseURL,
-		Note:       h.toView(ctx, n, edit),
-		Edit:       edit,
-		CanComment: canComment,
+type commentSignals struct {
+	Block string `json:"note_c_block"`
+	Quote string `json:"note_c_quote"`
+	Body  string `json:"note_c_body"`
+}
+
+// PostComment adds an inline comment to a note (any approved member). It
+// re-renders the reader zone with the new comment and clears the composer.
+func (h *Handler) PostComment(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, MaxCommentBytes+(8<<10))
+	var in commentSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	cid := h.cid(r.Context())
+	sse := render.NewSSE(w, r)
+	block, _ := strconv.Atoi(strings.TrimSpace(in.Block))
+	_, err := h.Svc.AddComment(r.Context(), cid, id, CommentInput{
+		NoteID:     chi.URLParam(r, "id"),
+		BlockIndex: block,
+		Quote:      in.Quote,
+		Body:       in.Body,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrEmpty):
+			_ = sse.PatchElementTempl(webtempl.NoteCommentError("Write a comment first."))
+		case errors.Is(err, ErrForbidden):
+			_ = sse.PatchElementTempl(webtempl.NoteCommentError("You can't comment here."))
+		default:
+			h.Log.Error("note comment", "err", err)
+			_ = sse.PatchElementTempl(webtempl.NoteCommentError("Couldn't add the comment. Try again."))
+		}
+		return
+	}
+	n, err := h.Repo.ByID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		return
+	}
+	_ = sse.PatchSignals([]byte(`{"note_c_body":"","_note_comment_open":false}`))
+	_ = sse.PatchElementTempl(webtempl.NoteReader(h.readerData(r.Context(), n, id, n.CanEdit(id), true)))
+}
+
+// PostResolveComment / PostDeleteComment moderate a comment. Allowed for the
+// comment's author OR a note editor (author/mod). Both re-render the reader.
+func (h *Handler) PostResolveComment(w http.ResponseWriter, r *http.Request) {
+	h.moderateComment(w, r, func(ctx context.Context, c Comment) error {
+		now := time.Now()
+		return h.Repo.SetCommentResolved(ctx, c.ID, &now)
+	})
+}
+
+func (h *Handler) PostDeleteComment(w http.ResponseWriter, r *http.Request) {
+	h.moderateComment(w, r, func(ctx context.Context, c Comment) error {
+		return h.Repo.DeleteComment(ctx, c.ID)
+	})
+}
+
+// moderateComment loads the comment + its note, authorizes (comment author OR
+// note editor, same community), runs the mutation, and re-renders the reader.
+func (h *Handler) moderateComment(w http.ResponseWriter, r *http.Request, do func(context.Context, Comment) error) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	c, err := h.Repo.CommentByID(r.Context(), chi.URLParam(r, "cid"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	n, err := h.Repo.ByID(r.Context(), c.NoteID)
+	if err != nil || n.CommunityID != h.cid(r.Context()) {
+		http.NotFound(w, r)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if !c.CanModerate(id, n) {
+		_ = sse.PatchElementTempl(webtempl.NoteCommentError("You can't moderate this comment."))
+		return
+	}
+	if err := do(r.Context(), c); err != nil {
+		h.Log.Error("note moderate comment", "err", err)
+		_ = sse.PatchElementTempl(webtempl.NoteCommentError("Action failed. Try again."))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.NoteReader(h.readerData(r.Context(), n, id, n.CanEdit(id), true)))
+}
+
+// readerData builds the reader-zone data for a note in the CURRENT community
+// context (uses h.cslug). Loads comments, annotates the rendered body with
+// per-block anchors, and flags orphaned comments.
+func (h *Handler) readerData(ctx context.Context, n Note, id auth.Identity, edit, canComment bool) webtempl.NotePageData {
+	return h.readerDataSlug(ctx, n, id, edit, canComment, h.cslug(ctx))
+}
+
+// readerDataSlug is readerData with an explicit slug — used by the public token
+// reader, which resolves the slug from the note's community (no route context).
+func (h *Handler) readerDataSlug(ctx context.Context, n Note, id auth.Identity, edit, canComment bool, slug string) webtempl.NotePageData {
+	annotated, count := render.AnnotateBlocks(render.RichHTML(n.BodyHTML))
+	comments, err := h.Repo.ListComments(ctx, n.ID)
+	if err != nil {
+		h.Log.Error("notes list comments", "err", err)
+	}
+	return webtempl.NotePageData{
+		Slug:          slug,
+		BaseURL:       h.BaseURL,
+		Note:          h.toView(ctx, n, edit),
+		BodyAnnotated: annotated,
+		BlockCount:    count,
+		Comments:      toCommentViews(comments, n, id, count),
+		Edit:          edit,
+		CanComment:    canComment,
+	}
+}
+
+// toCommentViews maps domain comments to the leaf view model, stamping the
+// per-viewer moderation flag and the orphaned flag (block_index past the current
+// block count means the note was edited under the comment).
+func toCommentViews(cs []Comment, n Note, id auth.Identity, blockCount int) []webtempl.NoteCommentView {
+	out := make([]webtempl.NoteCommentView, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, webtempl.NoteCommentView{
+			ID:          c.ID,
+			BlockIndex:  c.BlockIndex,
+			Quote:       c.Quote,
+			BodyHTML:    c.BodyHTML,
+			AuthorName:  c.AuthorName,
+			CreatedAt:   c.CreatedAt,
+			Resolved:    c.IsResolved(),
+			Orphaned:    c.BlockIndex >= blockCount,
+			CanModerate: c.CanModerate(id, n),
+		})
+	}
+	return out
 }
 
 func (h *Handler) toView(ctx context.Context, n Note, canEdit bool) webtempl.NoteView {

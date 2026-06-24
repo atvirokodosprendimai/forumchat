@@ -6181,3 +6181,56 @@ body:has(.chat-layout) .site-footer { display: none; }
 .note-share-status { font-size: .88rem; color: var(--accent-strong);
   background: var(--accent-soft); border-radius: var(--radius-sm); padding: .4rem .6rem; }
 .note-share-actions { display: flex; justify-content: flex-end; gap: .5rem; }
+
+/* notes — inline comments */
+.note-reader-grid { display: grid; grid-template-columns: minmax(0,1fr) 16rem; gap: 1.25rem; align-items: start; }
+.note-reader-grid.solo { grid-template-columns: minmax(0,1fr); }
+@media (max-width: 900px) { .note-reader-grid { grid-template-columns: minmax(0,1fr); } }
+#note-body { padding-left: 1.4rem; }
+.note-block { position: relative; }
+.note-block-hi { animation: note-flash 1.6s var(--ease-out); border-radius: var(--radius-sm); }
+@keyframes note-flash { 0%,100% { background: transparent; } 18% { background: var(--accent-soft-strong); } }
+.note-gutter-add { position: absolute; left: -1.35rem; top: .1rem; width: 1.1rem; height: 1.1rem; line-height: 1;
+  display: none; align-items: center; justify-content: center; padding: 0; border-radius: var(--radius-pill);
+  background: var(--surface-alt); color: var(--fg-muted); border: 1px solid var(--border); cursor: pointer; font-size: .9rem; }
+.note-block:hover > .note-gutter-add { display: inline-flex; }
+.note-gutter-add:hover { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.note-block-badge { position: absolute; right: -.5rem; top: 0; transform: translateX(100%);
+  font-size: .68rem; padding: .05rem .35rem; border-radius: var(--radius-pill);
+  background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent-ring); cursor: pointer; white-space: nowrap; }
+.note-block-badge:hover { background: var(--accent-soft-strong); }
+@media (max-width: 900px) { .note-block-badge { transform: none; right: .1rem; } }
+
+.note-sel-btn { position: absolute; z-index: 70; font-size: .8rem; font-weight: 600; padding: .3rem .6rem;
+  border-radius: var(--radius-pill); background: var(--accent); color: var(--accent-fg); border: none;
+  box-shadow: var(--shadow-md); cursor: pointer; }
+.note-sel-btn:hover { background: var(--accent-hover); }
+
+.note-comments { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: .6rem;
+  border-left: 1px solid var(--border-subtle); padding-left: 1rem; }
+@media (max-width: 900px) { .note-comments { border-left: none; padding-left: 0; border-top: 1px solid var(--border-subtle); padding-top: 1rem; } }
+.note-comments-head { display: flex; align-items: baseline; justify-content: space-between; }
+.note-comments-empty { font-size: .85rem; }
+.note-comment { background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .55rem .65rem; display: flex; flex-direction: column; gap: .35rem; }
+.note-comment.orphaned { opacity: .7; border-style: dashed; }
+.note-comment-hi { box-shadow: var(--ring); }
+.note-comment-meta { display: flex; align-items: baseline; gap: .4rem; flex-wrap: wrap; font-size: .8rem; }
+.note-comment-meta strong { font-size: .85rem; }
+.note-comment-anchor { font-size: .75rem; color: var(--accent); background: none; border: none; padding: 0; cursor: pointer;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.note-comment-anchor:hover { text-decoration: underline; }
+.note-comment-tag { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted);
+  background: var(--surface-2); border-radius: var(--radius-pill); padding: .05rem .4rem; }
+.note-comment-body { font-size: .9rem; line-height: 1.5; word-wrap: break-word; }
+.note-comment-body > :first-child { margin-top: 0; } .note-comment-body > :last-child { margin-bottom: 0; }
+.note-comment-actions { display: flex; gap: .6rem; }
+.note-comment-context { font-size: .85rem; background: var(--surface-sunken); border-radius: var(--radius-sm);
+  padding: .35rem .55rem; }
+.note-comment-input { width: 100%; resize: vertical; }
+
+/* A flat text "link" that is also .danger must stay a red text link, not inherit
+   button.danger's filled red bg (red-on-red). Mirrors the .msg-menu-item.danger
+   reset. */
+.link.danger { background: transparent; color: var(--danger); padding: 0; border: none; }
+.link.danger:hover { background: transparent; color: var(--danger); text-decoration: underline; }

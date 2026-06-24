@@ -1772,6 +1772,12 @@ func run() error {
 		r.Post("/notes/{id}/preview", notesHandler.PostPreview)
 		r.Post("/notes/{id}/share", notesHandler.PostShare)
 		r.Post("/notes/{id}/delete", notesHandler.PostDelete)
+		// Inline comments. Static "comments" wins over the {id} wildcard, so the
+		// per-comment moderate routes sit under /notes/comments/{cid}/… and the
+		// add route under /notes/{id}/comments.
+		r.Post("/notes/{id}/comments", notesHandler.PostComment)
+		r.Post("/notes/comments/{cid}/resolve", notesHandler.PostResolveComment)
+		r.Post("/notes/comments/{cid}/delete", notesHandler.PostDeleteComment)
 
 		// Agent — per-community AI chat with threads + history. Static
 		// segments (new) win over the {thread} wildcard in chi. Gated by the

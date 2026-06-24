@@ -60,16 +60,39 @@ type NotesPageData struct {
 }
 
 type NotePageData struct {
-	Viewer     Viewer
-	Slug       string
-	BaseURL    string
-	Note       NoteView
-	Comments   []NoteCommentView
-	BlockCount int
-	Channels   []NoteChannelOption
-	Edit       bool // viewer may edit (author/mod) — show the editor zone
-	CanComment bool // viewer is an approved member — show comment affordances
-	Shared     bool // rendered via the public token link (read-only, anon)
+	Viewer       Viewer
+	Slug         string
+	BaseURL      string
+	Note         NoteView
+	BodyAnnotated string // RichHTML + per-block data-nb anchors (the comment map)
+	Comments     []NoteCommentView
+	BlockCount   int
+	Channels     []NoteChannelOption
+	Edit         bool // viewer may edit (author/mod) — show the editor zone
+	CanComment   bool // viewer is an approved member — show comment affordances
+	Shared       bool // rendered via the public token link (read-only, anon)
+}
+
+// openComments returns the comments that are still open (unresolved); resolved
+// ones collapse into a count.
+func (d NotePageData) openComments() []NoteCommentView {
+	out := make([]NoteCommentView, 0, len(d.Comments))
+	for _, c := range d.Comments {
+		if !c.Resolved {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (d NotePageData) resolvedCount() int {
+	n := 0
+	for _, c := range d.Comments {
+		if c.Resolved {
+			n++
+		}
+	}
+	return n
 }
 
 // noteTitle returns a note's title or a sensible fallback.
@@ -236,11 +259,19 @@ func shareURL(d NotePageData) string {
 }
 
 // NoteReader is the rendered article everyone sees: editors (below their
-// editor), members, and anonymous token visitors. Inline comments are layered
-// onto it in a later phase. Stable id #note-reader so it can be re-morphed after
-// a save or a comment change without disturbing the editor zone.
+// editor), members, and anonymous token visitors. It carries the inline-comment
+// surface: the annotated article (#note-body, per-block data-nb anchors) on the
+// left and a comments rail on the right. Stable id #note-reader so it can be
+// re-morphed after a save or a comment change without disturbing the editor
+// zone. The fc:note-comment consumer (set signals + open composer) lives here so
+// every per-block / selection trigger bubbles to one listener (EDA).
 templ NoteReader(d NotePageData) {
-	<article id="note-reader" class="note-reader card">
+	<article
+		id="note-reader"
+		class="note-reader card"
+		data-comment-count={ commentBlocksAttr(d.Comments) }
+		data-on:fc:note-comment="$note_c_block = String(evt.detail.block); $note_c_quote = evt.detail.quote || ''; $_note_comment_open = true"
+	>
 		if !d.Edit {
 			<header class="note-reader-head">
 				<h1>{ noteTitle(d.Note.Title) }</h1>
@@ -255,10 +286,113 @@ templ NoteReader(d NotePageData) {
 				</div>
 			</header>
 		}
-		<div id="note-body" class="note-rendered">
-			@templ.Raw(render.RichHTML(d.Note.BodyHTML))
+		<div class={ "note-reader-grid", templ.KV("solo", d.Shared) }>
+			<div id="note-body" class="note-rendered" data-can-comment={ boolAttr(d.CanComment) }>
+				@templ.Raw(d.BodyAnnotated)
+			</div>
+			if !d.Shared {
+				<aside class="note-comments" id="note-comments">
+					<div class="note-comments-head">
+						<strong>Comments</strong>
+						if d.resolvedCount() > 0 {
+							<span class="muted">{ strconv.Itoa(d.resolvedCount()) } resolved</span>
+						}
+					</div>
+					if len(d.openComments()) == 0 {
+						<p class="muted note-comments-empty">
+							if d.CanComment {
+								Select text or hover a line to add a comment.
+							} else {
+								No comments.
+							}
+						</p>
+					}
+					for _, c := range d.openComments() {
+						@noteCommentCard(d.Slug, c)
+					}
+				</aside>
+			}
 		</div>
+		if d.CanComment {
+			@noteCommentComposer(d.Slug, d.Note.ID)
+		}
 	</article>
+}
+
+templ noteCommentCard(slug string, c NoteCommentView) {
+	<div class={ "note-comment", templ.KV("orphaned", c.Orphaned) } data-nb-ref={ strconv.Itoa(c.BlockIndex) } id={ "note-comment-" + c.ID }>
+		<div class="note-comment-meta">
+			<strong>{ c.AuthorName }</strong>
+			<span class="muted">{ c.CreatedAt.Format("Jan 2, 15:04") }</span>
+			if c.Orphaned {
+				<span class="note-comment-tag" title="The note was edited — this comment's line moved or was removed">orphaned</span>
+			} else {
+				<button class="note-comment-anchor" data-nb-jump={ strconv.Itoa(c.BlockIndex) } title="Jump to the commented text">
+					if c.Quote != "" {
+						“{ c.Quote }”
+					} else {
+						line { strconv.Itoa(c.BlockIndex + 1) }
+					}
+				</button>
+			}
+		</div>
+		<div class="note-comment-body">@templ.Raw(render.RichHTML(c.BodyHTML))</div>
+		if c.CanModerate {
+			<div class="note-comment-actions">
+				<button class="link" data-on:click={ "@post('/c/" + slug + "/notes/comments/" + c.ID + "/resolve')" }>Resolve</button>
+				<button class="link danger" data-on:click={ "@post('/c/" + slug + "/notes/comments/" + c.ID + "/delete')" }>Delete</button>
+			</div>
+		}
+	</div>
+}
+
+// noteCommentComposer is the add-comment dialog, opened by the fc:note-comment
+// consumer. It binds note_c_block / note_c_quote / note_c_body (all posted).
+templ noteCommentComposer(slug, noteID string) {
+	<div id="note-comment-dialog" class="note-share-backdrop" data-show="$_note_comment_open" data-cloak data-on:click="$_note_comment_open=false">
+		<div class="note-share-card" data-on:click="evt.stopPropagation()">
+			<div class="note-share-head">
+				<strong>Add comment</strong>
+				<button class="link" data-on:click="$_note_comment_open=false" aria-label="Close">✕</button>
+			</div>
+			<div class="note-comment-context" data-show="$note_c_quote !== ''">
+				<span class="muted">on</span> “<span data-text="$note_c_quote"></span>”
+			</div>
+			<div class="note-comment-context" data-show="$note_c_quote === ''">
+				<span class="muted">on line</span> <span data-text="Number($note_c_block)+1"></span>
+			</div>
+			<textarea class="note-comment-input" data-bind="note_c_body" placeholder="Write a comment… (markdown)" rows="3"></textarea>
+			@NoteCommentError("")
+			<div class="note-share-actions">
+				<button class="primary" data-on:click={ "@post('/c/" + slug + "/notes/" + noteID + "/comments')" }>Comment</button>
+			</div>
+		</div>
+	</div>
+}
+
+// NoteCommentError is the composer's inline error region.
+templ NoteCommentError(msg string) {
+	<div id="note-comment-error" class="note-error">{ msg }</div>
+}
+
+// commentBlocksAttr serialises the open comments' block indices as a
+// comma-separated list so note.js can paint per-block badges without a second
+// request. Resolved comments are excluded (they don't show a badge).
+func commentBlocksAttr(cs []NoteCommentView) string {
+	parts := make([]string, 0, len(cs))
+	for _, c := range cs {
+		if !c.Resolved && !c.Orphaned {
+			parts = append(parts, strconv.Itoa(c.BlockIndex))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func boolAttr(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }
 
 // NotePreview is the live HTML preview pane, morphed on each debounced edit.
