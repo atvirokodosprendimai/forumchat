@@ -203,3 +203,4 @@
 - 2026-06-24 `84966e8` feat(notes): reading-first — editor hidden by default + line-comment markers
 - 2026-06-24 `f2e98f9` feat(notes): compact comment moderation actions
 - 2026-06-24 `f65fc9c` fix(notes): comments rail is a viewport-bounded scroll panel
+- 2026-06-24 `a21542b` docs(notes): collaborative editing + draft/published model
