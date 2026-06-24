@@ -129,6 +129,11 @@ type ChatPageData struct {
 	Unread      map[string]bool
 	// CanManage gates the +channel / per-channel ⚙ affordances (mod/admin).
 	CanManage bool
+	// TranslateEnabled reports whether /translate is usable for this community
+	// (resolved per request; in SaaS a tenant must opt in + configure a model).
+	// Seeds the _translate_capable signal so the composer only fires the
+	// typeahead request when it can actually produce results — no flash.
+	TranslateEnabled bool
 }
 
 templ ChatPage(d ChatPageData) {
@@ -354,10 +359,10 @@ templ ChatComposer(slug, channelSlug string) {
 				rows="1"
 				placeholder="Message — markdown, paste, drop, @mention"
 				autocomplete="off"
-				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcTranslateDetect(el)){$_translate_open=true; $_mention_open=false; @get('/c/" + slug + "/chat/translate')} else if(window.fcMentionDetect(el)){$_mention_open=true; $_translate_open=false; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false; $_translate_open=false}" }
-				data-on:blur="setTimeout(()=>{$_mention_open=false; $_translate_open=false},150)"
+				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcTranslateDetect(el) && $_translate_capable){$_translate_open=true; $_translate_loading=true; $_mention_open=false; @get('/c/" + slug + "/chat/translate')} else if(window.fcMentionDetect(el)){$_mention_open=true; $_translate_open=false; $_translate_loading=false; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false; $_translate_open=false; $_translate_loading=false}" }
+				data-on:blur="setTimeout(()=>{$_mention_open=false; $_translate_open=false; $_translate_loading=false},150)"
 				data-on:paste="window.fcPasteImage(evt,'image_data')"
-				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false; $_translate_open=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && $_translate_open){evt.preventDefault(); document.querySelector('#translate-popup .translate-row')?.click()} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open && !$_translate_open){evt.preventDefault(); @post('/c/" + slug + "/chat/" + channelSlug + "/send'); el.style.height='auto'}" }></textarea>
+				data-on:keydown={ "if(evt.key==='Escape'){$_mention_open=false; $_translate_open=false; $_translate_loading=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && $_translate_open && !$_translate_loading){evt.preventDefault(); document.querySelector('#translate-popup .translate-row')?.click()} else if(evt.key==='Enter' && !evt.shiftKey && $_translate_open && $_translate_loading){evt.preventDefault()} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open && !$_translate_open){evt.preventDefault(); @post('/c/" + slug + "/chat/" + channelSlug + "/send'); el.style.height='auto'}" }></textarea>
 			<button id="composer-send" aria-label="Send message" title="Send (Enter)" data-on:click={ "@post('/c/" + slug + "/chat/" + channelSlug + "/send'); document.querySelector('.composer-text').style.height='auto'" }>
 				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
 			</button>
@@ -392,8 +397,16 @@ templ MentionPopup(hits []MentionHit) {
 // message, and clears the composer. fcApplyTranslation is in translate.js.
 templ TranslatePopup(opts []string) {
 	<div id="translate-popup" class="mention-popup translate-popup" data-show="$_translate_open" style="display:none">
+		// In-flight spinner — the composer flips $_translate_loading on as it
+		// fires the request, so this shows instantly (no server round-trip) and
+		// the server clears it when the rows land. Sits above the rows so the
+		// popup never looks empty while the model translates.
+		<div class="loading-row translate-loading" data-show="$_translate_loading">
+			<span class="dot-spinner" aria-hidden="true"><span></span><span></span><span></span></span>
+			<span class="mention-name muted">Translating…</span>
+		</div>
 		for _, o := range opts {
-			<button type="button" class="mention-row translate-row" data-tr={ o }
+			<button type="button" class="mention-row translate-row" data-tr={ o } data-show="!$_translate_loading"
 				data-on:click="window.fcApplyTranslation(el.dataset.tr); $_translate_open=false; document.querySelector('#composer-send').click()">
 				<span class="mention-dot translate-dot" aria-hidden="true">文</span>
 				<span class="mention-name">{ o }</span>
@@ -524,6 +537,12 @@ func chatChannelSignals(d ChatPageData) string {
 	b.WriteString(strconv.Quote(d.ActiveID))
 	b.WriteString(`,"active_channel_slug":`)
 	b.WriteString(strconv.Quote(d.ActiveSlug))
+	b.WriteString(`,"_translate_capable":`)
+	if d.TranslateEnabled {
+		b.WriteString("true")
+	} else {
+		b.WriteString("false")
+	}
 	b.WriteString(`,"chat_unread":{`)
 	first := true
 	for id, on := range d.Unread {

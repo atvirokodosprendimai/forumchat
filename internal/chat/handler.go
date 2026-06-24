@@ -94,6 +94,12 @@ type Handler struct {
 	// package's Ollama-backed Translate using the TRANSLATE_* config — nil when
 	// the feature is disabled (the popup then stays empty and closes).
 	Translate func(ctx context.Context, text string) ([]string, error)
+	// TranslateEnabled reports whether /translate is usable for the current
+	// community, resolved per request (in SaaS a tenant must opt in and have a
+	// model configured). The composer reads it at page render to gate the
+	// typeahead: a community where it's off never fires the request, so the
+	// popup can't flash open and close. nil ⇒ treated as disabled.
+	TranslateEnabled func(ctx context.Context) bool
 	// NewPaste runs the /paste slash command: create a draft paste opened from
 	// the current channel and return its id ("" on failure) so the handler can
 	// redirect to /c/{slug}/pastes/{id}. Wired in main.go to pastes.Service — a
@@ -694,17 +700,18 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		projs = h.ListProjects(r.Context(), h.cid(r.Context()))
 	}
 	_ = webtempl.ChatPage(webtempl.ChatPageData{
-		Viewer:        h.viewer(r),
-		IsMod:         id.Membership.Role.AtLeast(auth.RoleMod),
-		CurrentUserID: id.User.ID,
-		Messages:      views,
-		Projects:      projs,
-		Channels:      channels,
-		ActiveID:      ch.ID,
-		ActiveSlug:    ch.Slug,
-		ActiveTopic:   ch.Topic,
-		Unread:        unread,
-		CanManage:     id.Membership.Role.AtLeast(auth.RoleMod),
+		Viewer:           h.viewer(r),
+		IsMod:            id.Membership.Role.AtLeast(auth.RoleMod),
+		CurrentUserID:    id.User.ID,
+		Messages:         views,
+		Projects:         projs,
+		Channels:         channels,
+		ActiveID:         ch.ID,
+		ActiveSlug:       ch.Slug,
+		ActiveTopic:      ch.Topic,
+		Unread:           unread,
+		CanManage:        id.Membership.Role.AtLeast(auth.RoleMod),
+		TranslateEnabled: h.TranslateEnabled != nil && h.TranslateEnabled(r.Context()),
 	}).Render(r.Context(), w)
 }
 
@@ -1753,10 +1760,13 @@ func (h *Handler) GetTranslate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	_ = sse.PatchElementTempl(webtempl.TranslatePopup(opts))
+	// Clear the in-flight spinner regardless; open the popup only when there
+	// are rows so an empty result (blank query or provider error) closes it
+	// cleanly and the composer's Enter falls back to a normal send.
 	if len(opts) > 0 {
-		_ = sse.PatchSignals([]byte(`{"_translate_open":true}`))
+		_ = sse.PatchSignals([]byte(`{"_translate_open":true,"_translate_loading":false}`))
 	} else {
-		_ = sse.PatchSignals([]byte(`{"_translate_open":false}`))
+		_ = sse.PatchSignals([]byte(`{"_translate_open":false,"_translate_loading":false}`))
 	}
 }
 

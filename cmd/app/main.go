@@ -1567,6 +1567,21 @@ func run() error {
 			}
 			return agent.Translate(ctx, tr.BaseURL, tr.Model, text)
 		}
+		// Capability check the composer reads at page render: only fire the
+		// typeahead when this community can actually translate, so a tenant
+		// where it's off (the SaaS default) never flashes the popup open.
+		chatHandler.TranslateEnabled = func(ctx context.Context) bool {
+			c, ok := community.FromContext(ctx)
+			if !ok {
+				return false
+			}
+			s, err := cRepo.Settings(ctx, c.ID)
+			if err != nil {
+				return false
+			}
+			tr := community.ResolveTranslate(s, cfg)
+			return tr.Enabled && tr.Model != ""
+		}
 	}
 
 	pmRepo := privatemsg.NewRepo(db)
