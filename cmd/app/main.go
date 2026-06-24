@@ -598,12 +598,24 @@ func run() error {
 		// embedder, unchanged. Cache by (host|model|dim) to reuse HTTP clients.
 		if cfg.SAAS {
 			var embCache sync.Map
+			var warnedPlatformGap sync.Map // communityID → once, to keep the warning out of the per-embed hot path
 			ragSvc.EmbedderFor = func(ctx context.Context, communityID string) (rag.Embedder, error) {
 				s, err := cRepo.Settings(ctx, communityID)
 				if err != nil {
 					return nil, err
 				}
 				r := community.ResolveRAG(s, cfg)
+				// Silent-fallback guard: a community that opted into platform AI and is
+				// authorized but whose embedder did NOT resolve to platform compute can
+				// only mean PLATFORM_AI_RAG_BASEURL is unset, so it is quietly embedding
+				// against RAG_EMBED_BASEURL (BYO, unmetered). Surface it once per
+				// community so the misconfig isn't invisible.
+				if on, authd := community.PlatformAI(s, cfg); on && authd && !r.Platform {
+					if _, dup := warnedPlatformGap.LoadOrStore(communityID, struct{}{}); !dup {
+						log.Warn("rag: community opted into platform AI but PLATFORM_AI_RAG_BASEURL is unset; embedding against RAG_EMBED_BASEURL (BYO, unmetered)",
+							"community", communityID, "embed_baseurl", r.EmbedBaseURL)
+					}
+				}
 				key := r.EmbedBaseURL + "|" + r.EmbedModel + "|" + strconv.Itoa(r.EmbedDim)
 				var emb rag.Embedder
 				if v, ok := embCache.Load(key); ok {
