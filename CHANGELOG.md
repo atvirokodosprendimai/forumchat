@@ -187,3 +187,4 @@
 - 2026-06-24 `d149612` fix(billing): harden webhook per 2nd Codex pass — lost-event, checkout-trust, race
 - 2026-06-24 `96c71d9` docs(changelog): billing hardening entry
 - 2026-06-24 `2984d5c` docs(changelog): auto-append
+- 2026-06-24 `250a0b2` docs(changelog): auto-append
