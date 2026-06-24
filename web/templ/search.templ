@@ -45,6 +45,8 @@ func searchKindIcon(kind string) string {
 		return "🤖"
 	case "paste":
 		return "📄"
+	case "note":
+		return "📝"
 	}
 	return "•"
 }
@@ -71,6 +73,8 @@ func searchKindLabel(kind string) string {
 		return "agent thread"
 	case "paste":
 		return "paste"
+	case "note":
+		return "note"
 	}
 	return kind
 }
@@ -87,14 +91,14 @@ func searchHighlight(snippet string) string {
 templ SearchPage(d SearchPageData) {
 	@Layout("Search", d.Viewer) {
 		<section class="search-page">
-			@PageHeader("Search", "Find anything across "+d.Viewer.CommunityName+" — chat, threads, issues, discussions, projects, and pastes.") {
+			@PageHeader("Search", "Find anything across "+d.Viewer.CommunityName+" — chat, threads, issues, discussions, projects, notes, and pastes.") {
 			}
 			<input
 				class="search-input"
 				type="search"
 				autofocus
 				autocomplete="off"
-				placeholder="Search chat, threads, issues, discussions, projects, pastes…"
+				placeholder="Search chat, threads, issues, discussions, projects, notes, pastes…"
 				data-bind="q"
 				data-on:input__debounce.300ms={ "@get('/c/" + d.Viewer.CommunitySlug + "/search/results')" }
 			/>
@@ -270,6 +274,8 @@ func searchResultTitle(r SearchResultView) string {
 		return "Agent message"
 	case "paste":
 		return "Paste"
+	case "note":
+		return "Note"
 	}
 	return "Untitled"
 }

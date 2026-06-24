@@ -39,6 +39,7 @@ const (
 	kindProject         = "project"
 	kindAI              = "ai"
 	kindPaste           = "paste"
+	kindNote            = "note"
 )
 
 // rrfK is the Reciprocal Rank Fusion constant. 60 is the value from the original
@@ -300,6 +301,8 @@ func (s *Service) resolveLinks(ctx context.Context, slug string, rs []Result) {
 			rs[i].URL = base + "/projects/" + rs[i].RefID
 		case kindPaste:
 			rs[i].URL = base + "/pastes/" + rs[i].RefID
+		case kindNote:
+			rs[i].URL = base + "/notes/" + rs[i].RefID
 		case kindChat:
 			// No per-message permalink exists; the history day-log anchors each
 			// chat row as <li id="msg-{id}">, so jump there by date.

@@ -908,6 +908,41 @@ When `SAAS=true` a community can opt to run RAG/translate/agents on the
   monthly **soft cap** (warn/suspend on the ledger) is spec-Future. No live
   end-to-end smoke yet (needs a real Ollama + Stripe price id).
 
+## 5j. Community shared notes ("iNotes") (Jun 2026)
+
+Plan: `memory/plan - 2606241407 - …`. A community space for markdown notes that
+render as HTML, with a visibility split and inline comments. Lives in
+`internal/notes` — cloned from `internal/pastes` (markdown→HTML on a dedicated
+page + share-to-channel via a `PostToChat` closure in main.go, no chat import
+cycle), then extended. Full detail: `internal/notes/CLAUDE.md`. Key invariants:
+
+- **Two stored forms:** `notes.body` (markdown source, the editor) +
+  `notes.body_html` (rendered+sanitized via the shared `render.RenderMarkdown`,
+  the reader). Live preview = `PostPreview` re-renders into `#note-preview`.
+- **`Note.CanEdit` is the one write authority** — author OR `Role.AtLeast(RoleMod)`
+  OR super-admin. `Service.Save` ALSO asserts `n.CommunityID == in.CommunityID`
+  (cross-tenant write guard; a Codex pass caught its absence). Don't re-derive
+  edit rights in handlers.
+- **Visibility split:** `public` (listed, member-readable) vs `private` (unlisted;
+  `GetPage` 404s it for non-editors). The only non-editor read of a private note
+  is the capability link **`GET /n/{token}`** (`GetShared`) — router-root, no
+  approval gate, identity-optional, generic miss page (no existence oracle), like
+  the data-export links (§5h). `share_token` is minted at draft-create so the copy
+  link works pre-save. Comments rail is hidden on the shared view.
+- **Inline comments** anchor to a rendered block (`render.AnnotateBlocks` tags each
+  top-level block `data-nb="<i>"`) + an optional selected-text `quote`. Add: any
+  member; resolve/delete: comment author OR note editor. A comment past the live
+  block count is **orphaned** (edit drift). `web/static/note.js` emits ONE
+  `fc:note-comment` event from selection / gutter / badge triggers; one Datastar
+  listener on `#note-reader` opens the composer (EDA §4.12). **note.js detaches its
+  MutationObserver while painting** — unconditional badge writes otherwise
+  re-trigger it into an infinite loop. The reader is one stable-id fat-morph (§4.7).
+- **Search/RAG:** indexed gated on `visibility='public'` (migration 00064, mirrors
+  pastes' 00062; `KindNote` loader re-applies the gate). `kind='note'` rendered in
+  `internal/search` (📝, URL `/c/{slug}/notes/{id}`).
+- **Nav:** a top-bar **Notes** pill (§ project_nav_topbar_community), not a sidebar
+  entry.
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing
