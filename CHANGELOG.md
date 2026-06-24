@@ -182,3 +182,4 @@
 - 2026-06-22 `9600840` fix(forum): re-sync thread stream while an agent reply is generating
 - 2026-06-22 `98b7c5f` docs(changelog): record forum thread stream resync fix
 - 2026-06-24 `cc5dfb7` docs(saas): spec + plan for platform-provided metered, billed AI compute
+- 2026-06-24 `af92829` docs(saas): platform-AI feature section + env reference
