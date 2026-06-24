@@ -690,6 +690,36 @@ templ Home(v Viewer) {
 	}
 }
 
+// PageHeader is the shared page-title block used across every community
+// page: a left-aligned title, a right-aligned actions slot (the page's
+// primary action — "New thread", "Create project", …), and an optional
+// muted subtitle. Standardising this is what makes the pages feel like one
+// app instead of N differently-arranged screens (see AGENTS.md design
+// system). It emits the existing .page-head row, so forum's prior markup
+// is byte-compatible.
+//
+// Usage:
+//
+//	@PageHeader("Projects", "Shared pages for documents…") {
+//	    <button class="btn" data-on:click="…">+ New project</button>
+//	}
+//
+// Pass an empty subtitle to omit it; pass no children for no action (the
+// actions slot collapses via `.page-head-actions:empty`).
+templ PageHeader(title, subtitle string) {
+	<header class="page-header">
+		<div class="page-head">
+			<h1>{ title }</h1>
+			<div class="page-head-actions">
+				{ children... }
+			</div>
+		</div>
+		if subtitle != "" {
+			<p class="page-subtitle">{ subtitle }</p>
+		}
+	</header>
+}
+
 templ ClockFragment(now string) {
 	<div id="clock">{ now }</div>
 }

@@ -705,14 +705,16 @@ label.icon-btn {
   display: flex; gap: .75rem; align-items: center; flex-wrap: wrap;
   margin: .75rem 0;
 }
-.forum-filters { display: flex; gap: .25rem; }
-.forum-filters .filter {
+/* .filters is the generic alias; .forum-filters kept for back-compat.
+   Both render the same segmented pill group on every page. */
+.forum-filters, .filters { display: flex; gap: .25rem; }
+.forum-filters .filter, .filters .filter {
   padding: .25rem .65rem; border-radius: 999px;
   background: var(--surface); border: 1px solid var(--border);
   color: var(--fg); text-decoration: none; font-size: .85rem;
 }
-.forum-filters .filter:hover { background: var(--surface-alt); }
-.forum-filters .filter.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.forum-filters .filter:hover, .filters .filter:hover { background: var(--surface-alt); }
+.forum-filters .filter.active, .filters .filter.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .forum-search { display: flex; gap: .35rem; margin-left: auto; flex: 1 1 200px; }
 .forum-search input[type="search"] {
   padding: .25rem .55rem; border: 1px solid var(--border);
@@ -2471,8 +2473,8 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 }
 
 /* Filter pills — tighter, modern */
-.forum-filters { gap: .4rem; }
-.forum-filters .filter {
+.forum-filters, .filters { gap: .4rem; }
+.forum-filters .filter, .filters .filter {
   padding: .35rem .9rem;
   font-weight: 500;
   font-size: .85rem;
@@ -2483,12 +2485,12 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
               color var(--t-fast) var(--ease-out),
               border-color var(--t-fast) var(--ease-out);
 }
-.forum-filters .filter:hover {
+.forum-filters .filter:hover, .filters .filter:hover {
   background: var(--surface-alt);
   color: var(--fg);
   border-color: var(--border-strong);
 }
-.forum-filters .filter.active {
+.forum-filters .filter.active, .filters .filter.active {
   background: linear-gradient(180deg, var(--accent), var(--accent-hover));
   color: var(--accent-fg);
   border-color: transparent;
@@ -6070,4 +6072,41 @@ body:has(.chat-layout) .site-footer { display: none; }
     border-left: 0;
     box-shadow: var(--shadow-lg);
   }
+}
+
+/* ============================================================
+   Shared page chrome — one header + toolbar skeleton for every
+   community page (forum, projects, todos, bookmarks, search,
+   profile, inbox, …). Emitted by the PageHeader templ component
+   plus the .toolbar / .filters helpers. This is what makes the
+   pages read as one app instead of N differently-arranged screens.
+   ============================================================ */
+
+.page-header { margin: .25rem 0 1.25rem; }
+/* The wrapper owns the spacing; the inner .page-head row sheds its
+   own margin so title + subtitle sit tight together. */
+.page-header .page-head { margin: 0; align-items: center; }
+.page-subtitle {
+  margin: .4rem 0 0;
+  color: var(--fg-muted);
+  font-size: .95rem; line-height: 1.5;
+  max-width: 72ch;
+}
+/* No primary action → collapse the slot so the title sits flush. */
+.page-head-actions:empty { display: none; }
+
+/* Generic toolbar: a horizontal control strip under the header for
+   filters, search and secondary actions. Wraps gracefully on mobile. */
+.toolbar {
+  display: flex; align-items: center; gap: .6rem;
+  flex-wrap: wrap; margin-bottom: 1.1rem;
+}
+/* Push trailing controls (search box, dropdowns) to the right. */
+.toolbar-spacer { flex: 1 1 auto; }
+.toolbar .filters { flex: 0 0 auto; }
+/* A search/select that should grow to fill the remaining toolbar width. */
+.toolbar-grow { flex: 1 1 220px; min-width: 0; }
+@media (max-width: 640px) {
+  .toolbar { gap: .45rem; }
+  .toolbar-grow { flex-basis: 100%; }
 }

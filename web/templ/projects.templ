@@ -167,16 +167,19 @@ type ProjectCommentView struct {
 templ ProjectsGrid(d ProjectsGridData) {
 	@Layout("Projects — "+d.CommunityName, d.Viewer) {
 		<section class="projects-grid-section">
-			<header class="projects-header">
-				<h1>Projects</h1>
-				<p class="muted">Shared pages for documents, checklists, and discussion. Any member can create one.</p>
-			</header>
-			<form class="projects-new" method="post" action={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>
-				<input type="text" name="title" placeholder="New project title" maxlength="120" required/>
-				<button class="btn" type="submit">Create project</button>
+			@PageHeader("Projects", "Shared pages for documents, checklists, and discussion. Any member can create one.") {
+				<button class="btn" type="button" data-on:click="document.querySelector('#new-project-title')?.focus()">+ New project</button>
+			}
+			<form class="projects-new toolbar" method="post" action={ templ.URL("/c/" + d.CommunitySlug + "/projects") }>
+				<input id="new-project-title" class="toolbar-grow" type="text" name="title" placeholder="New project title" maxlength="120" required/>
+				<button class="btn" type="submit">Create</button>
 			</form>
 			if len(d.Active) == 0 {
-				<p class="projects-empty muted">No projects yet. Create one above to get started.</p>
+				<div class="empty-state">
+					<div class="empty-icon" aria-hidden="true">📁</div>
+					<p><strong>No projects yet.</strong></p>
+					<p>Hit <strong>+ New project</strong> to create a shared page.</p>
+				</div>
 			} else {
 				<ul class="projects-cards">
 					for _, row := range d.Active {
