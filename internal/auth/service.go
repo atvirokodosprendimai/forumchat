@@ -31,6 +31,13 @@ type Service struct {
 	// AutoVerifyEmail skips the email round-trip: Register activates the user
 	// and creates their membership immediately (handy for short demo windows).
 	AutoVerifyEmail bool
+	// OpenJoin reports whether a community's join policy is "open" — i.e. new
+	// members join instantly with no approval queue, the same promise the
+	// owner-settings "Open" radio makes for /explore joins. Consulted at
+	// activate time so registration honours it too, not just /explore. Nil (and
+	// non-SaaS, where it always resolves false) leaves the env-flag behaviour
+	// untouched. Wired in main.go to avoid an auth→community import cycle.
+	OpenJoin OpenJoinResolver
 
 	// Communities deletes the solo-owned communities found during account
 	// erasure (provision.Service satisfies CommunityDeleter). Declared as an
@@ -41,6 +48,12 @@ type Service struct {
 	// satisfies UploadPurger). Nil tolerated.
 	Uploads UploadPurger
 }
+
+// OpenJoinResolver reports whether a community admits new members instantly
+// (its join_policy is "open"). Implemented in main.go over community.Repo +
+// community.JoinPolicy so auth never imports internal/community. A false (or
+// error) result falls back to the env auto-approve flag.
+type OpenJoinResolver func(ctx context.Context, communityID string) (bool, error)
 
 // CommunityDeleter purges a whole community — blobs, cascaded rows and vectors.
 // provision.Service.Delete satisfies it.
@@ -352,9 +365,22 @@ func (s *Service) activateAndJoin(ctx context.Context, userID, communityID, emai
 		TrustLevel:  0,
 	}
 	// Auto-approve stamps approved_at now so the member skips the pending
-	// queue. Honoured whenever the flag is set — for open OR invite-based
-	// signups (an admin who turns this on wants no manual approval step).
-	if s.OpenRegistrationAutoApprove {
+	// queue. Honoured when the env flag is set (open OR invite-based signups —
+	// an admin who turns this on wants no manual approval step) OR when the
+	// community's own join policy is "open" (the owner-settings promise that
+	// anyone may join instantly, which must hold for registration too, not just
+	// the /explore join path).
+	approve := s.OpenRegistrationAutoApprove
+	if !approve && s.OpenJoin != nil {
+		if open, err := s.OpenJoin(ctx, communityID); err != nil {
+			if s.Log != nil {
+				s.Log.Warn("resolve join policy; defaulting to approval queue", "community", communityID, "err", err)
+			}
+		} else if open {
+			approve = true
+		}
+	}
+	if approve {
 		t := time.Now()
 		m.ApprovedAt = &t
 	}

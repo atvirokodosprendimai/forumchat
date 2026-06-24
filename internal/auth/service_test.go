@@ -146,6 +146,54 @@ func TestRegister_OpenNoInvite_AutoApprove(t *testing.T) {
 	}
 }
 
+// A community whose join policy is "open" auto-approves registrants even with
+// the env auto-approve flag off — the owner-settings "anyone may join instantly"
+// promise must hold for the registration path, not just /explore.
+func TestRegister_OpenJoinPolicy_AutoApproves(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistration = true               // env auto-approve stays OFF
+	svc.OpenJoin = func(context.Context, string) (bool, error) { return true, nil }
+
+	reg, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "openjoin@example.com", Password: "supersecret123",
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := svc.Verify(ctx, reg.VerificationToken, communityID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, err := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if err != nil {
+		t.Fatalf("membership: %v", err)
+	}
+	if m.ApprovedAt == nil {
+		t.Fatal("want auto-approved via open join policy, got pending (nil)")
+	}
+}
+
+// A resolver error must NOT auto-approve — fail closed into the approval queue.
+func TestRegister_OpenJoinResolverError_StaysPending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistration = true
+	svc.OpenJoin = func(context.Context, string) (bool, error) { return false, errors.New("boom") }
+
+	reg, _ := svc.Register(ctx, auth.RegisterInput{
+		Email: "resolvererr@example.com", Password: "supersecret123",
+	})
+	if _, err := svc.Verify(ctx, reg.VerificationToken, communityID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, _ := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if m.ApprovedAt != nil {
+		t.Fatal("resolver error must fail closed (stay pending), got approved")
+	}
+}
+
 // Auto-approve is independent of open registration: an invite-based signup
 // with auto-approve on (open reg off) is also approved at verify time.
 func TestRegister_AutoApprove_InviteFlow(t *testing.T) {

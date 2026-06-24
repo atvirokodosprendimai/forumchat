@@ -185,6 +185,18 @@ func run() error {
 		OpenRegistrationAutoApprove: cfg.OpenRegistrationAutoApprove,
 		AutoVerifyEmail:             cfg.AutoVerifyEmail,
 	}
+	// Honour a community's "open" join policy on the registration path too, so a
+	// member who signs up into an open community skips the approval queue exactly
+	// as an /explore joiner does. Resolves false in self-host (join_policy is
+	// SaaS-only), leaving env-flag behaviour unchanged. Closure keeps auth free
+	// of an internal/community import.
+	svc.OpenJoin = func(ctx context.Context, communityID string) (bool, error) {
+		s, err := cRepo.Settings(ctx, communityID)
+		if err != nil {
+			return false, err
+		}
+		return community.JoinPolicy(s, cfg) == "open", nil
+	}
 	sessions := auth.NewSessionManager(cfg.SessionMaxAge, cfg.IsProd())
 	superAdmins := auth.NewSuperAdminSet(cfg.SuperAdminEmails)
 	if len(superAdmins) > 0 {
