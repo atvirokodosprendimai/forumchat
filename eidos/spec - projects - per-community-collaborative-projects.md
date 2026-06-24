@@ -42,12 +42,39 @@ Five panels driven by one server-rendered struct (`web/templ.ProjectPageView`) a
 
 ### Permissions
 
+By default a project is **open**: every approved community member can read and
+write it (this is the original behaviour and the zero-value of the model below).
+
 - **Create**: any approved community member.
 - **Edit** (title, description, todos, comments, add attachments): any approved community member.
 - **Delete an attachment**: uploader OR project creator OR community admin.
 - **Delete a comment**: author OR community admin (forum edit-grace rules).
 - **Delete / archive a project**: project creator OR community admin.
 - Pending or non-member users get the standard 403.
+
+#### Opt-in per-project permissions (migration 00063)
+
+A project can be marked **needs-perms** (a checkbox on create, or the manager-only
+Permissions panel later). When off, everything above is unchanged. When on:
+
+- `visibility` decides who may **see** the project:
+  - `community` — every approved member can read it (e.g. the support project
+    where all development happens).
+  - `restricted` — only the creator, community admin/owner, and people on the
+    per-person ACL can see it; it vanishes from the index, the `/issues`
+    picker, and 404s on direct URL (the "hide" switch — e.g. the email-drop
+    Inbox, hidden in both SaaS and self-host).
+- `member_access` is the community-wide **write** default for `community`
+  visibility: `read` (read-only for all; the default) or `write`.
+- A per-person **ACL** (`project_members`) grants one user `read` or `write`,
+  overriding the community default — so "everyone reads, these few write".
+
+`EffectiveAccess` (one pure function) is the single read/write authority,
+resolving: guest → read · open project → read+write · creator/admin/owner →
+manage (read+write) · explicit ACL grant → that level · `community` visibility →
+`member_access` · `restricted` with no grant → none. Managing perms + the ACL is
+creator/admin/owner only (not a write-granted member). Available whenever
+`PROJECTS_ENABLED`, independent of `SAAS`. The mailbox Inbox is auto-restricted.
 
 ### Realtime — the datastar virtual-DOM pattern
 
@@ -120,6 +147,24 @@ CREATE INDEX idx_project_comments_project ON project_comments(project_id, create
 ```
 
 Attachments piggyback on the existing `internal/uploads` table; we never duplicate file bytes. Per-file size limit is the existing `UPLOADS_MAX_BYTES`. No per-project file cap.
+
+Permissions (migration 00063) extend `projects` with defaulted columns so
+existing rows are byte-for-byte unchanged, plus a per-person ACL table:
+
+```sql
+ALTER TABLE projects ADD COLUMN needs_perms   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE projects ADD COLUMN visibility    TEXT NOT NULL DEFAULT 'community'; -- community | restricted
+ALTER TABLE projects ADD COLUMN member_access TEXT NOT NULL DEFAULT 'read';      -- read | write (community default)
+
+CREATE TABLE project_members (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    access     TEXT NOT NULL DEFAULT 'read',  -- read | write
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (project_id, user_id)
+);
+CREATE INDEX idx_project_members_user ON project_members(user_id);
+```
 
 ## Design
 
@@ -210,7 +255,8 @@ Mirror the forum pattern: each templ writes a top-level element with a stable id
 
 ## Future
 
-- {[?] per-project access control — invite outside collaborators or restrict to a subset of members}
+- {[x] per-project access control — restrict to a subset of members (migration 00063, 2026-06-24): needs_perms + visibility + member_access + project_members ACL; see Permissions above}
+- {[?] invite OUTSIDE collaborators (non-members) to a single project — distinct from the member ACL; the share-link guest path is the closest existing primitive}
 - {[?] notifications on @-mentions inside description or comments}
 - {[?] file versioning — keep the previous upload when a same-named file is re-uploaded}
 - {[?] export project as PDF (description + todo checklist + comments)}
