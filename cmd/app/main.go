@@ -1032,6 +1032,8 @@ func run() error {
 		Repo:          notesRepo,
 		ChatRepo:      chatRepo,
 		BaseURL:       cfg.BaseURL,
+		Bus:           notes.NewBus(),
+		NATS:          nc,
 		CommunityID:   bootCommunity.ID,
 		CommunityName: bootCommunity.Name,
 		Log:           log,
@@ -1772,6 +1774,9 @@ func run() error {
 		r.Get("/notes/{id}", notesHandler.GetPage)
 		r.Post("/notes/{id}/save", notesHandler.PostSave)
 		r.Post("/notes/{id}/preview", notesHandler.PostPreview)
+		// Collaborative editing: per-note diff-sync stream + merge endpoint.
+		r.Get("/notes/{id}/collab", notesHandler.GetCollab)
+		r.Post("/notes/{id}/sync", notesHandler.PostSync)
 		r.Post("/notes/{id}/share", notesHandler.PostShare)
 		r.Post("/notes/{id}/delete", notesHandler.PostDelete)
 		// Inline comments. Static "comments" wins over the {id} wildcard, so the

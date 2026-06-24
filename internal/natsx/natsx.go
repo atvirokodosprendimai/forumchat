@@ -67,6 +67,13 @@ func LobbySubject(communityID, lobbyID string) string {
 	return fmt.Sprintf("community.%s.lobby.%s", communityID, lobbyID)
 }
 
+// NoteSubject is the per-note fan-out for collaborative editing. Each editor's
+// collab SSE stream subscribes here; a merged edit or a Save publishes so every
+// open editor (across processes) re-syncs.
+func NoteSubject(communityID, noteID string) string {
+	return fmt.Sprintf("community.%s.note.%s", communityID, noteID)
+}
+
 // MailboxSubject is the per-community fan-out for the global /inbox
 // surface. The poll worker + filter CRUD endpoints publish here when a
 // row changes; every viewer admin in this community wakes and

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sergi/go-diff/diffmatchpatch"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -59,6 +60,7 @@ type Note struct {
 	BodyHTML    string
 	Visibility  string
 	ShareToken  string
+	Version     int // monotonic; bumped on every merged collab edit and on Save
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -112,14 +114,14 @@ type Repo struct{ DB *sql.DB }
 
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 
-const noteCols = `id, community_id, channel_id, author_id, title, body, body_html, visibility, share_token, created_at, updated_at`
+const noteCols = `id, community_id, channel_id, author_id, title, body, body_html, visibility, share_token, created_at, updated_at, version`
 
 func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 	var n Note
 	var channel sql.NullString
 	var created, updated int64
 	if err := row.Scan(&n.ID, &n.CommunityID, &channel, &n.AuthorID, &n.Title,
-		&n.Body, &n.BodyHTML, &n.Visibility, &n.ShareToken, &created, &updated); err != nil {
+		&n.Body, &n.BodyHTML, &n.Visibility, &n.ShareToken, &created, &updated, &n.Version); err != nil {
 		return Note{}, err
 	}
 	if channel.Valid {
@@ -134,9 +136,9 @@ func scanNote(row interface{ Scan(...any) error }) (Note, error) {
 func (r *Repo) Create(ctx context.Context, n Note) error {
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO notes (`+noteCols+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.ID, n.CommunityID, channelArg(n.ChannelID), n.AuthorID, n.Title,
-		n.Body, n.BodyHTML, n.Visibility, n.ShareToken, n.CreatedAt.Unix(), n.UpdatedAt.Unix())
+		n.Body, n.BodyHTML, n.Visibility, n.ShareToken, n.CreatedAt.Unix(), n.UpdatedAt.Unix(), n.Version)
 	return err
 }
 
@@ -152,15 +154,52 @@ func (r *Repo) ByShareToken(ctx context.Context, token string) (Note, error) {
 		`SELECT `+noteCols+` FROM notes WHERE share_token = ?`, token))
 }
 
-// Update persists a note's editable fields plus updated_at.
+// Update persists a note's editable fields plus updated_at, bumping version so
+// any open collaborative editors re-sync to the saved body.
 func (r *Repo) Update(ctx context.Context, n Note) error {
 	_, err := r.DB.ExecContext(ctx, `
 		UPDATE notes SET channel_id = ?, title = ?, body = ?, body_html = ?,
-			visibility = ?, share_token = ?, updated_at = ?
+			visibility = ?, share_token = ?, updated_at = ?, version = version + 1
 		WHERE id = ?`,
 		channelArg(n.ChannelID), n.Title, n.Body, n.BodyHTML, n.Visibility,
 		n.ShareToken, n.UpdatedAt.Unix(), n.ID)
 	return err
+}
+
+// MergeBody applies a fuzzy diff-match-patch to the note's canonical body in one
+// transaction (read current → patch → write), bumping version. The single-writer
+// DB serializes concurrent merges, so the server is the sequencer and edits from
+// several editors converge. Returns the merged body + new version.
+func (r *Repo) MergeBody(ctx context.Context, id, patchText string) (string, int, error) {
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", 0, err
+	}
+	defer tx.Rollback()
+	var body string
+	var version int
+	if err := tx.QueryRowContext(ctx, `SELECT body, version FROM notes WHERE id = ?`, id).
+		Scan(&body, &version); err != nil {
+		return "", 0, err
+	}
+	merged := body
+	dmp := diffmatchpatch.New()
+	if patches, perr := dmp.PatchFromText(patchText); perr == nil && len(patches) > 0 {
+		merged, _ = dmp.PatchApply(patches, body)
+	}
+	if len(merged) > MaxBodyBytes {
+		merged = merged[:MaxBodyBytes]
+	}
+	version++
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE notes SET body = ?, version = ?, updated_at = ? WHERE id = ?`,
+		merged, version, time.Now().Unix(), id); err != nil {
+		return "", 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", 0, err
+	}
+	return merged, version, nil
 }
 
 // Delete removes a note (and its comments, via FK cascade).
@@ -377,6 +416,27 @@ func (s *Service) Save(ctx context.Context, id auth.Identity, in SaveInput) (Not
 		return Note{}, fmt.Errorf("update note: %w", err)
 	}
 	return n, nil
+}
+
+// SyncBody merges one editor's diff into the note's canonical body (collaborative
+// editing). Authorizes (community + CanEdit), then applies the fuzzy patch under
+// the sequencing transaction. An empty patch is a no-op cursor-only ping —
+// returns the current body+version unchanged. Returns the merged body + version.
+func (s *Service) SyncBody(ctx context.Context, id auth.Identity, communityID, noteID, patchText string) (string, int, error) {
+	n, err := s.Repo.ByID(ctx, noteID)
+	if err != nil {
+		return "", 0, err
+	}
+	if n.CommunityID != communityID {
+		return "", 0, ErrForbidden
+	}
+	if !n.CanEdit(id) {
+		return "", 0, ErrForbidden
+	}
+	if strings.TrimSpace(patchText) == "" {
+		return n.Body, n.Version, nil
+	}
+	return s.Repo.MergeBody(ctx, noteID, patchText)
 }
 
 // CommentInput carries a new inline comment.

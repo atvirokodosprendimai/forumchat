@@ -173,11 +173,20 @@ templ NotePage(d NotePageData) {
 		if !d.Shared {
 			<script src={ "/static/note.js?v=" + AssetVer("note.js") } defer></script>
 		}
+		if d.Edit {
+			// Collaborative editing: diff-match-patch (server interop via go-diff)
+			// + the diff-sync client. Order matters — dmp must load first.
+			<script src={ "/static/diff_match_patch.js?v=" + AssetVer("diff_match_patch.js") } defer></script>
+			<script src={ "/static/note-collab.js?v=" + AssetVer("note-collab.js") } defer></script>
+		}
 	}
 }
 
 templ noteEditor(d NotePageData) {
 	<div class="note-editor card" id="note-editor" data-class="{'collapsed': !$_note_edit}">
+		<!-- collab: open the per-note diff-sync stream + apply each canonical push -->
+		<div data-init={ "@get('/c/" + d.Slug + "/notes/" + d.Note.ID + "/collab')" }></div>
+		<div data-on-signal-patch-filter="{include: /^_note_canon$/}" data-on-signal-patch="window.fcNoteCollabApply && window.fcNoteCollabApply($_note_canon, $_note_ver)"></div>
 		<div class="note-editor-bar">
 			<button class="btn ghost note-edit-toggle" data-on:click="$_note_edit = !$_note_edit" title="Show or hide the editor and preview">
 				<span data-show="$_note_edit">👁 Hide editor</span>
@@ -213,7 +222,7 @@ templ noteEditor(d NotePageData) {
 						spellcheck="false"
 						autocomplete="off"
 						placeholder="Write in markdown…"
-						data-on:input__debounce.300ms={ "$_note_live && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/preview')" }
+						data-on:input__debounce.300ms={ "$note_patch = (window.fcNoteCollabPatch ? window.fcNoteCollabPatch() : ''); ($note_patch && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/sync')); ($_note_live && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/preview'))" }
 					>{ d.Note.Body }</textarea>
 				</div>
 				<div class="note-pane note-preview">
@@ -451,6 +460,7 @@ func noteInitSignals(n NoteView) string {
 	return `{"note_title":` + strconv.Quote(n.Title) +
 		`,"note_visibility":` + strconv.Quote(vis) +
 		`,"note_body":` + strconv.Quote(n.Body) +
-		`,"note_c_block":"0","note_c_quote":"","note_c_body":"","note_share_channel":"",` +
+		`,"note_c_block":"0","note_c_quote":"","note_c_body":"","note_share_channel":"","note_patch":"",` +
+		`"_note_canon":"","_note_ver":0,` +
 		`"_note_share_open":false,"_note_comment_open":false,"_note_edit":` + edit + `,"_note_live":false}`
 }

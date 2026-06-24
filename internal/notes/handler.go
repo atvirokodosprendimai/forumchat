@@ -2,6 +2,7 @@ package notes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -10,11 +11,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
+	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
 )
@@ -37,9 +40,30 @@ type Handler struct {
 	// token reader, which carries no slug in its URL. Wired in main.go from the
 	// community repo (a closure keeps notes free of a community.Repo field).
 	LookupCommunity func(ctx context.Context, id string) (name, slug string, ok bool)
+	// Bus + NATS fan out collaborative-edit merges to every open editor
+	// (same-process Bus, cross-process NATS). Nil-safe.
+	Bus             *Bus
+	NATS            *nats.Conn
 	CommunityID     string
 	CommunityName   string
 	Log             *slog.Logger
+}
+
+// broadcast pings every open collab stream for a note (this process + others).
+func (h *Handler) broadcast(ctx context.Context, communityID, noteID string) {
+	if h.Bus != nil {
+		h.Bus.Broadcast(noteID)
+	}
+	if h.NATS != nil && h.NATS.IsConnected() {
+		_ = h.NATS.Publish(natsx.NoteSubject(communityID, noteID), []byte("changed"))
+	}
+}
+
+// canonSignals JSON-encodes the canonical body + version as a datastar signal
+// patch. _-prefixed so they stay FE-only (the large body never rides back in a
+// @post bag); the client merges _note_canon into its textarea preserving caret.
+func canonSignals(body string, version int) ([]byte, error) {
+	return json.Marshal(map[string]any{"_note_canon": body, "_note_ver": version})
 }
 
 func (h *Handler) cid(ctx context.Context) string {
@@ -333,6 +357,104 @@ func (h *Handler) PostSave(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = sse.PatchElementTempl(webtempl.NoteError(""))
 	_ = sse.PatchElementTempl(webtempl.NoteReader(h.readerData(r.Context(), n, id, true, true)))
+	// Save bumped version + body — wake other open editors to re-sync.
+	h.broadcast(r.Context(), n.CommunityID, n.ID)
+}
+
+type syncSignals struct {
+	Patch string `json:"note_patch"`
+}
+
+// PostSync merges one editor's diff-match-patch into the note's canonical body
+// (collaborative editing) and fans the new canonical out to every open editor.
+// The sender also gets the merged canonical back here for immediate reconcile.
+func (h *Handler) PostSync(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes+(64<<10))
+	var in syncSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	noteID := chi.URLParam(r, "id")
+	cid := h.cid(r.Context())
+	body, version, err := h.Svc.SyncBody(r.Context(), id, cid, noteID, in.Patch)
+	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		h.Log.Error("note sync", "err", err)
+		http.Error(w, "sync failed", http.StatusInternalServerError)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if sig, err := canonSignals(body, version); err == nil {
+		_ = sse.PatchSignals(sig)
+	}
+	// Fan the merge out to the OTHER open editors (the sender already has it above).
+	if in.Patch != "" {
+		h.broadcast(r.Context(), cid, noteID)
+	}
+}
+
+// GetCollab is the per-note collab SSE stream: editors subscribe here and the
+// server pushes the canonical body + version (as signals) on every merge/save.
+// Editors-only — a non-editor never opens it (no textarea), and we re-check.
+func (h *Handler) GetCollab(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	n, err := h.Repo.ByID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil || n.CommunityID != h.cid(r.Context()) || !n.CanEdit(id) {
+		http.NotFound(w, r)
+		return
+	}
+	noteID := n.ID
+	sse := render.NewSSE(w, r)
+	if sig, err := canonSignals(n.Body, n.Version); err == nil {
+		_ = sse.PatchSignals(sig)
+	}
+	local, unsubscribe := h.Bus.Subscribe(noteID)
+	defer unsubscribe()
+	var natsCh chan *nats.Msg
+	if h.NATS != nil && h.NATS.IsConnected() {
+		natsCh = make(chan *nats.Msg, 32)
+		if sub, err := h.NATS.ChanSubscribe(natsx.NoteSubject(n.CommunityID, noteID), natsCh); err == nil {
+			defer sub.Unsubscribe()
+		} else {
+			natsCh = nil
+		}
+	}
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-local:
+		case _, okCh := <-natsCh:
+			if !okCh {
+				natsCh = nil
+				continue
+			}
+		}
+		fresh, err := h.Repo.ByID(r.Context(), noteID)
+		if err != nil {
+			continue
+		}
+		sig, err := canonSignals(fresh.Body, fresh.Version)
+		if err != nil {
+			continue
+		}
+		if err := sse.PatchSignals(sig); err != nil {
+			return
+		}
+	}
 }
 
 type previewSignals struct {
