@@ -55,7 +55,7 @@ Reused seams / references:
 
 ## Phases
 
-### Phase 0 — schema + domain — status: open
+### Phase 0 — schema + domain — status: completed
 1. [ ] Migration `00063_notes.sql`: `notes` (id, community_id, author_id, title,
    body, body_html, visibility `'public'|'private'` default private, share_token,
    created_at, updated_at; idx community; unique partial idx share_token) +
@@ -72,7 +72,7 @@ Reused seams / references:
    token read gate, CanEdit matrix, add/resolve comment. `t.TempDir()` DB.
    - => verify: `go test ./internal/notes/...`.
 
-### Phase 1 — index + editor + reader (visible result) — status: open
+### Phase 1 — index + editor + reader (visible result) — status: completed
 4. [ ] `web/templ/notes.templ`: leaf view models (`NoteView`, `NoteCommentView`,
    `NotesPageData`, `NotePageData`); `NotesIndex` (public list + my notes);
    `NoteEditor` (title, markdown textarea, visibility toggle, live `#note-preview`,
@@ -134,3 +134,9 @@ Reused seams / references:
 ## Progress Log
 - 2606241407 — plan created; sources reconciled (no conflict): pastes is the
   template, memory reinforces. Decisions locked via AskUserQuestion.
+- 2606241420 — Phase 0 done: migration 00063 (notes + note_comments), domain
+  Repo+Service, 7 tests green. CanEdit=author|mod|superadmin one authority.
+- 2606241425 — Phase 1 done: Notes topnav pill; index (shared + my notes) +
+  editor (title/visibility/debounced live preview/save morphs reader in place/
+  delete) + reader. Verified via Playwright (4 screenshots). Fixed grid overflow
+  (minmax(0,1fr)) + snippet markdown-marker strip after seeing the index shot.
