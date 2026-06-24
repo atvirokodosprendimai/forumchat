@@ -883,12 +883,18 @@ When `SAAS=true` a community can opt to run RAG/translate/agents on the
   (`/c/{slug}/settings/billing/checkout`) → Checkout Session
   (`client_reference_id` = community). **Public webhook** `/billing/webhook` is
   the SOLE authority on subscription state: HMAC-verified, **idempotent** by
-  event id (`stripe_events`, migration 00061), with a **stale-subscription
-  guard** (ignore a lifecycle event for a non-current sub id → a late old-sub
-  `deleted` can't deactivate a live one). Transient store errors → 5xx (Stripe
-  retries); unknown customer → 200. Inert unless all three `STRIPE_*` set. The
-  webhook is the **security-review surface** — it was Codex-reviewed; re-run
-  `/codex:review` before relying on live payments.
+  event id (`stripe_events`, migration 00061 — **claim-before-handle +
+  release-on-failure** so a failed handle is retried, not lost), with a
+  **stale-subscription guard** (a lifecycle event for a non-current sub id is
+  ignored in the `UPDATE … WHERE`, so it's atomic — no read-modify-write race
+  between concurrent webhooks — and a late old-sub `deleted` can't deactivate a
+  live one). Transient store errors → 5xx (Stripe retries); unknown customer →
+  200. **Checkout grants only on `payment_status=="paid"`** (3DS/incomplete links
+  the ids but waits for the authoritative `customer.subscription.created/updated`).
+  `LinkStripeCheckout`/`SetSubscriptionStatus` are single atomic `UPDATE`s, not
+  load-save. Inert unless all three `STRIPE_*` set. **Security-review surface** —
+  two Codex passes folded in; re-run `/codex:review` before relying on live
+  payments.
 - **Still TODO** (deferred, low-risk): switching BYO↔platform changes the embed
   model/dim → a **reindex** should fire (today only `admin.PostSettings`
   auto-reindexes on a RAG change; the grant/request flow does not — vectors

@@ -305,13 +305,17 @@ A new leaf package wrapping `stripe-go`:
   `community_settings.stripe_subscription_status` + `platform_ai_status`.
 - The webhook is the only authority on subscription state; the app never trusts a
   client-reported "I paid." Signature verification (HMAC) + idempotency by Stripe
-  event id (a `stripe_events` dedup table) + a stale-subscription guard (ignore a
-  lifecycle event for a subscription that is no longer the community's current
-  one, so a late old-sub `deleted` can't deactivate a live one). Transient
-  storage failures return 5xx so Stripe retries; "not ours / unknown customer"
-  returns 200. (This handler is the security-review gate at implementation time —
-  Codex/`/codex:review` before merge; the first pass already folded in
-  replay/out-of-order/lost-event findings.)
+  event id (a `stripe_events` dedup table, **claim-before-handle with
+  release-on-failure** so a failed handling is still retried, not lost) + a
+  stale-subscription guard (ignore a lifecycle event for a subscription that is no
+  longer the community's current one, so a late old-sub `deleted` can't deactivate
+  a live one — enforced in the `UPDATE … WHERE` so it is atomic, not a
+  read-modify-write race). Transient storage failures return 5xx so Stripe
+  retries; "not ours / unknown customer" returns 200. **Checkout completion grants
+  only when `payment_status == "paid"`** (a 3DS/incomplete checkout links the ids
+  but does not authorize until the authoritative `customer.subscription.created/
+  updated` event confirms payment). (Two Codex passes folded in
+  replay/out-of-order/lost-event/checkout-trust/concurrency findings.)
 - **Granting statuses:** platform AI is authorized when the subscription status is
   `active` **or** `trialing` (`community.SubscriptionGrantsAccess`); `past_due`,
   `canceled`, `unpaid`, `incomplete`, `paused` do not grant — the resolver then

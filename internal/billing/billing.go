@@ -29,9 +29,12 @@ const maxWebhookBody = 1 << 20
 // Store persists Stripe linkage + subscription state. Declared consumer-side so
 // billing never imports community (no cycle). Satisfied by *community.Repo.
 type Store interface {
-	// MarkStripeEventProcessed records an event id and reports whether it is new
-	// (true) or an already-handled redelivery (false) — the idempotency gate.
+	// MarkStripeEventProcessed claims an event id and reports whether it is new
+	// (true) or an already-claimed redelivery (false) — the idempotency gate.
 	MarkStripeEventProcessed(ctx context.Context, eventID string) (bool, error)
+	// UnmarkStripeEvent releases a claimed id after a handling failure so Stripe's
+	// retry is not lost.
+	UnmarkStripeEvent(ctx context.Context, eventID string) error
 	LinkStripeCheckout(ctx context.Context, communityID, customerID, subscriptionID, status string) error
 	CommunityByStripeCustomer(ctx context.Context, customerID string) (string, error)
 	SetSubscriptionStatus(ctx context.Context, communityID, subscriptionID, status string) error
@@ -134,8 +137,13 @@ func (s *Service) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.handle(r.Context(), event); err != nil {
-		// Transient failure: 5xx so Stripe retries delivery (vs silently 200ing
-		// and losing the event). "Not ours / unknown" cases return nil → 200.
+		// Transient failure: RELEASE the claim so Stripe's retry is reprocessed
+		// (otherwise the dedup gate would skip it and the event — e.g. a
+		// cancellation — would be lost), then 5xx so Stripe retries. "Not ours /
+		// unknown" cases return nil → 200.
+		if uerr := s.store.UnmarkStripeEvent(r.Context(), event.ID); uerr != nil && s.log != nil {
+			s.log.Error("billing: release event claim", "event", event.ID, "err", uerr)
+		}
 		if s.log != nil {
 			s.log.Error("billing: handle event", "type", event.Type, "err", err)
 		}
@@ -157,10 +165,19 @@ func (s *Service) handle(ctx context.Context, event stripe.Event) error {
 		if cs.ClientReferenceID == "" {
 			return nil // not initiated by us
 		}
+		// Link the ids unconditionally so the authoritative subscription lifecycle
+		// event can map customer→community. Only AUTHORIZE when the first invoice
+		// is actually paid (payment_status=="paid"); a 3DS/incomplete checkout
+		// links but does not grant — the customer.subscription.created/updated
+		// event flips it to active once Stripe confirms payment.
+		status := ""
+		if cs.PaymentStatus == stripe.CheckoutSessionPaymentStatusPaid {
+			status = "active"
+		}
 		return s.store.LinkStripeCheckout(ctx, cs.ClientReferenceID,
-			customerID(cs.Customer), subscriptionID(cs.Subscription), "active")
+			customerID(cs.Customer), subscriptionID(cs.Subscription), status)
 
-	case "customer.subscription.updated", "customer.subscription.deleted":
+	case "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted":
 		var sub stripe.Subscription
 		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
 			return err

@@ -108,30 +108,41 @@ func (r *Repo) RevokePlatformAI(ctx context.Context, communityID string) error {
 }
 
 // LinkStripeCheckout records a completed Stripe Checkout: the customer +
-// subscription ids and the subscription status. An active subscription
-// authorizes platform AI and marks it active (the owner had already opted in to
-// reach checkout).
+// subscription ids and the subscription status. A granting status (active /
+// trialing) authorizes platform AI and marks it active; a non-granting status
+// (e.g. the first invoice is not yet paid — 3DS pending) still links the ids so
+// the authoritative subscription lifecycle event can find the community, but
+// does NOT yet authorize. Atomic single UPDATE (no read-modify-write race when
+// two webhooks for one community arrive together).
 func (r *Repo) LinkStripeCheckout(ctx context.Context, communityID, customerID, subscriptionID, status string) error {
-	s, err := r.Settings(ctx, communityID)
-	if err != nil {
-		return err
-	}
-	s.StripeCustomerID = customerID
-	s.StripeSubscriptionID = subscriptionID
-	s.StripeSubscriptionStatus = status
-	if SubscriptionGrantsAccess(status) {
-		on := true
-		s.UsePlatformAI = &on
-		s.PlatformAIStatus = PlatformAIStatusActive
-	}
-	return r.SaveSettings(ctx, s)
+	grants := boolToInt(SubscriptionGrantsAccess(status))
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE community_settings SET
+			stripe_customer_id = ?,
+			stripe_subscription_id = ?,
+			stripe_subscription_status = ?,
+			use_platform_ai = CASE WHEN ? = 1 THEN 1 ELSE use_platform_ai END,
+			platform_ai_status = CASE WHEN ? = 1 THEN 'active' ELSE platform_ai_status END,
+			updated_at = ?
+		WHERE community_id = ?`,
+		customerID, subscriptionID, status, grants, grants, time.Now().Unix(), communityID)
+	return err
 }
 
-// MarkStripeEventProcessed records a Stripe event id and reports whether it is
-// NEW (true) or a duplicate redelivery already handled (false). The webhook
-// skips duplicates, making event handling idempotent against Stripe's
-// at-least-once delivery (a replayed checkout.session.completed must not
-// re-activate a since-canceled subscription).
+// boolToInt maps a bool to 0/1 for SQL CASE comparisons.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// MarkStripeEventProcessed claims a Stripe event id and reports whether it is NEW
+// (true) or a duplicate redelivery already claimed (false). The webhook claims an
+// id BEFORE handling (so a concurrent redelivery is skipped) and, on a handling
+// failure, releases it via UnmarkStripeEvent so Stripe's retry is NOT lost. This
+// is the idempotency gate against at-least-once delivery (a replayed
+// checkout.session.completed must not re-activate a since-canceled subscription).
 func (r *Repo) MarkStripeEventProcessed(ctx context.Context, eventID string) (bool, error) {
 	res, err := r.DB.ExecContext(ctx,
 		`INSERT OR IGNORE INTO stripe_events (id, created_at) VALUES (?, ?)`,
@@ -141,6 +152,13 @@ func (r *Repo) MarkStripeEventProcessed(ctx context.Context, eventID string) (bo
 	}
 	n, err := res.RowsAffected()
 	return n > 0, err
+}
+
+// UnmarkStripeEvent releases a provisionally-claimed event id so a failed
+// handling can be retried by Stripe's redelivery.
+func (r *Repo) UnmarkStripeEvent(ctx context.Context, eventID string) error {
+	_, err := r.DB.ExecContext(ctx, `DELETE FROM stripe_events WHERE id = ?`, eventID)
+	return err
 }
 
 // CommunityByStripeCustomer resolves a Stripe customer id back to its community.
@@ -157,27 +175,26 @@ func (r *Repo) CommunityByStripeCustomer(ctx context.Context, customerID string)
 // (or a standing free grant) keeps it active; otherwise it lapses to canceled
 // (the resolver then falls the community back to BYO).
 func (r *Repo) SetSubscriptionStatus(ctx context.Context, communityID, subscriptionID, status string) error {
-	s, err := r.Settings(ctx, communityID)
-	if err != nil {
-		return err
-	}
-	// Stale-event guard: ignore a lifecycle event for a subscription that is no
-	// longer this community's current one. Stripe can deliver an OLD
-	// subscription's deleted/updated event AFTER a newer subscription is active;
-	// applying it would wrongly deactivate a live, paying customer.
-	if s.StripeSubscriptionID != "" && subscriptionID != "" && s.StripeSubscriptionID != subscriptionID {
-		return nil
-	}
-	if subscriptionID != "" {
-		s.StripeSubscriptionID = subscriptionID
-	}
-	s.StripeSubscriptionStatus = status
-	if SubscriptionGrantsAccess(status) || boolOr(s.PlatformAIGrantedFree, false) {
-		s.PlatformAIStatus = PlatformAIStatusActive
-	} else {
-		s.PlatformAIStatus = PlatformAIStatusCanceled
-	}
-	return r.SaveSettings(ctx, s)
+	// Atomic single UPDATE (no read-modify-write race). The stale-event guard
+	// lives in the WHERE: a lifecycle event for a subscription that is no longer
+	// this community's current one is ignored (0 rows) — Stripe can deliver an
+	// OLD subscription's deleted/updated AFTER a newer one is active, and applying
+	// it would wrongly deactivate a live, paying customer. platform_ai_status is
+	// recomputed in SQL: a granting status OR a standing free grant keeps it
+	// active, else it lapses to canceled (the resolver then falls back to BYO).
+	grants := boolToInt(SubscriptionGrantsAccess(status))
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE community_settings SET
+			stripe_subscription_id = CASE WHEN ? <> '' THEN ? ELSE stripe_subscription_id END,
+			stripe_subscription_status = ?,
+			platform_ai_status = CASE
+				WHEN ? = 1 OR platform_ai_granted_free = 1 THEN 'active'
+				ELSE 'canceled' END,
+			updated_at = ?
+		WHERE community_id = ?
+		  AND (stripe_subscription_id IS NULL OR stripe_subscription_id = '' OR stripe_subscription_id = ?)`,
+		subscriptionID, subscriptionID, status, grants, time.Now().Unix(), communityID, subscriptionID)
+	return err
 }
 
 // ListPlatformAIRequests returns every community that has engaged the platform-AI

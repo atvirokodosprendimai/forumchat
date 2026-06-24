@@ -33,6 +33,11 @@ func (f *fakeStore) MarkStripeEventProcessed(_ context.Context, eventID string) 
 	return true, nil
 }
 
+func (f *fakeStore) UnmarkStripeEvent(_ context.Context, eventID string) error {
+	delete(f.seenEvents, eventID)
+	return nil
+}
+
 func (f *fakeStore) LinkStripeCheckout(_ context.Context, communityID, customerID, subscriptionID, status string) error {
 	f.linkCommunity, f.linkCustomer, f.linkSub, f.linkStatus = communityID, customerID, subscriptionID, status
 	f.linkCalls++
@@ -93,7 +98,7 @@ func TestWebhook_CheckoutCompletedLinks(t *testing.T) {
 	store := &fakeStore{}
 	svc := New("", secret, "price_x", "http://x", store, nil)
 	body := `{"id":"evt_co_1","type":"checkout.session.completed","data":{"object":{` +
-		`"client_reference_id":"comm-1","customer":{"id":"cus_1"},"subscription":{"id":"sub_1"}}}}`
+		`"client_reference_id":"comm-1","payment_status":"paid","customer":{"id":"cus_1"},"subscription":{"id":"sub_1"}}}}`
 
 	rec := post(svc, body, signed([]byte(body), secret))
 	if rec.Code != http.StatusOK {
@@ -111,6 +116,46 @@ func TestWebhook_CheckoutCompletedLinks(t *testing.T) {
 	}
 	if store.linkCalls != 1 {
 		t.Fatalf("replay must not re-apply, link calls = %d, want 1", store.linkCalls)
+	}
+}
+
+func TestWebhook_CheckoutUnpaidDoesNotAuthorize(t *testing.T) {
+	store := &fakeStore{}
+	svc := New("", secret, "price_x", "http://x", store, nil)
+	// payment_status NOT paid (e.g. 3DS pending): link the ids but DON'T grant.
+	body := `{"id":"evt_co_2","type":"checkout.session.completed","data":{"object":{` +
+		`"client_reference_id":"comm-2","payment_status":"unpaid","customer":{"id":"cus_2"},"subscription":{"id":"sub_2"}}}}`
+	rec := post(svc, body, signed([]byte(body), secret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	if store.linkCustomer != "cus_2" {
+		t.Fatalf("ids must still be linked: %+v", store)
+	}
+	if store.linkStatus != "" {
+		t.Fatalf("unpaid checkout must NOT authorize, status = %q", store.linkStatus)
+	}
+}
+
+// errStore fails SetSubscriptionStatus to exercise the release-on-failure path.
+type errStore struct{ fakeStore }
+
+func (e *errStore) SetSubscriptionStatus(_ context.Context, _, _, _ string) error {
+	return context.DeadlineExceeded // simulate a transient DB failure
+}
+
+func TestWebhook_HandleFailureReleasesClaimForRetry(t *testing.T) {
+	store := &errStore{fakeStore{customerToCommunity: map[string]string{"cus_7": "comm-7"}}}
+	svc := New("", secret, "price_x", "http://x", store, nil)
+	body := `{"id":"evt_sub_7","type":"customer.subscription.deleted","data":{"object":{` +
+		`"id":"sub_7","status":"canceled","customer":{"id":"cus_7"}}}}`
+	rec := post(svc, body, signed([]byte(body), secret))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("handle failure must 5xx for Stripe retry, code = %d", rec.Code)
+	}
+	// The claim must be RELEASED so a redelivery is reprocessed (not skipped).
+	if store.seenEvents["evt_sub_7"] {
+		t.Fatal("failed handling must release the event claim")
 	}
 }
 
