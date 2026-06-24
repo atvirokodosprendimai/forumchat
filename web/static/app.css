@@ -6244,10 +6244,24 @@ body:has(.chat-layout) .site-footer { display: none; }
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: 2px; cursor: pointer; transition: background var(--t-fast) var(--ease-out); }
 .note-mark, .note-mark * { color: inherit; }
-.note-mark:hover, .note-mark.note-mark-hi { background: var(--accent-soft-strong);
-  box-shadow: inset 0 -2px 0 var(--accent); }
+/* hover "where is this comment" — strong, obvious highlight on the marked text */
+.note-mark:hover, .note-mark.note-mark-hi { background: var(--accent); color: var(--accent-fg);
+  box-shadow: inset 0 -2px 0 var(--accent-strong); }
+.note-mark.note-mark-hi, .note-mark:hover, .note-mark.note-mark-hi * { color: var(--accent-fg); }
+
+/* Line comments (no selected text) can't wrap a range — mark the whole block with
+   a left accent rail so "I commented on this line" is visible, and brighten it on
+   comment hover. */
+#note-body > [data-nb].note-block-commented { box-shadow: inset 3px 0 0 var(--accent-ring); }
+#note-body > [data-nb].note-block-hi-soft { background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent); border-radius: var(--radius-sm);
+  transition: background var(--t-fast) var(--ease-out); }
 
 /* notes — editor collapse toggle + manual/live preview */
+/* Collapsed (default view mode): drop the card chrome so the "Edit note"
+   affordance floats cleanly above the reader instead of looking like an empty card. */
+.note-editor.collapsed { background: transparent; border: none; box-shadow: none; padding: 0; margin-bottom: .25rem; }
+.note-editor.collapsed .note-editor-bar { margin-bottom: 0; }
 .note-editor-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .75rem; }
 .note-edit-toggle { flex-shrink: 0; font-weight: 600; }
 .note-editor-bar .note-editor-tools { flex: 1; display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }

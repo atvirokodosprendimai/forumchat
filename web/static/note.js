@@ -145,17 +145,29 @@
     markRanges();
   }
 
-  // markRanges wraps each open selection-comment's quoted text in a <mark> inside
-  // its block, so the reader sees WHERE a comment applies. Line comments (no
-  // quote) and orphaned comments (block moved → quote not found) get no mark.
+  // markRanges shows WHERE each open comment applies. A selection comment wraps
+  // its quoted text in a <mark>; a line comment (no quote) marks the whole block
+  // with a left accent rail (data-line-cids carries its comment ids so a hover
+  // can brighten exactly that block). Orphaned comments (block gone) get nothing.
   function markRanges() {
-    document.querySelectorAll('.note-comment[data-quote]').forEach(function (card) {
+    // rebuild line-comment block state from scratch (the mark <mark>s are wiped by
+    // the morph; line-block classes persist across a non-morph re-paint, so clear).
+    document.querySelectorAll('#note-body .note-block-commented').forEach(function (b) {
+      b.classList.remove('note-block-commented', 'note-block-hi-soft');
+      b.removeAttribute('data-line-cids');
+    });
+    document.querySelectorAll('.note-comment[data-nb-ref]').forEach(function (card) {
       const quote = (card.getAttribute('data-quote') || '').trim();
-      if (!quote) return;
       const block = card.getAttribute('data-nb-ref');
       const cid = card.id.replace('note-comment-', '');
       const el = document.querySelector('#note-body [data-nb="' + block + '"]');
-      if (el) wrapQuote(el, quote, cid);
+      if (!el) return;
+      if (quote) {
+        wrapQuote(el, quote, cid);
+      } else {
+        el.classList.add('note-block-commented');
+        el.setAttribute('data-line-cids', (el.getAttribute('data-line-cids') ? el.getAttribute('data-line-cids') + ' ' : '') + cid);
+      }
     });
   }
 
@@ -195,10 +207,15 @@
     }
   }
 
-  // linkCid cross-highlights a comment's mark(s) and its rail card together.
+  // linkCid cross-highlights a comment's text marks (selection) OR its whole
+  // block (line comment) AND its rail card together — the "where is this comment"
+  // affordance.
   function linkCid(cid, on) {
     document.querySelectorAll('.note-mark[data-comment-id="' + cid + '"]').forEach(function (m) {
       m.classList.toggle('note-mark-hi', on);
+    });
+    document.querySelectorAll('#note-body [data-line-cids~="' + cid + '"]').forEach(function (blk) {
+      blk.classList.toggle('note-block-hi-soft', on);
     });
     const card = document.getElementById('note-comment-' + cid);
     if (card) card.classList.toggle('note-comment-hi', on);

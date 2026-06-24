@@ -469,7 +469,7 @@ func noteEditor(d NotePageData) templ.Component {
 			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div class=\"note-editor card\" id=\"note-editor\"><div class=\"note-editor-bar\"><button class=\"btn ghost note-edit-toggle\" data-on:click=\"$_note_edit = !$_note_edit\" title=\"Show or hide the editor and preview\"><span data-show=\"$_note_edit\">👁 Hide editor</span> <span data-show=\"!$_note_edit\">✏️ Edit note</span></button><div class=\"note-editor-tools\" data-show=\"$_note_edit\"><input class=\"note-title-input\" type=\"text\" data-bind=\"note_title\" placeholder=\"Title\" autocomplete=\"off\"> <label class=\"note-vis\"><select data-bind=\"note_visibility\"><option value=\"private\">🔒 Private</option> <option value=\"public\">🌐 Public</option></select></label> <button class=\"primary\" data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div class=\"note-editor card\" id=\"note-editor\" data-class=\"{'collapsed': !$_note_edit}\"><div class=\"note-editor-bar\"><button class=\"btn ghost note-edit-toggle\" data-on:click=\"$_note_edit = !$_note_edit\" title=\"Show or hide the editor and preview\"><span data-show=\"$_note_edit\">👁 Hide editor</span> <span data-show=\"!$_note_edit\">✏️ Edit note</span></button><div class=\"note-editor-tools\" data-show=\"$_note_edit\"><input class=\"note-title-input\" type=\"text\" data-bind=\"note_title\" placeholder=\"Title\" autocomplete=\"off\"> <label class=\"note-vis\"><select data-bind=\"note_visibility\"><option value=\"private\">🔒 Private</option> <option value=\"public\">🌐 Public</option></select></label> <button class=\"primary\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1421,11 +1421,18 @@ func noteInitSignals(n NoteView) string {
 	if n.IsPublic {
 		vis = "public"
 	}
+	// Default to reading mode; open the editor up-front only for a fresh, empty
+	// note (nothing to read yet — you came here to write). Existing notes open
+	// collapsed: the work is reading + inline commenting.
+	edit := "false"
+	if n.Body == "" {
+		edit = "true"
+	}
 	return `{"note_title":` + strconv.Quote(n.Title) +
 		`,"note_visibility":` + strconv.Quote(vis) +
 		`,"note_body":` + strconv.Quote(n.Body) +
 		`,"note_c_block":"0","note_c_quote":"","note_c_body":"","note_share_channel":"",` +
-		`"_note_share_open":false,"_note_comment_open":false,"_note_edit":true,"_note_live":false}`
+		`"_note_share_open":false,"_note_comment_open":false,"_note_edit":` + edit + `,"_note_live":false}`
 }
 
 var _ = templruntime.GeneratedTemplate
