@@ -441,6 +441,7 @@ templ Layout(title string, v Viewer) {
 				<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
 				<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;600&display=swap"/>
 				@InlineStyle("app.css")
+				<link rel="stylesheet" href={ "/static/highlight.css?v=" + AssetVer("highlight.css") }/>
 				<link rel="manifest" href={ "/static/manifest.webmanifest?v=" + AssetVer("manifest.webmanifest") }/>
 				<link rel="icon" type="image/svg+xml" href="/static/icon.svg"/>
 				<link rel="apple-touch-icon" href="/static/icon-192.png"/>

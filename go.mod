@@ -5,6 +5,7 @@ go 1.25.7
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/a-h/templ v0.3.1020
+	github.com/alecthomas/chroma/v2 v2.24.1
 	github.com/alexedwards/scs/v2 v2.9.0
 	github.com/andybalholm/brotli v1.2.1
 	github.com/caarlos0/env/v11 v11.4.1
@@ -24,9 +25,11 @@ require (
 	github.com/nats-io/nats.go v1.52.0
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/pressly/goose/v3 v3.27.1
+	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/stripe/stripe-go/v82 v82.5.1
-	github.com/yuin/goldmark v1.4.13
+	github.com/yuin/goldmark v1.4.15
+	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	golang.org/x/crypto v0.53.0
 	golang.org/x/net v0.56.0
 	modernc.org/sqlite v1.52.0
@@ -47,6 +50,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
+	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elastic/go-sysinfo v1.15.4 // indirect
 	github.com/elastic/go-windows v1.0.2 // indirect
@@ -97,7 +101,6 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
-	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/ssor/bom v0.0.0-20170718123548-6386211fdfcf // indirect
