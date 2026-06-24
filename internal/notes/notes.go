@@ -299,14 +299,21 @@ type Service struct{ Repo *Repo }
 func NewService(repo *Repo) *Service { return &Service{Repo: repo} }
 
 // CreateDraft mints an empty private note owned by authorID, opened from
-// channelID (pass "" when unknown). The caller redirects to its editor.
+// channelID (pass "" when unknown). The share token is minted up-front so the
+// editor's copy/share link is correct before the first save. The caller
+// redirects to its editor.
 func (s *Service) CreateDraft(ctx context.Context, communityID, channelID, authorID string) (Note, error) {
 	now := time.Now()
+	tok, err := newToken()
+	if err != nil {
+		return Note{}, err
+	}
 	n := Note{
 		ID:          uuid.NewString(),
 		CommunityID: communityID,
 		AuthorID:    authorID,
 		Visibility:  Private,
+		ShareToken:  tok,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}

@@ -61,8 +61,8 @@ func TestSaveRendersAndMintsToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("draft: %v", err)
 	}
-	if n.ShareToken != "" {
-		t.Fatalf("draft should have no token yet")
+	if n.ShareToken == "" {
+		t.Fatalf("draft should mint a share token up-front")
 	}
 	saved, err := svc.Save(ctx, authorID(uid), SaveInput{ID: n.ID, Title: "Hi", Body: "# Heading\n\nbody", Visibility: "public"})
 	if err != nil {

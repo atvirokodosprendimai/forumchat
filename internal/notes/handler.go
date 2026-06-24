@@ -30,10 +30,14 @@ type Handler struct {
 	PostToChat func(ctx context.Context, communityID, channelID, authorID, bodyMarkdown string) error
 	// BaseURL is the public origin used to build ABSOLUTE share links (so a
 	// relayed bot gets a clickable URL, and the private token link is complete).
-	BaseURL       string
-	CommunityID   string
-	CommunityName string
-	Log           *slog.Logger
+	BaseURL string
+	// LookupCommunity resolves a community's (name, slug) by id for the public
+	// token reader, which carries no slug in its URL. Wired in main.go from the
+	// community repo (a closure keeps notes free of a community.Repo field).
+	LookupCommunity func(ctx context.Context, id string) (name, slug string, ok bool)
+	CommunityID     string
+	CommunityName   string
+	Log             *slog.Logger
 }
 
 func (h *Handler) cid(ctx context.Context) string {
@@ -147,7 +151,147 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 		Edit:       canEdit,
 		CanComment: true,
 	}
+	if canEdit {
+		data.Channels = h.channelOptions(r.Context(), n.CommunityID)
+	}
 	_ = webtempl.NotePage(data).Render(r.Context(), w)
+}
+
+// channelOptions lists the community's non-archived channels for the share
+// dialog. Best-effort: an error yields no options (the dialog falls back to the
+// default channel server-side).
+func (h *Handler) channelOptions(ctx context.Context, communityID string) []webtempl.NoteChannelOption {
+	chs, err := h.ChatRepo.ListChannels(ctx, communityID, false)
+	if err != nil {
+		h.Log.Error("notes channels", "err", err)
+		return nil
+	}
+	out := make([]webtempl.NoteChannelOption, 0, len(chs))
+	for _, c := range chs {
+		out = append(out, webtempl.NoteChannelOption{ID: c.ID, Slug: c.Slug, Name: c.Name})
+	}
+	return out
+}
+
+// GetShared renders a note read-only from its capability-token link. Public and
+// anon-readable (identity-optional): the token is the bearer capability. Any
+// miss renders the generic "unavailable" page — no existence oracle. This is the
+// only way to read a PRIVATE note without being an editor.
+func (h *Handler) GetShared(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	if token == "" {
+		h.renderSharedMiss(w, r)
+		return
+	}
+	n, err := h.Repo.ByShareToken(r.Context(), token)
+	if err != nil {
+		h.renderSharedMiss(w, r)
+		return
+	}
+	name, slug, ok := "", "", false
+	if h.LookupCommunity != nil {
+		name, slug, ok = h.LookupCommunity(r.Context(), n.CommunityID)
+	}
+	if !ok {
+		h.renderSharedMiss(w, r)
+		return
+	}
+	v := webtempl.Viewer{CommunityName: name, CommunitySlug: slug}
+	if id, authed := auth.FromContext(r.Context()); authed {
+		v.IsAuthed = true
+		v.DisplayName = id.Membership.DisplayName
+		v.Role = string(id.Membership.Role)
+	}
+	data := webtempl.NotePageData{
+		Viewer: v,
+		Slug:   slug,
+		Note:   h.toView(r.Context(), n, false),
+		Shared: true,
+	}
+	_ = webtempl.NotePage(data).Render(r.Context(), w)
+}
+
+func (h *Handler) renderSharedMiss(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotFound)
+	_ = webtempl.NoteUnavailable(webtempl.Viewer{}).Render(r.Context(), w)
+}
+
+type shareSignals struct {
+	Channel string `json:"note_share_channel"`
+}
+
+// PostShare posts the note's link into a channel as the member (editors only).
+// The link is built from the note's PERSISTED visibility/token, so a stale
+// editor signal can't post the wrong URL.
+func (h *Handler) PostShare(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	var in shareSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	n, err := h.Repo.ByID(r.Context(), chi.URLParam(r, "id"))
+	if err != nil || n.CommunityID != h.cid(r.Context()) {
+		http.NotFound(w, r)
+		return
+	}
+	sse := render.NewSSE(w, r)
+	if !n.CanEdit(id) {
+		_ = sse.PatchElementTempl(webtempl.NoteShareStatus("You can't share this note."))
+		return
+	}
+	channelID, channelSlug := h.resolveChannel(r.Context(), n.CommunityID, in.Channel)
+	if channelID == "" || h.PostToChat == nil {
+		_ = sse.PatchElementTempl(webtempl.NoteShareStatus("No channel to post into."))
+		return
+	}
+	body := noteMessage(h.shareLink(r.Context(), n), n.Title)
+	if err := h.PostToChat(r.Context(), n.CommunityID, channelID, id.User.ID, body); err != nil {
+		h.Log.Error("note share", "err", err)
+		_ = sse.PatchElementTempl(webtempl.NoteShareStatus("Couldn't post the link. Try again."))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.NoteShareStatus("✓ Posted to #" + channelSlug))
+}
+
+// resolveChannel returns the (id, slug) to post into. Prefers the selected
+// channel (validated to the community); falls back to #general.
+func (h *Handler) resolveChannel(ctx context.Context, communityID, channelID string) (string, string) {
+	if channelID != "" {
+		if ch, err := h.ChatRepo.ChannelByID(ctx, channelID); err == nil && ch.CommunityID == communityID {
+			return ch.ID, ch.Slug
+		}
+	}
+	if ch, err := h.ChatRepo.DefaultChannel(ctx, communityID); err == nil {
+		return ch.ID, ch.Slug
+	}
+	return "", ""
+}
+
+// shareLink is the absolute URL to post: the member route for a public note,
+// the capability-token route for a private one. Mirrors web/templ shareURL but
+// is the authoritative server-side build (uses persisted visibility/token).
+func (h *Handler) shareLink(ctx context.Context, n Note) string {
+	base := strings.TrimRight(h.BaseURL, "/")
+	if n.IsPublic() {
+		return base + "/c/" + h.cslug(ctx) + "/notes/" + n.ID
+	}
+	return base + "/n/" + n.ShareToken
+}
+
+// noteMessage is the chat body announcing a shared note: a markdown link whose
+// text is the title and whose href is the absolute note URL. Brackets are
+// stripped from the title so they can't break the link.
+func noteMessage(url, title string) string {
+	t := strings.NewReplacer("[", "", "]", "").Replace(strings.TrimSpace(title))
+	if t == "" {
+		t = "Note"
+	}
+	return "📝 [" + t + "](" + url + ")"
 }
 
 type saveSignals struct {

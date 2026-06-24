@@ -2,6 +2,7 @@ package templ
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -164,6 +165,7 @@ templ noteEditor(d NotePageData) {
 					</select>
 				</label>
 				<button class="primary" data-on:click={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/save')" }>Save</button>
+				<button class="btn ghost" data-on:click="$_note_share_open = true">Share…</button>
 				<button class="btn ghost danger" data-on:click={ "confirm('Delete this note?') && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/delete')" }>Delete</button>
 			</div>
 		</div>
@@ -182,7 +184,55 @@ templ noteEditor(d NotePageData) {
 			</div>
 		</div>
 		@NoteError("")
+		@noteShareDialog(d)
 	</div>
+}
+
+// noteShareDialog posts a link to this note into a channel. A private note stays
+// unlisted — the link carries the capability token so anyone with it can read.
+templ noteShareDialog(d NotePageData) {
+	<div id="note-share" class="note-share-backdrop" data-show="$_note_share_open" data-cloak data-on:click="$_note_share_open=false">
+		<div class="note-share-card" data-on:click="evt.stopPropagation()">
+			<div class="note-share-head">
+				<strong>Share note</strong>
+				<button class="link" data-on:click="$_note_share_open=false" aria-label="Close">✕</button>
+			</div>
+			<p class="muted">Drop a link to this note in a channel. A private note stays out of the list — anyone with the link can still read it.</p>
+			<label class="field">
+				<span>Channel</span>
+				<select data-bind="note_share_channel">
+					<option value="">Default channel</option>
+					for _, ch := range d.Channels {
+						<option value={ ch.ID }>{ "#" + ch.Slug }</option>
+					}
+				</select>
+			</label>
+			<div class="note-share-link">
+				<code class="note-share-url">{ shareURL(d) }</code>
+				<button class="btn ghost" data-on:click="navigator.clipboard.writeText(el.closest('.note-share-card').querySelector('.note-share-url').textContent)">Copy</button>
+			</div>
+			@NoteShareStatus("")
+			<div class="note-share-actions">
+				<button class="primary" data-on:click={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/share')" }>Post to channel</button>
+			</div>
+		</div>
+	</div>
+}
+
+// NoteShareStatus is the share dialog's result line, morphed after posting.
+templ NoteShareStatus(msg string) {
+	<div id="note-share-status" class="note-share-status">{ msg }</div>
+}
+
+// shareURL is the absolute link to copy/post: the member route for a public
+// note (full editor/comment experience), the capability-token route for a
+// private one (read-only, anon-readable, never listed).
+func shareURL(d NotePageData) string {
+	base := strings.TrimRight(d.BaseURL, "/")
+	if d.Note.IsPublic {
+		return base + "/c/" + d.Slug + "/notes/" + d.Note.ID
+	}
+	return base + "/n/" + d.Note.ShareToken
 }
 
 // NoteReader is the rendered article everyone sees: editors (below their
@@ -223,6 +273,18 @@ templ NoteError(msg string) {
 	<div id="note-error" class="note-error">{ msg }</div>
 }
 
+// NoteUnavailable is the generic page for a missing/expired share link. The
+// wording confirms nothing (no existence oracle) — a bad token, a deleted note
+// and a revoked link all land here.
+templ NoteUnavailable(v Viewer) {
+	@Layout("Note unavailable", v) {
+		<section class="card narrow">
+			<h1>Note unavailable</h1>
+			<p class="muted">This note link is invalid or no longer available.</p>
+		</section>
+	}
+}
+
 // noteInitSignals seeds the page-local signal bag. Kept OUT of the global
 // InitialSignals bag so note_body (which can be large) doesn't ride every
 // unrelated request. _-prefixed signals are FE-only (never posted).
@@ -234,6 +296,6 @@ func noteInitSignals(n NoteView) string {
 	return `{"note_title":` + strconv.Quote(n.Title) +
 		`,"note_visibility":` + strconv.Quote(vis) +
 		`,"note_body":` + strconv.Quote(n.Body) +
-		`,"note_c_block":"0","note_c_quote":"","note_c_body":"",` +
-		`"_note_share_open":false,"_note_comment_open":false,"_note_share_channel":""}`
+		`,"note_c_block":"0","note_c_quote":"","note_c_body":"","note_share_channel":"",` +
+		`"_note_share_open":false,"_note_comment_open":false}`
 }

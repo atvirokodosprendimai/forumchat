@@ -1061,6 +1061,15 @@ func run() error {
 		}
 		return nil
 	}
+	// LookupCommunity resolves (name, slug) for the public token reader, which
+	// carries no slug in its URL.
+	notesHandler.LookupCommunity = func(ctx context.Context, id string) (string, string, bool) {
+		c, err := cRepo.ByID(ctx, id)
+		if err != nil {
+			return "", "", false
+		}
+		return c.Name, c.Slug, true
+	}
 
 	// ----- Web Push (VAPID) -------------------------------------------------
 	vapidPub, vapidPriv, err := push.LoadOrCreateVAPID(cfg.VAPIDPublic, cfg.VAPIDPrivate, cfg.VAPIDKeysFile, log)
@@ -1761,6 +1770,7 @@ func run() error {
 		r.Get("/notes/{id}", notesHandler.GetPage)
 		r.Post("/notes/{id}/save", notesHandler.PostSave)
 		r.Post("/notes/{id}/preview", notesHandler.PostPreview)
+		r.Post("/notes/{id}/share", notesHandler.PostShare)
 		r.Post("/notes/{id}/delete", notesHandler.PostDelete)
 
 		// Agent — per-community AI chat with threads + history. Static
@@ -2048,6 +2058,12 @@ func run() error {
 	// bearer capability (valid until the 7-day expiry); no session required.
 	r.Get("/exports/{id}", exportHandler.GetLanding)
 	r.Post("/exports/{id}/download", exportHandler.PostDownload)
+
+	// Public, token-gated note reader. /n/<token> renders a note read-only; the
+	// 32-byte token is the bearer capability. Identity is optional (Loader is
+	// global), so a logged-in member following the link still reads it. Any miss
+	// renders the generic "unavailable" page (no existence oracle).
+	r.Get("/n/{token}", notesHandler.GetShared)
 
 	// Public Stripe webhook — no session/CSRF; authenticity is the HMAC signature
 	// verified in billing.Service.Webhook against STRIPE_WEBHOOK_SECRET. It is the

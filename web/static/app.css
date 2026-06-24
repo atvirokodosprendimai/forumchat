@@ -6162,3 +6162,22 @@ body:has(.chat-layout) .site-footer { display: none; }
 .note-reader-head { margin-bottom: 1rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: .75rem; }
 .note-reader-head h1 { margin: 0 0 .35rem; }
 .note-reader-meta { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; font-size: .85rem; }
+
+/* notes — share dialog */
+.note-share-backdrop { position: fixed; inset: 0; z-index: 60; display: flex;
+  align-items: center; justify-content: center; padding: 1rem;
+  background: color-mix(in srgb, var(--fg) 38%, transparent); }
+.note-share-backdrop[data-cloak] { display: none; }
+.note-share-card { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-lg, var(--shadow-md));
+  padding: 1.1rem 1.2rem; width: min(30rem, 100%); display: flex; flex-direction: column; gap: .7rem; }
+.note-share-head { display: flex; align-items: center; justify-content: space-between; }
+.note-share-head strong { font-size: 1.05rem; }
+.note-share-link { display: flex; align-items: center; gap: .5rem; }
+.note-share-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: .35rem .5rem; font-size: .8rem; }
+.note-share-status:empty { display: none; }
+.note-share-status { font-size: .88rem; color: var(--accent-strong);
+  background: var(--accent-soft); border-radius: var(--radius-sm); padding: .4rem .6rem; }
+.note-share-actions { display: flex; justify-content: flex-end; gap: .5rem; }
