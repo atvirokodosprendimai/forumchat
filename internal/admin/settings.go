@@ -319,7 +319,7 @@ func (h *Handler) settingsData(r *http.Request, c community.Community, s communi
 		d.PlatformAIAuthorized = authorized
 		d.PlatformAIStatus = s.PlatformAIStatus
 		d.PlatformAIGrantedFree = s.PlatformAIGrantedFree != nil && *s.PlatformAIGrantedFree
-		d.PlatformAISubscribed = s.StripeSubscriptionStatus == "active"
+		d.PlatformAISubscribed = community.SubscriptionGrantsAccess(s.StripeSubscriptionStatus)
 		d.BillingEnabled = h.billingEnabled()
 		if h.Usage != nil && on && authorized {
 			now := time.Now()

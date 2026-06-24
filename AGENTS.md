@@ -892,9 +892,15 @@ When `SAAS=true` a community can opt to run RAG/translate/agents on the
   200. **Checkout grants only on `payment_status=="paid"`** (3DS/incomplete links
   the ids but waits for the authoritative `customer.subscription.created/updated`).
   `LinkStripeCheckout`/`SetSubscriptionStatus` are single atomic `UPDATE`s, not
-  load-save. Inert unless all three `STRIPE_*` set. **Security-review surface** —
-  two Codex passes folded in; re-run `/codex:review` before relying on live
-  payments.
+  load-save. Subscription lifecycle events resolve their community from
+  `sub.Metadata["community_id"]` (stamped via `SubscriptionData` at checkout)
+  FIRST, falling back to the customer→community lookup — so an early
+  `subscription.created` arriving before the customer is linked still resolves
+  (Stripe doesn't guarantee event order). **Use
+  `community.SubscriptionGrantsAccess(status)`** (active|trialing) everywhere
+  subscription access is derived — never a bare `== "active"`. Inert unless all
+  three `STRIPE_*` set. **Security-review surface** — three Codex passes folded
+  in; re-run `/codex:review` before relying on live payments.
 - **Still TODO** (deferred, low-risk): switching BYO↔platform changes the embed
   model/dim → a **reindex** should fire (today only `admin.PostSettings`
   auto-reindexes on a RAG change; the grant/request flow does not — vectors

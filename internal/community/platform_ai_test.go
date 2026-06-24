@@ -125,6 +125,30 @@ func TestSetSubscriptionStatus_StaleEventIgnored(t *testing.T) {
 	}
 }
 
+func TestRevokePlatformAI_KeepsTrialingSubscriber(t *testing.T) {
+	ctx := context.Background()
+	r := newTestRepo(t)
+	cfg := saasCfg()
+	c, _ := r.Create(ctx, "trialco", "Trial Co")
+
+	// A trialing subscriber who ALSO holds a free grant.
+	if err := r.SaveSettings(ctx, Settings{
+		CommunityID: c.ID, UsePlatformAI: ptrBool(true), PlatformAIGrantedFree: ptrBool(true),
+		StripeSubscriptionStatus: "trialing", PlatformAIStatus: PlatformAIStatusActive,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Revoking the free grant must NOT cut off a trialing (paying) customer —
+	// trialing grants access just like active.
+	if err := r.RevokePlatformAI(ctx, c.ID); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	s, _ := r.Settings(ctx, c.ID)
+	if _, auth := PlatformAI(s, cfg); !auth || s.PlatformAIStatus != PlatformAIStatusActive {
+		t.Fatalf("trialing subscriber must stay authorized after grant revoke: %+v", s)
+	}
+}
+
 func TestSubscriptionGrantsAccess(t *testing.T) {
 	for _, st := range []string{"active", "trialing"} {
 		if !SubscriptionGrantsAccess(st) {

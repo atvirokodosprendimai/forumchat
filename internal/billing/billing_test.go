@@ -159,6 +159,23 @@ func TestWebhook_HandleFailureReleasesClaimForRetry(t *testing.T) {
 	}
 }
 
+func TestWebhook_SubscriptionResolvesViaMetadata(t *testing.T) {
+	// An early customer.subscription.created arriving BEFORE the customer is
+	// linked (empty customerToCommunity) must still resolve via the subscription
+	// metadata community_id stamped at checkout — and trialing must be handled.
+	store := &fakeStore{}
+	svc := New("", secret, "price_x", "http://x", store, nil)
+	body := `{"id":"evt_sub_meta","type":"customer.subscription.created","data":{"object":{` +
+		`"id":"sub_m","status":"trialing","customer":{"id":"cus_unlinked"},"metadata":{"community_id":"comm-meta"}}}}`
+	rec := post(svc, body, signed([]byte(body), secret))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	if store.subCommunity != "comm-meta" || store.subID != "sub_m" || store.subStatus != "trialing" {
+		t.Fatalf("metadata resolution failed: %+v", store)
+	}
+}
+
 func TestWebhook_StaleSubscriptionEventIgnored(t *testing.T) {
 	// A community whose current subscription is sub_new; a late deleted event for
 	// the OLD sub_old must be dropped by the store's stale guard. Here we assert

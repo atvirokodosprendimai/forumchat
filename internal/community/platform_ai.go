@@ -30,7 +30,7 @@ type PlatformAIRequest struct {
 	Name        string
 	Status      string
 	GrantedFree bool
-	Subscribed  bool // stripe_subscription_status == "active"
+	Subscribed  bool // SubscriptionGrantsAccess(stripe_subscription_status)
 	On          bool // owner master switch
 	RequestedAt int64
 }
@@ -45,7 +45,7 @@ func (r *Repo) RequestPlatformAI(ctx context.Context, communityID string) error 
 	}
 	on := true
 	s.UsePlatformAI = &on
-	if boolOr(s.PlatformAIGrantedFree, false) || s.StripeSubscriptionStatus == "active" {
+	if boolOr(s.PlatformAIGrantedFree, false) || SubscriptionGrantsAccess(s.StripeSubscriptionStatus) {
 		s.PlatformAIStatus = PlatformAIStatusActive
 	} else {
 		s.PlatformAIStatus = PlatformAIStatusRequested
@@ -65,7 +65,7 @@ func (r *Repo) CancelPlatformAIRequest(ctx context.Context, communityID string) 
 	}
 	off := false
 	s.UsePlatformAI = &off
-	if !(boolOr(s.PlatformAIGrantedFree, false) || s.StripeSubscriptionStatus == "active") {
+	if !(boolOr(s.PlatformAIGrantedFree, false) || SubscriptionGrantsAccess(s.StripeSubscriptionStatus)) {
 		s.PlatformAIStatus = ""
 		s.PlatformAIRequestedAt = 0
 	}
@@ -97,7 +97,7 @@ func (r *Repo) RevokePlatformAI(ctx context.Context, communityID string) error {
 	}
 	free := false
 	s.PlatformAIGrantedFree = &free
-	if s.StripeSubscriptionStatus == "active" {
+	if SubscriptionGrantsAccess(s.StripeSubscriptionStatus) {
 		s.PlatformAIStatus = PlatformAIStatusActive
 	} else {
 		off := false
@@ -231,7 +231,7 @@ func (r *Repo) ListPlatformAIRequests(ctx context.Context) ([]PlatformAIRequest,
 			return nil, err
 		}
 		pr.GrantedFree = free != 0
-		pr.Subscribed = subStatus == "active"
+		pr.Subscribed = SubscriptionGrantsAccess(subStatus)
 		pr.On = on != 0
 		out = append(out, pr)
 	}

@@ -85,8 +85,15 @@ func (s *Service) Checkout(ctx context.Context, communityID, slug string) (strin
 			Quantity: stripe.Int64(1),
 		}},
 		ClientReferenceID: stripe.String(communityID),
-		SuccessURL:        stripe.String(s.baseURL + "/c/" + slug + "/settings?billing=success"),
-		CancelURL:         stripe.String(s.baseURL + "/c/" + slug + "/settings?billing=cancel"),
+		// Stamp the community id ON the subscription too, so subscription
+		// lifecycle events resolve their community directly from metadata even if
+		// they arrive BEFORE checkout.session.completed has linked the customer
+		// (Stripe does not guarantee event ordering).
+		SubscriptionData: &stripe.CheckoutSessionSubscriptionDataParams{
+			Metadata: map[string]string{"community_id": communityID},
+		},
+		SuccessURL: stripe.String(s.baseURL + "/c/" + slug + "/settings?billing=success"),
+		CancelURL:  stripe.String(s.baseURL + "/c/" + slug + "/settings?billing=cancel"),
 	}
 	params.Context = ctx
 	sess, err := session.New(params)
@@ -182,16 +189,24 @@ func (s *Service) handle(ctx context.Context, event stripe.Event) error {
 		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
 			return err
 		}
-		cust := customerID(sub.Customer)
-		if cust == "" {
-			return nil
-		}
-		cid, err := s.store.CommunityByStripeCustomer(ctx, cust)
-		if errors.Is(err, sql.ErrNoRows) || cid == "" {
-			return nil // unknown / unlinked customer → not ours, nothing to do
-		}
-		if err != nil {
-			return err // transient lookup failure → 5xx → Stripe retries
+		// Resolve the community from the subscription's own metadata first (set at
+		// checkout) — this works even if this event arrives before the customer is
+		// linked. Fall back to the customer→community lookup for older subscriptions
+		// created before metadata stamping.
+		cid := sub.Metadata["community_id"]
+		if cid == "" {
+			cust := customerID(sub.Customer)
+			if cust == "" {
+				return nil
+			}
+			var err error
+			cid, err = s.store.CommunityByStripeCustomer(ctx, cust)
+			if errors.Is(err, sql.ErrNoRows) || cid == "" {
+				return nil // unknown / unlinked customer → not ours, nothing to do
+			}
+			if err != nil {
+				return err // transient lookup failure → 5xx → Stripe retries
+			}
 		}
 		return s.store.SetSubscriptionStatus(ctx, cid, sub.ID, string(sub.Status))
 	}
