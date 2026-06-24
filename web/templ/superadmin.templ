@@ -276,6 +276,14 @@ templ SuperAdminPage(data SuperAdminPageData) {
 							</td>
 							<td class="muted">{ u.CreatedAt }</td>
 							<td>
+								if u.Status == "pending" {
+									<button class="ghost"
+										title="Activate without the email link"
+										data-on:click={ "if(confirm('Mark " + jsString(u.Email) + " as verified? Activates the account and joins them to the home community, as if they clicked the verify link.')){$sa_uid='" + u.ID + "'; @post('/superadmin/user/verify')}" }>Verify now</button>
+									<button class="ghost"
+										title="Re-send the verification email"
+										data-on:click={ "$sa_uid='" + u.ID + "'; @post('/superadmin/user/resend-verify')" }>Resend email</button>
+								}
 								if u.Status == "disabled" {
 									<button class="ghost"
 										data-on:click={ "$sa_uid='" + u.ID + "'; @post('/superadmin/user/enable')" }>Enable</button>

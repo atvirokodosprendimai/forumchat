@@ -2186,7 +2186,7 @@ func run() error {
 
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
-	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, Chat: chatHandler, Debug: debugRec, Usage: usageRec}
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, Chat: chatHandler, Debug: debugRec, Usage: usageRec, Auth: svc}
 	if ragSvc != nil {
 		superHandler.RAG = ragSvc
 	}
@@ -2217,6 +2217,8 @@ func run() error {
 		r.Post("/superadmin/platform-ai/revoke", superHandler.PostRevokePlatformAI)
 		r.Post("/superadmin/user/disable", superHandler.PostDisableUser)
 		r.Post("/superadmin/user/enable", superHandler.PostEnableUser)
+		r.Post("/superadmin/user/verify", superHandler.PostForceVerify)
+		r.Post("/superadmin/user/resend-verify", superHandler.PostResendVerification)
 		r.Get("/superadmin/user/memberships", superHandler.GetUserMemberships)
 		r.Post("/superadmin/user/sysban", superHandler.PostSystemBan)
 		r.Post("/superadmin/user/community/ban", superHandler.PostCommunityBan)

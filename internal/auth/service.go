@@ -221,10 +221,8 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 		return RegisterResult{}, err
 	}
 
-	verifyURL := fmt.Sprintf("%s/verify?token=%s", s.BaseURL, token)
-	body := fmt.Sprintf("Welcome to forumchat.\n\nClick to verify your account:\n%s\n\nLink expires %s.\n",
-		verifyURL, exp.Format(time.RFC1123))
-	if err := s.Mailer.Send(ctx, in.Email, "Verify your forumchat account", body); err != nil {
+	verifyURL, subject, body := s.verifyMail(token, exp)
+	if err := s.Mailer.Send(ctx, in.Email, subject, body); err != nil {
 		// Don't fail registration if mail fails (e.g. SMTP unreachable) — the
 		// token is valid. Log the verify URL so an operator can recover by
 		// visiting it manually instead of silently swallowing the failure.
@@ -366,6 +364,63 @@ func (s *Service) activateAndJoin(ctx context.Context, userID, communityID, emai
 		}
 	}
 	return nil
+}
+
+// verifyMail builds the verification email URL, subject and body for a token.
+// Shared by Register and ResendVerification so the wording stays in one place.
+func (s *Service) verifyMail(token string, exp time.Time) (url, subject, body string) {
+	url = fmt.Sprintf("%s/verify?token=%s", s.BaseURL, token)
+	body = fmt.Sprintf("Welcome to forumchat.\n\nClick to verify your account:\n%s\n\nLink expires %s.\n",
+		url, exp.Format(time.RFC1123))
+	return url, "Verify your forumchat account", body
+}
+
+// ForceVerify activates a user who never completed email verification and joins
+// them to the default community — exactly as clicking the verify link would,
+// but without any token or email. The operator escape hatch for when the
+// verification mail can't be delivered at all (broken DNS/SMTP). Idempotent for
+// an already-active member; refuses a disabled account so it can't silently
+// re-enable one.
+func (s *Service) ForceVerify(ctx context.Context, userID string) error {
+	u, err := s.Repo.UserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if u.Status == StatusDisabled {
+		return ErrUserDisabled
+	}
+	return s.activateAndJoin(ctx, userID, s.CommunityID, u.Email)
+}
+
+// ResendVerification re-issues a fresh email_verify token for a pending user and
+// re-sends the verification email. Returns the verify URL (even when the mail
+// send fails) so an operator can hand the link over by other means when mail
+// delivery is the very thing that's broken. Returns ("", nil) for a user that
+// isn't pending — there is nothing to resend.
+func (s *Service) ResendVerification(ctx context.Context, userID string) (string, error) {
+	u, err := s.Repo.UserByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if u.Status != StatusPending {
+		return "", nil
+	}
+	token, err := RandomToken(24)
+	if err != nil {
+		return "", err
+	}
+	exp := time.Now().Add(s.VerifyTTL)
+	if err := s.Repo.CreateVerificationToken(ctx, token, u.ID, "email_verify", exp); err != nil {
+		return "", err
+	}
+	verifyURL, subject, body := s.verifyMail(token, exp)
+	if err := s.Mailer.Send(ctx, u.Email, subject, body); err != nil {
+		if s.Log != nil {
+			s.Log.Warn("resend verify email failed; visit verify_url to verify manually",
+				"to", u.Email, "verify_url", verifyURL, "err", err)
+		}
+	}
+	return verifyURL, nil
 }
 
 type LoginResult struct {

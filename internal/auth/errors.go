@@ -15,6 +15,7 @@ var (
 	ErrTokenInvalid         = errors.New("verification token invalid or expired")
 	ErrPendingApproval      = errors.New("membership awaiting admin approval")
 	ErrNotFound             = errors.New("not found")
+	ErrUserDisabled         = errors.New("account is disabled")
 	ErrOAuthNoEmail         = errors.New("oauth account shared no email")
 	ErrOAuthNoAccount       = errors.New("no account registered for this email")
 	ErrOAuthEmailUnverified = errors.New("oauth email not verified by provider; cannot auto-link")

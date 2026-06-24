@@ -44,6 +44,14 @@ type ChatBroadcaster interface {
 	SystemBroadcast(ctx context.Context, communityID, bodyHTML string) error
 }
 
+// AuthVerifier recovers signups stuck on email verification. Implemented by
+// *auth.Service. ForceVerify activates a pending user with no email; resend
+// re-issues the verification mail and returns the URL for manual hand-off.
+type AuthVerifier interface {
+	ForceVerify(ctx context.Context, userID string) error
+	ResendVerification(ctx context.Context, userID string) (string, error)
+}
+
 type Handler struct {
 	AuthRepo    *auth.Repo
 	Communities *community.Repo
@@ -68,6 +76,9 @@ type Handler struct {
 	// table on the platform-AI card. Nil-safe — the card shows zero usage when
 	// unwired.
 	Usage *aiusage.Recorder
+	// Auth recovers signups stuck on email verification (force-verify / resend).
+	// Wired to *auth.Service in main.go.
+	Auth AuthVerifier
 }
 
 // usageWindow is the rolling lookback for the super-admin cost figures.
@@ -504,6 +515,57 @@ func (h *Handler) setStatus(w http.ResponseWriter, r *http.Request, status auth.
 		return
 	}
 	_ = sse.Redirect("/superadmin")
+}
+
+// PostForceVerify activates a pending signup without the email round-trip — the
+// operator escape hatch when verification mail can't reach the address at all.
+func (h *Handler) PostForceVerify(w http.ResponseWriter, r *http.Request) {
+	var in uidSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "bad signals: "+err.Error()))
+		return
+	}
+	sse := render.NewSSE(w, r)
+	uid := strings.TrimSpace(in.UID)
+	if uid == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No user selected"))
+		return
+	}
+	if err := h.Auth.ForceVerify(r.Context(), uid); err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Verify failed: "+err.Error()))
+		return
+	}
+	_ = sse.Redirect("/superadmin")
+}
+
+// PostResendVerification re-sends the verification email to a pending signup and
+// surfaces the verify URL so the operator can hand it over directly when mail
+// delivery itself is broken.
+func (h *Handler) PostResendVerification(w http.ResponseWriter, r *http.Request) {
+	var in uidSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "bad signals: "+err.Error()))
+		return
+	}
+	sse := render.NewSSE(w, r)
+	uid := strings.TrimSpace(in.UID)
+	if uid == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No user selected"))
+		return
+	}
+	url, err := h.Auth.ResendVerification(r.Context(), uid)
+	if err != nil {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Resend failed: "+err.Error()))
+		return
+	}
+	if url == "" {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "User is not pending — nothing to resend."))
+		return
+	}
+	_ = sse.PatchElementTempl(webtempl.SuccessFragment("sa-result",
+		"Verification email re-sent. If mail still fails, give them this link: "+url))
 }
 
 func toSAUserMemberships(in []auth.UserMembership) []webtempl.SAUserMembership {
