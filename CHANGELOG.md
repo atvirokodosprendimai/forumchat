@@ -252,3 +252,6 @@
 - 2026-06-25 `8596b4c` docs(connectors): document all capabilities, NewFromStreamURL, .env reveal
 - 2026-06-25 `ee3924a` style(notes): stack request-edit input above button on mobile
 - 2026-06-25 `2e1e077` feat(superadmin): privacy-preserving 'Red flags' abuse panel
+- 2026-06-25 `27019fe` docs(agegate): plan per-country age gate on registration
+- 2026-06-25 `593da3e` feat(auth): optional age self-attestation gate on registration
+- 2026-06-25 `9e24f78` docs(agegate): record scope cut to single REGISTER_MIN_AGE + verification
