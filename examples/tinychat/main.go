@@ -94,9 +94,13 @@ func (a *app) streamLoop(ctx context.Context) {
 		}
 		a.line(a.dim("connecting…"))
 		// exp=0 → a non-expiring signed URL; the SDK builds + signs it for us.
+		// Plain Stream resumes from the server cursor, so each reconnect REPLAYS
+		// the messages missed while we were away before going live — no client
+		// watermark to track. (Pass StreamSince to override the resume point.)
 		err := a.client.Stream(ctx, connector.Handlers{
 			OnReady:   a.onReady,
 			OnMessage: a.onMessage,
+			OnLive:    a.onLive,
 		}, 0)
 		switch {
 		case ctx.Err() != nil:
@@ -137,6 +141,22 @@ func (a *app) onReady(r connector.Ready) {
 	if target != "" {
 		a.line(a.dim("typing sends to #" + target + " — type a message, or /quit"))
 	}
+}
+
+// onLive marks the boundary between replayed history and live traffic. On a
+// fresh connect there's no backlog (Since == 0) so we just note we're live; on a
+// reconnect that caught up, it reports how far back the replay reached (and
+// whether older history was truncated by the server's catch-up window).
+func (a *app) onLive(l connector.Live) {
+	if l.Since == 0 {
+		a.line(a.dim("● live"))
+		return
+	}
+	msg := "● live — caught up from " + time.Unix(l.Since, 0).Local().Format("15:04")
+	if l.Truncated {
+		msg += " (older history truncated)"
+	}
+	a.line(a.dim(msg))
 }
 
 // onMessage renders one incoming message: dim timestamp, a stable per-nick
