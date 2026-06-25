@@ -218,3 +218,4 @@
 - 2026-06-25 `ed9295d` docs(agents): §6.9.0 un-pivot — in-channel replies + bot-to-bot + slash commands
 - 2026-06-25 `10aab9e` feat(agent): harden agents against prompt injection
 - 2026-06-25 `6d46242` feat(agent): close prompt-injection coverage gaps found by Codex review
+- 2026-06-25 `945241f` docs(changelog): auto-append agent prompt-injection hardening entries
