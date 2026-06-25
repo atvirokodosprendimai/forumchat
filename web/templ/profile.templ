@@ -15,7 +15,7 @@ func profileSeedSignals(displayName, avatarURL string) string {
 	return string(b)
 }
 
-templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool) {
+templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool, communityName string) {
 	@Layout("Profile", v) {
 		<div data-signals={ profileSeedSignals(displayName, avatarURL) }></div>
 		<section class="card narrow profile-card">
@@ -45,7 +45,41 @@ templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool) {
 			</div>
 		</section>
 		@PasswordCard(hasPassword, false)
+		@LeaveCommunityCard(communityName)
 		@DeleteAccountCard(hasPassword)
+	}
+}
+
+// LeaveCommunityCard removes the member from their current community. Distinct
+// from (and milder than) the red DeleteAccountCard danger-zone: a plain card with
+// a destructive (red) confirm button, since leaving is reversible by rejoining
+// and keeps the account + authored content. The disclosure is the "are you sure"
+// friction; the button posts straight away. communityName names the exact
+// community being left so the action is unambiguous.
+templ LeaveCommunityCard(communityName string) {
+	<section id="leave-community-card" class="card narrow profile-card">
+		<h2>Leave { communityName }</h2>
+		<p class="muted">
+			Remove yourself from <strong>{ communityName }</strong>. You'll lose access to its
+			channels, threads and projects, but anything you posted stays and you can rejoin later.
+		</p>
+		<details class="delete-disclosure">
+			<summary>Leave this community…</summary>
+			<div id="leave-community-status" class="muted"></div>
+			<div class="profile-actions">
+				<button class="danger" data-on:click="@post('/profile/leave')">Leave { communityName }</button>
+			</div>
+		</details>
+	</section>
+}
+
+// LeaveCommunityStatusFragment reports why a leave was blocked (last admin, not a
+// member, transient error). Success never renders here — it redirects.
+templ LeaveCommunityStatusFragment(msg string, ok bool) {
+	if ok {
+		<div id="leave-community-status" class="success">{ msg }</div>
+	} else {
+		<div id="leave-community-status" class="error">{ msg }</div>
 	}
 }
 

@@ -229,6 +229,30 @@ func run() error {
 		Log:            log,
 		OAuthProviders: oauthProviders,
 	}
+	// Leave-community support on the global /profile page: resolve the session
+	// community's display name for the card label, and pick a community to land on
+	// after leaving (closures so auth needn't import community).
+	authHandler.ResolveCommunityName = func(ctx context.Context, communityID string) string {
+		c, err := cRepo.ByID(ctx, communityID)
+		if err != nil {
+			return ""
+		}
+		return c.Name
+	}
+	authHandler.NextCommunityAfterLeave = func(ctx context.Context, userID, excludeID string) (string, string, bool) {
+		rows, err := cRepo.ListForUser(ctx, userID)
+		if err != nil {
+			return "", "", false
+		}
+		for _, row := range rows {
+			// Only approved, non-banned memberships are somewhere they can land.
+			if row.Community.ID == excludeID || !row.IsApproved || row.IsBanned {
+				continue
+			}
+			return row.Community.Slug, row.Community.ID, true
+		}
+		return "", "", false
+	}
 
 	r := chi.NewRouter()
 	r.Use(httpx.Recover(log))
@@ -1589,6 +1613,7 @@ func run() error {
 		r.Post("/profile", authHandler.PostProfile)
 		r.Post("/profile/password", authHandler.PostPassword)
 		r.Post("/profile/delete/start", authHandler.PostDeleteStart)
+		r.Post("/profile/leave", authHandler.PostLeaveCommunity)
 		// Personal worklog timer + journal — global (no community scope),
 		// available to any signed-in user. Gated by TIME_ENABLED.
 		if cfg.TimeEnabled {

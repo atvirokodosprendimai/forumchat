@@ -562,6 +562,36 @@ Use `auth.Service.IssueInvite(ctx, communityID, createdBy, maxUses)` —
 The CLI mirrors this: `forumchat-cli ban <email> [duration] [cleanup]`
 where `cleanup` is `chat,threads,posts` or `all`.
 
+### Leave community (self-serve, Jun 2026)
+
+The member-side counterpart to admin remove (§5c) and account erasure (§5g):
+a member removes their OWN membership in their current (session) community
+from the **global `/profile`** page (`LeaveCommunityCard`, a plain card with a
+red confirm — milder than the red `danger-zone` delete-account card).
+
+- `POST /profile/leave` → `auth.Handler.PostLeaveCommunity`. Both `userID` and
+  `communityID` come from the **session identity** (`id.User.ID`,
+  `id.Membership.CommunityID`) — never request input, so there's no IDOR and
+  you can only ever leave your own current community.
+- `auth.Service.LeaveCommunity` deletes the membership via
+  `Repo.DeleteMembershipIfNotLastAdmin` — an **atomic** guarded DELETE whose
+  WHERE refuses to remove the last admin/owner (orphan guard, race-free vs a
+  `CountAdmins` read-then-delete). `!deleted → ErrLeaveLastAdmin`; a missing
+  membership (e.g. a super-admin's synthetic row) → `ErrNotAMember`. Authored
+  content is **kept** (only the membership row goes), unlike `DeleteAccount`'s
+  anonymise. No email confirm — leaving is reversible by rejoining; the
+  `<details>` disclosure is the friction.
+- After a successful leave the handler **rebinds the session** to another of
+  the caller's approved/non-banned communities (`PutLogin` →
+  `/c/{slug}/chat`) or signs them out (`/`) if none remain —
+  `commitSession` BEFORE `render.NewSSE` per §4.4. The community list +
+  session-community name come from `community.Repo.ListForUser`/`ByID` via
+  closures wired in main.go (auth doesn't import community).
+- Note: the admin `PostRemoveMember` path (§5c) still uses the older
+  `CountAdmins` read-then-`RejectMembership` and so has the same latent
+  last-admin TOCTOU this path now avoids — fold it onto
+  `DeleteMembershipIfNotLastAdmin` if it's ever hardened.
+
 ## 5d. Roles are per-community; platform super-admin is the one global role
 
 **Roles are membership-scoped, not global.** `auth.Role` (`member|moderator|

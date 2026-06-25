@@ -153,7 +153,7 @@ func TestRegister_OpenJoinPolicy_AutoApproves(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc, repo, communityID := setupSvc(t)
-	svc.OpenRegistration = true               // env auto-approve stays OFF
+	svc.OpenRegistration = true // env auto-approve stays OFF
 	svc.OpenJoin = func(context.Context, string) (bool, error) { return true, nil }
 
 	reg, err := svc.Register(ctx, auth.RegisterInput{
@@ -522,5 +522,59 @@ func TestResendVerification(t *testing.T) {
 	url, err = svc.ResendVerification(ctx, u.ID)
 	if err != nil || url != "" {
 		t.Fatalf("want no-op for active user, got url=%q err=%v", url, err)
+	}
+}
+
+func TestLeaveCommunity(t *testing.T) {
+	t.Parallel()
+	svc, repo, cid := setupSvc(t)
+	ctx := context.Background()
+
+	// An owner and a plain member.
+	ownerID := seedMember(t, repo, cid, "Owner")
+	mOwner, err := repo.MembershipFor(ctx, ownerID, cid)
+	if err != nil {
+		t.Fatalf("membershipFor owner: %v", err)
+	}
+	if err := repo.UpdateMembershipRole(ctx, mOwner.ID, auth.RoleOwner); err != nil {
+		t.Fatalf("promote owner: %v", err)
+	}
+	memberID := seedMember(t, repo, cid, "Member")
+
+	// A plain member can leave; the membership row is gone afterward.
+	if err := svc.LeaveCommunity(ctx, memberID, cid); err != nil {
+		t.Fatalf("member leave: %v", err)
+	}
+	if _, err := repo.MembershipFor(ctx, memberID, cid); !errors.Is(err, auth.ErrNotFound) {
+		t.Fatalf("member membership should be gone, got err=%v", err)
+	}
+
+	// The last admin/owner cannot leave — it would orphan the community.
+	if err := svc.LeaveCommunity(ctx, ownerID, cid); !errors.Is(err, auth.ErrLeaveLastAdmin) {
+		t.Fatalf("last owner leave: want ErrLeaveLastAdmin, got %v", err)
+	}
+	if _, err := repo.MembershipFor(ctx, ownerID, cid); err != nil {
+		t.Fatalf("blocked owner must remain a member, got err=%v", err)
+	}
+
+	// A non-member leaving is a friendly typed error, not a crash.
+	if err := svc.LeaveCommunity(ctx, "ghost-user", cid); !errors.Is(err, auth.ErrNotAMember) {
+		t.Fatalf("non-member leave: want ErrNotAMember, got %v", err)
+	}
+
+	// Once a SECOND admin exists, the owner may leave (no longer last).
+	admin2 := seedMember(t, repo, cid, "Admin2")
+	m2, err := repo.MembershipFor(ctx, admin2, cid)
+	if err != nil {
+		t.Fatalf("membershipFor admin2: %v", err)
+	}
+	if err := repo.UpdateMembershipRole(ctx, m2.ID, auth.RoleAdmin); err != nil {
+		t.Fatalf("promote admin2: %v", err)
+	}
+	if err := svc.LeaveCommunity(ctx, ownerID, cid); err != nil {
+		t.Fatalf("owner leave with a co-admin present: %v", err)
+	}
+	if _, err := repo.MembershipFor(ctx, ownerID, cid); !errors.Is(err, auth.ErrNotFound) {
+		t.Fatalf("owner membership should be gone after leaving, got err=%v", err)
 	}
 }

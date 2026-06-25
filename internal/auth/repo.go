@@ -544,6 +544,40 @@ func (r *Repo) RejectMembership(ctx context.Context, membershipID string) error 
 	return err
 }
 
+// DeleteMembershipIfNotLastAdmin deletes a membership row, but only when doing so
+// won't orphan the community: a non-privileged member is always removed; an
+// admin/owner is removed only if at least one OTHER admin/owner remains. The
+// orphan guard lives in the WHERE clause so the check and the delete are one
+// atomic statement — two privileged members leaving at the same instant can't
+// both observe "2 admins" and both delete (the TOCTOU a separate CountAdmins
+// read-then-delete would allow). Returns true if a row was deleted, false if the
+// guard blocked it (the caller maps that to ErrLeaveLastAdmin). Used by the
+// self-serve LeaveCommunity path.
+func (r *Repo) DeleteMembershipIfNotLastAdmin(ctx context.Context, membershipID, communityID string) (bool, error) {
+	res, err := r.DB.ExecContext(ctx, `
+		DELETE FROM memberships
+		WHERE id = ?
+		  AND (
+		    role NOT IN (?, ?)
+		    OR EXISTS (
+		      SELECT 1 FROM memberships peer
+		      WHERE peer.community_id = ?
+		        AND peer.role IN (?, ?)
+		        AND peer.id != ?
+		    )
+		  )`,
+		membershipID, string(RoleAdmin), string(RoleOwner),
+		communityID, string(RoleAdmin), string(RoleOwner), membershipID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // MemberRow joins memberships with users so the admin UI can show emails.
 type MemberRow struct {
 	Membership

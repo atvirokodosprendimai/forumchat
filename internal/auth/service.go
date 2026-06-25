@@ -150,6 +150,47 @@ func (s *Service) DeleteAccount(ctx context.Context, userID string) error {
 	return s.Repo.EraseUser(ctx, userID)
 }
 
+// ErrLeaveLastAdmin is returned by LeaveCommunity when the caller is the last
+// admin/owner of the community: leaving would orphan it (no one left who can
+// administer), so they must promote another admin or delete the community first.
+var ErrLeaveLastAdmin = errors.New("you are the last admin of this community")
+
+// ErrNotAMember is returned by LeaveCommunity when the caller has no membership
+// in the target community (e.g. a super-admin acting via a synthetic membership).
+var ErrNotAMember = errors.New("not a member of this community")
+
+// LeaveCommunity removes the caller's OWN membership in communityID — the
+// self-serve counterpart to the admin "remove member" action. Content the user
+// authored (chat, threads, posts) is left in place; only the membership row is
+// deleted, so they lose access but the community keeps the history. Unlike
+// DeleteAccount this is reversible (they can rejoin), so there is no email
+// confirmation step.
+//
+// It refuses to orphan a community: the same last-admin guard the admin remove
+// path uses (CountAdmins counts admins + owners) blocks the last privileged
+// member, returning ErrLeaveLastAdmin so the UI can tell them to hand off first.
+func (s *Service) LeaveCommunity(ctx context.Context, userID, communityID string) error {
+	m, err := s.Repo.MembershipFor(ctx, userID, communityID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return ErrNotAMember
+		}
+		return err
+	}
+	// Atomic guarded delete: the orphan guard (don't remove the last admin/owner)
+	// lives in the DELETE's WHERE, not a separate CountAdmins read, so two
+	// privileged members leaving concurrently can't both pass a stale count and
+	// both delete. !deleted means the guard blocked a last-admin departure.
+	deleted, err := s.Repo.DeleteMembershipIfNotLastAdmin(ctx, m.ID, communityID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return ErrLeaveLastAdmin
+	}
+	return nil
+}
+
 type RegisterInput struct {
 	Email      string
 	Password   string

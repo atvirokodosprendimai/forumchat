@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -55,6 +56,17 @@ type Handler struct {
 	// OAuthProviders are the enabled social-login providers (empty = OAuth off).
 	// Rendered as "Continue with …" buttons on the login + register pages.
 	OAuthProviders []OAuthProvider
+	// ResolveCommunityName returns a community's display name by id, used to label
+	// the "leave community" card with the community actually being left (the
+	// session community — on the global /profile page that can differ from the
+	// bootstrap CommunityName in multi-tenant mode). nil falls back to
+	// CommunityName. Wired in main.go (a closure so auth doesn't import community).
+	ResolveCommunityName func(ctx context.Context, communityID string) string
+	// NextCommunityAfterLeave returns a community the caller still belongs to after
+	// leaving excludeID — its (slug, id) — so PostLeaveCommunity can rebind the
+	// session there instead of signing them out. ok=false when none remain. Wired
+	// in main.go to community.Repo.ListForUser (closure, no community import).
+	NextCommunityAfterLeave func(ctx context.Context, userID, excludeID string) (slug, communityID string, ok bool)
 }
 
 type chiMux interface {
@@ -383,9 +395,65 @@ func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
+	// Label the leave-community card with the community actually being left (the
+	// session community), which on this global page can differ from the bootstrap
+	// CommunityName in multi-tenant mode.
+	commName := h.CommunityName
+	if h.ResolveCommunityName != nil {
+		if n := h.ResolveCommunityName(r.Context(), id.Membership.CommunityID); n != "" {
+			commName = n
+		}
+	}
 	// hasPassword decides whether the password card asks for the current one.
 	// OAuth-only users (sentinel hash) are setting a first password, not changing.
-	_ = webtempl.ProfilePage(h.Viewer(r), id.Membership.DisplayName, id.Membership.AvatarURL, id.User.HasPassword()).Render(r.Context(), w)
+	_ = webtempl.ProfilePage(h.Viewer(r), id.Membership.DisplayName, id.Membership.AvatarURL, id.User.HasPassword(), commName).Render(r.Context(), w)
+}
+
+// PostLeaveCommunity removes the caller's own membership in their CURRENT
+// (session) community, then rebinds the session to another of their communities
+// or signs them out if none remain. Single-step (no email confirm) because
+// leaving is reversible by rejoining — the disclosure + explicit button is enough
+// friction. The last-admin guard lives in Service.LeaveCommunity.
+func (h *Handler) PostLeaveCommunity(w http.ResponseWriter, r *http.Request) {
+	id, ok := FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	cid := id.Membership.CommunityID
+	if err := h.Svc.LeaveCommunity(r.Context(), id.User.ID, cid); err != nil {
+		sse := render.NewSSE(w, r)
+		var msg string
+		switch {
+		case errors.Is(err, ErrLeaveLastAdmin):
+			msg = "You're the last admin here — promote another admin or delete the community before leaving."
+		case errors.Is(err, ErrNotAMember):
+			msg = "You're not a member of this community."
+		default:
+			h.Log.Error("leave community", "user_id", id.User.ID, "community_id", cid, "err", err)
+			msg = "Couldn't leave — please try again."
+		}
+		_ = sse.PatchElementTempl(webtempl.LeaveCommunityStatusFragment(msg, false))
+		return
+	}
+	h.Log.Info("member left community", "user_id", id.User.ID, "community_id", cid)
+
+	// Rebind to a community the caller still belongs to (so a multi-community
+	// member isn't kicked out entirely), else sign out. Session mutation must be
+	// committed BEFORE render.NewSSE flushes, per §4.4.
+	if h.NextCommunityAfterLeave != nil {
+		if slug, newCID, has := h.NextCommunityAfterLeave(r.Context(), id.User.ID, cid); has {
+			PutLogin(r.Context(), h.Sessions, id.User.ID, newCID)
+			commitSession(h.Sessions, w, r)
+			sse := render.NewSSE(w, r)
+			_ = sse.Redirect("/c/" + slug + "/chat")
+			return
+		}
+	}
+	_ = Logout(r.Context(), h.Sessions)
+	commitSession(h.Sessions, w, r)
+	sse := render.NewSSE(w, r)
+	_ = sse.Redirect("/")
 }
 
 type profileSignals struct {
