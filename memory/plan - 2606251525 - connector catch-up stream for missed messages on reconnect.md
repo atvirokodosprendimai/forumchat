@@ -1,6 +1,6 @@
 ---
 name: plan-connector-catchup
-status: active
+status: completed
 type: plan
 tldr: Give external connectors a backlog replay so a worker that reconnects after a disconnect receives the messages it missed. A `?since=<unix>` query param on GET /bots/{id}/stream seeds the per-channel watermark from that point (clamped to a max look-back window), drains the backlog once, emits an `event: live` boundary marker, then continues live. SDK gains StreamSince + OnLive; the tinychat example tracks the newest message and reconnects with catch-up; dev docs + SDK comments updated.
 ---
@@ -79,6 +79,25 @@ tldr: Give external connectors a backlog replay so a worker that reconnects afte
    with `since`, not without; `live` marker fires; clamp honored.
 9. [ ] Codex read-only review (public untrusted-input surface: the `since` param).
 10. [ ] `make gen && make build && make test`; commit per phase, push.
+
+## Progress Log
+
+- 2606251525 — **Decision (user):** server-owned cursor + `?since=` override
+  (over client-only or per-message), with an admin "Reset replay" → cursor 0.
+  Chosen to make the worker stateless while dodging write-on-read + multi-stream
+  clobber + sent≠processed.
+- 2606251540 — **Phases 1–4 shipped** in 5 focused commits: migration 00074 +
+  `resumeWatermark` + backlog drain + `event: live` + close-time cursor persist
+  (`stream.go`); `SetCursor` + cursor scan (`connectors.go`); admin Reset button +
+  cursor hint; SDK `StreamSince`/`OnLive`/`Live`; tinychat `OnLive`; docs + spec.
+- 2606251543 — **Verified:** resume-policy table test + DB-backed E2E (ready →
+  backlog `message` → `live`, plus live-only control) + SDK URL test, all green;
+  full `make test` 38 ok. Browser: created a connector, clicked **Reset replay**,
+  confirmed the "↻ replay queued" hint renders.
+- 2606251548 — **Codex read-only review:** no material defect. #2/#4/#5 clean
+  (unsigned `?since` safe behind sig+clamp; no allowlist/tenant leak; parse safe).
+  #3 (reset-on-close) is by-design convergence; #1 (saturated-second starvation)
+  is a pre-existing shared-read-model bound — both documented, not fixed.
 
 ## Verification
 

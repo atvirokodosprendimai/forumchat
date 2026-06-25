@@ -244,3 +244,4 @@
 - 2026-06-25 `32f01a9` feat(sdk-go): catch-up — StreamSince + OnLive + Live boundary frame
 - 2026-06-25 `3f8a0b4` feat(examples): tinychat reports catch-up via OnLive
 - 2026-06-25 `f736250` docs(connectors): document catch-up — server cursor, ?since=, event: live
+- 2026-06-25 `723f4bb` docs(connectors): note Codex-reviewed catch-up bounds in spec friction
