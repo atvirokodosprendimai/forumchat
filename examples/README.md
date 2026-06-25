@@ -1,9 +1,18 @@
-# forumchat webhook integration examples
+# forumchat integration examples
 
-Wiring external systems to a community via webhooks (`WEBHOOKS_ENABLED=true`).
-See `eidos/spec - webhooks - …` for the full design.
+Wiring external systems to a community. Two integration surfaces:
 
-## The contract
+- **Webhooks** (`WEBHOOKS_ENABLED=true`) — stateless pushes: an inbound `POST`
+  becomes a badged *bot* message; an outbound relay fires one JSON `POST` per
+  message. The rest of this document covers webhooks; see `eidos/spec - webhooks
+  - …`.
+- **Connectors** (`CONNECTORS_ENABLED=true`) — a *persistent, bidirectional*
+  session where an external worker holds open a **signed SSE stream** and POSTs
+  back, appearing as a **human member** (roster, `@mention`, profile, reply).
+  See **[`tinychat/`](tinychat/)** for a runnable Go example built on the
+  [`sdk-go`](../sdk-go) client, and `eidos/spec - connectors - …` for the design.
+
+## The webhook contract
 
 | Direction | What forumchat exposes / sends |
 |---|---|
