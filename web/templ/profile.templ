@@ -2,8 +2,22 @@ package templ
 
 import "encoding/json"
 
+// profileSeedSignals seeds the editable profile fields with the member's current
+// values. display_name/avatar_url live in the global InitialSignals bag (init
+// ""), so without this page-level data-signals datastar clobbers the server-
+// rendered value="…" with the empty default on hydration — showing a blank name
+// field and tripping the non-empty guard on Save even though a name exists.
+func profileSeedSignals(displayName, avatarURL string) string {
+	b, _ := json.Marshal(map[string]string{
+		"display_name": displayName,
+		"avatar_url":   avatarURL,
+	})
+	return string(b)
+}
+
 templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool) {
 	@Layout("Profile", v) {
+		<div data-signals={ profileSeedSignals(displayName, avatarURL) }></div>
 		<section class="card narrow profile-card">
 			<div class="profile-head">
 				if avatarURL != "" {

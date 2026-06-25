@@ -4,6 +4,12 @@
 [data-cloak] { display: none !important; }
 
 :root {
+  /* Force light rendering of native UA controls (inputs, selects, checkboxes,
+     scrollbars, date/time pickers, autofill backgrounds). Without this the
+     app — which is a light theme — renders those controls with the OS dark
+     theme on dark-mode devices, producing dark-on-light contrast bugs. */
+  color-scheme: light;
+
   /* Surfaces — cool-neutral, paper-like */
   --bg: oklch(98.5% 0.004 260);
   --surface: oklch(100% 0 0);
@@ -21,14 +27,14 @@
   --fg-muted: oklch(50% 0.018 260);
   --fg-subtle: oklch(65% 0.015 260);
 
-  /* Accent — vibrant indigo-violet for 2026 */
-  --accent: oklch(60% 0.22 270);
-  --accent-hover: oklch(55% 0.23 270);
-  --accent-strong: oklch(48% 0.24 270);
+  /* Accent — refined indigo: confident + professional, not neon */
+  --accent: oklch(57% 0.19 272);
+  --accent-hover: oklch(52% 0.2 272);
+  --accent-strong: oklch(46% 0.2 272);
   --accent-fg: #ffffff;
-  --accent-soft: oklch(96% 0.04 270);
-  --accent-soft-strong: oklch(92% 0.06 270);
-  --accent-ring: oklch(60% 0.22 270 / 0.28);
+  --accent-soft: oklch(96.5% 0.03 272);
+  --accent-soft-strong: oklch(92% 0.05 272);
+  --accent-ring: oklch(57% 0.19 272 / 0.3);
 
   /* Semantic */
   --sys: oklch(97% 0.05 80);
@@ -93,19 +99,15 @@ code, kbd, pre, samp { font-family: var(--font-mono); font-size: .9em; }
 .topbar {
   display: flex; gap: 1rem; align-items: center; justify-content: space-between;
   padding: .7rem 1.2rem;
-  background: oklch(100% 0 0 / 0.78);
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
   flex: 0 0 auto; z-index: 30;
 }
 .brand {
-  font-weight: 700; letter-spacing: -0.02em; color: var(--fg);
+  font-weight: 700; letter-spacing: -0.02em;
   font-size: 1.05rem;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--accent-strong);
 }
 
 main {
@@ -142,28 +144,38 @@ textarea { resize: vertical; min-height: 4rem; font-family: inherit; }
 
 button, .btn {
   cursor: pointer;
-  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  background: var(--accent);
   color: var(--accent-fg);
   border-color: transparent;
   font-weight: 600; letter-spacing: -0.005em;
-  box-shadow: var(--shadow-xs), inset 0 1px 0 rgb(255 255 255 / 0.15);
+  box-shadow: none;
 }
+/* `.btn` is also applied to <a> anchors (nav CTAs, "New thread", etc.). The
+   base form rule above only sizes the <button> element, so without this an
+   anchor .btn gets the accent background but no padding/radius/box — the fill
+   hugs the text with square corners and bleeds past the line box, reading as a
+   stray selection highlight. Give every .btn the button box model. */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  padding: .6rem .8rem; border-radius: var(--radius-sm);
+  line-height: 1; text-decoration: none; white-space: nowrap;
+}
+.btn:hover { text-decoration: none; }
 button:hover, .btn:hover {
-  background: linear-gradient(180deg, var(--accent-hover), var(--accent-strong));
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgb(255 255 255 / 0.2);
+  background: var(--accent-hover);
+  box-shadow: none;
 }
-.btn:hover { transform: translateY(-1px); }
-.btn:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
+.btn:active, button:active { transform: translateY(0.5px); }
 button.ghost, .btn.ghost {
   background: var(--surface); color: var(--fg);
   border-color: var(--border);
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
 }
 button.ghost:hover, .btn.ghost:hover {
   background: var(--surface-alt);
   border-color: var(--border-strong);
   color: var(--fg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 button.link, .link-button {
   background: transparent; color: var(--accent); border: none; padding: 0;
@@ -179,12 +191,11 @@ button.link:hover, .link-button:hover {
 .field label { font-size: .85rem; color: var(--fg-muted); font-weight: 500; }
 
 .card {
-  background:
-    linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.4rem;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-xs);
 }
 .card.narrow { max-width: 28rem; margin: 1.5rem auto; }
 
@@ -200,16 +211,16 @@ button.link:hover, .link-button:hover {
      this rule, but they're kept for now as belt-and-braces. */
   padding: .7rem 2.75rem .7rem .95rem;
   margin: .45rem 0;
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
   position: relative;
   /* Keep bubbles inside the scroll container: a long URL / unbreakable
      word in .body would otherwise widen the bubble past the viewport and
      trigger a horizontal scrollbar on .messages (mobile especially). */
   min-width: 0; max-width: 100%;
   transition: border-color var(--t-fast) var(--ease-out),
-              box-shadow var(--t-fast) var(--ease-out);
+              background-color var(--t-fast) var(--ease-out);
 }
-.bubble:hover { border-color: var(--border); box-shadow: var(--shadow-sm); }
+.bubble:hover { border-color: var(--border); background: var(--surface-alt); }
 .bubble .meta { display: flex; gap: .55rem; align-items: center; margin-bottom: .25rem; flex-wrap: wrap; row-gap: .25rem; padding-right: 2.5rem; }
 .bubble .meta > strong, .bubble .meta > .muted { line-height: 1.6; }
 
@@ -272,6 +283,27 @@ button.link:hover, .link-button:hover {
 .msg-menu-item.danger { background: transparent; color: var(--danger); }
 .msg-menu-item.danger .mi-icon { color: var(--danger); }
 .msg-menu-item.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+
+/* Desktop declutter: the per-message ⋮ action menu is hidden at rest and
+   revealed when the bubble is hovered, a control inside it is focused, or the
+   menu is open — the standard messenger pattern (Slack/Discord/Telegram).
+   Without this, every bubble shows a permanent ⋮; rapid grouped messages
+   stack into a ladder of dots down the right edge. Scoped to hover-capable
+   pointers so touch devices (no :hover) keep the trigger permanently visible
+   and the mobile bottom-sheet stays reachable. */
+@media (hover: hover) and (pointer: fine) {
+  .bubble .msg-menu > summary {
+    opacity: 0;
+    transition: opacity var(--t-fast) var(--ease-out),
+                background .12s, border-color .12s, color .12s;
+  }
+  .bubble:hover .msg-menu > summary,
+  .bubble:focus-within .msg-menu > summary,
+  .bubble .msg-menu[open] > summary,
+  .bubble .msg-menu > summary:focus-visible {
+    opacity: 1;
+  }
+}
 
 /* Mobile bottom-sheet */
 @media (max-width: 720px) {
@@ -475,7 +507,7 @@ button.link:hover, .link-button:hover {
 
 .messages {
   background:
-    linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+    var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   /* Bigger bottom padding so the last bubble has breathing room
@@ -617,6 +649,17 @@ label.icon-btn {
 .explore-actions form { margin: 0; }
 .explore-join-form { display: flex; flex-direction: column; gap: .5rem; align-items: stretch; }
 .explore-join-reason { width: 100%; min-height: 0; resize: vertical; }
+/* Admin settings — tidy responsive grid instead of a stack of individually
+   centered .card.narrow (margin:auto) that floats with dead side-space. */
+.admin-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+  max-width: 56rem;
+  margin: 0 0 1.5rem;
+}
+.admin-cards > .card.narrow { max-width: none; margin: 0; }
 .admin-join-reason {
   margin: .4rem 0 0; padding: .4rem .7rem;
   border-left: 3px solid var(--border-strong);
@@ -1161,7 +1204,7 @@ img.thread-announce-img {
    section cards. Background is a soft sunken band so the cards inside
    feel raised against it. */
 .rooms-admin-tray {
-  background: linear-gradient(180deg, var(--surface-alt), var(--bg));
+  background: var(--surface-alt);
   border-bottom: 1px solid var(--border);
   padding: 1rem 1rem 1.1rem;
   animation: rooms-tray-down .22s var(--ease-out);
@@ -2104,11 +2147,8 @@ img.thread-announce-img {
   top: 0; left: 0;
   width: var(--sb-width);
   height: 100vh;
-  background:
-    linear-gradient(180deg,
-      oklch(99% 0.004 260) 0%,
-      var(--bg) 100%);
-  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-alt);
+  border-right: 1px solid var(--border);
   padding: 1.1rem .8rem 1rem;
   z-index: 40;
   display: flex;
@@ -2126,9 +2166,7 @@ img.thread-announce-img {
   color: inherit;
   margin-bottom: 1rem;
   padding: .3rem .55rem;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--accent-strong);
   width: max-content;
 }
 .sidebar nav {
@@ -2264,7 +2302,7 @@ img.thread-announce-img {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; flex: 0 0 22px;
   border-radius: var(--radius-pill);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-fg);
   font-size: .72rem; font-weight: 700;
 }
@@ -2429,7 +2467,7 @@ img.thread-announce-img {
   height: 40px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: linear-gradient(135deg, var(--surface), var(--surface-alt));
+  background: var(--surface-alt);
   color: var(--fg);
   font-size: 1.05rem;
   cursor: pointer;
@@ -2530,7 +2568,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
   border-color: var(--border-strong);
 }
 .forum-filters .filter.active, .filters .filter.active {
-  background: linear-gradient(180deg, var(--accent), var(--accent-hover));
+  background: var(--accent);
   color: var(--accent-fg);
   border-color: transparent;
   box-shadow: var(--shadow-xs), inset 0 1px 0 rgb(255 255 255 / 0.15);
@@ -2571,7 +2609,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 
 /* Bubble system style refresh — softer warm */
 .bubble.system {
-  background: linear-gradient(180deg, var(--sys), oklch(98% 0.04 80));
+  background: var(--sys);
   border-color: var(--sys-border);
   border-radius: var(--radius);
 }
@@ -2665,7 +2703,7 @@ body.presence-open .presence-fab { opacity: 0; pointer-events: none; }
 
 /* Projects header card subtle gradient */
 .project-header {
-  background: linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  background: var(--surface);
   border-radius: var(--radius-lg);
 }
 .project-panel {
@@ -2933,7 +2971,7 @@ hr {
   width: 28px; height: 28px; flex: 0 0 28px;
   border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-fg);
   font-weight: 700; font-size: .82rem;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2), var(--shadow-xs);
@@ -2950,7 +2988,7 @@ hr {
 }
 .profile-avatar-fallback {
   display: inline-flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-fg);
   font-weight: 700; font-size: 1.6rem;
 }
@@ -3189,7 +3227,7 @@ hr {
   align-self: flex-end;
   background: var(--accent-soft, color-mix(in srgb, var(--accent) 18%, var(--surface)));
   color: var(--fg);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
   border-bottom-right-radius: 6px;
 }
 .bubble-group.other {
@@ -4220,7 +4258,7 @@ hr {
   z-index: 70;
   display: flex; align-items: center; justify-content: center;
 }
-.extract-dialog, .forward-dialog {
+.modal, .extract-dialog, .forward-dialog {
   background: var(--surface, #fff);
   border: 1px solid var(--border, #e4e4ea);
   border-radius: var(--radius, 0.6rem);
@@ -4243,6 +4281,10 @@ hr {
 .modal-body .form-row input,
 .modal-body .form-row select,
 .modal-body .form-row textarea {
+  /* Reset the global `.form-row input { flex: 1 1 12rem }` — in the column-
+     direction modal body its 12rem flex-basis becomes the element HEIGHT,
+     stretching inputs into tall boxes. */
+  flex: 0 0 auto;
   padding: 0.45rem 0.6rem;
   border: 1px solid var(--border, #e4e4ea);
   border-radius: var(--radius-sm, 0.45rem);
@@ -5029,9 +5071,6 @@ button.ghost.danger:hover:not([disabled]) {
 .agent-send:hover { background: var(--accent-hover); }
 .agent-stop { background: var(--danger); color: #fff; }
 
-.agent-banner { padding: .6rem 1rem; background: var(--warning); color: oklch(25% 0.05 75); font-size: .88rem; }
-.agent-banner a { color: inherit; font-weight: 600; }
-
 .agent-modal-overlay { position: fixed; inset: 0; background: oklch(20% 0.05 260 / .4); z-index: 40; }
 .agent-modal {
   position: fixed; z-index: 41; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -5295,7 +5334,7 @@ button.ghost.danger:hover:not([disabled]) {
   overflow-y: auto;
   overflow-x: hidden;
   padding: .35rem .35rem 1rem;
-  background: linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
@@ -5459,7 +5498,7 @@ button.ghost.danger:hover:not([disabled]) {
 /* ── Pastes (pastebin/hastebin) ─────────────────────────────────────── */
 .paste-page { max-width: 56rem; margin: 1.25rem auto; padding: 0 1rem; }
 .paste-card {
-  background: linear-gradient(180deg, var(--surface), oklch(99% 0.003 260));
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.4rem;
@@ -5736,7 +5775,7 @@ html.lp-doc body.lp {
 .lp-logo-mark {
   display: grid; place-items: center; width: 1.7rem; height: 1.7rem;
   border-radius: var(--radius-sm); font-size: .9rem; color: var(--accent-fg);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   box-shadow: var(--shadow-xs);
 }
 .lp-logo-word { font-weight: 700; font-size: 1.15rem; letter-spacing: -0.02em; color: var(--fg); }
@@ -5812,7 +5851,7 @@ html.lp-doc body.lp {
 }
 .lp-ava-a { background: oklch(62% 0.18 25); }
 .lp-ava-b { background: oklch(60% 0.16 200); }
-.lp-ava-bot { background: linear-gradient(135deg, var(--accent), var(--accent-strong)); }
+.lp-ava-bot { background: var(--accent); }
 .lp-bubble-body { display: flex; flex-direction: column; gap: .1rem; font-size: .8rem; }
 .lp-bubble-body strong { font-size: .72rem; color: var(--fg); }
 .lp-bubble-body span { color: var(--fg-muted); line-height: 1.4; }
@@ -5864,7 +5903,7 @@ html.lp-doc body.lp {
 .lp-step-num {
   display: grid; place-items: center; width: 2.4rem; height: 2.4rem; margin-bottom: .9rem;
   border-radius: 50%; font-weight: 700; font-size: 1.05rem; color: var(--accent-fg);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong)); box-shadow: var(--shadow-sm);
+  background: var(--accent); box-shadow: var(--shadow-sm);
 }
 .lp-step h3 { margin: 0 0 .35rem; font-size: 1.1rem; font-weight: 650; color: var(--fg); text-transform: none; letter-spacing: -0.01em; }
 .lp-step p { margin: 0; color: var(--fg-muted); line-height: 1.55; font-size: .95rem; }
@@ -5883,7 +5922,7 @@ html.lp-doc body.lp {
 .lp-cta-band {
   text-align: center; margin: 1.5rem auto 3rem; padding: 2.6rem 1.5rem;
   border-radius: var(--radius-xl);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--accent-fg); box-shadow: var(--shadow-lg);
 }
 .lp-cta-title { margin: 0; font-size: clamp(1.8rem, 4vw, 2.6rem); letter-spacing: -0.02em; }
@@ -5921,6 +5960,79 @@ html.lp-doc body.lp {
   .lp-grid, .lp-steps, .lp-usecases { grid-template-columns: 1fr; }
   .lp-hero-actions .btn { flex: 1 1 auto; text-align: center; }
   .lp-footer-links { margin-left: 0; }
+}
+
+/* ---- landing: "instead of X" replace cards ---- */
+.lp-replace { display: flex; flex-direction: column; }
+.lp-replace-eyebrow {
+  font-size: .72rem; font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
+  color: var(--accent-strong); margin: .2rem 0 .15rem;
+}
+
+/* ---- landing: deep-dive prose rows ---- */
+.lp-deep { display: flex; flex-direction: column; gap: 2.6rem; }
+.lp-deep-row {
+  display: grid; grid-template-columns: 1.45fr 1fr; gap: 2rem; align-items: center;
+}
+.lp-deep-row:nth-child(even) .lp-deep-copy { order: 2; }
+.lp-deep-title {
+  margin: 0 0 .7rem; font-size: clamp(1.25rem, 2.4vw, 1.6rem); line-height: 1.15;
+  letter-spacing: -0.02em; color: var(--fg); font-weight: 700; text-transform: none;
+}
+.lp-deep-p { margin: 0 0 .8rem; font-size: 1rem; line-height: 1.65; color: var(--fg-muted); }
+.lp-deep-p:last-child { margin-bottom: 0; }
+.lp-deep-aside {
+  background: var(--surface); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 1.2rem; box-shadow: var(--shadow-sm);
+}
+.lp-chiplist { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+.lp-chip {
+  font-size: .82rem; font-weight: 500; color: var(--accent-strong);
+  background: var(--accent-soft); border-radius: 999px; padding: .35rem .75rem;
+}
+
+/* ---- landing: own-your-data prose ---- */
+.lp-prose-narrow { max-width: 44rem; margin: 0 auto; }
+.lp-prose-narrow p { margin: 0 0 1.1rem; font-size: 1.08rem; line-height: 1.7; color: var(--fg-muted); }
+.lp-prose-narrow p:last-child { margin-bottom: 0; }
+.lp-prose-narrow strong { color: var(--fg); }
+
+/* ---- landing: boring-tech pills ---- */
+.lp-tech { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.1rem; }
+.lp-tech-item {
+  display: flex; flex-direction: column; gap: .25rem;
+  background: var(--surface); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 1.1rem 1.2rem;
+}
+.lp-tech-item strong { font-size: 1rem; color: var(--fg); letter-spacing: -0.01em; }
+.lp-tech-item span { font-size: .9rem; line-height: 1.5; color: var(--fg-muted); }
+
+/* ---- landing: FAQ accordions ---- */
+.lp-faq { max-width: 46rem; margin: 0 auto; display: flex; flex-direction: column; gap: .7rem; }
+.lp-faq-item {
+  background: var(--surface); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 0 1.2rem;
+}
+.lp-faq-item[open] { border-color: var(--border-strong); }
+.lp-faq-q {
+  cursor: pointer; list-style: none; padding: 1.05rem 0; font-weight: 600;
+  font-size: 1.02rem; color: var(--fg); display: flex; align-items: center; gap: .6rem;
+}
+.lp-faq-q::-webkit-details-marker { display: none; }
+.lp-faq-q::before {
+  content: "+"; color: var(--accent-strong); font-weight: 700; font-size: 1.2rem;
+  line-height: 1; width: 1rem; flex: none; text-align: center;
+}
+.lp-faq-item[open] .lp-faq-q::before { content: "–"; }
+.lp-faq-a { margin: 0; padding: 0 0 1.1rem 1.6rem; color: var(--fg-muted); line-height: 1.65; font-size: .97rem; }
+
+@media (max-width: 900px) {
+  .lp-tech { grid-template-columns: repeat(2, 1fr); }
+  .lp-deep-row { grid-template-columns: 1fr; gap: 1.1rem; }
+  .lp-deep-row:nth-child(even) .lp-deep-copy { order: 0; }
+}
+@media (max-width: 620px) {
+  .lp-tech { grid-template-columns: 1fr; }
 }
 
 /* ── Danger zone (owner community delete + account erasure) ───────────── */
@@ -6150,4 +6262,255 @@ body:has(.chat-layout) .site-footer { display: none; }
 @media (max-width: 640px) {
   .toolbar { gap: .45rem; }
   .toolbar-grow { flex-basis: 100%; }
+}
+
+/* ===== Notes (community shared notes) ====================================== */
+.notes-page { max-width: 72rem; margin: 0 auto; padding: 1rem; }
+.notes-cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1.25rem; }
+@media (max-width: 720px) { .notes-cols { grid-template-columns: 1fr; } }
+.notes-col-h { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--fg-muted); margin: 0 0 .6rem; }
+.notes-empty { padding: 1rem; border: 1px dashed var(--border); border-radius: var(--radius); }
+.note-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.note-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .7rem .85rem; transition: border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out); }
+.note-row:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.note-row-link { display: flex; flex-direction: column; gap: .15rem; min-width: 0; flex: 1; }
+.note-row-link:hover { text-decoration: none; }
+.note-row-title { font-weight: 600; color: var(--fg); }
+.note-row-snippet { font-size: .85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-row-meta { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
+.note-badge { font-size: .72rem; font-weight: 600; padding: .12rem .45rem; border-radius: var(--radius-pill);
+  border: 1px solid var(--border); white-space: nowrap; }
+.note-badge.public { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-ring); }
+.note-badge.private { background: var(--surface-alt); color: var(--fg-muted); }
+
+/* single note: editor + reader */
+.note-page { max-width: 64rem; margin: 0 auto; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
+.note-editor-head { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: .75rem; }
+.note-title-input { flex: 1; min-width: 12rem; font-size: 1.1rem; font-weight: 600; }
+.note-editor-tools { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+.note-editor-split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 720px) { .note-editor-split { grid-template-columns: 1fr; } }
+.note-md { min-height: 22rem; resize: vertical; font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: .92rem; line-height: 1.55; }
+.note-preview { border: 1px solid var(--border); border-radius: var(--radius); padding: .85rem;
+  background: var(--surface-sunken); overflow: auto; min-height: 22rem; }
+.note-preview-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: .4rem; }
+.note-rendered { line-height: 1.65; word-wrap: break-word; }
+.note-rendered > :first-child { margin-top: 0; }
+.note-rendered > :last-child { margin-bottom: 0; }
+.note-error:empty { display: none; }
+.note-error { margin-top: .75rem; color: var(--danger); background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); border-radius: var(--radius-sm);
+  padding: .5rem .7rem; font-size: .9rem; }
+.note-reader-head { margin-bottom: 1rem; border-bottom: 1px solid var(--border-subtle); padding-bottom: .75rem; }
+.note-reader-head h1 { margin: 0 0 .35rem; }
+.note-reader-meta { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; font-size: .85rem; }
+
+/* notes — share dialog */
+.note-share-backdrop { position: fixed; inset: 0; z-index: 60; display: flex;
+  align-items: center; justify-content: center; padding: 1rem;
+  background: color-mix(in srgb, var(--fg) 38%, transparent); }
+.note-share-backdrop[data-cloak] { display: none; }
+.note-share-card { background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-lg, var(--shadow-md));
+  padding: 1.1rem 1.2rem; width: min(30rem, 100%); display: flex; flex-direction: column; gap: .7rem; }
+.note-share-head { display: flex; align-items: center; justify-content: space-between; }
+.note-share-head strong { font-size: 1.05rem; }
+.note-share-link { display: flex; align-items: center; gap: .5rem; }
+.note-share-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: .35rem .5rem; font-size: .8rem; }
+.note-share-status:empty { display: none; }
+.note-share-status { font-size: .88rem; color: var(--accent-strong);
+  background: var(--accent-soft); border-radius: var(--radius-sm); padding: .4rem .6rem; }
+.note-share-actions { display: flex; justify-content: flex-end; gap: .5rem; }
+
+/* notes — inline comments */
+.note-reader-grid { display: grid; grid-template-columns: minmax(0,1fr) 16rem; gap: 1.25rem; align-items: start; }
+.note-reader-grid.solo { grid-template-columns: minmax(0,1fr); }
+@media (max-width: 900px) { .note-reader-grid { grid-template-columns: minmax(0,1fr); } }
+/* Each rendered block owns a left gutter that holds the "+" add-comment button.
+   The gutter is the block's OWN padding (not a negative offset outside the box),
+   so moving the cursor onto "+" stays inside the block's :hover region — moving
+   to a negative-left button ends :hover and the button vanishes before a click. */
+#note-body > [data-nb] { position: relative; padding-left: 1.5rem; }
+.note-block-hi { animation: note-flash 1.6s var(--ease-out); border-radius: var(--radius-sm); }
+@keyframes note-flash { 0%,100% { background: transparent; } 18% { background: var(--accent-soft-strong); } }
+.note-gutter-add { position: absolute; left: 0; top: .15rem; width: 1.15rem; height: 1.15rem; line-height: 1;
+  opacity: 0; pointer-events: none; align-items: center; justify-content: center; padding: 0; border-radius: var(--radius-pill);
+  background: var(--surface-alt); color: var(--fg-muted); border: 1px solid var(--border); cursor: pointer;
+  font-size: .9rem; display: inline-flex; transition: opacity var(--t-fast) var(--ease-out); }
+#note-body > [data-nb]:hover > .note-gutter-add, .note-gutter-add:focus-visible { opacity: 1; pointer-events: auto; }
+.note-gutter-add:hover { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); opacity: 1; }
+.note-block-badge { position: absolute; right: -.5rem; top: 0; transform: translateX(100%);
+  font-size: .68rem; padding: .05rem .35rem; border-radius: var(--radius-pill);
+  background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent-ring); cursor: pointer; white-space: nowrap; }
+.note-block-badge:hover { background: var(--accent-soft-strong); }
+@media (max-width: 900px) { .note-block-badge { transform: none; right: .1rem; } }
+
+.note-sel-btn { position: absolute; z-index: 70; font-size: .8rem; font-weight: 600; padding: .3rem .6rem;
+  border-radius: var(--radius-pill); background: var(--accent); color: var(--accent-fg); border: none;
+  box-shadow: var(--shadow-md); cursor: pointer; }
+.note-sel-btn:hover { background: var(--accent-hover); }
+
+/* Side rail: a sticky, viewport-bounded scroll panel. A short note with many
+   comments must not stretch the page — the rail caps at the viewport and scrolls
+   its own list (Docs-style margin) while staying pinned beside the article. */
+.note-comments { position: sticky; top: 1rem; align-self: start;
+  max-height: calc(100vh - 6rem); overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: .6rem;
+  border-left: 1px solid var(--border-subtle); padding-left: 1rem; padding-right: .25rem; }
+@media (max-width: 900px) { .note-comments { position: static; max-height: none; overflow: visible;
+  border-left: none; padding-left: 0; padding-right: 0; border-top: 1px solid var(--border-subtle); padding-top: 1rem; } }
+.note-comments-head { position: sticky; top: 0; z-index: 1; background: var(--surface);
+  display: flex; align-items: baseline; justify-content: space-between; padding-bottom: .4rem; }
+.note-comments-empty { font-size: .85rem; }
+.note-comment { position: relative; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .55rem .65rem; display: flex; flex-direction: column; gap: .35rem; }
+.note-comment.orphaned { opacity: .7; border-style: dashed; }
+.note-comment-hi { box-shadow: var(--ring); }
+.note-comment-meta { display: flex; align-items: baseline; gap: .4rem; flex-wrap: wrap; font-size: .8rem; padding-right: 2.7rem; }
+.note-comment-meta strong { font-size: .85rem; }
+.note-comment-anchor { font-size: .75rem; color: var(--accent); background: none; border: none; padding: 0; cursor: pointer;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.note-comment-anchor:hover { text-decoration: underline; }
+.note-comment-tag { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted);
+  background: var(--surface-2); border-radius: var(--radius-pill); padding: .05rem .4rem; }
+.note-comment-body { font-size: .9rem; line-height: 1.5; word-wrap: break-word; }
+.note-comment-body > :first-child { margin-top: 0; } .note-comment-body > :last-child { margin-bottom: 0; }
+/* Compact moderation: tiny icon buttons in the card's top-right, revealed on
+   hover/focus so they cost no vertical space at rest. */
+.note-comment-actions { position: absolute; top: .3rem; right: .35rem; display: flex; gap: .15rem;
+  opacity: 0; transition: opacity var(--t-fast) var(--ease-out); }
+.note-comment:hover .note-comment-actions, .note-comment:focus-within .note-comment-actions { opacity: 1; }
+.note-comment-act { display: inline-flex; align-items: center; justify-content: center; width: 1.35rem; height: 1.35rem;
+  padding: 0; font-size: .72rem; line-height: 1; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--surface); color: var(--fg-muted); cursor: pointer; }
+.note-comment-act:hover { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent-ring); }
+/* Reset the global button.danger filled-red bg (red-on-red, §danger-button trap):
+   a neutral icon button with a red glyph, red-soft fill only on hover. */
+.note-comment-act.danger { background: var(--surface); color: var(--danger); }
+.note-comment-act.danger:hover { background: var(--danger-soft); color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+.note-comment-context { font-size: .85rem; background: var(--surface-sunken); border-radius: var(--radius-sm);
+  padding: .35rem .55rem; }
+.note-comment-input { width: 100%; resize: vertical; }
+
+/* A flat text "link" that is also .danger must stay a red text link, not inherit
+   button.danger's filled red bg (red-on-red). Mirrors the .msg-menu-item.danger
+   reset. */
+.link.danger { background: transparent; color: var(--danger); padding: 0; border: none; }
+.link.danger:hover { background: transparent; color: var(--danger); text-decoration: underline; }
+
+/* notes — inline comment range marks */
+.note-mark { background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 2px; cursor: pointer; transition: background var(--t-fast) var(--ease-out); }
+.note-mark, .note-mark * { color: inherit; }
+/* hover "where is this comment" — strong, obvious highlight on the marked text */
+.note-mark:hover, .note-mark.note-mark-hi { background: var(--accent); color: var(--accent-fg);
+  box-shadow: inset 0 -2px 0 var(--accent-strong); }
+.note-mark.note-mark-hi, .note-mark:hover, .note-mark.note-mark-hi * { color: var(--accent-fg); }
+
+/* Line comments (no selected text) can't wrap a range — mark the whole block with
+   a left accent rail so "I commented on this line" is visible, and brighten it on
+   comment hover. */
+#note-body > [data-nb].note-block-commented { box-shadow: inset 3px 0 0 var(--accent-ring); }
+#note-body > [data-nb].note-block-hi-soft { background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent); border-radius: var(--radius-sm);
+  transition: background var(--t-fast) var(--ease-out); }
+
+/* notes — editor collapse toggle + manual/live preview */
+/* Collapsed (default view mode): drop the card chrome so the "Edit note"
+   affordance floats cleanly above the reader instead of looking like an empty card. */
+.note-editor.collapsed { background: transparent; border: none; box-shadow: none; padding: 0; margin-bottom: .25rem; }
+.note-editor.collapsed .note-editor-bar { margin-bottom: 0; }
+.note-editor-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.note-edit-toggle { flex-shrink: 0; font-weight: 600; }
+.note-editor-bar .note-editor-tools { flex: 1; display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.note-editor-panebar { display: flex; align-items: center; gap: 1rem; margin-bottom: .5rem; }
+.note-live-toggle { display: inline-flex; align-items: center; gap: .35rem; font-size: .85rem; color: var(--fg-muted); cursor: pointer; user-select: none; }
+.note-live-toggle input { width: auto; margin: 0; }
+.note-preview-refresh { font-size: .85rem; }
+.note-pane { display: flex; flex-direction: column; min-width: 0; }
+.note-pane-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: .35rem; }
+.note-pane .note-md { flex: 1; }
+
+/* notes — remote collaborator carets */
+.note-md-wrap { position: relative; flex: 1; display: flex; min-height: 0; }
+.note-md-wrap .note-md { flex: 1; }
+.note-cursors-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: var(--radius-sm); }
+.note-remote-caret { position: absolute; width: 2px; border-radius: 1px; }
+.note-remote-label { position: absolute; top: -1.05em; left: -1px; font-size: .62rem; line-height: 1.4;
+  color: #fff; padding: 0 .28rem; border-radius: 3px 3px 3px 0; white-space: nowrap;
+  font-family: var(--font-sans, system-ui); font-weight: 600; }
+
+/* ── emoji picker (emoji.js) — one shared popover for every chat composer ── */
+.emoji-btn { cursor: pointer; }
+.fc-emoji-panel {
+  position: fixed;
+  z-index: 1000;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: fc-emoji-in .14s ease-out;
+}
+/* The class sets display:flex, which would beat the UA [hidden] rule —
+   restate it so close() (hidden=true) actually hides the panel. */
+.fc-emoji-panel[hidden] { display: none; }
+@keyframes fc-emoji-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .fc-emoji-panel { animation: none; } }
+.fc-emoji-search {
+  margin: .5rem; padding: .5rem .7rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-alt); font-size: .9rem; flex: 0 0 auto;
+}
+.fc-emoji-search:focus { background: var(--surface); border-color: var(--accent); outline: none; }
+.fc-emoji-tabs {
+  display: flex; gap: .1rem; padding: 0 .4rem .35rem;
+  border-bottom: 1px solid var(--border-subtle); flex: 0 0 auto;
+  overflow-x: auto; scrollbar-width: none;
+}
+.fc-emoji-tabs::-webkit-scrollbar { display: none; }
+.fc-emoji-tab {
+  flex: 0 0 auto; width: 34px; height: 34px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; border-radius: var(--radius-sm);
+  font-size: 1.1rem; line-height: 1; cursor: pointer; opacity: .65;
+}
+.fc-emoji-tab:hover { background: var(--surface-alt); opacity: 1; }
+.fc-emoji-tab.active { opacity: 1; background: var(--surface-2); }
+.fc-emoji-grid {
+  display: grid; grid-template-columns: repeat(8, 1fr);
+  gap: .1rem; padding: .4rem; overflow-y: auto; flex: 1 1 auto;
+}
+.fc-emoji {
+  aspect-ratio: 1; min-height: 34px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: transparent; border-radius: var(--radius-sm);
+  font-size: 1.35rem; line-height: 1; cursor: pointer;
+}
+.fc-emoji:hover { background: var(--surface-2); }
+.fc-emoji:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fc-emoji-empty { grid-column: 1 / -1; margin: .5rem; color: var(--fg-muted); font-size: .85rem; text-align: center; }
+/* Phone: dock as a bottom sheet so it never spills off-screen. */
+@media (max-width: 560px) {
+  .fc-emoji-panel.sheet {
+    width: 100vw; max-width: 100vw; max-height: 50vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-left: none; border-right: none; border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .fc-emoji-panel.sheet .fc-emoji-grid { grid-template-columns: repeat(8, 1fr); }
+  .fc-emoji { min-height: 44px; }
 }

@@ -145,7 +145,7 @@ func (h *Handler) PostExtractFromChat(w http.ResponseWriter, r *http.Request) {
 			IssueID:        issue.ID,
 			UploadID:       att.UploadID,
 			UploaderUserID: id.User.ID,
-			UploaderName:   id.Membership.DisplayName,
+			UploaderName:   id.Membership.ShownName(),
 			CreatedAt:      now,
 		}
 		if err := h.Repo.InsertIssueAttachment(r.Context(), ia); err != nil {

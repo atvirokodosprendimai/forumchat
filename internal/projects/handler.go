@@ -167,7 +167,7 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.PushNotify != nil {
 		title := "New project: " + p.Title
-		body := id.Membership.DisplayName + " created a new project."
+		body := id.Membership.ShownName() + " created a new project."
 		projectURL := "/c/" + c.Slug + "/projects/" + p.ID
 		cid := c.ID
 		go func() {

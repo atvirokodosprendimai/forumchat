@@ -529,7 +529,7 @@ func (h *Handler) PostSearchPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := id.Membership.DisplayName
+	name := id.Membership.ShownName()
 	var shared []webtempl.SearchResultView
 	if in.Idx >= 0 {
 		if in.Idx >= len(views) {
@@ -584,7 +584,7 @@ func (h *Handler) PostSummaryPublish(w http.ResponseWriter, r *http.Request) {
 	if err != nil || ch.IsArchived() {
 		return
 	}
-	if !h.PublishSummary(r.Context(), h.cid(r.Context()), ch.ID, threadID, id.User.ID, id.Membership.DisplayName) {
+	if !h.PublishSummary(r.Context(), h.cid(r.Context()), ch.ID, threadID, id.User.ID, id.Membership.ShownName()) {
 		return
 	}
 
@@ -980,7 +980,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		// composer has already cleared, so without this the UI looks frozen. The
 		// SDK flushes per event, so this lands before the slow call below.
 		_ = sse.PatchElementTempl(webtempl.ChatPanelLoading("🧠 Summarising the channel…"))
-		res := h.Summary(r.Context(), h.cid(r.Context()), ch.ID, id.User.ID, id.Membership.DisplayName)
+		res := h.Summary(r.Context(), h.cid(r.Context()), ch.ID, id.User.ID, id.Membership.ShownName())
 		_ = sse.PatchElementTempl(webtempl.ChatSummaryPanel(h.cslug(r.Context()), ch.Slug, res.ThreadID, res.BodyHTML, res.ThreadURL, res.Err))
 		return
 	}
@@ -990,7 +990,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		cid := h.cid(r.Context())
 		chID := ch.ID
 		rid := id.User.ID
-		rname := id.Membership.DisplayName
+		rname := id.Membership.ShownName()
 		isMod := id.Membership.Role.AtLeast(auth.RoleMod)
 		prompt := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body), "/prompt"))
 		_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
@@ -1083,7 +1083,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 			Slug:         h.cslug(r.Context()),
 			ChannelID:    ch.ID,
 			AuthorID:     id.User.ID,
-			AuthorName:   id.Membership.DisplayName,
+			AuthorName:   id.Membership.ShownName(),
 			Body:         body,
 			Kind:         KindUser,
 			IsSuperAdmin: id.IsSuperAdmin,
@@ -1102,7 +1102,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		if replyTo != nil {
 			replyToID = *replyTo
 		}
-		h.RelayOut(h.cid(r.Context()), ch.ID, id.Membership.DisplayName, body, ch.Name, sent.ID, replyToID, attIDs)
+		h.RelayOut(h.cid(r.Context()), ch.ID, id.Membership.ShownName(), body, ch.Name, sent.ID, replyToID, attIDs)
 	}
 
 	// Fire-and-forget push notifications. Runs in the background so a
@@ -1118,7 +1118,7 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		cid := h.cid(r.Context())
 		cslug := h.cslug(r.Context())
 		senderID := id.User.ID
-		senderName := id.Membership.DisplayName
+		senderName := id.Membership.ShownName()
 		mentions := parseMentions(body)
 		preview := bodyPreview(body, 120)
 		url := "/c/" + cslug + "/chat"
@@ -1227,7 +1227,7 @@ func (h *Handler) PostForward(w http.ResponseWriter, r *http.Request) {
 		if relayBody == "" {
 			relayBody = "↪ forwarded a message"
 		}
-		h.RelayOut(cid, target.ID, id.Membership.DisplayName, relayBody, target.Name, "", "", nil)
+		h.RelayOut(cid, target.ID, id.Membership.ShownName(), relayBody, target.Name, "", "", nil)
 	}
 
 	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/chat/" + target.Slug)

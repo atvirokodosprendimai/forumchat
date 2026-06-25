@@ -51,6 +51,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/netguard"
+	"github.com/atvirokodosprendimai/forumchat/internal/notes"
 	"github.com/atvirokodosprendimai/forumchat/internal/pastes"
 	"github.com/atvirokodosprendimai/forumchat/internal/presence"
 	"github.com/atvirokodosprendimai/forumchat/internal/privatemsg"
@@ -183,6 +184,18 @@ func run() error {
 		OpenRegistration:            cfg.OpenRegistration,
 		OpenRegistrationAutoApprove: cfg.OpenRegistrationAutoApprove,
 		AutoVerifyEmail:             cfg.AutoVerifyEmail,
+	}
+	// Honour a community's "open" join policy on the registration path too, so a
+	// member who signs up into an open community skips the approval queue exactly
+	// as an /explore joiner does. Resolves false in self-host (join_policy is
+	// SaaS-only), leaving env-flag behaviour unchanged. Closure keeps auth free
+	// of an internal/community import.
+	svc.OpenJoin = func(ctx context.Context, communityID string) (bool, error) {
+		s, err := cRepo.Settings(ctx, communityID)
+		if err != nil {
+			return false, err
+		}
+		return community.JoinPolicy(s, cfg) == "open", nil
 	}
 	sessions := auth.NewSessionManager(cfg.SessionMaxAge, cfg.IsProd())
 	superAdmins := auth.NewSuperAdminSet(cfg.SuperAdminEmails)
@@ -1024,6 +1037,55 @@ func run() error {
 		return p.ID
 	}
 
+	// ----- Notes (per-community shared notes) -------------------------------
+	notesRepo := notes.NewRepo(db)
+	notesHandler := &notes.Handler{
+		Svc:           notes.NewService(notesRepo),
+		Repo:          notesRepo,
+		ChatRepo:      chatRepo,
+		BaseURL:       cfg.BaseURL,
+		Bus:           notes.NewBus(),
+		NATS:          nc,
+		Presence:      notes.NewPresence(),
+		CommunityID:   bootCommunity.ID,
+		CommunityName: bootCommunity.Name,
+		Log:           log,
+	}
+	// PostToChat drops a shared note's URL into a channel as the member and fans
+	// it out — identical shape to the pastes closure above (keeps notes free of a
+	// chat import cycle).
+	notesHandler.PostToChat = func(ctx context.Context, communityID, channelID, authorID, bodyMD string) error {
+		if _, err := chatSvc.Send(ctx, chat.SendInput{
+			CommunityID:  communityID,
+			ChannelID:    channelID,
+			AuthorID:     authorID,
+			BodyMarkdown: bodyMD,
+		}); err != nil {
+			return err
+		}
+		chatBus.Broadcast(channelID)
+		chatNewMsgBus.Broadcast(channelID)
+		if nc != nil && nc.IsConnected() {
+			_ = nc.Publish(natsx.ChatSubject(communityID), []byte(channelID))
+			_ = nc.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
+		}
+		if chatHandler.RelayOut != nil {
+			if ch, err := chatRepo.ChannelByID(ctx, channelID); err == nil {
+				chatHandler.RelayOut(communityID, channelID, "", bodyMD, ch.Name, "", "", nil)
+			}
+		}
+		return nil
+	}
+	// LookupCommunity resolves (name, slug) for the public token reader, which
+	// carries no slug in its URL.
+	notesHandler.LookupCommunity = func(ctx context.Context, id string) (string, string, bool) {
+		c, err := cRepo.ByID(ctx, id)
+		if err != nil {
+			return "", "", false
+		}
+		return c.Name, c.Slug, true
+	}
+
 	// ----- Web Push (VAPID) -------------------------------------------------
 	vapidPub, vapidPriv, err := push.LoadOrCreateVAPID(cfg.VAPIDPublic, cfg.VAPIDPrivate, cfg.VAPIDKeysFile, log)
 	if err != nil {
@@ -1540,7 +1602,9 @@ func run() error {
 	// /search chat slash command — reuses the fused search, rendered as an
 	// ephemeral panel for the sender. Closure keeps chat decoupled from search.
 	chatHandler.Search = func(ctx context.Context, communityID, slug, query string, limit int) []webtempl.SearchResultView {
-		results, err := searchSvc.Search(ctx, communityID, slug, query, limit)
+		// viewerID "" — the chat /search slash command stays community-public
+		// only; private-note author search lives on the /search page.
+		results, err := searchSvc.Search(ctx, communityID, "", slug, query, limit)
 		if err != nil {
 			log.Error("chat /search", "err", err)
 			return nil
@@ -1714,6 +1778,27 @@ func run() error {
 		r.Get("/pastes/{id}", pastesHandler.GetPage)
 		r.Post("/pastes/{id}/save", pastesHandler.PostSave)
 
+		// Notes — community shared notes: index, editor at /notes/{id}, live
+		// markdown preview, save, delete. Static "new" wins over the {id}
+		// wildcard. Share-to-channel + the public token reader are added with
+		// their own routes (the reader mounts as a public route, no approval gate).
+		r.Get("/notes", notesHandler.GetIndex)
+		r.Post("/notes/new", notesHandler.PostNew)
+		r.Get("/notes/{id}", notesHandler.GetPage)
+		r.Post("/notes/{id}/save", notesHandler.PostSave)
+		r.Post("/notes/{id}/preview", notesHandler.PostPreview)
+		// Collaborative editing: per-note diff-sync stream + merge endpoint.
+		r.Get("/notes/{id}/collab", notesHandler.GetCollab)
+		r.Post("/notes/{id}/sync", notesHandler.PostSync)
+		r.Post("/notes/{id}/share", notesHandler.PostShare)
+		r.Post("/notes/{id}/delete", notesHandler.PostDelete)
+		// Inline comments. Static "comments" wins over the {id} wildcard, so the
+		// per-comment moderate routes sit under /notes/comments/{cid}/… and the
+		// add route under /notes/{id}/comments.
+		r.Post("/notes/{id}/comments", notesHandler.PostComment)
+		r.Post("/notes/comments/{cid}/resolve", notesHandler.PostResolveComment)
+		r.Post("/notes/comments/{cid}/delete", notesHandler.PostDeleteComment)
+
 		// Agent — per-community AI chat with threads + history. Static
 		// segments (new) win over the {thread} wildcard in chi. Gated by the
 		// global AI_ENABLED kill-switch AND (in SaaS) the community's master
@@ -1829,6 +1914,7 @@ func run() error {
 			r.Post("/admin/unban", adminHandler.PostUnban)
 			r.Post("/admin/remove", adminHandler.PostRemoveMember)
 			r.Post("/admin/set-role", adminHandler.PostSetRole)
+			r.Post("/admin/set-nick", adminHandler.PostSetNick)
 			r.Post("/admin/report/resolve", adminHandler.PostResolveReport)
 			r.Post("/admin/invite", adminHandler.PostInvite)
 			r.Post("/admin/invite/revoke", adminHandler.PostInviteRevoke)
@@ -2023,6 +2109,12 @@ func run() error {
 	r.Get("/exports/{id}", exportHandler.GetLanding)
 	r.Post("/exports/{id}/download", exportHandler.PostDownload)
 
+	// Public, token-gated note reader. /n/<token> renders a note read-only; the
+	// 32-byte token is the bearer capability. Identity is optional (Loader is
+	// global), so a logged-in member following the link still reads it. Any miss
+	// renders the generic "unavailable" page (no existence oracle).
+	r.Get("/n/{token}", notesHandler.GetShared)
+
 	// Public Stripe webhook — no session/CSRF; authenticity is the HMAC signature
 	// verified in billing.Service.Webhook against STRIPE_WEBHOOK_SECRET. It is the
 	// sole authority on subscription state. Mounted only when billing is fully
@@ -2130,7 +2222,7 @@ func run() error {
 
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
-	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, Chat: chatHandler, Debug: debugRec, Usage: usageRec}
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, Chat: chatHandler, Debug: debugRec, Usage: usageRec, Auth: svc}
 	if ragSvc != nil {
 		superHandler.RAG = ragSvc
 	}
@@ -2161,6 +2253,8 @@ func run() error {
 		r.Post("/superadmin/platform-ai/revoke", superHandler.PostRevokePlatformAI)
 		r.Post("/superadmin/user/disable", superHandler.PostDisableUser)
 		r.Post("/superadmin/user/enable", superHandler.PostEnableUser)
+		r.Post("/superadmin/user/verify", superHandler.PostForceVerify)
+		r.Post("/superadmin/user/resend-verify", superHandler.PostResendVerification)
 		r.Get("/superadmin/user/memberships", superHandler.GetUserMemberships)
 		r.Post("/superadmin/user/sysban", superHandler.PostSystemBan)
 		r.Post("/superadmin/user/community/ban", superHandler.PostCommunityBan)

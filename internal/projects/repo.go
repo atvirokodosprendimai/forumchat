@@ -337,7 +337,7 @@ func (r *Repo) Delete(ctx context.Context, id string) error {
 // so the scan order stays in lockstep (see scanTodo).
 const todoSelect = `
 	SELECT t.id, t.project_id, t.body, t.done, t.status, t.sort_order, t.created_by,
-	       COALESCE(t.assignee_user_id, ''), COALESCE(am.display_name, ''),
+	       COALESCE(t.assignee_user_id, ''), COALESCE(am.effective_display_name, ''),
 	       t.completed_at, t.created_at, t.updated_at
 	FROM project_todos t
 	JOIN projects p ON p.id = t.project_id

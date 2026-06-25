@@ -1,0 +1,70 @@
+/* Syntax highlighting for fenced code blocks.
+   GENERATED from chroma style "github" — do not hand-edit.
+   Regenerate if chromaStyle in internal/render/markdown.go changes.
+   Selectors rescoped from chroma's `.chroma` wrapper to our
+   class-less `<pre><code class="language-…">` shell. */
+pre code .err { color: #f6f8fa; background-color: #82071e }
+pre code .hl { background-color: #dedede }
+pre code .k { color: #cf222e }
+pre code .kc { color: #cf222e }
+pre code .kd { color: #cf222e }
+pre code .kn { color: #cf222e }
+pre code .kp { color: #cf222e }
+pre code .kr { color: #cf222e }
+pre code .kt { color: #cf222e }
+pre code .na { color: #1f2328 }
+pre code .nc { color: #1f2328 }
+pre code .no { color: #0550ae }
+pre code .nd { color: #0550ae }
+pre code .ni { color: #6639ba }
+pre code .nl { color: #990000; font-weight: bold }
+pre code .nn { color: #24292e }
+pre code .nx { color: #1f2328 }
+pre code .nt { color: #0550ae }
+pre code .nb { color: #6639ba }
+pre code .bp { color: #6a737d }
+pre code .nv { color: #953800 }
+pre code .vc { color: #953800 }
+pre code .vg { color: #953800 }
+pre code .vi { color: #953800 }
+pre code .vm { color: #953800 }
+pre code .nf { color: #6639ba }
+pre code .fm { color: #6639ba }
+pre code .s { color: #0a3069 }
+pre code .sa { color: #0a3069 }
+pre code .sb { color: #0a3069 }
+pre code .sc { color: #0a3069 }
+pre code .dl { color: #0a3069 }
+pre code .sd { color: #0a3069 }
+pre code .s2 { color: #0a3069 }
+pre code .se { color: #0a3069 }
+pre code .sh { color: #0a3069 }
+pre code .si { color: #0a3069 }
+pre code .sx { color: #0a3069 }
+pre code .sr { color: #0a3069 }
+pre code .s1 { color: #0a3069 }
+pre code .ss { color: #032f62 }
+pre code .m { color: #0550ae }
+pre code .mb { color: #0550ae }
+pre code .mf { color: #0550ae }
+pre code .mh { color: #0550ae }
+pre code .mi { color: #0550ae }
+pre code .il { color: #0550ae }
+pre code .mo { color: #0550ae }
+pre code .o { color: #0550ae }
+pre code .ow { color: #0550ae }
+pre code .or { color: #0550ae }
+pre code .p { color: #1f2328 }
+pre code .c { color: #57606a }
+pre code .ch { color: #57606a }
+pre code .cm { color: #57606a }
+pre code .c1 { color: #57606a }
+pre code .cs { color: #57606a }
+pre code .cp { color: #57606a }
+pre code .cpf { color: #57606a }
+pre code .gd { color: #82071e; background-color: #ffebe9 }
+pre code .ge { color: #1f2328 }
+pre code .gi { color: #116329; background-color: #dafbe1 }
+pre code .go { color: #1f2328 }
+pre code .gl { text-decoration: underline }
+pre code .w { color: #ffffff }

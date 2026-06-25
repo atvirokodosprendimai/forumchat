@@ -160,7 +160,6 @@ templ AgentPage(d AgentPageData) {
 			</div>
 		</section>
 		<div id="agent-notice" aria-live="polite"></div>
-		<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 		<script src={ "/static/agent-refs.js?v=" + AssetVer("agent-refs.js") } defer></script>
 	}
 }
@@ -444,14 +443,18 @@ templ AgentShareDialog(slug, threadID string, channels []ChannelView) {
 	</div>
 }
 
-// AgentSetupBanner nudges admins (and informs members) when no agent is enabled.
+// AgentSetupBanner is the unavailable-state hero shown when no agent is enabled.
+// It reuses the .agent-empty centred layout (same shape as AgentEmptyState) so
+// the screen reads as a calm empty state, not an alarming amber error strip.
 templ AgentSetupBanner(slug string, isAdmin bool) {
-	<div class="agent-banner">
+	<div class="agent-empty">
+		<div class="agent-empty-icon" aria-hidden="true">🤖</div>
+		<h1>Agent</h1>
 		if isAdmin {
-			<span>No AI agent is enabled yet. </span>
-			<a href={ templ.URL("/c/" + slug + "/admin/ai") }>Add one in Admin → AI →</a>
+			<p class="muted">No AI agent is enabled for this community yet. Add one to give members an AI assistant across chat and threads.</p>
+			<a class="btn" href={ templ.URL("/c/" + slug + "/admin/ai") }>Enable in Admin → AI</a>
 		} else {
-			<span>The AI assistant isn't available for this community yet.</span>
+			<p class="muted">The AI assistant isn't available in this community yet. An admin can turn it on.</p>
 		}
 	</div>
 }

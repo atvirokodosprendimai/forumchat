@@ -1,0 +1,473 @@
+package templ
+
+import (
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/render"
+)
+
+// NoteView is the leaf-package view model for one note (no domain import).
+type NoteView struct {
+	ID         string
+	Title      string
+	Body       string // markdown source — editor textarea
+	BodyHTML   string // pre-rendered, sanitized HTML for the reader
+	IsPublic   bool
+	ShareToken string
+	AuthorName string
+	CanEdit    bool
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// NoteCommentView is one inline comment anchored to a rendered block.
+type NoteCommentView struct {
+	ID          string
+	BlockIndex  int
+	Quote       string
+	BodyHTML    string
+	AuthorName  string
+	CreatedAt   time.Time
+	Resolved    bool
+	Orphaned    bool // its block_index no longer resolves (note was edited)
+	CanModerate bool
+}
+
+// NoteListItem is one row in the notes index.
+type NoteListItem struct {
+	ID         string
+	Title      string
+	IsPublic   bool
+	AuthorName string
+	Snippet    string
+	UpdatedAt  time.Time
+}
+
+// NoteChannelOption is one channel choice for the share dialog.
+type NoteChannelOption struct {
+	ID   string
+	Slug string
+	Name string
+}
+
+type NotesPageData struct {
+	Viewer Viewer
+	Slug   string
+	Public []NoteListItem
+	Mine   []NoteListItem
+}
+
+type NotePageData struct {
+	Viewer       Viewer
+	Slug         string
+	BaseURL      string
+	Note         NoteView
+	BodyAnnotated string // RichHTML + per-block data-nb anchors (the comment map)
+	Comments     []NoteCommentView
+	BlockCount   int
+	Channels     []NoteChannelOption
+	Edit         bool // viewer may edit (author/mod) — show the editor zone
+	CanComment   bool // viewer is an approved member — show comment affordances
+	Shared       bool // rendered via the public token link (read-only, anon)
+}
+
+// openComments returns the comments that are still open (unresolved); resolved
+// ones collapse into a count.
+func (d NotePageData) openComments() []NoteCommentView {
+	out := make([]NoteCommentView, 0, len(d.Comments))
+	for _, c := range d.Comments {
+		if !c.Resolved {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (d NotePageData) resolvedCount() int {
+	n := 0
+	for _, c := range d.Comments {
+		if c.Resolved {
+			n++
+		}
+	}
+	return n
+}
+
+// noteTitle returns a note's title or a sensible fallback.
+func noteTitle(t string) string {
+	if t == "" {
+		return "Untitled note"
+	}
+	return t
+}
+
+// --- index -----------------------------------------------------------------
+
+templ NotesIndex(d NotesPageData) {
+	@Layout("Notes", d.Viewer) {
+		<section class="notes-page">
+			@PageHeader("📝 Notes", "Shared community notes — write in markdown, read as a page.") {
+				<button class="primary" data-on:click={ "@post('/c/" + d.Slug + "/notes/new')" }>+ New note</button>
+			}
+			<div class="notes-cols">
+				<div class="notes-col">
+					<h2 class="notes-col-h">Shared</h2>
+					if len(d.Public) == 0 {
+						<p class="muted notes-empty">No shared notes yet. A public note shows up here for everyone.</p>
+					} else {
+						<ul class="note-list">
+							for _, n := range d.Public {
+								@noteRow(d.Slug, n)
+							}
+						</ul>
+					}
+				</div>
+				<div class="notes-col">
+					<h2 class="notes-col-h">My notes</h2>
+					if len(d.Mine) == 0 {
+						<p class="muted notes-empty">Notes you write — public or private — live here.</p>
+					} else {
+						<ul class="note-list">
+							for _, n := range d.Mine {
+								@noteRow(d.Slug, n)
+							}
+						</ul>
+					}
+				</div>
+			</div>
+		</section>
+	}
+}
+
+templ noteRow(slug string, n NoteListItem) {
+	<li class="note-row">
+		<a class="note-row-link" href={ templ.URL("/c/" + slug + "/notes/" + n.ID) }>
+			<span class="note-row-title">{ noteTitle(n.Title) }</span>
+			if n.Snippet != "" {
+				<span class="note-row-snippet muted">{ n.Snippet }</span>
+			}
+		</a>
+		<span class="note-row-meta">
+			if n.IsPublic {
+				<span class="note-badge public" title="Public — listed for the whole community">🌐 Public</span>
+			} else {
+				<span class="note-badge private" title="Private — only readable with the share link">🔒 Private</span>
+			}
+			<span class="muted">{ n.UpdatedAt.Format("Jan 2") }</span>
+		</span>
+	</li>
+}
+
+// --- single note: editor zone (editors) + reader zone (everyone) -----------
+
+templ NotePage(d NotePageData) {
+	@Layout(noteTitle(d.Note.Title), d.Viewer) {
+		<section class="note-page" data-signals={ noteInitSignals(d.Note) }>
+			if d.Edit {
+				@noteEditor(d)
+			}
+			@NoteReader(d)
+		</section>
+		if !d.Shared {
+			<script src={ "/static/note.js?v=" + AssetVer("note.js") } defer></script>
+		}
+		if d.Edit {
+			// Collaborative editing: diff-match-patch (server interop via go-diff)
+			// + the diff-sync client. Order matters — dmp must load first.
+			<script src={ "/static/diff_match_patch.js?v=" + AssetVer("diff_match_patch.js") } defer></script>
+			<script src={ "/static/note-cursors.js?v=" + AssetVer("note-cursors.js") } defer></script>
+			<script src={ "/static/note-collab.js?v=" + AssetVer("note-collab.js") } defer></script>
+		}
+	}
+}
+
+templ noteEditor(d NotePageData) {
+	<div class="note-editor card" id="note-editor" data-class="{'collapsed': !$_note_edit}">
+		<!-- collab: open the per-note diff-sync stream + apply each canonical push -->
+		<div data-init={ "@get('/c/" + d.Slug + "/notes/" + d.Note.ID + "/collab')" }></div>
+		<div data-on-signal-patch-filter="{include: /^_note_canon$/}" data-on-signal-patch="window.fcNoteCollabApply && window.fcNoteCollabApply($_note_canon, $_note_ver)"></div>
+		<div data-on-signal-patch-filter="{include: /^_note_cursors$/}" data-on-signal-patch="window.fcNoteRenderCursors && window.fcNoteRenderCursors($_note_cursors)"></div>
+		<div class="note-editor-bar">
+			<button class="btn ghost note-edit-toggle" data-on:click="$_note_edit = !$_note_edit" title="Show or hide the editor and preview">
+				<span data-show="$_note_edit">👁 Hide editor</span>
+				<span data-show="!$_note_edit">✏️ Edit note</span>
+			</button>
+			<div class="note-editor-tools" data-show="$_note_edit">
+				<input class="note-title-input" type="text" data-bind="note_title" placeholder="Title" autocomplete="off"/>
+				<label class="note-vis">
+					<select data-bind="note_visibility">
+						<option value="private">🔒 Private</option>
+						<option value="public">🌐 Public</option>
+					</select>
+				</label>
+				<button class="primary" data-on:click={ "$note_patch = (window.fcNoteCollabPatch ? window.fcNoteCollabPatch() : ''); @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/save')" }>Save</button>
+				<button class="btn ghost" data-on:click="$_note_share_open = true">Share…</button>
+				<button class="btn ghost danger" data-on:click={ "confirm('Delete this note?') && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/delete')" }>Delete</button>
+			</div>
+		</div>
+		<div class="note-editor-body" data-show="$_note_edit">
+			<div class="note-editor-panebar">
+				<label class="note-live-toggle" title="Re-render the preview on every keystroke">
+					<input type="checkbox" data-bind="_note_live"/>
+					Live preview
+				</label>
+				<button class="link note-preview-refresh" data-show="!$_note_live" data-on:click={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/preview')" }>↻ Update preview</button>
+			</div>
+			<div class="note-editor-split">
+				<div class="note-pane">
+					<div class="note-pane-label muted">Markdown</div>
+					<div class="note-md-wrap">
+						<textarea
+							class="note-md"
+							data-bind="note_body"
+							spellcheck="false"
+							autocomplete="off"
+							placeholder="Write in markdown…"
+							data-on:input__debounce.300ms={ "$note_cursor = (window.fcCaretPos ? window.fcCaretPos() : 0); $note_patch = (window.fcNoteCollabPatch ? window.fcNoteCollabPatch() : ''); ($note_patch && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/sync')); ($_note_live && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/preview'))" }
+							data-on:keyup__debounce.200ms={ "$note_cursor = (window.fcCaretPos ? window.fcCaretPos() : 0); $note_patch = (window.fcNoteCollabPatch ? window.fcNoteCollabPatch() : ''); @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/sync')" }
+							data-on:click={ "$note_cursor = (window.fcCaretPos ? window.fcCaretPos() : 0); $note_patch = ''; @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/sync')" }
+						>{ d.Note.Body }</textarea>
+						<div class="note-cursors-overlay"></div>
+					</div>
+				</div>
+				<div class="note-pane note-preview">
+					<div class="note-pane-label muted">Preview</div>
+					@NotePreview(d.Note.BodyHTML)
+				</div>
+			</div>
+			@NoteError("")
+		</div>
+		@noteShareDialog(d)
+	</div>
+}
+
+// noteShareDialog posts a link to this note into a channel. A private note stays
+// unlisted — the link carries the capability token so anyone with it can read.
+templ noteShareDialog(d NotePageData) {
+	<div id="note-share" class="note-share-backdrop" data-show="$_note_share_open" data-cloak data-on:click="$_note_share_open=false">
+		<div class="note-share-card" data-on:click="evt.stopPropagation()">
+			<div class="note-share-head">
+				<strong>Share note</strong>
+				<button class="link" data-on:click="$_note_share_open=false" aria-label="Close">✕</button>
+			</div>
+			<p class="muted">Drop a link to this note in a channel. A private note stays out of the list — anyone with the link can still read it.</p>
+			<label class="field">
+				<span>Channel</span>
+				<select data-bind="note_share_channel">
+					<option value="">Default channel</option>
+					for _, ch := range d.Channels {
+						<option value={ ch.ID }>{ "#" + ch.Slug }</option>
+					}
+				</select>
+			</label>
+			<div class="note-share-link">
+				<code class="note-share-url">{ shareURL(d) }</code>
+				<button class="btn ghost" data-on:click="navigator.clipboard.writeText(el.closest('.note-share-card').querySelector('.note-share-url').textContent)">Copy</button>
+			</div>
+			@NoteShareStatus("")
+			<div class="note-share-actions">
+				<button class="primary" data-on:click={ "@post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/share')" }>Post to channel</button>
+			</div>
+		</div>
+	</div>
+}
+
+// NoteShareStatus is the share dialog's result line, morphed after posting.
+templ NoteShareStatus(msg string) {
+	<div id="note-share-status" class="note-share-status">{ msg }</div>
+}
+
+// shareURL is the absolute link to copy/post: the member route for a public
+// note (full editor/comment experience), the capability-token route for a
+// private one (read-only, anon-readable, never listed).
+func shareURL(d NotePageData) string {
+	base := strings.TrimRight(d.BaseURL, "/")
+	if d.Note.IsPublic {
+		return base + "/c/" + d.Slug + "/notes/" + d.Note.ID
+	}
+	return base + "/n/" + d.Note.ShareToken
+}
+
+// NoteReader is the rendered article everyone sees: editors (below their
+// editor), members, and anonymous token visitors. It carries the inline-comment
+// surface: the annotated article (#note-body, per-block data-nb anchors) on the
+// left and a comments rail on the right. Stable id #note-reader so it can be
+// re-morphed after a save or a comment change without disturbing the editor
+// zone. The fc:note-comment consumer (set signals + open composer) lives here so
+// every per-block / selection trigger bubbles to one listener (EDA).
+templ NoteReader(d NotePageData) {
+	<article
+		id="note-reader"
+		class="note-reader card"
+		data-comment-count={ commentBlocksAttr(d.Comments) }
+		data-on:fc:note-comment="$note_c_block = String(evt.detail.block); $note_c_quote = evt.detail.quote || ''; $_note_comment_open = true"
+	>
+		<header class="note-reader-head">
+			<h1>{ noteTitle(d.Note.Title) }</h1>
+			<div class="note-reader-meta muted">
+				if d.Note.AuthorName != "" {
+					<span>{ d.Note.AuthorName }</span>
+				}
+				<span>{ d.Note.UpdatedAt.Format("Jan 2, 2006") }</span>
+				if !d.Note.IsPublic {
+					<span class="note-badge private">🔒 Private</span>
+				}
+			</div>
+		</header>
+		<div class={ "note-reader-grid", templ.KV("solo", d.Shared) }>
+			<div id="note-body" class="note-rendered" data-can-comment={ boolAttr(d.CanComment) }>
+				@templ.Raw(d.BodyAnnotated)
+			</div>
+			if !d.Shared {
+				<aside class="note-comments" id="note-comments">
+					<div class="note-comments-head">
+						<strong>Comments</strong>
+						if d.resolvedCount() > 0 {
+							<span class="muted">{ strconv.Itoa(d.resolvedCount()) } resolved</span>
+						}
+					</div>
+					if len(d.openComments()) == 0 {
+						<p class="muted note-comments-empty">
+							if d.CanComment {
+								Select text or hover a line to add a comment.
+							} else {
+								No comments.
+							}
+						</p>
+					}
+					for _, c := range d.openComments() {
+						@noteCommentCard(d.Slug, c)
+					}
+				</aside>
+			}
+		</div>
+		if d.CanComment {
+			@noteCommentComposer(d.Slug, d.Note.ID)
+		}
+	</article>
+}
+
+templ noteCommentCard(slug string, c NoteCommentView) {
+	<div class={ "note-comment", templ.KV("orphaned", c.Orphaned) } data-nb-ref={ strconv.Itoa(c.BlockIndex) } data-quote={ c.Quote } id={ "note-comment-" + c.ID }>
+		if c.CanModerate {
+			<div class="note-comment-actions">
+				<button class="note-comment-act" title="Resolve" aria-label="Resolve comment" data-on:click={ "@post('/c/" + slug + "/notes/comments/" + c.ID + "/resolve')" }>✓</button>
+				<button class="note-comment-act danger" title="Delete" aria-label="Delete comment" data-on:click={ "@post('/c/" + slug + "/notes/comments/" + c.ID + "/delete')" }>✕</button>
+			</div>
+		}
+		<div class="note-comment-meta">
+			<strong>{ c.AuthorName }</strong>
+			<span class="muted">{ c.CreatedAt.Format("Jan 2, 15:04") }</span>
+			if c.Orphaned {
+				<span class="note-comment-tag" title="The note was edited — this comment's line moved or was removed">orphaned</span>
+			} else {
+				<button class="note-comment-anchor" data-nb-jump={ strconv.Itoa(c.BlockIndex) } title="Jump to the commented text">
+					if c.Quote != "" {
+						“{ c.Quote }”
+					} else {
+						line { strconv.Itoa(c.BlockIndex + 1) }
+					}
+				</button>
+			}
+		</div>
+		<div class="note-comment-body">@templ.Raw(render.RichHTML(c.BodyHTML))</div>
+	</div>
+}
+
+// noteCommentComposer is the add-comment dialog, opened by the fc:note-comment
+// consumer. It binds note_c_block / note_c_quote / note_c_body (all posted).
+templ noteCommentComposer(slug, noteID string) {
+	<div id="note-comment-dialog" class="note-share-backdrop" data-show="$_note_comment_open" data-cloak data-on:click="$_note_comment_open=false">
+		<div class="note-share-card" data-on:click="evt.stopPropagation()">
+			<div class="note-share-head">
+				<strong>Add comment</strong>
+				<button class="link" data-on:click="$_note_comment_open=false" aria-label="Close">✕</button>
+			</div>
+			<div class="note-comment-context" data-show="$note_c_quote !== ''">
+				<span class="muted">on</span> “<span data-text="$note_c_quote"></span>”
+			</div>
+			<div class="note-comment-context" data-show="$note_c_quote === ''">
+				<span class="muted">on line</span> <span data-text="Number($note_c_block)+1"></span>
+			</div>
+			<textarea class="note-comment-input" data-bind="note_c_body" placeholder="Write a comment… (markdown)" rows="3"></textarea>
+			@NoteCommentError("")
+			<div class="note-share-actions">
+				<button class="primary" data-on:click={ "@post('/c/" + slug + "/notes/" + noteID + "/comments')" }>Comment</button>
+			</div>
+		</div>
+	</div>
+}
+
+// NoteCommentError is the composer's inline error region.
+templ NoteCommentError(msg string) {
+	<div id="note-comment-error" class="note-error">{ msg }</div>
+}
+
+// commentBlocksAttr serialises the open comments' block indices as a
+// comma-separated list so note.js can paint per-block badges without a second
+// request. Resolved comments are excluded (they don't show a badge).
+func commentBlocksAttr(cs []NoteCommentView) string {
+	parts := make([]string, 0, len(cs))
+	for _, c := range cs {
+		if !c.Resolved && !c.Orphaned {
+			parts = append(parts, strconv.Itoa(c.BlockIndex))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func boolAttr(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
+// NotePreview is the live HTML preview pane, morphed on each debounced edit.
+templ NotePreview(html string) {
+	<div id="note-preview-body" class="note-rendered">
+		@templ.Raw(render.RichHTML(html))
+	</div>
+}
+
+// NoteError is the editor's inline error region. Hidden via CSS when empty.
+templ NoteError(msg string) {
+	<div id="note-error" class="note-error">{ msg }</div>
+}
+
+// NoteUnavailable is the generic page for a missing/expired share link. The
+// wording confirms nothing (no existence oracle) — a bad token, a deleted note
+// and a revoked link all land here.
+templ NoteUnavailable(v Viewer) {
+	@Layout("Note unavailable", v) {
+		<section class="card narrow">
+			<h1>Note unavailable</h1>
+			<p class="muted">This note link is invalid or no longer available.</p>
+		</section>
+	}
+}
+
+// noteInitSignals seeds the page-local signal bag. Kept OUT of the global
+// InitialSignals bag so note_body (which can be large) doesn't ride every
+// unrelated request. _-prefixed signals are FE-only (never posted).
+func noteInitSignals(n NoteView) string {
+	vis := "private"
+	if n.IsPublic {
+		vis = "public"
+	}
+	// Default to reading mode; open the editor up-front only for a fresh, empty
+	// note (nothing to read yet — you came here to write). Existing notes open
+	// collapsed: the work is reading + inline commenting.
+	edit := "false"
+	if n.Body == "" {
+		edit = "true"
+	}
+	return `{"note_title":` + strconv.Quote(n.Title) +
+		`,"note_visibility":` + strconv.Quote(vis) +
+		`,"note_body":` + strconv.Quote(n.Body) +
+		`,"note_c_block":"0","note_c_quote":"","note_c_body":"","note_share_channel":"","note_patch":"","note_cursor":0,` +
+		`"_note_canon":"","_note_ver":0,"_note_cursors":"[]",` +
+		`"_note_share_open":false,"_note_comment_open":false,"_note_edit":` + edit + `,"_note_live":false}`
+}

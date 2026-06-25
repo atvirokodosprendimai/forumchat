@@ -202,7 +202,7 @@ templ ChatPage(d ChatPageData) {
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
 		@ForwardDialog(d.Viewer.CommunitySlug, d.ActiveSlug, d.Channels)
-		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, RoleIsAdmin(d.Viewer.Role))
+		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, RoleIsAdmin(d.Viewer.Role) || IsSuperAdmin(ctx))
 		if d.IsMod {
 			@ExtractDialog(d.Viewer.CommunitySlug, d.Projects)
 		}
@@ -353,6 +353,7 @@ templ ChatComposer(slug, channelSlug string) {
 			</label>
 			<button type="button" class="btn ghost icon-btn" aria-label="New paste" title="New paste — long code, markdown, or text"
 				data-on:click={ "@post('/c/" + slug + "/pastes/new?channel=" + channelSlug + "')" }>📋</button>
+			@EmojiButton(".composer-text")
 			<textarea
 				class="composer-text"
 				data-bind="body"
@@ -368,6 +369,18 @@ templ ChatComposer(slug, channelSlug string) {
 			</button>
 		</div>
 	</div>
+}
+
+// EmojiButton renders the 😀 trigger that opens the shared emoji picker
+// (emoji.js). It's drop-in for any chat composer: `target` is a CSS selector
+// for the field to insert into; pass "" to let the picker resolve the nearest
+// composer field by DOM proximity. The picker is pure front-end — picking an
+// emoji writes it into the field at the caret and fires `input`, so Datastar's
+// data-bind syncs the bound signal like a keystroke.
+templ EmojiButton(target string) {
+	<button type="button" class="btn ghost icon-btn emoji-btn" aria-label="Insert emoji" title="Emoji"
+		aria-expanded="false" data-emoji-target={ target }
+		data-on:click="window.fcEmojiToggle(el)">😀</button>
 }
 
 // MentionPopup renders the @mention typeahead dropdown. Always rendered

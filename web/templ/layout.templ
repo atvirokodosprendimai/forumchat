@@ -397,6 +397,8 @@ const InitialSignals = `{
 	"_ctx_banned":false,
 	"_ctx_blocked":false,
 	"_ctx_ban_open":false,
+	"_ctx_nick_open":false,
+	"admin_nick":"",
 	"_ctx_report_open":false,
 	"report_reason":"",
 	"_ctx_x":0,
@@ -441,6 +443,7 @@ templ Layout(title string, v Viewer) {
 				<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
 				<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400;600&display=swap"/>
 				@InlineStyle("app.css")
+				<link rel="stylesheet" href={ "/static/highlight.css?v=" + AssetVer("highlight.css") }/>
 				<link rel="manifest" href={ "/static/manifest.webmanifest?v=" + AssetVer("manifest.webmanifest") }/>
 				<link rel="icon" type="image/svg+xml" href="/static/icon.svg"/>
 				<link rel="apple-touch-icon" href="/static/icon-192.png"/>
@@ -452,6 +455,7 @@ templ Layout(title string, v Viewer) {
 			<script src={ "/static/paste.js?v=" + AssetVer("paste.js") } defer></script>
 			<script src={ "/static/mention.js?v=" + AssetVer("mention.js") } defer></script>
 			<script src={ "/static/translate.js?v=" + AssetVer("translate.js") } defer></script>
+			<script src={ "/static/emoji.js?v=" + AssetVer("emoji.js") } defer></script>
 			<script src={ "/static/codeblock.js?v=" + AssetVer("codeblock.js") } defer></script>
 		</head>
 		<body
@@ -562,7 +566,7 @@ templ Layout(title string, v Viewer) {
 					<button type="button" class="yt-lightbox-close" aria-label="Close video"
 						data-on:click="$_yt_open=false;$_yt_id=''">✕</button>
 					<iframe class="yt-lightbox-frame" title="YouTube video player"
-						allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen
+						allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
 						data-attr:src="$_yt_open ? ('https://www.youtube-nocookie.com/embed/'+$_yt_id+'?autoplay=1&rel=0') : ''"></iframe>
 				</div>
 			</div>
@@ -633,6 +637,7 @@ templ CommunityTopNav(v Viewer) {
 				<a href={ templ.URL("/c/" + v.CommunitySlug + "/chat") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/chat") }><span class="sb-icon" aria-hidden="true">💬</span>Chat</a>
 				<a href={ templ.URL("/c/" + v.CommunitySlug + "/forum") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/forum") }><span class="sb-icon" aria-hidden="true">📋</span>Threads</a>
 				<a href={ templ.URL("/c/" + v.CommunitySlug + "/rooms") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/rooms") }><span class="sb-icon" aria-hidden="true">🎥</span>Rooms</a>
+				<a href={ templ.URL("/c/" + v.CommunitySlug + "/notes") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/notes") }><span class="sb-icon" aria-hidden="true">📝</span>Notes</a>
 				<a href={ templ.URL("/c/" + v.CommunitySlug + "/search") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/search") }><span class="sb-icon" aria-hidden="true">🔍</span>Search</a>
 				if AIEnabled && CommunityAIEnabled(ctx) {
 					<a href={ templ.URL("/c/" + v.CommunitySlug + "/agent") } aria-current={ navActive(ctx, "/c/"+v.CommunitySlug+"/agent") }><span class="sb-icon" aria-hidden="true">🤖</span>Agent</a>

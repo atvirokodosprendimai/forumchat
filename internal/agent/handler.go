@@ -720,7 +720,7 @@ func (h *Handler) PostShareToChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := "🤖 **From the agent**\n\n" + msg.BodyMD
-	name, err := h.ShareToChannel(r.Context(), h.cid(r.Context()), channel, id.User.ID, id.Membership.DisplayName, body)
+	name, err := h.ShareToChannel(r.Context(), h.cid(r.Context()), channel, id.User.ID, id.Membership.ShownName(), body)
 	if err != nil {
 		h.Log.Warn("agent: share to channel", "err", err)
 		_ = sse.PatchElementTempl(webtempl.AgentNotice("Couldn't share to that channel."))

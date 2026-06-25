@@ -619,7 +619,7 @@ func (h *Handler) communityName(ctx context.Context, communityID string) (string
 
 func (h *Handler) hostName(ctx context.Context, hostID, communityID string) (string, error) {
 	row := h.Repo.DB.QueryRowContext(ctx,
-		`SELECT display_name FROM memberships WHERE user_id = ? AND community_id = ?`,
+		`SELECT effective_display_name FROM memberships WHERE user_id = ? AND community_id = ?`,
 		hostID, communityID)
 	var name string
 	err := row.Scan(&name)

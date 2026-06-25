@@ -143,7 +143,7 @@ func (r *Repo) List(ctx context.Context, userID, communityID string, f Filter) (
 	q := strings.Builder{}
 	q.WriteString(`
 		SELECT b.id, b.user_id, b.community_id, b.chat_message_id, b.title, b.category, b.note, b.created_at,
-		       COALESCE(mb.display_name, ''), COALESCE(cm.body_md, ''), cm.created_at, cm.deleted_at
+		       COALESCE(mb.effective_display_name, ''), COALESCE(cm.body_md, ''), cm.created_at, cm.deleted_at
 		FROM bookmarks b
 		JOIN chat_messages cm ON cm.id = b.chat_message_id
 		LEFT JOIN memberships mb ON mb.user_id = cm.author_id AND mb.community_id = b.community_id

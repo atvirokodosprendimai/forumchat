@@ -79,10 +79,27 @@ type Membership struct {
 	// JoinReason is the "why do you want to join?" note a user writes when
 	// requesting an approval-gated community. Empty for instant/invited joins.
 	JoinReason string
+	// EffectiveDisplayName is the admin-set alias when one exists, else the
+	// member's own name. It is populated from the generated column when the
+	// membership is loaded (MembershipFor/MembershipByID); use ShownName to
+	// read it safely. DisplayName always stays the member's OWN name.
+	EffectiveDisplayName string
 }
 
 func (m Membership) IsBanned(now time.Time) bool {
 	return m.BannedUntil != nil && m.BannedUntil.After(now)
+}
+
+// ShownName is the name to display to OTHER users — the admin alias when set,
+// otherwise the member's own name. Prefer this over DisplayName anywhere a
+// member's name is rendered to someone else (push notifications, presence
+// labels, cross-user surfaces). The fallback keeps synthetic memberships that
+// don't carry the generated column (e.g. SuperAdminMembership) correct.
+func (m Membership) ShownName() string {
+	if m.EffectiveDisplayName != "" {
+		return m.EffectiveDisplayName
+	}
+	return m.DisplayName
 }
 
 // IsApproved reports whether an admin has approved this membership. New

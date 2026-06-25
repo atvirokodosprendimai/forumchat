@@ -324,12 +324,12 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 	if h.Chat != nil {
 		link := fmt.Sprintf(`%s/c/%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), h.cslug(r.Context()), t.ID)
 		threadID := t.ID
-		announceHTML := buildThreadAnnounce(id.Membership.DisplayName, link, t.Subject, t.BodyMarkdown)
+		announceHTML := buildThreadAnnounce(id.Membership.ShownName(), link, t.Subject, t.BodyMarkdown)
 		_, err := h.Chat.PostSystem(r.Context(), h.cid(r.Context()), announceHTML, chat.KindThreadAnnounce, &threadID)
 		if err != nil {
 			h.Log.Error("post thread-announce", "err", err)
 		} else {
-			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), id.Membership.DisplayName, t.ID, t.Subject, link)
+			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), id.Membership.ShownName(), t.ID, t.Subject, link)
 			if h.ChatNewMsgBus != nil {
 				h.ChatNewMsgBus.Broadcast("")
 			}
@@ -349,7 +349,7 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 	if h.PushNotify != nil {
 		cid := h.cid(r.Context())
 		cslug := h.cslug(r.Context())
-		authorName := id.Membership.DisplayName
+		authorName := id.Membership.ShownName()
 		threadURL := "/c/" + cslug + "/forum/" + t.ID
 		subjectCopy := t.Subject
 		go func() {
@@ -560,7 +560,7 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 				_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("thread-agent-notice", res.RetryAfter))
 			}
 		case t.AgentID == nil:
-			h.relayForumReply(r.Context(), t, id.Membership.DisplayName, body, post.ID)
+			h.relayForumReply(r.Context(), t, id.Membership.ShownName(), body, post.ID)
 		}
 	}
 }
@@ -822,7 +822,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		link := fmt.Sprintf(`%s/c/%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), h.cslug(r.Context()), t.ID)
 		announceName := root.AuthorName
 		if announceName == "" {
-			announceName = id.Membership.DisplayName
+			announceName = id.Membership.ShownName()
 		}
 		threadID := t.ID
 		announceHTML := buildThreadAnnounce(announceName, link, t.Subject, root.BodyMarkdown)
@@ -840,7 +840,7 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 	if firstPost != nil && replyChild != nil {
 		replyName := replyChild.AuthorName
 		if replyName == "" {
-			replyName = id.Membership.DisplayName
+			replyName = id.Membership.ShownName()
 		}
 		h.relayForumReply(r.Context(), t, replyName, replyChild.BodyMarkdown, firstPost.ID)
 	}
@@ -885,7 +885,7 @@ func (h *Handler) foldReplyIntoThread(w http.ResponseWriter, r *http.Request, id
 	if th, gerr := h.Repo.GetThread(r.Context(), threadID); gerr == nil {
 		replyName := msg.AuthorName
 		if replyName == "" {
-			replyName = id.Membership.DisplayName
+			replyName = id.Membership.ShownName()
 		}
 		h.relayForumReply(r.Context(), th, replyName, msg.BodyMarkdown, post.ID)
 	}

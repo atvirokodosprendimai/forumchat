@@ -167,7 +167,7 @@ func (r *Repo) MarkRead(ctx context.Context, threadID, userID string, ts time.Ti
 // memberships (most recent first). Empty if the user has no membership.
 func (r *Repo) DisplayName(ctx context.Context, userID string) (string, error) {
 	row := r.DB.QueryRowContext(ctx, `
-		SELECT display_name FROM memberships
+		SELECT effective_display_name FROM memberships
 		WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`, userID)
 	var n string
 	err := row.Scan(&n)

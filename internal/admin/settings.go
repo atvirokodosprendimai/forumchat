@@ -62,6 +62,22 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	s, err := h.Communities.Settings(r.Context(), c.ID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Capture the embedding identity BEFORE overlaying — a model/dim change
+	// invalidates the Qdrant collection (sized to the old dim) and must trigger
+	// a reindex, or the worker stalls on a dimension mismatch.
+	oldRAG := community.ResolveRAG(s, h.Cfg)
+	// When a capability runs on platform AI, the form hides AND blanks its BYO
+	// infra fields (so the operator's hosts never leak to the tenant). A save
+	// must therefore NOT overwrite the stored BYO override from those now-empty
+	// signals — that would wipe a dormant config the owner set before switching
+	// to platform AI, and the SSRF guard must skip the blank platform fields.
+	trPlat := community.ResolveTranslate(s, h.Cfg).Platform
+	ragPlat := oldRAG.Platform
 	// A URL field left at the platform default is NOT a tenant override: the form
 	// pre-fills each field with the resolved effective value, so an owner who only
 	// changes, say, the join policy still re-submits the platform's default Ollama/
@@ -73,9 +89,17 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	qdrantURL := overrideURL(in.RAGQdrantURL, h.Cfg.QdrantURL)
 	// SSRF guard: tenant-supplied outbound URLs must not target internal hosts
 	// (the platform dials them). Self-host is exempt — it legitimately uses
-	// localhost daemons.
+	// localhost daemons. Platform-served capabilities are skipped (their fields
+	// are operator-managed, not tenant-supplied).
 	if h.Cfg.SAAS {
-		for _, u := range []string{trURL, ragURL, qdrantURL} {
+		var check []string
+		if !trPlat {
+			check = append(check, trURL)
+		}
+		if !ragPlat {
+			check = append(check, ragURL, qdrantURL)
+		}
+		for _, u := range check {
 			if blocked, reason := netguard.BlockedURL(u); blocked {
 				sse := render.NewSSE(w, r)
 				_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-settings-error", "Rejected URL — "+reason))
@@ -83,15 +107,6 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	s, err := h.Communities.Settings(r.Context(), c.ID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Capture the embedding identity BEFORE overlaying — a model/dim change
-	// invalidates the Qdrant collection (sized to the old dim) and must trigger
-	// a reindex, or the worker stalls on a dimension mismatch.
-	oldRAG := community.ResolveRAG(s, h.Cfg)
 	ai := in.AIEnabled
 	s.AIEnabled = &ai
 	if in.JoinPolicy == "open" || in.JoinPolicy == "request" {
@@ -99,21 +114,25 @@ func (h *Handler) PostSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	tr := in.TranslateEnabled
 	s.TranslateEnabled = &tr
-	s.TranslateBaseURL = trURL
-	s.TranslateModel = in.TranslateModel
+	if !trPlat {
+		s.TranslateBaseURL = trURL
+		s.TranslateModel = in.TranslateModel
+	}
 	rag := in.RAGEnabled
 	s.RAGEnabled = &rag
-	s.RAGEmbedBaseURL = ragURL
-	s.RAGEmbedModel = in.RAGEmbedModel
-	if in.RAGEmbedDim < 0 {
-		in.RAGEmbedDim = 0 // clamp; 0 → falls back to the platform default dim
-	}
-	s.RAGEmbedDim = in.RAGEmbedDim
-	s.RAGQdrantURL = qdrantURL
-	// Write-only secret: only overwrite when the owner typed a new key, so a
-	// blank field on save keeps the stored key rather than wiping it.
-	if strings.TrimSpace(in.RAGQdrantAPIKey) != "" {
-		s.RAGQdrantAPIKey = in.RAGQdrantAPIKey
+	if !ragPlat {
+		s.RAGEmbedBaseURL = ragURL
+		s.RAGEmbedModel = in.RAGEmbedModel
+		if in.RAGEmbedDim < 0 {
+			in.RAGEmbedDim = 0 // clamp; 0 → falls back to the platform default dim
+		}
+		s.RAGEmbedDim = in.RAGEmbedDim
+		s.RAGQdrantURL = qdrantURL
+		// Write-only secret: only overwrite when the owner typed a new key, so a
+		// blank field on save keeps the stored key rather than wiping it.
+		if strings.TrimSpace(in.RAGQdrantAPIKey) != "" {
+			s.RAGQdrantAPIKey = in.RAGQdrantAPIKey
+		}
 	}
 	if err := h.Communities.SaveSettings(r.Context(), s); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -301,6 +320,24 @@ func (h *Handler) settingsData(r *http.Request, c community.Community, s communi
 		RAGHasQdrantKey:  s.RAGQdrantAPIKey != "",
 		Saved:            saved,
 	}
+	// Don't leak operator infrastructure to the tenant owner. When a capability
+	// runs on the platform's hosted compute, Resolve* returns the operator's
+	// PLATFORM_AI_* host / model / Qdrant URL — blank those out (they would
+	// otherwise also sit in the page's data-signals bag) and flag the card to
+	// render a "managed by the operator" note instead of the BYO inputs.
+	if tr.Platform {
+		d.TranslatePlatform = true
+		d.TranslateBaseURL = ""
+		d.TranslateModel = ""
+	}
+	if rag.Platform {
+		d.RAGPlatform = true
+		d.RAGEmbedBaseURL = ""
+		d.RAGEmbedModel = ""
+		d.RAGEmbedDim = 0
+		d.RAGQdrantURL = ""
+		d.RAGHasQdrantKey = false
+	}
 	st := community.ResolveStorage(s, h.Cfg)
 	d.StorageBackend = st.Backend
 	d.StorageOwnBucket = st.OwnBucket
@@ -386,12 +423,19 @@ func (h *Handler) PostBillingCheckout(w http.ResponseWriter, r *http.Request) {
 	_ = sse.Redirect(url)
 }
 
-// morphPlatformAICard reloads settings and re-renders the #owner-platform-ai card.
+// morphPlatformAICard reloads settings and re-renders the #owner-platform-ai
+// card AND the settings form. Toggling platform AI flips whether each capability
+// is served by the operator, which flips whether the form shows (and its signals
+// carry) the BYO infra inputs. Re-morphing the form keeps the two cards in sync —
+// otherwise the form stays stale and a later Save could wipe dormant BYO config
+// from the blanked platform-mode signals.
 func (h *Handler) morphPlatformAICard(w http.ResponseWriter, r *http.Request, sse *datastar.ServerSentEventGenerator, c community.Community) {
 	s, err := h.Communities.Settings(r.Context(), c.ID)
 	if err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("owner-pai-error", err.Error()))
 		return
 	}
-	_ = sse.PatchElementTempl(webtempl.OwnerPlatformAICard(h.settingsData(r, c, s, false)))
+	d := h.settingsData(r, c, s, false)
+	_ = sse.PatchElementTempl(webtempl.OwnerPlatformAICard(d))
+	_ = sse.PatchElementTempl(webtempl.OwnerSettingsForm(d))
 }

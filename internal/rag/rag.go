@@ -29,6 +29,7 @@ const (
 	KindProject         = "project"
 	KindAI              = "ai"
 	KindPaste           = "paste"
+	KindNote            = "note"
 )
 
 // Outbox ops.

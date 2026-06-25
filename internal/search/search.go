@@ -39,6 +39,7 @@ const (
 	kindProject         = "project"
 	kindAI              = "ai"
 	kindPaste           = "paste"
+	kindNote            = "note"
 )
 
 // rrfK is the Reciprocal Rank Fusion constant. 60 is the value from the original
@@ -92,7 +93,12 @@ type Service struct {
 // Search runs both indexes concurrently, fuses with RRF, caps to limit, and
 // resolves one deep link per result. slug is the community's URL slug (links are
 // built from it). A blank query returns nil.
-func (s *Service) Search(ctx context.Context, communityID, slug, query string, limit int) ([]Result, error) {
+// Search runs the indexes concurrently, fuses with RRF, caps to limit, and
+// resolves one deep link per result. viewerID, when non-empty, also full-text
+// searches that viewer's OWN private notes (note_private_fts) — the only path
+// that surfaces a private note in search, and only to its author. slug is the
+// community's URL slug. A blank query returns nil.
+func (s *Service) Search(ctx context.Context, communityID, viewerID, slug, query string, limit int) ([]Result, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
@@ -101,9 +107,9 @@ func (s *Service) Search(ctx context.Context, communityID, slug, query string, l
 	}
 
 	var (
-		wg               sync.WaitGroup
-		ftsHits, vecHits []Hit
-		ftsErr, vecErr   error
+		wg                         sync.WaitGroup
+		ftsHits, vecHits, privHits []Hit
+		ftsErr, vecErr, privErr    error
 	)
 	wg.Add(2)
 	go func() {
@@ -116,6 +122,13 @@ func (s *Service) Search(ctx context.Context, communityID, slug, query string, l
 			vecHits, vecErr = s.Semantic(ctx, communityID, query, perIndex)
 		}
 	}()
+	if viewerID != "" {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			privHits, privErr = s.privateNotes(ctx, communityID, viewerID, query, perIndex)
+		}()
+	}
 	wg.Wait()
 	if ftsErr != nil {
 		return nil, fmt.Errorf("fulltext search: %w", ftsErr)
@@ -123,6 +136,12 @@ func (s *Service) Search(ctx context.Context, communityID, slug, query string, l
 	if vecErr != nil {
 		return nil, fmt.Errorf("semantic search: %w", vecErr)
 	}
+	if privErr != nil {
+		return nil, fmt.Errorf("private notes search: %w", privErr)
+	}
+	// Private-note hits are full-text results for the author; fold them into the
+	// FTS list (no key collision — a note is public OR private, never both).
+	ftsHits = append(ftsHits, privHits...)
 
 	fused := fuse(query, ftsHits, vecHits)
 	if len(fused) > limit {
@@ -270,6 +289,37 @@ func (s *Service) fulltext(ctx context.Context, communityID, query string, limit
 	return out, rows.Err()
 }
 
+// privateNotes full-text searches the viewer's OWN private notes
+// (note_private_fts, migration 00065), scoped to (community, author). This is
+// the ONLY path that surfaces a private note in search, and only to its author —
+// the rows never enter the community-wide search_fts. Returns kind='note' hits
+// so they link and render exactly like a public note result.
+func (s *Service) privateNotes(ctx context.Context, communityID, authorID, query string, limit int) ([]Hit, error) {
+	match := ftsQuery(query)
+	if match == "" {
+		return nil, nil
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT 'note', ref_id, title, snippet(note_private_fts, 1, '«', '»', '…', 12), created_at
+		FROM note_private_fts
+		WHERE community_id = ? AND author_id = ? AND note_private_fts MATCH ?
+		ORDER BY bm25(note_private_fts) LIMIT ?`,
+		communityID, authorID, match, limit)
+	if err != nil {
+		return nil, fmt.Errorf("private notes fts: %w", err)
+	}
+	defer rows.Close()
+	var out []Hit
+	for rows.Next() {
+		var h Hit
+		if err := rows.Scan(&h.Kind, &h.RefID, &h.Title, &h.Snippet, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan private hit: %w", err)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
+}
+
 // ftsQuery turns free text into a safe FTS5 MATCH expression: each whitespace
 // token becomes a double-quoted term (implicit AND), so FTS5 operators in the
 // input are treated literally instead of erroring.
@@ -300,6 +350,8 @@ func (s *Service) resolveLinks(ctx context.Context, slug string, rs []Result) {
 			rs[i].URL = base + "/projects/" + rs[i].RefID
 		case kindPaste:
 			rs[i].URL = base + "/pastes/" + rs[i].RefID
+		case kindNote:
+			rs[i].URL = base + "/notes/" + rs[i].RefID
 		case kindChat:
 			// No per-message permalink exists; the history day-log anchors each
 			// chat row as <li id="msg-{id}">, so jump there by date.

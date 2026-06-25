@@ -31,6 +31,13 @@ type Service struct {
 	// AutoVerifyEmail skips the email round-trip: Register activates the user
 	// and creates their membership immediately (handy for short demo windows).
 	AutoVerifyEmail bool
+	// OpenJoin reports whether a community's join policy is "open" — i.e. new
+	// members join instantly with no approval queue, the same promise the
+	// owner-settings "Open" radio makes for /explore joins. Consulted at
+	// activate time so registration honours it too, not just /explore. Nil (and
+	// non-SaaS, where it always resolves false) leaves the env-flag behaviour
+	// untouched. Wired in main.go to avoid an auth→community import cycle.
+	OpenJoin OpenJoinResolver
 
 	// Communities deletes the solo-owned communities found during account
 	// erasure (provision.Service satisfies CommunityDeleter). Declared as an
@@ -41,6 +48,12 @@ type Service struct {
 	// satisfies UploadPurger). Nil tolerated.
 	Uploads UploadPurger
 }
+
+// OpenJoinResolver reports whether a community admits new members instantly
+// (its join_policy is "open"). Implemented in main.go over community.Repo +
+// community.JoinPolicy so auth never imports internal/community. A false (or
+// error) result falls back to the env auto-approve flag.
+type OpenJoinResolver func(ctx context.Context, communityID string) (bool, error)
 
 // CommunityDeleter purges a whole community — blobs, cascaded rows and vectors.
 // provision.Service.Delete satisfies it.
@@ -221,10 +234,8 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 		return RegisterResult{}, err
 	}
 
-	verifyURL := fmt.Sprintf("%s/verify?token=%s", s.BaseURL, token)
-	body := fmt.Sprintf("Welcome to forumchat.\n\nClick to verify your account:\n%s\n\nLink expires %s.\n",
-		verifyURL, exp.Format(time.RFC1123))
-	if err := s.Mailer.Send(ctx, in.Email, "Verify your forumchat account", body); err != nil {
+	verifyURL, subject, body := s.verifyMail(token, exp)
+	if err := s.Mailer.Send(ctx, in.Email, subject, body); err != nil {
 		// Don't fail registration if mail fails (e.g. SMTP unreachable) — the
 		// token is valid. Log the verify URL so an operator can recover by
 		// visiting it manually instead of silently swallowing the failure.
@@ -354,9 +365,22 @@ func (s *Service) activateAndJoin(ctx context.Context, userID, communityID, emai
 		TrustLevel:  0,
 	}
 	// Auto-approve stamps approved_at now so the member skips the pending
-	// queue. Honoured whenever the flag is set — for open OR invite-based
-	// signups (an admin who turns this on wants no manual approval step).
-	if s.OpenRegistrationAutoApprove {
+	// queue. Honoured when the env flag is set (open OR invite-based signups —
+	// an admin who turns this on wants no manual approval step) OR when the
+	// community's own join policy is "open" (the owner-settings promise that
+	// anyone may join instantly, which must hold for registration too, not just
+	// the /explore join path).
+	approve := s.OpenRegistrationAutoApprove
+	if !approve && s.OpenJoin != nil {
+		if open, err := s.OpenJoin(ctx, communityID); err != nil {
+			if s.Log != nil {
+				s.Log.Warn("resolve join policy; defaulting to approval queue", "community", communityID, "err", err)
+			}
+		} else if open {
+			approve = true
+		}
+	}
+	if approve {
 		t := time.Now()
 		m.ApprovedAt = &t
 	}
@@ -366,6 +390,66 @@ func (s *Service) activateAndJoin(ctx context.Context, userID, communityID, emai
 		}
 	}
 	return nil
+}
+
+// verifyMail builds the verification email URL, subject and body for a token.
+// Shared by Register and ResendVerification so the wording stays in one place.
+func (s *Service) verifyMail(token string, exp time.Time) (url, subject, body string) {
+	url = fmt.Sprintf("%s/verify?token=%s", s.BaseURL, token)
+	body = fmt.Sprintf("Welcome to forumchat.\n\nClick to verify your account:\n%s\n\nLink expires %s.\n",
+		url, exp.Format(time.RFC1123))
+	return url, "Verify your forumchat account", body
+}
+
+// ForceVerify activates a user who never completed email verification and joins
+// them to the default community — exactly as clicking the verify link would,
+// but without any token or email. The operator escape hatch for when the
+// verification mail can't be delivered at all (broken DNS/SMTP). Idempotent for
+// an already-active member; refuses a disabled account so it can't silently
+// re-enable one.
+func (s *Service) ForceVerify(ctx context.Context, userID string) error {
+	u, err := s.Repo.UserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	switch u.Status {
+	case StatusDisabled:
+		return ErrUserDisabled // never silently re-enable a disabled account
+	case StatusActive:
+		return nil // already verified — idempotent no-op
+	}
+	return s.activateAndJoin(ctx, userID, s.CommunityID, u.Email)
+}
+
+// ResendVerification re-issues a fresh email_verify token for a pending user and
+// re-sends the verification email. Returns the verify URL (even when the mail
+// send fails) so an operator can hand the link over by other means when mail
+// delivery is the very thing that's broken. Returns ("", nil) for a user that
+// isn't pending — there is nothing to resend.
+func (s *Service) ResendVerification(ctx context.Context, userID string) (string, error) {
+	u, err := s.Repo.UserByID(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	if u.Status != StatusPending {
+		return "", nil
+	}
+	token, err := RandomToken(24)
+	if err != nil {
+		return "", err
+	}
+	exp := time.Now().Add(s.VerifyTTL)
+	if err := s.Repo.CreateVerificationToken(ctx, token, u.ID, "email_verify", exp); err != nil {
+		return "", err
+	}
+	verifyURL, subject, body := s.verifyMail(token, exp)
+	if err := s.Mailer.Send(ctx, u.Email, subject, body); err != nil {
+		if s.Log != nil {
+			s.Log.Warn("resend verify email failed; visit verify_url to verify manually",
+				"to", u.Email, "verify_url", verifyURL, "err", err)
+		}
+	}
+	return verifyURL, nil
 }
 
 type LoginResult struct {

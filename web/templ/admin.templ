@@ -14,13 +14,18 @@ type AdminMember struct {
 	MembershipID string
 	UserID       string
 	Email        string
-	DisplayName  string
-	Role         string
-	IsBanned     bool
-	BannedUntil  *time.Time
-	IsApproved   bool
-	CreatedAt    time.Time
-	JoinReason   string // "why do you want to join?" note, shown in the pending queue
+	// DisplayName is the effective name shown to everyone (admin override if
+	// set, else the member's own name). RealName is the member's own
+	// self-chosen name; AdminNick is the admin override ("" = none).
+	DisplayName string
+	RealName    string
+	AdminNick   string
+	Role        string
+	IsBanned    bool
+	BannedUntil *time.Time
+	IsApproved  bool
+	CreatedAt   time.Time
+	JoinReason  string // "why do you want to join?" note, shown in the pending queue
 }
 
 type AdminReport struct {
@@ -58,6 +63,7 @@ templ AdminPage(d AdminPageData) {
 			}
 			<p class="muted"><a href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin") }>refresh</a></p>
 
+			<div class="admin-cards">
 			<section class="card narrow">
 				<h2>Visibility</h2>
 				if d.IsPublic {
@@ -136,6 +142,7 @@ templ AdminPage(d AdminPageData) {
 				</label>
 				<button data-on:click={ "@post('/c/" + d.Viewer.CommunitySlug + "/admin/add-member')" }>Add</button>
 			</section>
+			</div>
 
 			<h2>Reports ({ itoa(len(d.Reports)) })</h2>
 			<div id="admin-reports">
@@ -245,10 +252,14 @@ templ AdminMembers(slug string, rows []AdminMember) {
 				<li>
 					<strong>{ m.DisplayName }</strong> ({ m.Email }) ·
 					<span class="muted">{ m.Role } · joined { fmtTime(m.CreatedAt) }</span>
+					if m.AdminNick != "" {
+						<span class="muted"> · alias for “{ m.RealName }”</span>
+					}
 					if m.IsBanned {
 						<span class="error"> · BANNED</span>
 					}
 					<div style="margin-top:.4rem" class="primary-nav">
+						@NickForm(slug, m)
 						if !m.IsBanned {
 							@BanForm(slug, m.MembershipID)
 						} else {
@@ -260,6 +271,37 @@ templ AdminMembers(slug string, rows []AdminMember) {
 			}
 		</ul>
 	</div>
+}
+
+// NickForm lets an admin set or clear a per-community display-name override
+// for a member. The override is what everyone else sees (chat, forum, roster,
+// @mentions); the member's own name stays as the fallback. Mirrors the
+// per-row data-signals + hardcoded-id pattern of BanForm/RemoveForm — only
+// one form is edited at a time, so the shared admin_nick signal is reset on
+// open and the placeholder shows the current effective name.
+templ NickForm(slug string, m AdminMember) {
+	<details data-signals="{admin_nick:''}">
+		<summary class="link-button" style="cursor:pointer" data-on:click="$admin_nick=''">
+			if m.AdminNick != "" {
+				Edit alias…
+			} else {
+				Set alias…
+			}
+		</summary>
+		<div style="margin-top:.5rem">
+			<p class="muted" style="margin:.25rem 0">
+				Shown to everyone in chat, forum, roster and @mentions. Their own name
+				(<strong>{ m.RealName }</strong>) is kept and used when no alias is set.
+			</p>
+			<input type="text" data-bind="admin_nick" placeholder={ m.DisplayName } maxlength="60" style="width:14em"/>
+			<button class="ghost" style="margin-top:.4rem"
+				data-on:click={ "@post('/c/" + slug + "/admin/set-nick?id=" + m.MembershipID + "')" }>Save alias</button>
+			if m.AdminNick != "" {
+				<button class="ghost danger" style="margin-top:.4rem"
+					data-on:click={ "$admin_nick=''; @post('/c/" + slug + "/admin/set-nick?id=" + m.MembershipID + "')" }>Clear alias</button>
+			}
+		</div>
+	</details>
 }
 
 // RemoveForm — second-step purge picker for "remove from community".

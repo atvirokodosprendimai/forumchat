@@ -175,6 +175,7 @@ templ NewThreadPage(v Viewer) {
 					<input type="file" accept="image/*" style="display:none"
 						data-on:change="window.fcPickImage(evt,'image_data')"/>
 				</label>
+				@EmojiButton("textarea[data-bind='body']")
 				<button data-on:click={ "@post('/c/" + v.CommunitySlug + "/forum/new')" }>Post thread</button>
 			</div>
 			<a class="btn ghost" href={ templ.URL("/c/" + v.CommunitySlug + "/forum") }>Cancel</a>
@@ -278,6 +279,7 @@ templ ThreadPage(v Viewer, t ThreadView, posts []PostView) {
 						<input type="file" accept="image/*" style="display:none"
 							data-on:change="window.fcPickImage(evt,'image_data')"/>
 					</label>
+					@EmojiButton(".thread-composer textarea")
 					<textarea data-bind="body" rows="1" maxlength="10000" placeholder="Write a reply…"
 						data-on:paste="window.fcPasteImage(evt,'image_data')"
 						data-on:input="el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'"

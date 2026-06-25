@@ -108,6 +108,10 @@ var loaders = map[string]loaderSpec{
 	// author-private work-in-progress). body is the raw paste source.
 	KindPaste: {hasTitle: true, query: `SELECT community_id, title, body, created_at FROM pastes
 		WHERE id = ? AND posted_at IS NOT NULL`},
+	// Notes: only PUBLIC notes are community-visible (a private note is unlisted,
+	// readable only via its share-link). body is the raw markdown source.
+	KindNote: {hasTitle: true, query: `SELECT community_id, title, body, created_at FROM notes
+		WHERE id = ? AND visibility = 'public'`},
 }
 
 // LoadDoc resolves a content row. ok=false means the row is gone or no longer
@@ -169,6 +173,9 @@ var enqueueAll = []string{
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'paste', id, 'upsert', ? FROM pastes WHERE posted_at IS NOT NULL
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
+	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
+		SELECT 'note', id, 'upsert', ? FROM notes WHERE visibility = 'public'
+		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 }
 
 // EnqueueAll queues every community-public row across all communities for
@@ -223,6 +230,9 @@ var enqueueCommunity = []string{
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'paste', id, 'upsert', ? FROM pastes WHERE posted_at IS NOT NULL AND community_id = ?
+		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
+	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
+		SELECT 'note', id, 'upsert', ? FROM notes WHERE visibility = 'public' AND community_id = ?
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 }
 

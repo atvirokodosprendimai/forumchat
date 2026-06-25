@@ -908,6 +908,66 @@ When `SAAS=true` a community can opt to run RAG/translate/agents on the
   monthly **soft cap** (warn/suspend on the ledger) is spec-Future. No live
   end-to-end smoke yet (needs a real Ollama + Stripe price id).
 
+## 5j. Community shared notes ("iNotes") (Jun 2026)
+
+Plan: `memory/plan - 2606241407 - …`. A community space for markdown notes that
+render as HTML, with a visibility split and inline comments. Lives in
+`internal/notes` — cloned from `internal/pastes` (markdown→HTML on a dedicated
+page + share-to-channel via a `PostToChat` closure in main.go, no chat import
+cycle), then extended. Full detail: `internal/notes/CLAUDE.md`. Key invariants:
+
+- **Two stored forms:** `notes.body` (markdown source, the editor) +
+  `notes.body_html` (rendered+sanitized via the shared `render.RenderMarkdown`,
+  the reader). Live preview = `PostPreview` re-renders into `#note-preview`.
+- **`Note.CanEdit` is the one write authority** — author OR `Role.AtLeast(RoleMod)`
+  OR super-admin. `Service.Save` ALSO asserts `n.CommunityID == in.CommunityID`
+  (cross-tenant write guard; a Codex pass caught its absence). Don't re-derive
+  edit rights in handlers.
+- **Visibility split:** `public` (listed, member-readable) vs `private` (unlisted;
+  `GetPage` 404s it for non-editors). The only non-editor read of a private note
+  is the capability link **`GET /n/{token}`** (`GetShared`) — router-root, no
+  approval gate, identity-optional, generic miss page (no existence oracle), like
+  the data-export links (§5h). `share_token` is minted at draft-create so the copy
+  link works pre-save. Comments rail is hidden on the shared view.
+- **Inline comments** anchor to a rendered block (`render.AnnotateBlocks` tags each
+  top-level block `data-nb="<i>"`) + an optional selected-text `quote`. Add: any
+  member; resolve/delete: comment author OR note editor. A comment past the live
+  block count is **orphaned** (edit drift). `web/static/note.js` emits ONE
+  `fc:note-comment` event from selection / gutter / badge triggers; one Datastar
+  listener on `#note-reader` opens the composer (EDA §4.12). **note.js detaches its
+  MutationObserver while painting** — unconditional badge writes otherwise
+  re-trigger it into an infinite loop. The reader is one stable-id fat-morph (§4.7).
+- **Search/RAG:** PUBLIC notes are indexed into community search gated on
+  `visibility='public'` (migration 00064, mirrors pastes' 00062; `KindNote` loader
+  re-applies the gate; FTS + RAG). PRIVATE notes are full-text searchable by their
+  **author only** via a SEPARATE `note_private_fts` index (migration 00065) — never
+  `search_fts` (community-wide). `search.Service.Search` takes a `viewerID`; when
+  set it also queries `note_private_fts WHERE community_id=? AND author_id=viewer`.
+  A note lives in exactly ONE index per its visibility. `kind='note'` rendered in
+  `internal/search` (📝, URL `/c/{slug}/notes/{id}`).
+- **Editor UX:** the edit+preview zone collapses via a Hide/Edit toggle (FE-only
+  `_note_edit`) so an editor can read clean. Live preview is OPT-IN (`_note_live`,
+  default off) — `data-on:input` is `"$_note_live && @post('…/preview')"`, plus an
+  explicit "↻ Update preview" button. The per-line gutter "+" lives in each block's
+  OWN left padding (`#note-body > [data-nb]`), NOT a negative offset, so hovering
+  toward it doesn't end `:hover` and hide it.
+- **Collaborative editing** (server-OT diff-sync, migrations 00066/00067): a few
+  mods/admins edit one note's markdown at once without data loss. Collab edits a
+  shared **`draft_body`**; **`body`** (rendered + FTS/RAG-indexed) is published
+  only on **Save** — so drafts never leak into search/reader and Save can't
+  clobber a concurrent editor. Client (`note-collab.js` + vendored
+  `diff_match_patch.js`) diffs shadow→local → POSTs a dmp patch to `/sync`;
+  `MergeBody` fuzzy-merges into `draft_body` under the single-writer tx (the
+  sequencer), bumps `version`; the `/collab` SSE stream pushes the canonical as
+  `_note_canon`/`_note_ver` **signals (PatchSignals, not html morph)**; the client
+  merges into its textarea preserving the caret. Malformed patches → `ErrBadPatch`
+  (no write). Codex-reviewed. **Remote carets:** `notes.Presence` tracks each
+  editor's caret; `/sync` carries `note_cursor`, the `/collab` stream pushes the
+  others' carets as the `_note_cursors` signal, and `note-cursors.js` renders a
+  colored named caret per remote editor (mirror-div coordinates).
+- **Nav:** a top-bar **Notes** pill (§ project_nav_topbar_community), not a sidebar
+  entry.
+
 ## 6. Chat — the fat-morph pattern
 
 The chat UI is the most subtle piece. Read this before editing

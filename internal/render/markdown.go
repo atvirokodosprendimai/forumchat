@@ -8,11 +8,14 @@ import (
 	"strings"
 	"sync"
 
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/util"
+	highlighting "github.com/yuin/goldmark-highlighting/v2"
 )
 
 // uploadsImageRE matches `<img src="/uploads/..."` so we can wrap each
@@ -312,9 +315,50 @@ var (
 	policy *bluemonday.Policy
 )
 
+// chromaStyle is the chroma theme whose token colours are baked into
+// web/static/highlight.css. The two MUST stay in sync: changing this requires
+// regenerating that stylesheet (see its header comment). "github" is a light
+// theme that matches the app's light palette.
+const chromaStyle = "github"
+
+// highlightWrapper renders the `<pre><code class="language-XXX">…</code></pre>`
+// shell around chroma's highlighted token spans. We render the wrapper
+// ourselves (rather than letting chroma emit its own `<pre class="chroma">`)
+// so the markup stays byte-compatible with codeBlockRE / DownloadableCode /
+// codeExt, which key off exactly this shape. The token <span class="…"> that
+// chroma writes between the entering/leaving calls carry only a class
+// attribute, so bluemonday (which allows class on span) keeps them intact.
+func highlightWrapper(w util.BufWriter, c highlighting.CodeBlockContext, entering bool) {
+	if !entering {
+		_, _ = w.WriteString(`</code></pre>`)
+		return
+	}
+	if lang, ok := c.Language(); ok && len(lang) > 0 {
+		_, _ = w.WriteString(`<pre><code class="language-`)
+		_, _ = w.WriteString(stdhtml.EscapeString(string(lang)))
+		_, _ = w.WriteString(`">`)
+		return
+	}
+	_, _ = w.WriteString(`<pre><code>`)
+}
+
 func initMarkdown() {
 	md = goldmark.New(
-		goldmark.WithExtensions(extension.GFM),
+		goldmark.WithExtensions(
+			extension.GFM,
+			// Server-side syntax highlighting. PreventSurroundingPre keeps chroma
+			// from emitting its own <pre>; highlightWrapper supplies the wrapper
+			// instead. WithClasses(true) emits class-based spans (themed by
+			// highlight.css) rather than inline styles, which bluemonday strips.
+			highlighting.NewHighlighting(
+				highlighting.WithStyle(chromaStyle),
+				highlighting.WithFormatOptions(
+					chromahtml.WithClasses(true),
+					chromahtml.PreventSurroundingPre(true),
+				),
+				highlighting.WithWrapperRenderer(highlightWrapper),
+			),
+		),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		goldmark.WithRendererOptions(html.WithHardWraps(), html.WithXHTML()),
 	)

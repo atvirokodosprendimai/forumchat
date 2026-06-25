@@ -198,3 +198,13 @@
 - 2026-06-24 `d9e90e5` docs(changelog): auto-append
 - 2026-06-24 `1fd6173` feat(landing): link the GitHub repo from nav + footer
 - 2026-06-24 `eaedeb2` docs(changelog): auto-append
+- 2026-06-24 `4e49c5b` feat(notes): highlight commented text range inline
+- 2026-06-24 `b61b37f` docs(notes): private-note author FTS + editor UX changes
+- 2026-06-24 `84966e8` feat(notes): reading-first — editor hidden by default + line-comment markers
+- 2026-06-24 `f2e98f9` feat(notes): compact comment moderation actions
+- 2026-06-24 `f65fc9c` fix(notes): comments rail is a viewport-bounded scroll panel
+- 2026-06-24 `a21542b` docs(notes): collaborative editing + draft/published model
+- 2026-06-24 `753c1de` feat(notes): remote collaborator cursors (Phase 2)
+- 2026-06-24 `f12f1eb` feat(render): server-side syntax highlighting for fenced code blocks
+- 2026-06-24 `7eaca4d` docs(changelog): auto-append
+- 2026-06-24 `dc0e2f0` feat(landing): long-form SEO + human content on the marketing page

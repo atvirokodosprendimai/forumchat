@@ -106,7 +106,7 @@ func (r *Repo) ListThreadsFiltered(ctx context.Context, communityID, status, q s
 	args = append(args, limit)
 	query := `
 		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
-		       COALESCE(mb.display_name, ''), t.agent_id
+		       COALESCE(mb.effective_display_name, ''), t.agent_id
 		FROM threads t
 		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
 		WHERE ` + strings.Join(where, " AND ") + `
@@ -131,7 +131,7 @@ func (r *Repo) ListThreadsFiltered(ctx context.Context, communityID, status, q s
 func (r *Repo) ListThreads(ctx context.Context, communityID string, limit int) ([]Thread, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
-		       COALESCE(mb.display_name, ''), t.agent_id
+		       COALESCE(mb.effective_display_name, ''), t.agent_id
 		FROM threads t
 		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
 		WHERE t.community_id = ?
@@ -188,7 +188,7 @@ func scanThread(s scannable) (Thread, error) {
 func (r *Repo) GetThread(ctx context.Context, id string) (Thread, error) {
 	row := r.DB.QueryRowContext(ctx, `
 		SELECT t.id, t.community_id, t.author_id, t.subject, t.body_md, t.body_html, t.deleted_at, t.resolved_at, t.resolved_by, t.last_activity_at, t.created_at, t.updated_at,
-		       COALESCE(mb.display_name, ''), t.agent_id
+		       COALESCE(mb.effective_display_name, ''), t.agent_id
 		FROM threads t
 		LEFT JOIN memberships mb ON mb.user_id = t.author_id AND mb.community_id = t.community_id
 		WHERE t.id = ?`, id)
@@ -301,8 +301,8 @@ func (r *Repo) CreatePost(ctx context.Context, p Post) error {
 func (r *Repo) ListPosts(ctx context.Context, threadID string) ([]Post, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT p.id, p.thread_id, p.author_id, p.quoted_post_id, p.body_md, p.body_html, p.deleted_at, p.created_at, p.updated_at,
-		       COALESCE(mb.display_name, ''),
-		       COALESCE(qp.body_html, ''), COALESCE(qmb.display_name, ''),
+		       COALESCE(mb.effective_display_name, ''),
+		       COALESCE(qp.body_html, ''), COALESCE(qmb.effective_display_name, ''),
 		       p.agent_id, p.bot_name, p.bot_avatar_url, p.gen_status, p.tool_calls
 		FROM posts p
 		LEFT JOIN threads th ON th.id = p.thread_id

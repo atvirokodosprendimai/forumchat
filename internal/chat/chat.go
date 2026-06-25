@@ -442,7 +442,7 @@ func (r *Repo) recentFeed(ctx context.Context, all bool, communityIDs []string, 
 	b.WriteString(`
 		SELECT m.id, m.community_id, c.slug, c.name,
 		       COALESCE(m.channel_id, ''), COALESCE(ch.slug, ''), COALESCE(ch.name, ''),
-		       COALESCE(mb.display_name, ''), m.kind, m.body_html, m.body_md,
+		       COALESCE(mb.effective_display_name, ''), m.kind, m.body_html, m.body_md,
 		       m.ref_thread_id, m.promoted_thread_id, m.deleted_at, m.created_at
 		FROM chat_messages m
 		JOIN communities c ON c.id = m.community_id
@@ -539,10 +539,10 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
-		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
-		       COALESCE(p.id, ''), COALESCE(NULLIF(pmb.display_name, ''), p.bot_name, ''), COALESCE(p.body_md, ''),
+		       COALESCE(mb.effective_display_name, ''), COALESCE(mb.avatar_url, ''),
+		       COALESCE(p.id, ''), COALESCE(NULLIF(pmb.effective_display_name, ''), p.bot_name, ''), COALESCE(p.body_md, ''),
 		       m.forwarded_from_msg_id,
-		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, ''),
+		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.effective_display_name, ''), COALESCE(f.body_md, ''),
 		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, ''),
 		       m.bot_agent_id, COALESCE(m.gen_status, '')
 		FROM chat_messages m
@@ -617,10 +617,10 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
-		       COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''),
-		       COALESCE(p.id, ''), COALESCE(NULLIF(pmb.display_name, ''), p.bot_name, ''), COALESCE(p.body_md, ''),
+		       COALESCE(mb.effective_display_name, ''), COALESCE(mb.avatar_url, ''),
+		       COALESCE(p.id, ''), COALESCE(NULLIF(pmb.effective_display_name, ''), p.bot_name, ''), COALESCE(p.body_md, ''),
 		       m.forwarded_from_msg_id,
-		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.display_name, ''), COALESCE(f.body_md, ''),
+		       COALESCE(f.id, ''), COALESCE(fch.slug, ''), COALESCE(fch.name, ''), COALESCE(fmb.effective_display_name, ''), COALESCE(f.body_md, ''),
 		       COALESCE(m.bot_name, ''), COALESCE(m.bot_avatar_url, ''),
 		       m.bot_agent_id, COALESCE(m.gen_status, '')
 		FROM chat_messages m
@@ -972,7 +972,7 @@ func (r *Repo) ReadersSince(ctx context.Context, channelID string, sinceUnix int
 		limit = 30
 	}
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT r.user_id, COALESCE(mb.display_name, ''), COALESCE(mb.avatar_url, ''), r.last_read_at
+		SELECT r.user_id, COALESCE(mb.effective_display_name, ''), COALESCE(mb.avatar_url, ''), r.last_read_at
 		FROM chat_reads r
 		LEFT JOIN memberships mb ON mb.user_id = r.user_id AND mb.community_id = r.community_id
 		WHERE r.channel_id = ?

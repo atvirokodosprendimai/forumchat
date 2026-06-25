@@ -146,6 +146,54 @@ func TestRegister_OpenNoInvite_AutoApprove(t *testing.T) {
 	}
 }
 
+// A community whose join policy is "open" auto-approves registrants even with
+// the env auto-approve flag off — the owner-settings "anyone may join instantly"
+// promise must hold for the registration path, not just /explore.
+func TestRegister_OpenJoinPolicy_AutoApproves(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistration = true               // env auto-approve stays OFF
+	svc.OpenJoin = func(context.Context, string) (bool, error) { return true, nil }
+
+	reg, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "openjoin@example.com", Password: "supersecret123",
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := svc.Verify(ctx, reg.VerificationToken, communityID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, err := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if err != nil {
+		t.Fatalf("membership: %v", err)
+	}
+	if m.ApprovedAt == nil {
+		t.Fatal("want auto-approved via open join policy, got pending (nil)")
+	}
+}
+
+// A resolver error must NOT auto-approve — fail closed into the approval queue.
+func TestRegister_OpenJoinResolverError_StaysPending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+	svc.OpenRegistration = true
+	svc.OpenJoin = func(context.Context, string) (bool, error) { return false, errors.New("boom") }
+
+	reg, _ := svc.Register(ctx, auth.RegisterInput{
+		Email: "resolvererr@example.com", Password: "supersecret123",
+	})
+	if _, err := svc.Verify(ctx, reg.VerificationToken, communityID); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	m, _ := repo.MembershipFor(ctx, reg.UserID, communityID)
+	if m.ApprovedAt != nil {
+		t.Fatal("resolver error must fail closed (stay pending), got approved")
+	}
+}
+
 // Auto-approve is independent of open registration: an invite-based signup
 // with auto-approve on (open reg off) is also approved at verify time.
 func TestRegister_AutoApprove_InviteFlow(t *testing.T) {
@@ -382,5 +430,97 @@ func TestMagicLink_SecondConsumeFails(t *testing.T) {
 	}
 	if _, err := svc.ConsumeMagicLink(ctx, token, communityID); err == nil {
 		t.Fatal("want error on re-use")
+	}
+}
+
+// ForceVerify activates a pending signup without any token and lets them log in.
+func TestForceVerify_ActivatesPendingAndLogsIn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, _, communityID := setupSvc(t)
+
+	code, _ := svc.IssueInvite(ctx, communityID, nil, nil)
+	if _, err := svc.Register(ctx, auth.RegisterInput{
+		Email: "stuck@example.com", Password: "supersecret123", InviteCode: code,
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	// Still pending — login refused before force-verify.
+	if _, err := svc.Login(ctx, "stuck@example.com", "supersecret123", communityID); !errors.Is(err, auth.ErrNotVerified) {
+		t.Fatalf("want ErrNotVerified before force-verify, got %v", err)
+	}
+
+	u, _ := svc.Repo.UserByEmail(ctx, "stuck@example.com")
+	if err := svc.ForceVerify(ctx, u.ID); err != nil {
+		t.Fatalf("force verify: %v", err)
+	}
+	res, err := svc.Login(ctx, "stuck@example.com", "supersecret123", communityID)
+	if err != nil {
+		t.Fatalf("login after force-verify: %v", err)
+	}
+	if res.User.Status != auth.StatusActive {
+		t.Fatalf("want StatusActive, got %s", res.User.Status)
+	}
+	if res.Membership.CommunityID != communityID {
+		t.Fatalf("want membership in community, got %q", res.Membership.CommunityID)
+	}
+}
+
+// ForceVerify refuses a disabled account so it can't silently re-enable it.
+func TestForceVerify_RefusesDisabled(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+
+	code, _ := svc.IssueInvite(ctx, communityID, nil, nil)
+	_, _ = svc.Register(ctx, auth.RegisterInput{
+		Email: "off@example.com", Password: "supersecret123", InviteCode: code,
+	})
+	u, _ := repo.UserByEmail(ctx, "off@example.com")
+	if err := repo.SetUserStatus(ctx, u.ID, auth.StatusDisabled); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if err := svc.ForceVerify(ctx, u.ID); !errors.Is(err, auth.ErrUserDisabled) {
+		t.Fatalf("want ErrUserDisabled, got %v", err)
+	}
+}
+
+// ResendVerification mints a fresh email_verify token for a pending user and
+// returns a usable verify URL; it is a no-op for an already-active account.
+func TestResendVerification(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc, repo, communityID := setupSvc(t)
+
+	code, _ := svc.IssueInvite(ctx, communityID, nil, nil)
+	reg, _ := svc.Register(ctx, auth.RegisterInput{
+		Email: "again@example.com", Password: "supersecret123", InviteCode: code,
+	})
+	u, _ := repo.UserByEmail(ctx, "again@example.com")
+
+	url, err := svc.ResendVerification(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("resend: %v", err)
+	}
+	if url == "" {
+		t.Fatal("want a verify URL for a pending user")
+	}
+	// A brand-new token (distinct from registration's) that actually verifies.
+	var token string
+	if err := repo.DB.QueryRowContext(ctx,
+		`SELECT token FROM verification_tokens WHERE purpose='email_verify' AND user_id=? ORDER BY rowid DESC LIMIT 1`, u.ID).
+		Scan(&token); err != nil {
+		t.Fatalf("read token: %v", err)
+	}
+	if token == reg.VerificationToken {
+		t.Fatal("resend should mint a new token, not reuse the original")
+	}
+	if _, err := svc.Verify(ctx, token, communityID); err != nil {
+		t.Fatalf("verify with resent token: %v", err)
+	}
+	// Now active — resend is a no-op (empty URL, no error).
+	url, err = svc.ResendVerification(ctx, u.ID)
+	if err != nil || url != "" {
+		t.Fatalf("want no-op for active user, got url=%q err=%v", url, err)
 	}
 }
