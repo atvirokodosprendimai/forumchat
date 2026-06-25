@@ -237,3 +237,4 @@
 - 2026-06-25 `3430896` test(devdocs): manifest resolves + renderer heading ids/TOC/highlight
 - 2026-06-25 `bcb34f6` docs(plan): mark dev-docs plan complete + progress log
 - 2026-06-25 `308ee92` docs(changelog): dev-docs site + landing connectors section
+- 2026-06-25 `b4dba31` docs(changelog): append dev-docs session entries
