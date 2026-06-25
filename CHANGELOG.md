@@ -236,3 +236,4 @@
 - 2026-06-25 `02ac811` feat(landing): developer/connectors section linking to /dev/docs
 - 2026-06-25 `3430896` test(devdocs): manifest resolves + renderer heading ids/TOC/highlight
 - 2026-06-25 `bcb34f6` docs(plan): mark dev-docs plan complete + progress log
+- 2026-06-25 `308ee92` docs(changelog): dev-docs site + landing connectors section
