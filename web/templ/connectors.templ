@@ -25,11 +25,20 @@ type ConnectorChannelOpt struct {
 	Name string
 }
 
-// ConnectorCapOpt is one capability checkbox (token + human label + description).
+// ConnectorCapOpt is one capability checkbox (token + human label + description
+// + the group it renders under).
 type ConnectorCapOpt struct {
 	Key   string
 	Label string
 	Desc  string
+	Group string
+}
+
+// ConnectorCapGroup is a labelled section of capability checkboxes, so the (now
+// long) capability list stays scannable instead of one flat wall of boxes.
+type ConnectorCapGroup struct {
+	Name string
+	Caps []ConnectorCapOpt
 }
 
 // ConnectorsPageData is the /c/{slug}/admin/connectors page payload.
@@ -47,14 +56,14 @@ type ConnectorsPageData struct {
 templ ConnectorsPage(d ConnectorsPageData) {
 	@Layout("Chat bots · "+d.Viewer.CommunityName, d.Viewer) {
 		<section class="webhooks"
-			data-signals="{con_id:'', con_name:'', con_avatar:'', con_channels:'', con_caps:'send', con_mentions:false, con_error:'', con_new_secret:'', con_new_stream:'', con_new_send:''}">
+			data-signals="{con_id:'', con_name:'', con_avatar:'', con_channels:'', con_caps:'send', con_mentions:false, con_error:'', con_new_secret:'', con_new_id:'', con_new_base:'', con_new_stream:'', con_new_send:''}">
 			<header class="wh-head">
 				<h1>Chat bots</h1>
 				<p class="muted">
 					Connect an external worker — a custom chat app, a bot, an e-shop widget —
 					over a signed realtime stream. It joins channels and acts as a regular
-					member, and can be granted moderation powers. Reads via a signed SSE URL;
-					writes are signed with the secret below.
+					member, and can be granted the same capabilities a member has from the chat
+					menu. Reads via a signed SSE URL; writes are signed with the secret below.
 				</p>
 			</header>
 
@@ -80,8 +89,25 @@ templ connectorReveal() {
 		<span class="wh-callout-icon">🔑</span>
 		<div class="wh-callout-body">
 			<strong>Connector credentials</strong>
-			<p class="muted">Copy the secret now — it won't be shown again. The worker signs every send with it.</p>
+			<p class="muted">
+				Copy these now — the secret won't be shown again. The Go SDK and the
+				examples need the <strong>Base URL</strong>, <strong>ID</strong> and
+				<strong>Secret</strong>; curl users can use the ready-made URLs below.
+			</p>
+			<div class="cb-creds-actions">
+				<button type="button" class="primary" data-on:click="navigator.clipboard.writeText('FORUMCHAT_BASE_URL='+$con_new_base+'\nFORUMCHAT_CONNECTOR_ID='+$con_new_id+'\nFORUMCHAT_CONNECTOR_SECRET='+$con_new_secret); $toast_text='Credentials copied as .env'">Copy as .env</button>
+			</div>
 			<dl class="cb-creds">
+				<dt>Base URL</dt>
+				<dd>
+					<code class="wh-url" data-text="$con_new_base"></code>
+					<button type="button" class="ghost" data-on:click="navigator.clipboard.writeText($con_new_base); $toast_text='Base URL copied'">Copy</button>
+				</dd>
+				<dt>Connector ID</dt>
+				<dd>
+					<code class="wh-url" data-text="$con_new_id"></code>
+					<button type="button" class="ghost" data-on:click="navigator.clipboard.writeText($con_new_id); $toast_text='ID copied'">Copy</button>
+				</dd>
 				<dt>Secret</dt>
 				<dd>
 					<code class="wh-url" data-text="$con_new_secret"></code>
@@ -101,7 +127,7 @@ templ connectorReveal() {
 			@connectorHowTo()
 		</div>
 		<div class="wh-callout-actions">
-			<button type="button" class="ghost" data-on:click="$con_new_secret=''; $con_new_stream=''; $con_new_send=''">Dismiss</button>
+			<button type="button" class="ghost" data-on:click="$con_new_secret=''; $con_new_id=''; $con_new_base=''; $con_new_stream=''; $con_new_send=''">Dismiss</button>
 		</div>
 	</div>
 }
@@ -111,7 +137,11 @@ templ connectorReveal() {
 templ connectorHowTo() {
 	<details class="cb-help">
 		<summary>How to connect</summary>
-		<p class="muted">Open the stream (it stays open and pushes JSON message events):</p>
+		<p class="muted">Go SDK — point it at the Base URL with the ID + Secret (it signs every call for you):</p>
+		<pre class="cb-snippet"><code>{ connectorSDKSnippet }</code></pre>
+		<p class="muted">Or with just the Stream URL + Secret (the SDK derives the Base URL and ID):</p>
+		<pre class="cb-snippet"><code>{ connectorSDKURLSnippet }</code></pre>
+		<p class="muted">Plain curl — open the stream (it stays open and pushes JSON message events):</p>
 		<pre class="cb-snippet"><code>{ connectorStreamSnippet }</code></pre>
 		<p class="muted">Send a message — sign the raw body with the secret:</p>
 		<pre class="cb-snippet"><code>{ connectorSendSnippet }</code></pre>
@@ -119,8 +149,18 @@ templ connectorHowTo() {
 }
 
 // Snippet bodies live in Go strings (not templ text) so the shell braces in
-// `awk '{print $2}'` aren't parsed as templ expressions (the `{` literal gotcha).
+// `awk '{print $2}'` (and the Go `{` in the SDK snippets) aren't parsed as templ
+// expressions (the `{` literal gotcha).
 const connectorStreamSnippet = `curl -N "$STREAM_URL"`
+
+// connectorSDKSnippet / connectorSDKURLSnippet show the two ways to construct the
+// Go SDK client, mirroring the two things the reveal hands an integrator: the
+// (Base URL, ID, Secret) triple, or a single Stream URL + Secret.
+const connectorSDKSnippet = `c := connector.New(baseURL, id, secret)
+c.Send(ctx, "general", "hello from the outside")`
+
+const connectorSDKURLSnippet = `c, _ := connector.NewFromStreamURL(streamURL, secret)
+c.Send(ctx, "general", "hello from the outside")`
 
 const connectorSendSnippet = `BODY='{"channel":"general","body":"hello"}'
 SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
@@ -164,20 +204,25 @@ templ connectorForm(d ConnectorsPageData) {
 		</div>
 
 		<div class="wh-field">
-			<span class="wh-label">Permissions <span class="muted">what this bot may do</span></span>
-			<div class="cb-caps">
-				for _, c := range d.Capabilities {
-					<label class="cb-cap">
-						<input type="checkbox" value={ c.Key }
-							data-attr:checked="$con_caps.split(',').includes(el.value)"
-							data-on:change={ connectorToggleJS("con_caps") }/>
-						<span class="cb-cap-text">
-							<span class="cb-cap-label">{ c.Label }</span>
-							<span class="cb-cap-desc muted">{ c.Desc }</span>
-						</span>
-					</label>
-				}
-			</div>
+			<span class="wh-label">Capabilities <span class="muted">what this bot may do — the same powers as the chat menu</span></span>
+			for _, g := range capGroups(d.Capabilities) {
+				<div class="cb-cap-group">
+					<span class="cb-cap-group-head">{ g.Name }</span>
+					<div class="cb-caps">
+						for _, c := range g.Caps {
+							<label class="cb-cap">
+								<input type="checkbox" value={ c.Key }
+									data-attr:checked="$con_caps.split(',').includes(el.value)"
+									data-on:change={ connectorToggleJS("con_caps") }/>
+								<span class="cb-cap-text">
+									<span class="cb-cap-label">{ c.Label }</span>
+									<span class="cb-cap-desc muted">{ c.Desc }</span>
+								</span>
+							</label>
+						}
+					</div>
+				</div>
+			}
 		</div>
 
 		<label class="cb-check cb-mentions">
@@ -208,7 +253,7 @@ templ ConnectorsContent(d ConnectorsPageData) {
 				<div class="wh-table-wrap">
 					<table class="wh-table">
 						<thead>
-							<tr><th>Name</th><th>Channels</th><th>Permissions</th><th>Last seen</th><th></th></tr>
+							<tr><th>Name</th><th>Channels</th><th>Capabilities</th><th>Last seen</th><th></th></tr>
 						</thead>
 						<tbody>
 							for _, r := range d.Connectors {
@@ -309,4 +354,24 @@ func connectorBoolAttr(b bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+// capGroups buckets the flat capability list into labelled sections in
+// first-seen order, so the form renders one block per group (Messaging,
+// Members, Channels, Personal) instead of a long flat checkbox wall. The order
+// is whatever ConnectorsPageData.Capabilities arrives in (KnownCapabilities,
+// already group-ordered), so this never reshuffles — it only inserts headings.
+func capGroups(caps []ConnectorCapOpt) []ConnectorCapGroup {
+	var groups []ConnectorCapGroup
+	idx := map[string]int{}
+	for _, c := range caps {
+		i, ok := idx[c.Group]
+		if !ok {
+			i = len(groups)
+			idx[c.Group] = i
+			groups = append(groups, ConnectorCapGroup{Name: c.Group})
+		}
+		groups[i].Caps = append(groups[i].Caps, c)
+	}
+	return groups
 }

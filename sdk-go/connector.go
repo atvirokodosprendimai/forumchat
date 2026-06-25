@@ -2,7 +2,9 @@
 // connector" chat bots. A connector lets an arbitrary external program take part
 // in a community's chat as if it were a member: it holds open one signed SSE
 // stream to receive messages (Client.Stream) and POSTs signed requests to send
-// them and run granted moderation actions (Send, Delete, Ban, Rename).
+// them and run granted actions — the same powers a member has from the chat
+// menu (Send/Reply, Forward, Promote, Delete, Ban, Rename, SetTopic, Archive,
+// CreateChannel, DeleteChannel, Bookmark, Todo, DM), each gated by a capability.
 //
 // You get the connector id + secret + base URL once, from the community admin
 // page (/c/{slug}/admin/connectors, reveal-on-create). Hand them to New and the
@@ -66,6 +68,37 @@ func New(baseURL, id, secret string) *Client {
 		Secret:  secret,
 		HTTP:    &http.Client{}, // no Timeout — see field doc
 	}
+}
+
+// NewFromStreamURL builds a Client from the full Stream URL the admin page hands
+// you plus the secret — so you don't have to pick the Base URL and connector id
+// out of the URL yourself. It parses the origin (scheme://host) as the Base URL
+// and the id out of the `/bots/<id>/stream` path; the URL's exp/sig query is
+// ignored (the SDK re-signs its own stream URL from the secret). Returns an error
+// if the URL isn't a well-formed `…/bots/<id>/stream`.
+func NewFromStreamURL(streamURL, secret string) (*Client, error) {
+	u, err := url.Parse(streamURL)
+	if err != nil {
+		return nil, fmt.Errorf("connector: parse stream url: %w", err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("connector: stream url must be absolute, got %q", streamURL)
+	}
+	// Expect a path of the shape /bots/<id>/stream (any prefix before /bots is
+	// part of the base path and kept, e.g. a mounted sub-path deployment).
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	id := ""
+	for i := 0; i+1 < len(parts); i++ {
+		if parts[i] == "bots" {
+			id = parts[i+1]
+			break
+		}
+	}
+	if id == "" {
+		return nil, fmt.Errorf("connector: stream url missing /bots/<id>/ segment: %q", streamURL)
+	}
+	base := u.Scheme + "://" + u.Host
+	return New(base, id, secret), nil
 }
 
 // ---- wire types (mirror the server's internal/connectors StreamEvent) --------
@@ -299,8 +332,94 @@ func (c *Client) Rename(ctx context.Context, channel, name string) error {
 	return c.post(ctx, "rename", map[string]string{"channel": channel, "name": name}, nil)
 }
 
-// post is the one signed-write primitive every action shares (Send, Delete, Ban,
-// Rename): marshal req, sign the exact bytes with the connector secret, POST to
+// Forward forwards an existing message (by id) into another channel (by slug),
+// as the connector's member, carrying a "Forwarded from #x" embed and the
+// optional note as the body. The connector must hold the "forward" capability;
+// both the source message's channel and the target channel must be in its
+// allowlist. Returns the new message id + the channel it landed in.
+func (c *Client) Forward(ctx context.Context, messageID, channel, note string) (SendResult, error) {
+	var out SendResult
+	err := c.post(ctx, "forward", map[string]string{
+		"message_id": messageID,
+		"channel":    channel,
+		"note":       note,
+	}, &out)
+	return out, err
+}
+
+// Promote turns a chat message (by id) into a forum thread authored by the
+// connector's member, and returns the new thread id. The connector must hold the
+// "promote" capability and the message must be in one of its allowed channels.
+func (c *Client) Promote(ctx context.Context, messageID string) (string, error) {
+	var out struct {
+		ThreadID string `json:"thread_id"`
+	}
+	err := c.post(ctx, "promote", map[string]string{"message_id": messageID}, &out)
+	return out.ThreadID, err
+}
+
+// CreateChannel creates a new public channel with the given name and optional
+// topic, and returns its id + slug. The connector must hold the "create-channel"
+// capability; the server enforces the per-community channel cap and slug rules.
+func (c *Client) CreateChannel(ctx context.Context, name, topic string) (Channel, error) {
+	var out Channel
+	err := c.post(ctx, "create-channel", map[string]string{"name": name, "topic": topic}, &out)
+	return out, err
+}
+
+// SetTopic sets a channel's topic line (by slug). The connector must hold the
+// "set-topic" capability and the channel must be in its allowlist.
+func (c *Client) SetTopic(ctx context.Context, channel, topic string) error {
+	return c.post(ctx, "set-topic", map[string]string{"channel": channel, "topic": topic}, nil)
+}
+
+// Archive archives a channel (by slug) — it drops out of the switcher but its
+// history survives. The connector must hold the "archive" capability.
+func (c *Client) Archive(ctx context.Context, channel string) error {
+	return c.post(ctx, "archive", map[string]string{"channel": channel}, nil)
+}
+
+// DeleteChannel permanently deletes a channel and its messages (by slug) —
+// destructive. The connector must hold the "delete-channel" capability; the
+// server refuses to delete the default #general.
+func (c *Client) DeleteChannel(ctx context.Context, channel string) error {
+	return c.post(ctx, "delete-channel", map[string]string{"channel": channel}, nil)
+}
+
+// Bookmark saves a message (by id) to the connector member's own bookmarks, with
+// an optional note. The connector must hold the "bookmark" capability and the
+// message must be in one of its allowed channels.
+func (c *Client) Bookmark(ctx context.Context, messageID, note string) error {
+	return c.post(ctx, "bookmark", map[string]string{"message_id": messageID, "note": note}, nil)
+}
+
+// Todo adds a message (by id) to the connector member's own to-do list, with an
+// optional title + note (the title defaults to the message snippet server-side).
+// Returns the new to-do id. The connector must hold the "todo" capability and the
+// message must be in one of its allowed channels.
+func (c *Client) Todo(ctx context.Context, messageID, title, note string) (string, error) {
+	var out struct {
+		TodoID string `json:"todo_id"`
+	}
+	err := c.post(ctx, "todo", map[string]string{"message_id": messageID, "title": title, "note": note}, &out)
+	return out.TodoID, err
+}
+
+// DM opens or appends a direct-message thread from the connector's member to
+// another member (by user id — the AuthorID surfaced on stream Events), and
+// returns the thread id. The connector must hold the "dm" capability; the server
+// refuses a recipient outside the community, a blocked sender, or itself.
+func (c *Client) DM(ctx context.Context, userID, body string) (string, error) {
+	var out struct {
+		ThreadID string `json:"thread_id"`
+	}
+	err := c.post(ctx, "dm", map[string]string{"user_id": userID, "body": body}, &out)
+	return out.ThreadID, err
+}
+
+// post is the one signed-write primitive every action shares (Send, Forward,
+// Promote, Delete, Ban, channel management, Bookmark, Todo, DM): marshal req,
+// sign the exact bytes with the connector secret, POST to
 // /bots/<id>/<action>, and on a 2xx decode the JSON reply into out (out may be
 // nil to discard it). A non-2xx becomes an *APIError carrying the status and the
 // server's message. Keeping this single helper means a new action is one thin

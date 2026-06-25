@@ -24,19 +24,38 @@ import (
 var ErrNotFound = errors.New("connectors: not found")
 
 // Capability tokens an admin can grant a connector. Send is the base ability to
-// post; the rest are moderation powers, each enabling a matching signed action
-// endpoint (/bots/<id>/<cap>). The set is open-ended (stored as CSV) so adding a
-// new power needs no migration — only a new endpoint + this constant.
+// post; the rest are the same powers a member has from the chat dropdown — each
+// enables a matching signed action endpoint (/bots/<id>/<cap>). The set is
+// open-ended (stored as CSV) so adding a new power needs no migration — only a
+// new endpoint + this constant + a KnownCapabilities entry.
+//
+// Tokens are the on-the-wire/stored identifiers; multiword ones are hyphenated
+// so they read cleanly as a URL path segment and an admin-UI chip.
 const (
-	CapSend   = "send"   // POST /bots/{id}/send — post a message as the member
-	CapDelete = "delete" // POST /bots/{id}/delete — soft-delete a chat message
-	CapBan    = "ban"    // POST /bots/{id}/ban — ban a member
-	CapRename = "rename" // POST /bots/{id}/rename — rename a channel
+	CapSend          = "send"           // POST /bots/{id}/send — post a message as the member
+	CapDelete        = "delete"         // POST /bots/{id}/delete — soft-delete a chat message
+	CapBan           = "ban"            // POST /bots/{id}/ban — ban a member
+	CapRename        = "rename"         // POST /bots/{id}/rename — rename a channel
+	CapForward       = "forward"        // POST /bots/{id}/forward — forward a message to another channel
+	CapPromote       = "promote"        // POST /bots/{id}/promote — promote a message to a forum thread
+	CapCreateChannel = "create-channel" // POST /bots/{id}/create-channel — create a channel
+	CapSetTopic      = "set-topic"      // POST /bots/{id}/set-topic — set a channel's topic
+	CapArchive       = "archive"        // POST /bots/{id}/archive — archive a channel
+	CapDeleteChannel = "delete-channel" // POST /bots/{id}/delete-channel — delete a channel (destructive)
+	CapBookmark      = "bookmark"       // POST /bots/{id}/bookmark — bookmark a message (the member's own list)
+	CapTodo          = "todo"           // POST /bots/{id}/todo — add a message to the member's to-dos
+	CapDM            = "dm"             // POST /bots/{id}/dm — open/append a direct-message thread to a member
 )
 
 // KnownCapabilities is the set the admin UI offers and the service validates
-// against, so a typo or an injected unknown token is dropped, not granted.
-var KnownCapabilities = []string{CapSend, CapDelete, CapBan, CapRename}
+// against, so a typo or an injected unknown token is dropped, not granted. The
+// order here is the order the checkboxes render in (grouped by capGroup).
+var KnownCapabilities = []string{
+	CapSend, CapForward, CapPromote, CapDelete, // messaging
+	CapBan, // members
+	CapRename, CapSetTopic, CapArchive, CapCreateChannel, CapDeleteChannel, // channels
+	CapBookmark, CapTodo, CapDM, // personal
+}
 
 // validCapability reports whether cap is one the admin may grant.
 func validCapability(cap string) bool {

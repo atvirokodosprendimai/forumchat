@@ -1,6 +1,9 @@
 package connectors
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMentions(t *testing.T) {
 	cases := []struct {
@@ -42,5 +45,19 @@ func TestNormalizeCapabilities(t *testing.T) {
 	// CSV round-trip.
 	if c := (Connector{Capabilities: splitCapabilities(joinCapabilities(want))}); !c.Can(CapBan) || c.Can("fly") {
 		t.Fatalf("capability round-trip lost data: %v", c.Capabilities)
+	}
+
+	// The hyphenated multiword tokens survive normalization, and every advertised
+	// KnownCapabilities token is itself valid (a typo'd constant would silently
+	// drop from the admin UI otherwise).
+	multi := normalizeCapabilities([]string{"create-channel", "delete-channel", "set-topic", "PROMOTE", "nope"})
+	wantMulti := []string{"create-channel", "delete-channel", "promote", "set-topic"} // sorted, garbage dropped
+	if strings.Join(multi, ",") != strings.Join(wantMulti, ",") {
+		t.Fatalf("multiword caps: got %v, want %v", multi, wantMulti)
+	}
+	for _, k := range KnownCapabilities {
+		if got := normalizeCapabilities([]string{k}); len(got) != 1 || got[0] != k {
+			t.Fatalf("KnownCapabilities token %q is not accepted by normalizeCapabilities", k)
+		}
 	}
 }

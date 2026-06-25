@@ -154,6 +154,15 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	// resumeWatermark.
 	now := time.Now()
 	resumeFrom, catchUp, truncated := resumeWatermark(conn, r.URL.Query(), now)
+	// Align the watermark to whole seconds: created_at is stored as a Unix second,
+	// so a sub-second resumeFrom (e.g. time.Now() on a first connect) would sit
+	// strictly after a message created in that SAME second. drainChannel advances
+	// maxTS from wm and rebuilds the boundary-second seen-set with created_at ==
+	// maxTS; a sub-second wm makes that comparison miss every same-second message,
+	// so it's delivered, never added to seen, and re-delivered on the next event.
+	// Truncating closes that gap (the seen-set is the dedupe; the watermark is just
+	// the second-granular floor).
+	resumeFrom = resumeFrom.Truncate(time.Second)
 
 	// Per-channel watermark (inclusive) + a seen-set for the boundary second so
 	// same-second messages (created_at is unix seconds) are neither missed nor
@@ -289,9 +298,26 @@ func (h *Handler) drainChannel(ctx context.Context, w http.ResponseWriter, flush
 		if len(msgs) == 0 {
 			return true
 		}
+		// Stop at the first still-generating chat-agent bubble. A KindBot message
+		// is inserted as an EMPTY placeholder and its body is streamed in over
+		// ~100ms ticks (chatagents.ChannelRunner → UpdateBotBody) WITHOUT changing
+		// created_at. Delivering it now would push body_md/body_html="" and the
+		// once-per-id seen-set would never correct it (the reported bug). So we
+		// hold the watermark at the placeholder: nothing at or after it is
+		// delivered until gen_status flips off, at which point the next chat event
+		// re-drains and delivers it — in order — with the final body. An
+		// interrupted/done bubble has its final body already, so it is NOT held.
+		batch := msgs
+		held := false
+		for i, m := range msgs {
+			if m.Kind == chat.KindBot && m.GenStatus == chat.GenGenerating {
+				batch, held = msgs[:i], true
+				break
+			}
+		}
 		maxTS := wm[channelID]
 		fresh := 0
-		for _, m := range msgs {
+		for _, m := range batch {
 			if m.CreatedAt.After(maxTS) {
 				maxTS = m.CreatedAt
 			}
@@ -305,18 +331,23 @@ func (h *Handler) drainChannel(ctx context.Context, w http.ResponseWriter, flush
 		}
 		// Advance the watermark and rebuild the seen-set to exactly the ids at the
 		// new boundary second, so the next inclusive query skips them but still
-		// catches a fresh same-second arrival.
+		// catches a fresh same-second arrival. Only the DELIVERED prefix counts —
+		// a held generating bubble must stay unseen so it's re-delivered later.
 		wm[channelID] = maxTS
 		next := map[string]bool{}
-		for _, m := range msgs {
+		for _, m := range batch {
 			if m.CreatedAt.Equal(maxTS) {
 				next[m.ID] = true
 			}
 		}
 		seen[channelID] = next
-		// Short batch = caught up. A full batch with nothing fresh means one
-		// second holds more than streamBatchLimit messages (all already seen) —
-		// stop rather than spin; the next chat event will re-drain.
+		// A generating bubble truncated the batch → stop; we must not advance past
+		// it, and the next chat event re-drains from this watermark. Otherwise the
+		// usual termination: a short batch = caught up; a full batch with nothing
+		// fresh = one second saturated beyond the limit (re-drained next event).
+		if held {
+			return true
+		}
 		if len(msgs) < streamBatchLimit || fresh == 0 {
 			return true
 		}

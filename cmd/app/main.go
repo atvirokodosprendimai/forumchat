@@ -1689,10 +1689,22 @@ func run() error {
 		r.Group(func(r chi.Router) {
 			r.Use(httprate.LimitByIP(120, time.Minute))
 			r.Get("/bots/{id}/stream", connectorsHandler.GetStream)
+			// Each signed action maps 1:1 to a capability (internal/connectors
+			// Cap*). The route name == the capability token so the surface is
+			// self-describing; the handler gates on conn.Can(<cap>) + the seam.
 			r.Post("/bots/{id}/send", connectorsHandler.PostSend)
+			r.Post("/bots/{id}/forward", connectorsHandler.PostForward)
+			r.Post("/bots/{id}/promote", connectorsHandler.PostPromote)
 			r.Post("/bots/{id}/delete", connectorsHandler.PostDeleteMessage)
 			r.Post("/bots/{id}/ban", connectorsHandler.PostBan)
 			r.Post("/bots/{id}/rename", connectorsHandler.PostRename)
+			r.Post("/bots/{id}/set-topic", connectorsHandler.PostSetTopic)
+			r.Post("/bots/{id}/archive", connectorsHandler.PostArchiveChannel)
+			r.Post("/bots/{id}/create-channel", connectorsHandler.PostCreateChannel)
+			r.Post("/bots/{id}/delete-channel", connectorsHandler.PostDeleteChannel)
+			r.Post("/bots/{id}/bookmark", connectorsHandler.PostBookmark)
+			r.Post("/bots/{id}/todo", connectorsHandler.PostTodo)
+			r.Post("/bots/{id}/dm", connectorsHandler.PostDM)
 		})
 	}
 
@@ -1840,6 +1852,87 @@ func run() error {
 		Sessions:  sessions,
 		Log:       log,
 		SendToken: sendSigner, // /messages/stream patches the token to clients
+	}
+
+	// Cross-domain connector seams (CapPromote/CapBookmark/CapTodo/CapDM). Wired
+	// here — not in the connectors block above — because they depend on the forum
+	// handler, bookmarks/todos repos and the PM service, which are constructed
+	// later. Each closure keeps connectors decoupled from those packages (it
+	// imports none of them); a nil seam means the capability returns 501 even if
+	// granted. Channel-only capabilities (forward/create/topic/archive/delete)
+	// need no seam — the handler calls chat.Service directly.
+	if connectorsHandler != nil {
+		connTodos := todos.NewRepo(db)
+		// PromoteToThread reuses the forum click-path core (PromoteChatMessageByID),
+		// authoring the thread as the connector's member. It resolves the slug from
+		// the community id for the announce link.
+		connectorsHandler.PromoteToThread = func(ctx context.Context, communityID, messageID, byUserID string) (string, error) {
+			c, err := cRepo.ByID(ctx, communityID)
+			if err != nil {
+				return "", err
+			}
+			return forumHandler.PromoteChatMessageByID(ctx, communityID, c.Slug, byUserID, messageID)
+		}
+		// AddBookmark saves the message to the connector member's own bookmarks.
+		connectorsHandler.AddBookmark = func(ctx context.Context, communityID, userID, messageID, note string) error {
+			_, err := bookmarksRepo.Create(ctx, bookmarks.Bookmark{
+				UserID:        userID,
+				CommunityID:   communityID,
+				ChatMessageID: messageID,
+				Note:          note,
+			})
+			return err
+		}
+		// AddTodo adds the message to the connector member's own to-do list. The
+		// message body is snapshotted (so a later edit/delete of the source doesn't
+		// change the to-do, like the UI path); an empty title defaults to the first
+		// line of the body.
+		connectorsHandler.AddTodo = func(ctx context.Context, communityID, userID, messageID, title, note string) (string, error) {
+			m, err := chatRepo.ByID(ctx, messageID)
+			if err != nil {
+				return "", err
+			}
+			body := m.BodyMarkdown
+			if strings.TrimSpace(title) == "" {
+				title = strings.TrimSpace(body)
+				if i := strings.IndexByte(title, '\n'); i >= 0 {
+					title = title[:i]
+				}
+				if len(title) > 80 {
+					title = title[:80]
+				}
+				if title == "" {
+					title = "(chat message)"
+				}
+			}
+			t, err := connTodos.Create(ctx, todos.Todo{
+				CommunityID:  communityID,
+				UserID:       userID,
+				SourceKind:   todos.SourceChat,
+				SourceID:     messageID,
+				SourceDay:    time.Now().Format("2006-01-02"),
+				Title:        title,
+				BodySnapshot: body,
+				Note:         note,
+			})
+			if err != nil {
+				return "", err
+			}
+			return t.ID, nil
+		}
+		// SendDM opens/continues a DM thread from the connector member to another
+		// member. The recipient MUST belong to this community — otherwise a connector
+		// could DM any user platform-wide just by knowing an id (cross-tenant leak).
+		connectorsHandler.SendDM = func(ctx context.Context, communityID, fromUserID, toUserID, body string) (string, error) {
+			if _, err := aRepo.MembershipFor(ctx, toUserID, communityID); err != nil {
+				return "", fmt.Errorf("recipient is not a member of this community")
+			}
+			t, _, err := pmSvc.CreateRequest(ctx, fromUserID, toUserID, body, communityID, "")
+			if err != nil {
+				return "", err
+			}
+			return t.ID, nil
+		}
 	}
 
 	roomsRepo := rooms.NewRepo(db)

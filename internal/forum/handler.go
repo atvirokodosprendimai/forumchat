@@ -818,21 +818,11 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 			_, _ = h.ChatRepo.MarkPromoted(r.Context(), replyChild.ID, t.ID)
 		}
 	}
-	if h.Chat != nil {
-		link := fmt.Sprintf(`%s/c/%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), h.cslug(r.Context()), t.ID)
-		announceName := root.AuthorName
-		if announceName == "" {
-			announceName = id.Membership.ShownName()
-		}
-		threadID := t.ID
-		announceHTML := buildThreadAnnounce(announceName, link, t.Subject, root.BodyMarkdown)
-		_, err := h.Chat.PostSystem(r.Context(), h.cid(r.Context()), announceHTML, chat.KindThreadAnnounce, &threadID)
-		if err != nil {
-			h.Log.Error("promote thread-announce", "err", err)
-		} else {
-			h.relayThreadAnnounce(r.Context(), h.cid(r.Context()), announceName, t.ID, t.Subject, link)
-		}
+	announceName := root.AuthorName
+	if announceName == "" {
+		announceName = id.Membership.ShownName()
 	}
+	h.announcePromotedThread(r.Context(), h.cid(r.Context()), h.cslug(r.Context()), announceName, t.ID, t.Subject, root.BodyMarkdown)
 	// Mirror the promoted reply (the thread's first post) outbound too, tagged
 	// with the thread identity. Without this the webhook side would carry the
 	// thread-announce (root) plus later replies but silently drop the first
@@ -844,9 +834,34 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		}
 		h.relayForumReply(r.Context(), t, replyName, replyChild.BodyMarkdown, firstPost.ID)
 	}
-	// Refresh open chat tabs so the thread_announce shows up live,
-	// and ping cross-page event listeners so viewers on /forum etc
-	// also hear the new chat row.
+	h.broadcastChatStructural(h.cid(r.Context()))
+	sse := render.NewSSE(w, r)
+	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)
+}
+
+// announcePromotedThread posts the "→ thread" announce row into chat and mirrors
+// it to outbound webhooks. Extracted from PostPromoteChat so the connector
+// promote bridge (PromoteChatMessageByID) reuses the exact same announce + relay
+// instead of duplicating it. announceName is the display name shown in the
+// announce (the message author, or a fallback the caller supplies).
+func (h *Handler) announcePromotedThread(ctx context.Context, communityID, slug, announceName, threadID, subject, rootBodyMD string) {
+	if h.Chat == nil {
+		return
+	}
+	link := fmt.Sprintf(`%s/c/%s/forum/%s`, strings.TrimRight(h.BaseURL, "/"), slug, threadID)
+	tID := threadID
+	announceHTML := buildThreadAnnounce(announceName, link, subject, rootBodyMD)
+	if _, err := h.Chat.PostSystem(ctx, communityID, announceHTML, chat.KindThreadAnnounce, &tID); err != nil {
+		h.Log.Error("promote thread-announce", "err", err)
+		return
+	}
+	h.relayThreadAnnounce(ctx, communityID, announceName, threadID, subject, link)
+}
+
+// broadcastChatStructural refreshes open chat tabs + cross-page listeners after a
+// structural chat change (a promote drops a thread_announce row). Extracted from
+// PostPromoteChat so the connector promote bridge fans out identically.
+func (h *Handler) broadcastChatStructural(communityID string) {
 	if h.ChatBus != nil {
 		h.ChatBus.Broadcast("")
 	}
@@ -854,11 +869,72 @@ func (h *Handler) PostPromoteChat(w http.ResponseWriter, r *http.Request) {
 		h.ChatNewMsgBus.Broadcast("")
 	}
 	if h.NATS != nil && h.NATS.IsConnected() {
-		_ = h.NATS.Publish(natsx.ChatSubject(h.cid(r.Context())), []byte("changed"))
-		_ = h.NATS.Publish(natsx.ChatNewSubject(h.cid(r.Context())), []byte("new"))
+		_ = h.NATS.Publish(natsx.ChatSubject(communityID), []byte("changed"))
+		_ = h.NATS.Publish(natsx.ChatNewSubject(communityID), []byte("new"))
 	}
-	sse := render.NewSSE(w, r)
-	_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/forum/" + t.ID)
+}
+
+// PromoteChatMessageByID promotes a single chat message into a forum thread and
+// returns the new thread id. It is the reusable, identity-free core behind the
+// click-path PostPromoteChat, exposed for the connectors CapPromote seam (wired
+// in main.go so neither package imports the other). byUserID authors the thread
+// (the connector's member); slug is needed for the announce link. Unlike the
+// click path it does NOT fold a reply chain — a programmatic promote takes the
+// message as-is. It is race-safe (MarkPromoted) and idempotent (an
+// already-promoted message returns its existing thread id).
+func (h *Handler) PromoteChatMessageByID(ctx context.Context, communityID, slug, byUserID, msgID string) (string, error) {
+	if h.ChatRepo == nil {
+		return "", fmt.Errorf("promotion not wired")
+	}
+	msg, err := h.ChatRepo.ByID(ctx, msgID) // live, non-deleted only
+	if err != nil {
+		return "", err
+	}
+	if msg.CommunityID != communityID {
+		return "", fmt.Errorf("message not in this community")
+	}
+	if msg.PromotedThreadID != nil {
+		return *msg.PromotedThreadID, nil // idempotent
+	}
+	subject := deriveSubject(msg.BodyMarkdown)
+	if subject == "" {
+		return "", fmt.Errorf("empty message")
+	}
+	// Author the thread as the message's own author when present (so it reads as
+	// theirs), else the promoting connector member.
+	authorID := byUserID
+	if msg.AuthorID != nil {
+		authorID = *msg.AuthorID
+	}
+	t, err := h.Svc.CreateThread(ctx, CreateThreadInput{
+		CommunityID:  communityID,
+		AuthorID:     authorID,
+		Subject:      subject,
+		BodyMarkdown: msg.BodyMarkdown,
+	})
+	if err != nil {
+		return "", err
+	}
+	// Claim the chat message for this thread atomically; if another caller won the
+	// race, drop our thread and return theirs.
+	claimed, err := h.ChatRepo.MarkPromoted(ctx, msg.ID, t.ID)
+	if err != nil {
+		return "", err
+	}
+	if !claimed {
+		_, _ = h.Repo.HardDeleteThread(ctx, t.ID)
+		if fresh, ferr := h.ChatRepo.ByID(ctx, msg.ID); ferr == nil && fresh.PromotedThreadID != nil {
+			return *fresh.PromotedThreadID, nil
+		}
+		return "", fmt.Errorf("promote race")
+	}
+	announceName := msg.AuthorName
+	if announceName == "" {
+		announceName = "a member"
+	}
+	h.announcePromotedThread(ctx, communityID, slug, announceName, t.ID, t.Subject, msg.BodyMarkdown)
+	h.broadcastChatStructural(communityID)
+	return t.ID, nil
 }
 
 // foldReplyIntoThread appends a promoted reply to the thread its parent already

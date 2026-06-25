@@ -236,7 +236,7 @@ func (h *Handler) pageData(r *http.Request, cm community.Community) (webtempl.Co
 
 	caps := make([]webtempl.ConnectorCapOpt, 0, len(KnownCapabilities))
 	for _, k := range KnownCapabilities {
-		caps = append(caps, webtempl.ConnectorCapOpt{Key: k, Label: capLabel(k), Desc: capDesc(k)})
+		caps = append(caps, webtempl.ConnectorCapOpt{Key: k, Label: capLabel(k), Desc: capDesc(k), Group: capGroup(k)})
 	}
 
 	return webtempl.ConnectorsPageData{
@@ -292,16 +292,38 @@ func channelsLabel(names map[string]string, ids []string) string {
 	return strings.Join(parts, ", ")
 }
 
+// capLabel / capDesc / capGroup are the single source of the admin-UI presentation
+// for each capability token. Adding a new capability means one case in each — the
+// checkboxes, chips, and grouping all read from here (capGroup also drives the
+// section a checkbox renders under). They mirror the powers in the chat dropdown.
 func capLabel(k string) string {
 	switch k {
 	case CapSend:
 		return "Send messages"
+	case CapForward:
+		return "Forward messages"
+	case CapPromote:
+		return "Promote to thread"
 	case CapDelete:
 		return "Delete messages"
 	case CapBan:
 		return "Ban members"
 	case CapRename:
 		return "Rename channels"
+	case CapSetTopic:
+		return "Set channel topic"
+	case CapArchive:
+		return "Archive channels"
+	case CapCreateChannel:
+		return "Create channels"
+	case CapDeleteChannel:
+		return "Delete channels"
+	case CapBookmark:
+		return "Bookmark messages"
+	case CapTodo:
+		return "Add to-dos"
+	case CapDM:
+		return "Direct-message members"
 	default:
 		return k
 	}
@@ -311,14 +333,49 @@ func capDesc(k string) string {
 	switch k {
 	case CapSend:
 		return "Post messages into its channels (the base ability)."
+	case CapForward:
+		return "Forward a message into another of its channels."
+	case CapPromote:
+		return "Turn a chat message into a forum thread."
 	case CapDelete:
 		return "Soft-delete any message (hidden from everyone)."
 	case CapBan:
 		return "Ban a member by id (admins/owners are protected)."
 	case CapRename:
 		return "Rename a channel (#general is protected)."
+	case CapSetTopic:
+		return "Change a channel's topic line."
+	case CapArchive:
+		return "Archive a channel (hides it from the switcher)."
+	case CapCreateChannel:
+		return "Create a new public channel in the community."
+	case CapDeleteChannel:
+		return "Permanently delete a channel (#general is protected)."
+	case CapBookmark:
+		return "Save a message to the bot's own bookmarks."
+	case CapTodo:
+		return "Add a message to the bot's own to-do list."
+	case CapDM:
+		return "Start or continue a private message with a member."
 	default:
 		return ""
+	}
+}
+
+// capGroup buckets a capability into a UI section so 13 checkboxes stay scannable
+// (uxui field-grouping / visual-hierarchy). Unknown tokens fall into "Other".
+func capGroup(k string) string {
+	switch k {
+	case CapSend, CapForward, CapPromote, CapDelete:
+		return "Messaging"
+	case CapBan:
+		return "Members"
+	case CapRename, CapSetTopic, CapArchive, CapCreateChannel, CapDeleteChannel:
+		return "Channels"
+	case CapBookmark, CapTodo, CapDM:
+		return "Personal"
+	default:
+		return "Other"
 	}
 }
 

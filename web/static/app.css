@@ -5525,6 +5525,17 @@ button.ghost.danger:hover:not([disabled]) {
 .cb-cap-desc { font-size: .78rem; }
 .cb-mentions { width: 100%; box-sizing: border-box; }
 .cb-chips { display: flex; flex-wrap: wrap; gap: .3rem; }
+/* Capability checkboxes are bucketed into labelled groups (Messaging / Members /
+   Channels / Personal) so the long list stays scannable; each group's boxes lay
+   out responsively two-up on wide viewports, one-up on mobile. */
+.cb-cap-group { margin-top: .75rem; }
+.cb-cap-group:first-of-type { margin-top: 0; }
+.cb-cap-group-head {
+  display: block; font-size: .72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--fg-muted); margin: 0 0 .4rem;
+}
+.cb-cap-group .cb-caps { grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.cb-creds-actions { margin: .6rem 0 0; }
 .cb-reveal .cb-creds { margin: .6rem 0 0; display: grid; gap: .5rem; }
 .cb-creds dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--fg-muted); }
 .cb-creds dd { margin: .15rem 0 0; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }

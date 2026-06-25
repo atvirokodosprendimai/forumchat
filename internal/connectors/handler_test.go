@@ -73,7 +73,11 @@ func newHarness(t *testing.T) *harness {
 	r := chi.NewRouter()
 	r.Get("/bots/{id}/stream", h.GetStream)
 	r.Post("/bots/{id}/send", h.PostSend)
+	r.Post("/bots/{id}/forward", h.PostForward)
+	r.Post("/bots/{id}/promote", h.PostPromote)
 	r.Post("/bots/{id}/delete", h.PostDeleteMessage)
+	r.Post("/bots/{id}/set-topic", h.PostSetTopic)
+	r.Post("/bots/{id}/create-channel", h.PostCreateChannel)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return &harness{h: h, svc: connSvc, chatSvc: chatSvc, bus: bus, srv: srv, comm: c, general: general, authSvc: authSvc}
@@ -290,6 +294,92 @@ func TestCreateRejectsAllInvalidChannels(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected ErrUnknownChannels for an all-invalid channel set, got nil")
+	}
+}
+
+// TestActionCapabilityGate proves the two-layer gate every signed action shares
+// (do → requireCap): a granted-but-unwired-seam capability returns 501, and an
+// ungranted capability returns 403 — independent of the request body.
+func TestActionCapabilityGate(t *testing.T) {
+	t.Parallel()
+	hz := newHarness(t)
+	// Granted "promote" but the PromoteToThread seam is nil in this harness →
+	// the action is wired-as-a-route but unavailable → 501.
+	conn, err := hz.svc.Create(context.Background(), connectors.CreateInput{
+		CommunityID: hz.comm.ID, Name: "Acme", Capabilities: []string{"send", "promote"},
+		ChannelIDs: []string{hz.general.ID},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	_, msgID := hz.memberSay(t, "alice", "promote me")
+	body := []byte(`{"message_id":"` + msgID + `"}`)
+	if code := hz.postTo(t, conn.ID, "promote", body, connectors.SignBody(conn.Secret, body)); code != http.StatusNotImplemented {
+		t.Fatalf("granted-but-unwired promote: got %d want 501", code)
+	}
+	// "forward" was NOT granted → 403, even though its seam (chat.Service) is wired.
+	fwd := []byte(`{"message_id":"` + msgID + `","channel":"general"}`)
+	if code := hz.postTo(t, conn.ID, "forward", fwd, connectors.SignBody(conn.Secret, fwd)); code != http.StatusForbidden {
+		t.Fatalf("ungranted forward: got %d want 403", code)
+	}
+}
+
+// TestStreamHoldsGeneratingBot is the regression for the reported bug: a
+// chat-agent bubble is inserted as an EMPTY placeholder (gen_status=generating)
+// and its body streams in later without changing created_at. The connector
+// stream must NOT deliver the empty placeholder (it's delivered once, by id, and
+// would never be corrected) — it must hold until the body is complete, then
+// deliver it once with the real body.
+func TestStreamHoldsGeneratingBot(t *testing.T) {
+	t.Parallel()
+	hz := newHarness(t)
+	conn, err := hz.svc.Create(context.Background(), connectors.CreateInput{
+		CommunityID: hz.comm.ID, Name: "Acme", Capabilities: []string{"send"},
+		ChannelIDs: []string{hz.general.ID},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	frames := hz.openStream(t, conn)
+	if ev := frames.next(t); ev.event != "ready" {
+		t.Fatalf("first frame = %q, want ready", ev.event)
+	}
+	if ev := frames.next(t); ev.event != "live" {
+		t.Fatalf("second frame = %q, want live", ev.event)
+	}
+
+	ctx := context.Background()
+	const botID = "bot-msg-stream-test"
+	// Empty placeholder, mid-generation — exactly what chatagents.ChannelRunner
+	// inserts before its 100ms body flushes.
+	if err := hz.h.ChatRepo.Insert(ctx, chat.Message{
+		ID: botID, CommunityID: hz.comm.ID, ChannelID: hz.general.ID,
+		Kind: chat.KindBot, GenStatus: chat.GenGenerating,
+		BotName: "Helper", BodyMarkdown: "", BodyHTML: "",
+		CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("insert bot placeholder: %v", err)
+	}
+	hz.bus.Broadcast(hz.general.ID) // would deliver the empty body WITHOUT the fix
+
+	// Body streams in and generation finishes.
+	if err := hz.h.ChatRepo.UpdateBotBody(ctx, botID, "here is the answer", "<p>here is the answer</p>", "done"); err != nil {
+		t.Fatalf("complete bot: %v", err)
+	}
+	hz.bus.Broadcast(hz.general.ID)
+
+	ev := frames.next(t)
+	if ev.event != "message" {
+		t.Fatalf("frame = %q, want message", ev.event)
+	}
+	if !strings.Contains(ev.data, "here is the answer") || !strings.Contains(ev.data, `"kind":"bot"`) {
+		t.Fatalf("bot delivered with empty/wrong body (the bug): %s", ev.data)
+	}
+	// It must be delivered exactly once: a following human message is the next
+	// frame, proving the bot wasn't re-sent.
+	hz.memberSay(t, "alice", "thanks")
+	if ev := frames.next(t); !strings.Contains(ev.data, `"nick":"alice"`) {
+		t.Fatalf("bot re-delivered or out-of-order frame: %s", ev.data)
 	}
 }
 
