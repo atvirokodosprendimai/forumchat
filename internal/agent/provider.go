@@ -96,6 +96,10 @@ func newProvider(a Agent) (Provider, error) {
 type Ollama struct {
 	BaseURL string
 	HTTP    *http.Client
+	// Options, when set, is sent as the Ollama request "options" object (e.g.
+	// {"temperature": 0} for deterministic classification). Nil = Ollama
+	// defaults, so existing agent/translate callers are unaffected.
+	Options map[string]any
 }
 
 // NewOllama returns an Ollama provider pointed at baseURL (e.g.
@@ -138,10 +142,11 @@ type ollamaTool struct {
 	Function ollamaToolFn `json:"function"`
 }
 type ollamaChatReq struct {
-	Model    string       `json:"model"`
-	Messages []ollamaMsg  `json:"messages"`
-	Tools    []ollamaTool `json:"tools,omitempty"`
-	Stream   bool         `json:"stream"`
+	Model    string         `json:"model"`
+	Messages []ollamaMsg    `json:"messages"`
+	Tools    []ollamaTool   `json:"tools,omitempty"`
+	Stream   bool           `json:"stream"`
+	Options  map[string]any `json:"options,omitempty"`
 }
 
 type ollamaChatChunk struct {
@@ -194,6 +199,7 @@ func (o *Ollama) Stream(ctx context.Context, model string, msgs []ChatMessage, t
 	streaming := len(tools) == 0
 	payload, err := json.Marshal(ollamaChatReq{
 		Model: model, Messages: toOllamaMsgs(msgs), Tools: toOllamaTools(tools), Stream: streaming,
+		Options: o.Options,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
