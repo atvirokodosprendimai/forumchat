@@ -63,10 +63,16 @@ func newHarness(t *testing.T) *harness {
 	h := &connectors.Handler{
 		Repo: connRepo, Svc: connSvc, Chat: chatSvc, ChatRepo: chatRepo,
 		Bus: bus, NewMsgBus: chat.NewBus(), Log: slog.Default(),
+		// Minimal delete seam (soft-delete only) so the allowlist gate — which
+		// runs in the handler BEFORE the seam — can be exercised.
+		DeleteMessage: func(ctx context.Context, _ string, msgID, _ string) error {
+			return chatRepo.SoftDelete(ctx, msgID)
+		},
 	}
 	r := chi.NewRouter()
 	r.Get("/bots/{id}/stream", h.GetStream)
 	r.Post("/bots/{id}/send", h.PostSend)
+	r.Post("/bots/{id}/delete", h.PostDeleteMessage)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return &harness{h: h, svc: connSvc, chatSvc: chatSvc, bus: bus, srv: srv, comm: c, general: general, authSvc: authSvc}
@@ -193,11 +199,56 @@ func TestStreamDeliversSkipsOwn(t *testing.T) {
 	}
 }
 
+func TestDeleteRespectsChannelAllowlist(t *testing.T) {
+	t.Parallel()
+	hz := newHarness(t)
+	// Connector scoped to a NON-general channel, granted delete.
+	creator, err := hz.authSvc.CreateServiceAccount(context.Background(), hz.comm.ID, "creator", "")
+	if err != nil {
+		t.Fatalf("creator: %v", err)
+	}
+	ops, err := hz.chatSvc.CreateChannel(context.Background(), hz.comm.ID, creator, "ops", "")
+	if err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	conn, err := hz.svc.Create(context.Background(), connectors.CreateInput{
+		CommunityID: hz.comm.ID, Name: "Mod", Capabilities: []string{"send", "delete"},
+		ChannelIDs: []string{ops.ID},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// A message in #general (OUTSIDE the connector's allowlist).
+	_, msgID := hz.memberSay(t, "alice", "hi")
+
+	body := []byte(`{"message_id":"` + msgID + `"}`)
+	code := hz.postTo(t, conn.ID, "delete", body, connectors.SignBody(conn.Secret, body))
+	if code != http.StatusForbidden {
+		t.Fatalf("delete outside allowlist: got %d want 403", code)
+	}
+}
+
+func TestCreateRejectsAllInvalidChannels(t *testing.T) {
+	t.Parallel()
+	hz := newHarness(t)
+	_, err := hz.svc.Create(context.Background(), connectors.CreateInput{
+		CommunityID: hz.comm.ID, Name: "X", Capabilities: []string{"send"},
+		ChannelIDs: []string{"forged-1", "forged-2"}, // none real → must NOT collapse to all
+	})
+	if err == nil {
+		t.Fatal("expected ErrUnknownChannels for an all-invalid channel set, got nil")
+	}
+}
+
 // ----- small SSE client + post helpers ---------------------------------------
 
 func (hz *harness) post(t *testing.T, id string, body []byte, sig string) int {
+	return hz.postTo(t, id, "send", body, sig)
+}
+
+func (hz *harness) postTo(t *testing.T, id, action string, body []byte, sig string) int {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodPost, hz.srv.URL+"/bots/"+id+"/send", bytes.NewReader(body))
+	req, _ := http.NewRequest(http.MethodPost, hz.srv.URL+"/bots/"+id+"/"+action, bytes.NewReader(body))
 	req.Header.Set("X-Signature", sig)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

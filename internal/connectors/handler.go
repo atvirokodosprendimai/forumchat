@@ -130,6 +130,14 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	}
 	var replyTo *string
 	if rt := strings.TrimSpace(in.ReplyTo); rt != "" {
+		// Validate the parent: it must be a live message in the SAME channel, so
+		// a connector can't nest under (and surface a quote snippet from) a
+		// message in another channel or community.
+		parent, err := h.ChatRepo.ByID(r.Context(), rt)
+		if err != nil || parent.ChannelID != ch.ID {
+			http.Error(w, "invalid reply_to", http.StatusBadRequest)
+			return
+		}
 		replyTo = &rt
 	}
 	msg, err := h.Chat.Send(r.Context(), chat.SendInput{
@@ -169,6 +177,19 @@ func (h *Handler) PostDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	var in deleteReq
 	if err := json.Unmarshal(body, &in); err != nil || strings.TrimSpace(in.MessageID) == "" {
 		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	// Enforce the channel allowlist on the TARGET message: a connector scoped to
+	// channel X must not be able to delete a message in channel Y just because it
+	// knows the id. Load the message (ByID returns only live, non-deleted rows),
+	// confirm it's in this community, and that its channel is in the allowlist.
+	m, err := h.ChatRepo.ByID(r.Context(), in.MessageID)
+	if err != nil || m.CommunityID != conn.CommunityID {
+		http.NotFound(w, r) // unknown / cross-tenant / already deleted — no oracle
+		return
+	}
+	if !h.channelAllowed(r.Context(), conn, m.ChannelID) {
+		http.Error(w, "channel not allowed", http.StatusForbidden)
 		return
 	}
 	if err := h.DeleteMessage(r.Context(), conn.CommunityID, in.MessageID, conn.UserID); err != nil {
@@ -267,7 +288,7 @@ func (h *Handler) resolveChannel(w http.ResponseWriter, r *http.Request, conn Co
 			return chat.Channel{}, false
 		}
 		ch, err := h.ChatRepo.ChannelByID(r.Context(), allowed[0])
-		if err != nil {
+		if err != nil || ch.IsArchived() {
 			http.Error(w, "unknown channel", http.StatusBadRequest)
 			return chat.Channel{}, false
 		}
@@ -278,12 +299,28 @@ func (h *Handler) resolveChannel(w http.ResponseWriter, r *http.Request, conn Co
 		http.Error(w, "unknown channel", http.StatusNotFound)
 		return chat.Channel{}, false
 	}
+	if ch.IsArchived() {
+		http.Error(w, "channel archived", http.StatusForbidden)
+		return chat.Channel{}, false
+	}
 	// Allowlist: empty = all channels; otherwise the channel must be listed.
 	if len(allowed) > 0 && !contains(allowed, ch.ID) {
 		http.Error(w, "channel not allowed", http.StatusForbidden)
 		return chat.Channel{}, false
 	}
 	return ch, true
+}
+
+// channelAllowed reports whether a connector may act on a given channel id: an
+// empty allowlist means all channels, otherwise the channel must be listed. Used
+// by moderation actions that target a message/channel by id (not slug), so the
+// allowlist is enforced on the resolved target, not just on send.
+func (h *Handler) channelAllowed(ctx context.Context, conn Connector, channelID string) bool {
+	allowed, err := h.Repo.Channels(ctx, conn.ID)
+	if err != nil {
+		return false
+	}
+	return len(allowed) == 0 || contains(allowed, channelID)
 }
 
 // fanout refreshes open chat tabs (Bus + NATS) for a channel, exactly like the

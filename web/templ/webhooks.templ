@@ -276,7 +276,7 @@ func rowClass(enabled bool) string {
 // "ok" / "skip" / "error"; outbound stamps an HTTP code or "error" / "bad-url".
 func healthTone(status string) string {
 	switch {
-	case status == "ok" || strings.HasPrefix(status, "2"):
+	case status == "ok" || status == "connected" || strings.HasPrefix(status, "2"):
 		return "ok"
 	case status == "skip":
 		return "warn"

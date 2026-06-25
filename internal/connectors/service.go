@@ -16,7 +16,8 @@ import (
 
 // Validation errors surfaced to the admin UI.
 var (
-	ErrEmptyName = errors.New("connectors: name required")
+	ErrEmptyName       = errors.New("connectors: name required")
+	ErrUnknownChannels = errors.New("connectors: one or more selected channels don't exist in this community")
 )
 
 // MemberFactory provisions and tears down the synthetic member a connector acts
@@ -191,6 +192,12 @@ func (s *Service) validChannels(ctx context.Context, communityID string, request
 			seen[id] = true
 			out = append(out, id)
 		}
+	}
+	// A non-empty request that resolves to nothing is a forged/typo'd id set, NOT
+	// a request for "all channels" — refuse it rather than silently widening the
+	// connector's scope to every channel (empty allowlist).
+	if len(out) == 0 {
+		return nil, ErrUnknownChannels
 	}
 	return out, nil
 }

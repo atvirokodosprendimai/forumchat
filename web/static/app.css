@@ -5492,6 +5492,14 @@ button.ghost.danger:hover:not([disabled]) {
 /* ── Connectors (external chat bots) ────────────────────────────────── */
 /* Channel + capability pickers: the array workaround keeps a CSV signal, so
    these are plain checkbox chips that toggle into it. */
+/* Reset the global `input { padding/border/bg }` for these native checkboxes —
+   without it the box bloats and shoves the label across the row. */
+.cb-checks input[type="checkbox"],
+.cb-caps input[type="checkbox"],
+.cb-mentions > input[type="checkbox"] {
+  appearance: auto; width: 1.05rem; height: 1.05rem; min-width: 1.05rem;
+  padding: 0; margin: 0; flex: 0 0 auto; accent-color: var(--accent); cursor: pointer;
+}
 .cb-checks { display: flex; flex-wrap: wrap; gap: .5rem; }
 .cb-check {
   display: inline-flex; align-items: center; gap: .45rem; cursor: pointer;
@@ -5501,17 +5509,16 @@ button.ghost.danger:hover:not([disabled]) {
 }
 .cb-check:hover { border-color: var(--accent); }
 .cb-check:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
-.cb-check input { margin: 0; }
 .cb-caps { display: grid; gap: .5rem; }
 .cb-cap {
   display: flex; align-items: flex-start; gap: .6rem; cursor: pointer;
-  border: 1px solid var(--border); border-radius: var(--radius-md); padding: .6rem .75rem;
+  border: 1px solid var(--border); border-radius: var(--radius-md); padding: .7rem .85rem;
   transition: border-color .12s ease, background .12s ease;
 }
 .cb-cap:hover { border-color: var(--accent); }
 .cb-cap:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
-.cb-cap input { margin-top: .2rem; }
-.cb-cap-text { display: flex; flex-direction: column; gap: .1rem; }
+.cb-cap input { margin-top: .15rem; }
+.cb-cap-text { display: flex; flex-direction: column; gap: .1rem; flex: 1 1 auto; min-width: 0; }
 .cb-cap-label { font-weight: 600; font-size: .9rem; }
 .cb-cap-desc { font-size: .78rem; }
 .cb-mentions { width: 100%; box-sizing: border-box; }

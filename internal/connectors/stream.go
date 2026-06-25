@@ -158,41 +158,56 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // drainChannel emits every new (unseen, deliverable) message in one channel and
-// advances that channel's watermark + seen-set. Returns false if the client
+// advances that channel's watermark + seen-set. It loops so a burst larger than
+// one batch is fully delivered, stopping when a batch is short (caught up) or
+// makes no progress (a single second saturated beyond the batch limit — an
+// extreme edge; the next event re-drains it). Returns false if the client
 // connection broke (caller should return).
 func (h *Handler) drainChannel(ctx context.Context, w http.ResponseWriter, flush func(), conn Connector,
 	subs map[string]chat.Channel, wm map[string]time.Time, seen map[string]map[string]bool, channelID string) bool {
 
-	msgs, err := h.ChatRepo.ListAfter(ctx, channelID, wm[channelID], streamBatchLimit)
-	if err != nil {
-		h.Log.Warn("connectors: stream load", "connector", conn.ID, "channel", channelID, "err", err)
-		return true // transient; keep the stream open
-	}
 	ch := subs[channelID]
-	maxTS := wm[channelID]
-	for _, m := range msgs {
-		if m.CreatedAt.After(maxTS) {
-			maxTS = m.CreatedAt
+	for {
+		msgs, err := h.ChatRepo.ListAfter(ctx, channelID, wm[channelID], streamBatchLimit)
+		if err != nil {
+			h.Log.Warn("connectors: stream load", "connector", conn.ID, "channel", channelID, "err", err)
+			return true // transient; keep the stream open
 		}
-		if seen[channelID][m.ID] {
-			continue // already delivered (boundary-second dedupe)
+		if len(msgs) == 0 {
+			return true
 		}
-		if !h.deliver(ctx, w, flush, conn, ch, m) {
-			return false
+		maxTS := wm[channelID]
+		fresh := 0
+		for _, m := range msgs {
+			if m.CreatedAt.After(maxTS) {
+				maxTS = m.CreatedAt
+			}
+			if seen[channelID][m.ID] {
+				continue // already delivered (boundary-second dedupe)
+			}
+			fresh++
+			if !h.deliver(ctx, w, flush, conn, ch, m) {
+				return false
+			}
+		}
+		// Advance the watermark and rebuild the seen-set to exactly the ids at the
+		// new boundary second, so the next inclusive query skips them but still
+		// catches a fresh same-second arrival.
+		wm[channelID] = maxTS
+		next := map[string]bool{}
+		for _, m := range msgs {
+			if m.CreatedAt.Equal(maxTS) {
+				next[m.ID] = true
+			}
+		}
+		seen[channelID] = next
+		// Short batch = caught up. A full batch with nothing fresh means one
+		// second holds more than streamBatchLimit messages (all already seen) —
+		// stop rather than spin; the next chat event will re-drain.
+		if len(msgs) < streamBatchLimit || fresh == 0 {
+			return true
 		}
 	}
-	// Advance the watermark and rebuild the seen-set to exactly the ids at the
-	// new boundary second, so the next inclusive query skips them but still
-	// catches a fresh same-second arrival.
-	wm[channelID] = maxTS
-	next := map[string]bool{}
-	for _, m := range msgs {
-		if m.CreatedAt.Equal(maxTS) {
-			next[m.ID] = true
-		}
-	}
-	seen[channelID] = next
-	return true
 }
 
 // deliver decides whether a message is streamed to this connector and, if so,
