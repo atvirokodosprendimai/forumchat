@@ -902,6 +902,7 @@ type agentSignals struct {
 	TriggerMode   string `json:"ai_trigger_mode"`
 	TriggerPrefix string `json:"ai_trigger_prefix"`
 	AvatarURL     string `json:"ai_avatar_url"`
+	ChatAsHuman   bool   `json:"ai_chat_as_human"`
 	Channels      string `json:"ai_channels"` // CSV of channel ids (Datastar can't round-trip arrays)
 }
 
@@ -925,7 +926,7 @@ func (h *Handler) PostSaveAgent(w http.ResponseWriter, r *http.Request) {
 		SystemPrompt: in.SystemPrompt, Vision: in.Vision, ToolsEnabled: in.ToolsEnabled, Enabled: in.Enabled,
 		IsSummarizer:  in.Summarizer,
 		InChatEnabled: in.InChat, TriggerMode: in.TriggerMode, TriggerPrefix: in.TriggerPrefix,
-		AvatarURL: strings.TrimSpace(in.AvatarURL), UpdatedBy: id.User.ID,
+		AvatarURL: strings.TrimSpace(in.AvatarURL), ChatAsHuman: in.ChatAsHuman, UpdatedBy: id.User.ID,
 	}
 	// Preserve the stored key unless a new one was typed (the form never echoes
 	// the secret); load the existing row when editing.
@@ -1082,6 +1083,7 @@ func toAdminView(a Agent) webtempl.AgentAdminView {
 		TriggerMode:   a.TriggerMode,
 		TriggerPrefix: a.TriggerPrefix,
 		AvatarURL:     a.AvatarURL,
+		ChatAsHuman:   a.ChatAsHuman,
 	}
 }
 

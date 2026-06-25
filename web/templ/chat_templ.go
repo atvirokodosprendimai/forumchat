@@ -59,7 +59,10 @@ type MsgView struct {
 	BodyHTML     string
 	// GenStatus is the streaming lifecycle of a MsgKindBot bubble
 	// ('' | generating | done | interrupted). Drives the typing cursor.
-	GenStatus        string
+	GenStatus string
+	// AsHuman renders a MsgKindBot message as a regular member (no "AI"
+	// badge) — the agent's "treat as a normal citizen" option.
+	AsHuman          bool
 	CreatedAt        time.Time
 	Deleted          bool
 	ReplyTo          *ReplySnippet
@@ -184,7 +187,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(chatChannelSignals(d))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 143, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 146, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
@@ -197,7 +200,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(d.Viewer.CommunityName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 147, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 150, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -219,7 +222,7 @@ func ChatPage(d ChatPageData) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(d.ActiveTopic)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 150, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 153, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -253,7 +256,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/c/" + d.Viewer.CommunitySlug + "/presence/stream', {openWhenHidden: true})")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 164, Col: 136}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 167, Col: 136}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 			if templ_7745c5c3_Err != nil {
@@ -266,7 +269,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue("@get('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/stream', {openWhenHidden: true})")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 191, Col: 141}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 194, Col: 141}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 			if templ_7745c5c3_Err != nil {
@@ -279,7 +282,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/read')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 198, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 201, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 			if templ_7745c5c3_Err != nil {
@@ -292,7 +295,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + d.Viewer.CommunitySlug + "/chat/" + d.ActiveSlug + "/read')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 199, Col: 102}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 202, Col: 102}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 			if templ_7745c5c3_Err != nil {
@@ -365,7 +368,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue("/static/chat-notify.js?v=" + AssetVer("chat-notify.js"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 212, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 215, Col: 72}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 			if templ_7745c5c3_Err != nil {
@@ -378,7 +381,7 @@ func ChatPage(d ChatPageData) templ.Component {
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue("/static/chat-attach.js?v=" + AssetVer("chat-attach.js"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 213, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 216, Col: 72}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 			if templ_7745c5c3_Err != nil {
@@ -432,7 +435,7 @@ func ChannelSwitcher(slug string, channels []ChannelView, activeID string, canMa
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(activeName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 235, Col: 39}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 238, Col: 39}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -468,7 +471,7 @@ func ChannelSwitcher(slug string, channels []ChannelView, activeID string, canMa
 			var templ_7745c5c3_Var16 templ.SafeURL
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/c/" + slug + "/chat/" + c.Slug))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 242, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 245, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
@@ -481,7 +484,7 @@ func ChannelSwitcher(slug string, channels []ChannelView, activeID string, canMa
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue("$chat_unread['" + c.ID + "']=false; $_chan_menu=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 243, Col: 77}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 246, Col: 77}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 			if templ_7745c5c3_Err != nil {
@@ -494,7 +497,7 @@ func ChannelSwitcher(slug string, channels []ChannelView, activeID string, canMa
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 244, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 247, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
@@ -512,7 +515,7 @@ func ChannelSwitcher(slug string, channels []ChannelView, activeID string, canMa
 				var templ_7745c5c3_Var19 string
 				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue("$chat_unread['" + c.ID + "']")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 246, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 249, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 				if templ_7745c5c3_Err != nil {
@@ -535,7 +538,7 @@ func ChannelSwitcher(slug string, channels []ChannelView, activeID string, canMa
 				var templ_7745c5c3_Var20 string
 				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue("el.dispatchEvent(new CustomEvent('fc:chan-edit',{bubbles:true,detail:{id:'" + c.ID + "',name:'" + jsString(c.Name) + "',topic:'" + jsString(c.Topic) + "'}}))")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 251, Col: 182}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 254, Col: 182}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 				if templ_7745c5c3_Err != nil {
@@ -610,7 +613,7 @@ func ChannelManageDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/channels')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 297, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 300, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 		if templ_7745c5c3_Err != nil {
@@ -623,7 +626,7 @@ func ChannelManageDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var23 string
 		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/channels/rename')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 315, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 318, Col: 75}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var23)
 		if templ_7745c5c3_Err != nil {
@@ -636,7 +639,7 @@ func ChannelManageDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var24 string
 		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/channels/topic')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 316, Col: 88}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 319, Col: 88}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var24)
 		if templ_7745c5c3_Err != nil {
@@ -649,7 +652,7 @@ func ChannelManageDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var25 string
 		templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/channels/archive')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 320, Col: 90}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 323, Col: 90}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var25)
 		if templ_7745c5c3_Err != nil {
@@ -662,7 +665,7 @@ func ChannelManageDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var26 string
 		templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.ResolveAttributeValue("if(confirm('Delete this channel and all its messages? This cannot be undone.')){@post('/c/" + slug + "/chat/channels/delete')}")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 321, Col: 171}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 324, Col: 171}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var26)
 		if templ_7745c5c3_Err != nil {
@@ -716,7 +719,7 @@ func ChatComposer(slug, channelSlug string) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/notes/new?channel=" + channelSlug + "')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 355, Col: 84}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 358, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 		if templ_7745c5c3_Err != nil {
@@ -737,7 +740,7 @@ func ChatComposer(slug, channelSlug string) templ.Component {
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.ResolveAttributeValue("el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcTranslateDetect(el) && $_translate_capable){$_translate_open=true; $_translate_loading=true; $_mention_open=false; @get('/c/" + slug + "/chat/translate')} else if(window.fcMentionDetect(el)){$_mention_open=true; $_translate_open=false; $_translate_loading=false; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false; $_translate_open=false; $_translate_loading=false}")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 363, Col: 505}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 366, Col: 505}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var29)
 		if templ_7745c5c3_Err != nil {
@@ -750,7 +753,7 @@ func ChatComposer(slug, channelSlug string) templ.Component {
 		var templ_7745c5c3_Var30 string
 		templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.ResolveAttributeValue("if(evt.key==='Escape'){$_mention_open=false; $_translate_open=false; $_translate_loading=false; $_extract_open=false} else if(evt.key==='Enter' && !evt.shiftKey && $_translate_open && !$_translate_loading){evt.preventDefault(); document.querySelector('#translate-popup .translate-row')?.click()} else if(evt.key==='Enter' && !evt.shiftKey && $_translate_open && $_translate_loading){evt.preventDefault()} else if(evt.key==='Enter' && !evt.shiftKey && !$_mention_open && !$_translate_open){evt.preventDefault(); @post('/c/" + slug + "/chat/" + channelSlug + "/send'); el.style.height='auto'}")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 366, Col: 614}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 369, Col: 614}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var30)
 		if templ_7745c5c3_Err != nil {
@@ -763,7 +766,7 @@ func ChatComposer(slug, channelSlug string) templ.Component {
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/" + channelSlug + "/send'); document.querySelector('.composer-text').style.height='auto'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 367, Col: 211}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 370, Col: 211}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 		if templ_7745c5c3_Err != nil {
@@ -811,7 +814,7 @@ func EmojiButton(target string) templ.Component {
 		var templ_7745c5c3_Var33 string
 		templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.ResolveAttributeValue(target)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 382, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 385, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var33)
 		if templ_7745c5c3_Err != nil {
@@ -863,7 +866,7 @@ func MentionPopup(hits []MentionHit) templ.Component {
 			var templ_7745c5c3_Var35 string
 			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.ResolveAttributeValue("window.fcInsertMention('" + jsString(h.DisplayName) + "'); $_mention_open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 395, Col: 101}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 398, Col: 101}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var35)
 			if templ_7745c5c3_Err != nil {
@@ -876,7 +879,7 @@ func MentionPopup(hits []MentionHit) templ.Component {
 			var templ_7745c5c3_Var36 string
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("background:" + mentionColor(h.UserID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 396, Col: 76}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 399, Col: 76}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 			if templ_7745c5c3_Err != nil {
@@ -889,7 +892,7 @@ func MentionPopup(hits []MentionHit) templ.Component {
 			var templ_7745c5c3_Var37 string
 			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(mentionInitial(h.DisplayName))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 396, Col: 110}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 399, Col: 110}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 			if templ_7745c5c3_Err != nil {
@@ -902,7 +905,7 @@ func MentionPopup(hits []MentionHit) templ.Component {
 			var templ_7745c5c3_Var38 string
 			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(h.DisplayName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 397, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 400, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 			if templ_7745c5c3_Err != nil {
@@ -962,7 +965,7 @@ func TranslatePopup(opts []string) templ.Component {
 			var templ_7745c5c3_Var40 string
 			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.ResolveAttributeValue(o)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 422, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 425, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var40)
 			if templ_7745c5c3_Err != nil {
@@ -975,7 +978,7 @@ func TranslatePopup(opts []string) templ.Component {
 			var templ_7745c5c3_Var41 string
 			templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(o)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 425, Col: 34}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 428, Col: 34}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 			if templ_7745c5c3_Err != nil {
@@ -1027,6 +1030,17 @@ func mentionInitial(name string) string {
 		return string(r)
 	}
 	return "?"
+}
+
+// bubbleColor picks the identity-dot colour for a member-style bubble. Real
+// members key off the stable AuthorID; an as-human agent has no AuthorID, so it
+// keys off the display name instead — giving the "citizen" a consistent colour
+// like everyone else.
+func bubbleColor(m MsgView) string {
+	if m.AuthorID != "" {
+		return mentionColor(m.AuthorID)
+	}
+	return mentionColor(m.AuthorName)
 }
 
 // MsgGroup is a run of consecutive same-author user messages rendered
@@ -1112,7 +1126,7 @@ func MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName
 		var templ_7745c5c3_Var43 string
 		templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.ResolveAttributeValue(currentUserID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 523, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 537, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var43)
 		if templ_7745c5c3_Err != nil {
@@ -1125,7 +1139,7 @@ func MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName
 		var templ_7745c5c3_Var44 string
 		templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.ResolveAttributeValue(slug)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 524, Col: 28}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 538, Col: 28}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var44)
 		if templ_7745c5c3_Err != nil {
@@ -1138,7 +1152,7 @@ func MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.ResolveAttributeValue(channelSlug)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 525, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 539, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var45)
 		if templ_7745c5c3_Err != nil {
@@ -1350,7 +1364,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 		var templ_7745c5c3_Var53 string
 		templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.ResolveAttributeValue("msg-" + m.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 598, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 612, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var53)
 		if templ_7745c5c3_Err != nil {
@@ -1363,7 +1377,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 		var templ_7745c5c3_Var54 string
 		templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 598, Col: 67}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 612, Col: 67}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var54)
 		if templ_7745c5c3_Err != nil {
@@ -1382,7 +1396,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var55 string
 				templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(fmtTime(m.CreatedAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 601, Col: 65}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 615, Col: 65}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 				if templ_7745c5c3_Err != nil {
@@ -1414,7 +1428,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var56 string
 			templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(fmtTime(m.CreatedAt))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 607, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 621, Col: 44}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 			if templ_7745c5c3_Err != nil {
@@ -1428,7 +1442,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		} else if m.Kind == MsgKindWebhook || m.Kind == MsgKindBot {
+		} else if (m.Kind == MsgKindWebhook || m.Kind == MsgKindBot) && !m.AsHuman {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<header class=\"meta\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1441,7 +1455,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var57 string
 				templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.AuthorAvatar)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 612, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 626, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var57)
 				if templ_7745c5c3_Err != nil {
@@ -1459,7 +1473,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var58 string
 				templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.AuthorName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 614, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 628, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var58)
 				if templ_7745c5c3_Err != nil {
@@ -1477,7 +1491,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var59 string
 				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.AuthorName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 616, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 630, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var59)
 				if templ_7745c5c3_Err != nil {
@@ -1495,7 +1509,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var60 string
 			templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(m.AuthorName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 618, Col: 26}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 632, Col: 26}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 			if templ_7745c5c3_Err != nil {
@@ -1523,7 +1537,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var61 string
 			templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(fmtTime(m.CreatedAt))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 624, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 638, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 			if templ_7745c5c3_Err != nil {
@@ -1536,7 +1550,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var62 string
 			templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_bm_open_msg = '" + m.ID + "'; el.closest('details').open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 631, Col: 88}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 645, Col: 88}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var62)
 			if templ_7745c5c3_Err != nil {
@@ -1549,7 +1563,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var63 string
 			templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.ResolveAttributeValue(todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 635, Col: 102}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 649, Col: 102}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var63)
 			if templ_7745c5c3_Err != nil {
@@ -1567,7 +1581,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var64 string
 				templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 640, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 654, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var64)
 				if templ_7745c5c3_Err != nil {
@@ -1590,7 +1604,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var65 string
 				templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(m.ReplyTo.AuthorName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 648, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 662, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 				if templ_7745c5c3_Err != nil {
@@ -1603,7 +1617,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var66 string
 				templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(m.ReplyTo.Snippet)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 649, Col: 29}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 663, Col: 29}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 				if templ_7745c5c3_Err != nil {
@@ -1644,15 +1658,15 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				if m.AuthorID != "" && m.AuthorID != currentUserID {
+				if m.AuthorID != currentUserID {
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "<span class=\"author-dot\" style=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var67 string
-					templ_7745c5c3_Var67, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("background:" + mentionColor(m.AuthorID))
+					templ_7745c5c3_Var67, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("background:" + bubbleColor(m))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 666, Col: 55}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 680, Col: 45}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 					if templ_7745c5c3_Err != nil {
@@ -1665,7 +1679,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 					var templ_7745c5c3_Var68 string
 					templ_7745c5c3_Var68, templ_7745c5c3_Err = templ.ResolveAttributeValue(m.AuthorName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 667, Col: 27}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 681, Col: 27}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var68)
 					if templ_7745c5c3_Err != nil {
@@ -1678,7 +1692,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 					var templ_7745c5c3_Var69 string
 					templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(mentionInitial(m.AuthorName))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 667, Col: 60}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 681, Col: 60}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
 					if templ_7745c5c3_Err != nil {
@@ -1696,7 +1710,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var70 string
 				templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(m.AuthorName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 669, Col: 27}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 683, Col: 27}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 				if templ_7745c5c3_Err != nil {
@@ -1709,7 +1723,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var71 string
 				templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(fmtTime(m.CreatedAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 670, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 684, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 				if templ_7745c5c3_Err != nil {
@@ -1727,7 +1741,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var72 string
 			templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.ResolveAttributeValue("$reply_to_id = '" + m.ID + "'; el.closest('details').open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 678, Col: 87}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 692, Col: 87}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var72)
 			if templ_7745c5c3_Err != nil {
@@ -1740,7 +1754,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var73 string
 			templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.ResolveAttributeValue("$fwd_source_id='" + m.ID + "'; $fwd_target_channel=''; $fwd_note=''; $_fwd_open=true; el.closest('details').open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 682, Col: 142}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 696, Col: 142}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var73)
 			if templ_7745c5c3_Err != nil {
@@ -1753,7 +1767,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var74 string
 			templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_bm_open_msg = '" + m.ID + "'; el.closest('details').open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 686, Col: 88}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 700, Col: 88}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var74)
 			if templ_7745c5c3_Err != nil {
@@ -1766,7 +1780,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			var templ_7745c5c3_Var75 string
 			templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.ResolveAttributeValue(todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 690, Col: 102}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 704, Col: 102}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var75)
 			if templ_7745c5c3_Err != nil {
@@ -1776,7 +1790,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if m.AuthorID != currentUserID {
+			if m.AuthorID != "" && m.AuthorID != currentUserID {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "<button class=\"msg-menu-item\" role=\"menuitem\" data-on:click=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -1784,7 +1798,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var76 string
 				templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_pm_open_to_user='" + m.AuthorID + "'; $_pm_open_to_name='" + jsString(m.AuthorName) + "'; $pm_source_chat_id='" + m.ID + "'; el.closest('details').open=false")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 695, Col: 184}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 709, Col: 184}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var76)
 				if templ_7745c5c3_Err != nil {
@@ -1803,7 +1817,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var77 templ.SafeURL
 				templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + slug + "/forum/" + m.PromotedThreadID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 700, Col: 110}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 714, Col: 110}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 				if templ_7745c5c3_Err != nil {
@@ -1821,7 +1835,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var78 string
 				templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/forum/promote-chat?id=" + m.ID + "')")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 705, Col: 84}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 719, Col: 84}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var78)
 				if templ_7745c5c3_Err != nil {
@@ -1840,7 +1854,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var79 string
 				templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 711, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 725, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var79)
 				if templ_7745c5c3_Err != nil {
@@ -1863,7 +1877,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var80 string
 				templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(m.ReplyTo.AuthorName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 719, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 733, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 				if templ_7745c5c3_Err != nil {
@@ -1876,7 +1890,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var81 string
 				templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(m.ReplyTo.Snippet)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 720, Col: 29}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 734, Col: 29}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 				if templ_7745c5c3_Err != nil {
@@ -1899,7 +1913,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var82 templ.SafeURL
 				templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + slug + "/chat/" + m.Forwarded.ChannelSlug))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 724, Col: 96}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 738, Col: 96}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 				if templ_7745c5c3_Err != nil {
@@ -1912,7 +1926,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				var templ_7745c5c3_Var83 string
 				templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(m.Forwarded.ChannelName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 727, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 741, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 				if templ_7745c5c3_Err != nil {
@@ -1930,7 +1944,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 					var templ_7745c5c3_Var84 string
 					templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(m.Forwarded.AuthorName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 729, Col: 54}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 743, Col: 54}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 					if templ_7745c5c3_Err != nil {
@@ -1953,7 +1967,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 					var templ_7745c5c3_Var85 string
 					templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(m.Forwarded.Snippet)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 733, Col: 63}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 747, Col: 63}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 					if templ_7745c5c3_Err != nil {
@@ -1977,7 +1991,13 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 143, "</div>")
+			if m.Kind == MsgKindBot && m.GenStatus == "generating" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 143, "<span class=\"gen-cursor\" aria-hidden=\"true\">▍</span>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1987,7 +2007,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 144, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 145, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1998,7 +2018,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 145, "</article>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "</article>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2035,7 +2055,7 @@ func MessageAttachments(atts []AttachmentView, isMod bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 146, "<div class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, "<div class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2048,12 +2068,12 @@ func MessageAttachments(atts []AttachmentView, isMod bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 148, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, a := range atts {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 148, "<div class=\"msg-attach-cell\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 149, "<div class=\"msg-attach-cell\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2062,30 +2082,30 @@ func MessageAttachments(atts []AttachmentView, isMod bool) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if isMod {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 149, "<button type=\"button\" class=\"msg-attach-extract\" title=\"Extract to project\" data-on:click=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 150, "<button type=\"button\" class=\"msg-attach-extract\" title=\"Extract to project\" data-on:click=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var89 string
 				templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.ResolveAttributeValue("$extract_attachment_id='" + a.ID + "'; $extract_attachment_name='" + jsString(a.Filename) + "'; $extract_title='" + jsString(extractTitleFromFilename(a.Filename)) + "'; $extract_project_id=''; $extract_mode='docs'; $_extract_open=true")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 759, Col: 258}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 778, Col: 258}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var89)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 150, "\">↗ Extract</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, "\">↗ Extract</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 152, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 152, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 153, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2134,339 +2154,339 @@ func MessageAttachment(a AttachmentView) templ.Component {
 		ctx = templ.ClearChildren(ctx)
 		switch a.Kind {
 		case "image":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 153, "<a class=\"msg-attach-image\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 154, "<a class=\"msg-attach-image\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var91 templ.SafeURL
 			templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(a.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 789, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 808, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 154, "\" target=\"_blank\" rel=\"noopener\" title=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 155, "\" target=\"_blank\" rel=\"noopener\" title=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var92 string
 			templ_7745c5c3_Var92, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 789, Col: 106}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 808, Col: 106}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var92)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 155, "\"><img loading=\"lazy\" alt=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 156, "\"><img loading=\"lazy\" alt=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var93 string
 			templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 790, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 809, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var93)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 156, "\" src=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 157, "\" src=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var94 string
 			templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.URL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 790, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 809, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var94)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 157, "\"> <span class=\"msg-attach-image-caption\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 158, "\"> <span class=\"msg-attach-image-caption\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var95 string
 			templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinStringErrs(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 791, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 810, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 158, " · ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 159, " · ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var96 string
 			templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.JoinStringErrs(humanSize(a.Size))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 791, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 810, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var96))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 159, "</span></a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 160, "</span></a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case "video":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 160, "<div class=\"msg-attach-video\"><video controls preload=\"metadata\" src=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 161, "<div class=\"msg-attach-video\"><video controls preload=\"metadata\" src=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var97 string
 			templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.URL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 795, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 814, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var97)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 161, "\"></video><div class=\"msg-attach-meta\"><span class=\"msg-attach-icon\" aria-hidden=\"true\">🎬</span> <span class=\"msg-attach-name\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 162, "\"></video><div class=\"msg-attach-meta\"><span class=\"msg-attach-icon\" aria-hidden=\"true\">🎬</span> <span class=\"msg-attach-name\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var98 string
 			templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinStringErrs(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 798, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 817, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 162, "</span> <span class=\"msg-attach-size\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 163, "</span> <span class=\"msg-attach-size\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var99 string
 			templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(humanSize(a.Size))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 799, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 818, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 163, "</span> <a class=\"msg-attach-download\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 164, "</span> <a class=\"msg-attach-download\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var100 templ.SafeURL
 			templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(a.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 800, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 819, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 164, "\" target=\"_blank\" rel=\"noopener\">⬇</a></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 165, "\" target=\"_blank\" rel=\"noopener\">⬇</a></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case "audio":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 165, "<div class=\"msg-attach-audio\"><audio controls preload=\"metadata\" src=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 166, "<div class=\"msg-attach-audio\"><audio controls preload=\"metadata\" src=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var101 string
 			templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.URL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 805, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 824, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var101)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 166, "\"></audio><div class=\"msg-attach-meta\"><span class=\"msg-attach-icon\" aria-hidden=\"true\">🎵</span> <span class=\"msg-attach-name\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "\"></audio><div class=\"msg-attach-meta\"><span class=\"msg-attach-icon\" aria-hidden=\"true\">🎵</span> <span class=\"msg-attach-name\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var102 string
 			templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 808, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 827, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 167, "</span> <span class=\"msg-attach-size\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 168, "</span> <span class=\"msg-attach-size\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var103 string
 			templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(humanSize(a.Size))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 809, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 828, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 168, "</span> <a class=\"msg-attach-download\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 169, "</span> <a class=\"msg-attach-download\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var104 templ.SafeURL
 			templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(a.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 810, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 829, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var104))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 169, "\" target=\"_blank\" rel=\"noopener\">⬇</a></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 170, "\" target=\"_blank\" rel=\"noopener\">⬇</a></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case "pdf":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 170, "<div class=\"msg-attach-pdf\"><iframe src=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 171, "<div class=\"msg-attach-pdf\"><iframe src=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var105 string
 			templ_7745c5c3_Var105, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.URL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 815, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 834, Col: 23}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var105)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 171, "\" title=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 172, "\" title=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var106 string
 			templ_7745c5c3_Var106, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 815, Col: 44}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 834, Col: 44}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var106)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 172, "\"></iframe><div class=\"msg-attach-meta\"><span class=\"msg-attach-icon\" aria-hidden=\"true\">📄</span> <span class=\"msg-attach-name\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 173, "\"></iframe><div class=\"msg-attach-meta\"><span class=\"msg-attach-icon\" aria-hidden=\"true\">📄</span> <span class=\"msg-attach-name\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var107 string
 			templ_7745c5c3_Var107, templ_7745c5c3_Err = templ.JoinStringErrs(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 818, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 837, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var107))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 173, "</span> <span class=\"msg-attach-size\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 174, "</span> <span class=\"msg-attach-size\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var108 string
 			templ_7745c5c3_Var108, templ_7745c5c3_Err = templ.JoinStringErrs(humanSize(a.Size))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 819, Col: 54}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 838, Col: 54}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var108))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 174, "</span> <a class=\"msg-attach-download\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 175, "</span> <a class=\"msg-attach-download\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var109 templ.SafeURL
 			templ_7745c5c3_Var109, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(a.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 820, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 839, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var109))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 175, "\" target=\"_blank\" rel=\"noopener\">Open PDF ↗</a></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 176, "\" target=\"_blank\" rel=\"noopener\">Open PDF ↗</a></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		default:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 176, "<a class=\"msg-attach-chip\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 177, "<a class=\"msg-attach-chip\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var110 templ.SafeURL
 			templ_7745c5c3_Var110, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(a.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 824, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 843, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var110))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 177, "\" target=\"_blank\" rel=\"noopener\" title=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 178, "\" target=\"_blank\" rel=\"noopener\" title=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var111 string
 			templ_7745c5c3_Var111, templ_7745c5c3_Err = templ.ResolveAttributeValue(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 824, Col: 105}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 843, Col: 105}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var111)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 178, "\"><span class=\"msg-attach-icon\" aria-hidden=\"true\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 179, "\"><span class=\"msg-attach-icon\" aria-hidden=\"true\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var112 string
 			templ_7745c5c3_Var112, templ_7745c5c3_Err = templ.JoinStringErrs(attachIcon(a.Kind))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 825, Col: 73}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 844, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var112))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 179, "</span> <span class=\"msg-attach-name\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 180, "</span> <span class=\"msg-attach-name\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var113 string
 			templ_7745c5c3_Var113, templ_7745c5c3_Err = templ.JoinStringErrs(a.Filename)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 826, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 845, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var113))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 180, "</span> <span class=\"msg-attach-size\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 181, "</span> <span class=\"msg-attach-size\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var114 string
 			templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(humanSize(a.Size))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 827, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 846, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 181, "</span></a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 182, "</span></a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2583,77 +2603,77 @@ func ReadReceipts(readers []ReaderView) templ.Component {
 			templ_7745c5c3_Var115 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 182, "<div class=\"read-receipts\" aria-label=\"Seen by\"><span class=\"rr-eye\" aria-hidden=\"true\">✓✓</span> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 183, "<div class=\"read-receipts\" aria-label=\"Seen by\"><span class=\"rr-eye\" aria-hidden=\"true\">✓✓</span> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for i, r := range readers {
 			if i < 5 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 183, "<span class=\"rr-dot\" style=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 184, "<span class=\"rr-dot\" style=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var116 string
 				templ_7745c5c3_Var116, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("background:" + mentionColor(r.UserID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 925, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 944, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var116))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 184, "\" title=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 185, "\" title=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var117 string
 				templ_7745c5c3_Var117, templ_7745c5c3_Err = templ.ResolveAttributeValue(r.DisplayName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 926, Col: 26}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 945, Col: 26}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var117)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 185, "\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 186, "\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var118 string
 				templ_7745c5c3_Var118, templ_7745c5c3_Err = templ.JoinStringErrs(mentionInitial(r.DisplayName))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 926, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 945, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var118))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 186, "</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 187, "</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		}
 		if len(readers) > 5 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 187, "<span class=\"rr-more\">+")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 188, "<span class=\"rr-more\">+")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var119 string
 			templ_7745c5c3_Var119, templ_7745c5c3_Err = templ.JoinStringErrs(itoaNotif(len(readers) - 5))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 930, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 949, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var119))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 188, "</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 189, "</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 189, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 190, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2698,58 +2718,58 @@ func ForwardDialog(slug, activeSlug string, channels []ChannelView) templ.Compon
 			templ_7745c5c3_Var120 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 190, "<div class=\"modal-overlay\" data-cloak data-show=\"$_fwd_open\" data-on:click=\"if(evt.target===el){$_fwd_open=false}\"><div class=\"modal forward-dialog\" data-on:click=\"evt.stopPropagation()\"><header class=\"modal-head\"><strong>Forward message</strong> <button class=\"link\" data-on:click=\"$_fwd_open=false\">✕</button></header><div class=\"modal-body\"><label class=\"form-row\"><span>To channel</span> <select data-bind=\"fwd_target_channel\"><option value=\"\">— pick a channel —</option> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 191, "<div class=\"modal-overlay\" data-cloak data-show=\"$_fwd_open\" data-on:click=\"if(evt.target===el){$_fwd_open=false}\"><div class=\"modal forward-dialog\" data-on:click=\"evt.stopPropagation()\"><header class=\"modal-head\"><strong>Forward message</strong> <button class=\"link\" data-on:click=\"$_fwd_open=false\">✕</button></header><div class=\"modal-body\"><label class=\"form-row\"><span>To channel</span> <select data-bind=\"fwd_target_channel\"><option value=\"\">— pick a channel —</option> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, c := range channels {
 			if c.Slug != activeSlug {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 191, "<option value=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 192, "<option value=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var121 string
 				templ_7745c5c3_Var121, templ_7745c5c3_Err = templ.ResolveAttributeValue(c.Slug)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 966, Col: 30}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 985, Col: 30}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var121)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 192, "\">#")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 193, "\">#")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var122 string
 				templ_7745c5c3_Var122, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 966, Col: 42}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 985, Col: 42}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var122))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 193, "</option>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 194, "</option>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 194, "</select></label> <label class=\"form-row\"><span>Add a message <span class=\"muted\">(optional)</span></span> <textarea data-bind=\"fwd_note\" rows=\"2\" placeholder=\"Say something…\"></textarea></label></div><footer class=\"modal-foot\"><button class=\"btn ghost\" data-on:click=\"$_fwd_open=false\">Cancel</button> <button class=\"btn\" data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 195, "</select></label> <label class=\"form-row\"><span>Add a message <span class=\"muted\">(optional)</span></span> <textarea data-bind=\"fwd_note\" rows=\"2\" placeholder=\"Say something…\"></textarea></label></div><footer class=\"modal-foot\"><button class=\"btn ghost\" data-on:click=\"$_fwd_open=false\">Cancel</button> <button class=\"btn\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var123 string
 		templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/forward')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 978, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 997, Col: 79}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var123)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 195, "\" data-attr:disabled=\"$fwd_target_channel === '' ? true : null\">Forward</button></footer></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 196, "\" data-attr:disabled=\"$fwd_target_channel === '' ? true : null\">Forward</button></footer></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2781,56 +2801,56 @@ func ExtractDialog(slug string, projects []ChatProjectView) templ.Component {
 			templ_7745c5c3_Var124 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 196, "<div class=\"modal-overlay\" data-cloak data-show=\"$_extract_open\" data-on:click=\"if(evt.target===el){$_extract_open=false}\"><div class=\"modal extract-dialog\" data-on:click=\"evt.stopPropagation()\"><header class=\"modal-head\"><strong>Extract to project</strong> <button class=\"link\" data-on:click=\"$_extract_open=false\">✕</button></header><div class=\"modal-body\"><p class=\"muted\"><span data-text=\"$extract_attachment_name\"></span></p><label class=\"form-row\"><span>Project</span> <select data-bind=\"extract_project_id\"><option value=\"\">— pick a project —</option> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 197, "<div class=\"modal-overlay\" data-cloak data-show=\"$_extract_open\" data-on:click=\"if(evt.target===el){$_extract_open=false}\"><div class=\"modal extract-dialog\" data-on:click=\"evt.stopPropagation()\"><header class=\"modal-head\"><strong>Extract to project</strong> <button class=\"link\" data-on:click=\"$_extract_open=false\">✕</button></header><div class=\"modal-body\"><p class=\"muted\"><span data-text=\"$extract_attachment_name\"></span></p><label class=\"form-row\"><span>Project</span> <select data-bind=\"extract_project_id\"><option value=\"\">— pick a project —</option> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, p := range projects {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 197, "<option value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 198, "<option value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var125 string
 			templ_7745c5c3_Var125, templ_7745c5c3_Err = templ.ResolveAttributeValue(p.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 1003, Col: 27}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 1022, Col: 27}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var125)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 198, "\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 199, "\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var126 string
 			templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 1003, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 1022, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var126))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 199, "</option>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 200, "</option>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 200, "</select></label><div class=\"form-row\"><span>File as</span><div class=\"seg\"><button type=\"button\" class=\"seg-btn\" data-class:active=\"$extract_mode === 'docs'\" data-on:click=\"$extract_mode='docs'\">Project Docs</button> <button type=\"button\" class=\"seg-btn\" data-class:active=\"$extract_mode === 'issue'\" data-on:click=\"$extract_mode='issue'\">New issue</button></div></div><label class=\"form-row\" data-show=\"$extract_mode === 'issue'\"><span>Issue title</span> <input type=\"text\" data-bind=\"extract_title\" placeholder=\"Title prefilled from filename\"></label><div id=\"extract-error\" class=\"error\" aria-live=\"polite\"></div></div><footer class=\"modal-foot\"><button class=\"btn ghost\" data-on:click=\"$_extract_open=false\">Cancel</button> <button class=\"btn\" data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 201, "</select></label><div class=\"form-row\"><span>File as</span><div class=\"seg\"><button type=\"button\" class=\"seg-btn\" data-class:active=\"$extract_mode === 'docs'\" data-on:click=\"$extract_mode='docs'\">Project Docs</button> <button type=\"button\" class=\"seg-btn\" data-class:active=\"$extract_mode === 'issue'\" data-on:click=\"$extract_mode='issue'\">New issue</button></div></div><label class=\"form-row\" data-show=\"$extract_mode === 'issue'\"><span>Issue title</span> <input type=\"text\" data-bind=\"extract_title\" placeholder=\"Title prefilled from filename\"></label><div id=\"extract-error\" class=\"error\" aria-live=\"polite\"></div></div><footer class=\"modal-foot\"><button class=\"btn ghost\" data-on:click=\"$_extract_open=false\">Cancel</button> <button class=\"btn\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var127 string
 		templ_7745c5c3_Var127, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/chat/extract')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 1026, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 1045, Col: 79}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var127)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 201, "\" data-attr:disabled=\"$extract_project_id === '' ? true : null\">Save</button></footer></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 202, "\" data-attr:disabled=\"$extract_project_id === '' ? true : null\">Save</button></footer></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -77,7 +77,10 @@ type AgentAdminView struct {
 	TriggerMode   string // mention | prefix | both | all
 	TriggerPrefix string
 	AvatarURL     string
-	Channels      []AgentChannelOption // community channels + which are bound
+	// ChatAsHuman renders this agent's in-channel messages like a regular
+	// member (no "AI" badge) — the "treat the bot as a citizen" toggle.
+	ChatAsHuman bool
+	Channels    []AgentChannelOption // community channels + which are bound
 }
 
 // AgentChannelOption is one channel checkbox in the agent admin form's
@@ -743,6 +746,10 @@ templ AgentAdminForm(slug string, a AgentAdminView, status string) {
 					<span>Prefix <span class="muted">(line starting with this summons the bot)</span></span>
 					<input type="text" data-bind="ai_trigger_prefix" maxlength="3" placeholder="."/>
 				</label>
+				<label class="agent-config-toggle">
+					<input type="checkbox" data-bind="ai_chat_as_human"/>
+					<span>Appear as a regular member (no “AI” label — treat as a normal citizen)</span>
+				</label>
 				<div class="agent-chat-channels">
 					<span class="agent-chat-channels-label">Channels</span>
 					if len(a.Channels) == 0 {
@@ -809,6 +816,7 @@ func agentFormSignals(a AgentAdminView) string {
 		`,"ai_trigger_mode":` + strconv.Quote(mode) +
 		`,"ai_trigger_prefix":` + strconv.Quote(prefix) +
 		`,"ai_avatar_url":` + strconv.Quote(a.AvatarURL) +
+		`,"ai_chat_as_human":` + agentBoolStr(a.ChatAsHuman) +
 		`,"ai_channels":` + strconv.Quote(agentBoundChannelsCSV(a)) +
 		`,"ai_api_key":""}`
 }

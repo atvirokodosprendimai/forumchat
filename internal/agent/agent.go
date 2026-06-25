@@ -72,7 +72,12 @@ type Agent struct {
 	InChatEnabled bool
 	TriggerMode   string // mention | prefix | both | all
 	TriggerPrefix string // line-prefix that summons it (default ".")
-	AvatarURL     string
+	// ChatAsHuman makes this agent's in-channel messages render like a regular
+	// member (avatar/initial + name, no "AI" badge) — "treat the bot as a
+	// citizen". Denormalised onto each posted message as bot_as_human so the
+	// chat read path needs no JOIN. Independent of InChatEnabled.
+	ChatAsHuman bool
+	AvatarURL   string
 	Position      int
 	UpdatedBy     string
 	CreatedAt     int64

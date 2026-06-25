@@ -51,7 +51,10 @@ type MsgView struct {
 	BodyHTML         string
 	// GenStatus is the streaming lifecycle of a MsgKindBot bubble
 	// ('' | generating | done | interrupted). Drives the typing cursor.
-	GenStatus        string
+	GenStatus string
+	// AsHuman renders a MsgKindBot message as a regular member (no "AI"
+	// badge) — the agent's "treat as a normal citizen" option.
+	AsHuman          bool
 	CreatedAt        time.Time
 	Deleted          bool
 	ReplyTo          *ReplySnippet
@@ -463,6 +466,17 @@ func mentionInitial(name string) string {
 	return "?"
 }
 
+// bubbleColor picks the identity-dot colour for a member-style bubble. Real
+// members key off the stable AuthorID; an as-human agent has no AuthorID, so it
+// keys off the display name instead — giving the "citizen" a consistent colour
+// like everyone else.
+func bubbleColor(m MsgView) string {
+	if m.AuthorID != "" {
+		return mentionColor(m.AuthorID)
+	}
+	return mentionColor(m.AuthorName)
+}
+
 // MsgGroup is a run of consecutive same-author user messages rendered
 // as a single visual bubble (telegram-style). System / thread-announce
 // messages each live in their own one-element group so they keep their
@@ -606,7 +620,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 		} else if m.Kind == MsgKindThreadAnnounce {
 			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
 			@templ.Raw(render.RichHTML(m.BodyHTML))
-		} else if m.Kind == MsgKindWebhook || m.Kind == MsgKindBot {
+		} else if (m.Kind == MsgKindWebhook || m.Kind == MsgKindBot) && !m.AsHuman {
 			<header class="meta">
 				if m.AuthorAvatar != "" {
 					<img class="bot-avatar" src={ m.AuthorAvatar } alt="" loading="lazy"/>
@@ -661,9 +675,9 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 		} else {
 			if showMeta {
 				<header class="meta">
-					if m.AuthorID != "" && m.AuthorID != currentUserID {
+					if m.AuthorID != currentUserID {
 						<span class="author-dot"
-							style={ "background:" + mentionColor(m.AuthorID) }
+							style={ "background:" + bubbleColor(m) }
 							title={ m.AuthorName }>{ mentionInitial(m.AuthorName) }</span>
 					}
 					<strong>{ m.AuthorName }</strong>
@@ -690,7 +704,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 						data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false" }>
 						<span class="mi-icon">☑</span><span class="mi-label">To-do</span>
 					</button>
-					if m.AuthorID != currentUserID {
+					if m.AuthorID != "" && m.AuthorID != currentUserID {
 						<button class="msg-menu-item" role="menuitem"
 							data-on:click={ "$_pm_open_to_user='" + m.AuthorID + "'; $_pm_open_to_name='" + jsString(m.AuthorName) + "'; $pm_source_chat_id='" + m.ID + "'; el.closest('details').open=false" }>
 							<span class="mi-icon">✉</span><span class="mi-label">Message</span>
@@ -734,7 +748,12 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					}
 				</a>
 			}
-			<div class="body">@templ.Raw(render.RichHTML(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
+			<div class="body">
+				@templ.Raw(render.RichHTML(render.HighlightMentions(m.BodyHTML, viewerName)))
+				if m.Kind == MsgKindBot && m.GenStatus == "generating" {
+					<span class="gen-cursor" aria-hidden="true">▍</span>
+				}
+			</div>
 			if len(m.Attachments) > 0 {
 				@MessageAttachments(m.Attachments, isMod)
 			}

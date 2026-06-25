@@ -31,6 +31,20 @@ templ NewUserHoldNotice(slotID, action string, retry time.Duration) {
 	</div>
 }
 
+// ChatCmdNotice renders a dismissible info card into the agent-notice slot —
+// used for slash-command feedback (e.g. an admin /bots toggle confirmation, or a
+// "usage" / "admins only" hint). icon is a short emoji glyph; msg is plain text.
+// Self-removes after a few seconds; the empty slot stays for later reuse.
+templ ChatCmdNotice(slotID, icon, msg string) {
+	<div id={ slotID } class="agent-notice-slot">
+		<div class="agent-rate-notice" role="status" aria-live="polite" data-init="setTimeout(() => el.remove(), 6000)">
+			<span class="agent-rate-notice-icon" aria-hidden="true">{ icon }</span>
+			<span class="agent-rate-notice-text">{ msg }</span>
+			<button type="button" class="agent-rate-notice-x" aria-label="Dismiss" data-on:click="el.closest('.agent-rate-notice').remove()">✕</button>
+		</div>
+	</div>
+}
+
 // AgentRateLimitNotice renders a dismissible "rate limit reached" card into a
 // stable slot identified by slotID. The slot id must already exist on the page
 // (empty); this outer-morphs the slot so it contains the card. The card

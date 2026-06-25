@@ -934,6 +934,36 @@ func run() error {
 			return agentlimit.Limits{PerUserMin: c.AgentRatePerUserMin, PerCommunityMin: c.AgentRatePerCommunityMin}, nil
 		})
 		dispatcher := chatagents.NewDispatcher(agentRepo, forumHandler.CreateAgentThread, threadRunner, agentGate, log)
+		// In-channel streaming: a triggered agent ALSO answers as a kind='bot'
+		// bubble right in the channel (alongside the forum thread). Same tools +
+		// platform-compute routing as the pane.
+		channelRunner := chatagents.NewChannelRunner(chatRepo, chatBus, chatNewMsgBus, nc, 0, log)
+		channelRunner.Tools = mcpMgr.Build
+		channelRunner.Resolve = resolveCompute
+		dispatcher.Channel = channelRunner
+		// Per-community switches behind the /bots (master) and /autochat
+		// (bot-to-bot) slash commands. Fail open on the master and closed on
+		// bot-to-bot if the row can't be read, so a transient error never starts
+		// an unbounded loop.
+		dispatcher.Policy = func(ctx context.Context, communityID string) (bots, autochat bool) {
+			c, err := cRepo.ByID(ctx, communityID)
+			if err != nil {
+				return true, false
+			}
+			return c.AgentsChatEnabled, c.AgentsAutochatEnabled
+		}
+		// Bot-to-bot: a finished in-channel reply re-enters dispatch as a KindBot
+		// trigger. The /autochat gate, self-exclusion and per-agent 15s cooldown
+		// inside Dispatch fully bound the loop; an admin halts it with /autochat 0.
+		channelRunner.OnReply = func(communityID, channelID, slug, authorAgentID, body string) {
+			dispatcher.Dispatch(context.Background(), chatagents.Trigger{
+				CommunityID: communityID, Slug: slug, ChannelID: channelID,
+				Body: body, Kind: chat.KindBot, AuthorAgentID: authorAgentID,
+			})
+		}
+		// Admin /bots, /autochat and /kill flip the community switches.
+		chatHandler.SetAgentsChatEnabled = cRepo.SetAgentsChatEnabled
+		chatHandler.SetAgentsAutochatEnabled = cRepo.SetAgentsAutochatEnabled
 		chatHandler.Dispatch = func(ctx context.Context, t chat.AgentTrigger) chat.DispatchResult {
 			res := dispatcher.Dispatch(ctx, chatagents.Trigger{
 				CommunityID: t.CommunityID, Slug: t.Slug, ChannelID: t.ChannelID,
@@ -1719,6 +1749,12 @@ func run() error {
 			log.Warn("chatagents: heal generating bot posts failed", "err", err)
 		} else if n > 0 {
 			log.Info("chatagents: healed interrupted bot posts", "count", n)
+		}
+		// And for in-channel bot bubbles cut off mid-stream by a restart.
+		if n, err := chatRepo.MarkBotGeneratingInterrupted(ctx); err != nil {
+			log.Warn("chatagents: heal generating bot bubbles failed", "err", err)
+		} else if n > 0 {
+			log.Info("chatagents: healed interrupted bot bubbles", "count", n)
 		}
 	}
 

@@ -95,13 +95,11 @@ func NewUserHoldNotice(slotID, action string, retry time.Duration) templ.Compone
 	})
 }
 
-// AgentRateLimitNotice renders a dismissible "rate limit reached" card into a
-// stable slot identified by slotID. The slot id must already exist on the page
-// (empty); this outer-morphs the slot so it contains the card. The card
-// self-removes after a few seconds — the empty slot stays in the DOM so a later
-// throttle can re-fill it. retry is roughly how long until the member's
-// per-minute budget frees up.
-func AgentRateLimitNotice(slotID string, retry time.Duration) templ.Component {
+// ChatCmdNotice renders a dismissible info card into the agent-notice slot —
+// used for slash-command feedback (e.g. an admin /bots toggle confirmation, or a
+// "usage" / "admins only" hint). icon is a short emoji glyph; msg is plain text.
+// Self-removes after a few seconds; the empty slot stays for later reuse.
+func ChatCmdNotice(slotID, icon, msg string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -129,26 +127,100 @@ func AgentRateLimitNotice(slotID string, retry time.Duration) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue(slotID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agentlimit.templ`, Line: 41, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agentlimit.templ`, Line: 39, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" class=\"agent-notice-slot\"><div class=\"agent-rate-notice\" role=\"status\" aria-live=\"polite\" data-init=\"setTimeout(() => el.remove(), 8000)\"><span class=\"agent-rate-notice-icon\" aria-hidden=\"true\">⏳</span> <span class=\"agent-rate-notice-text\">Rate limit reached — try again in ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" class=\"agent-notice-slot\"><div class=\"agent-rate-notice\" role=\"status\" aria-live=\"polite\" data-init=\"setTimeout(() => el.remove(), 6000)\"><span class=\"agent-rate-notice-icon\" aria-hidden=\"true\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(rateLimitSecs(retry))
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(icon)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agentlimit.templ`, Line: 45, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agentlimit.templ`, Line: 41, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "s.</span> <button type=\"button\" class=\"agent-rate-notice-x\" aria-label=\"Dismiss\" data-on:click=\"el.closest('.agent-rate-notice').remove()\">✕</button></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</span> <span class=\"agent-rate-notice-text\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var8 string
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(msg)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agentlimit.templ`, Line: 42, Col: 45}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</span> <button type=\"button\" class=\"agent-rate-notice-x\" aria-label=\"Dismiss\" data-on:click=\"el.closest('.agent-rate-notice').remove()\">✕</button></div></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// AgentRateLimitNotice renders a dismissible "rate limit reached" card into a
+// stable slot identified by slotID. The slot id must already exist on the page
+// (empty); this outer-morphs the slot so it contains the card. The card
+// self-removes after a few seconds — the empty slot stays in the DOM so a later
+// throttle can re-fill it. retry is roughly how long until the member's
+// per-minute budget frees up.
+func AgentRateLimitNotice(slotID string, retry time.Duration) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var9 == nil {
+			templ_7745c5c3_Var9 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div id=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var10 string
+		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue(slotID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agentlimit.templ`, Line: 55, Col: 17}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\" class=\"agent-notice-slot\"><div class=\"agent-rate-notice\" role=\"status\" aria-live=\"polite\" data-init=\"setTimeout(() => el.remove(), 8000)\"><span class=\"agent-rate-notice-icon\" aria-hidden=\"true\">⏳</span> <span class=\"agent-rate-notice-text\">Rate limit reached — try again in ")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var11 string
+		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(rateLimitSecs(retry))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/agentlimit.templ`, Line: 59, Col: 62}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "s.</span> <button type=\"button\" class=\"agent-rate-notice-x\" aria-label=\"Dismiss\" data-on:click=\"el.closest('.agent-rate-notice').remove()\">✕</button></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

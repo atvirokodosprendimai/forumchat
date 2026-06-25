@@ -23,6 +23,14 @@ type Community struct {
 	// members combined. Only populated by BySlug / ByID.
 	AgentRatePerUserMin      int
 	AgentRatePerCommunityMin int
+
+	// AgentsChatEnabled is the /bots master switch: do bound channel agents
+	// answer messages at all (default true). AgentsAutochatEnabled is the
+	// /autochat switch: may agents trigger EACH OTHER, bot-to-bot (default
+	// false — opt-in). Admin-toggled via slash commands. Only populated by
+	// BySlug / ByID.
+	AgentsChatEnabled     bool
+	AgentsAutochatEnabled bool
 }
 
 type Repo struct {
@@ -39,11 +47,13 @@ func (r *Repo) BySlug(ctx context.Context, slug string) (Community, error) {
 	var c Community
 	var created int64
 	var isPublic int
+	var chatOn, autochatOn int
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT id, slug, name, COALESCE(is_public,0), created_at,
-		       COALESCE(agent_rate_per_user_min,0), COALESCE(agent_rate_per_community_min,0)
+		       COALESCE(agent_rate_per_user_min,0), COALESCE(agent_rate_per_community_min,0),
+		       COALESCE(agents_chat_enabled,1), COALESCE(agents_autochat_enabled,0)
 		FROM communities WHERE slug = ?`, slug).
-		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin)
+		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin, &chatOn, &autochatOn)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Community{}, sql.ErrNoRows
 	}
@@ -51,6 +61,8 @@ func (r *Repo) BySlug(ctx context.Context, slug string) (Community, error) {
 		return Community{}, err
 	}
 	c.IsPublic = isPublic != 0
+	c.AgentsChatEnabled = chatOn != 0
+	c.AgentsAutochatEnabled = autochatOn != 0
 	c.CreatedAt = time.Unix(created, 0)
 	return c, nil
 }
@@ -62,11 +74,13 @@ func (r *Repo) ByID(ctx context.Context, id string) (Community, error) {
 	var c Community
 	var created int64
 	var isPublic int
+	var chatOn, autochatOn int
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT id, slug, name, COALESCE(is_public,0), created_at,
-		       COALESCE(agent_rate_per_user_min,0), COALESCE(agent_rate_per_community_min,0)
+		       COALESCE(agent_rate_per_user_min,0), COALESCE(agent_rate_per_community_min,0),
+		       COALESCE(agents_chat_enabled,1), COALESCE(agents_autochat_enabled,0)
 		FROM communities WHERE id = ?`, id).
-		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin)
+		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin, &chatOn, &autochatOn)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Community{}, sql.ErrNoRows
 	}
@@ -74,6 +88,8 @@ func (r *Repo) ByID(ctx context.Context, id string) (Community, error) {
 		return Community{}, err
 	}
 	c.IsPublic = isPublic != 0
+	c.AgentsChatEnabled = chatOn != 0
+	c.AgentsAutochatEnabled = autochatOn != 0
 	c.CreatedAt = time.Unix(created, 0)
 	return c, nil
 }
@@ -90,6 +106,23 @@ func (r *Repo) SetAgentRateLimits(ctx context.Context, id string, perUserMin, pe
 	_, err := r.DB.ExecContext(ctx, `
 		UPDATE communities SET agent_rate_per_user_min = ?, agent_rate_per_community_min = ? WHERE id = ?`,
 		perUserMin, perCommunityMin, id)
+	return err
+}
+
+// SetAgentsChatEnabled flips the /bots master switch — whether bound channel
+// agents answer messages at all. Backs the admin /bots 1|0 slash command.
+func (r *Repo) SetAgentsChatEnabled(ctx context.Context, id string, on bool) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE communities SET agents_chat_enabled = ? WHERE id = ?`, boolToInt(on), id)
+	return err
+}
+
+// SetAgentsAutochatEnabled flips the /autochat switch — whether agents may
+// trigger each other (bot-to-bot). Backs the admin /autochat 1|0 and /kill
+// slash commands.
+func (r *Repo) SetAgentsAutochatEnabled(ctx context.Context, id string, on bool) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE communities SET agents_autochat_enabled = ? WHERE id = ?`, boolToInt(on), id)
 	return err
 }
 

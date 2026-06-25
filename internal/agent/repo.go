@@ -19,17 +19,17 @@ func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 
 const agentCols = `id, community_id, name, provider, base_url, model, api_key_enc,
 	system_prompt, vision, tools_enabled, enabled, is_summarizer,
-	in_chat_enabled, trigger_mode, trigger_prefix, avatar_url,
+	in_chat_enabled, trigger_mode, trigger_prefix, avatar_url, chat_as_human,
 	position, COALESCE(updated_by,''), created_at, updated_at`
 
 func scanAgent(s interface {
 	Scan(dest ...any) error
 }) (Agent, error) {
 	var a Agent
-	var vision, tools, enabled, summarizer, inChat int
+	var vision, tools, enabled, summarizer, inChat, asHuman int
 	err := s.Scan(&a.ID, &a.CommunityID, &a.Name, &a.Provider, &a.BaseURL, &a.Model, &a.APIKeyEnc,
 		&a.SystemPrompt, &vision, &tools, &enabled, &summarizer,
-		&inChat, &a.TriggerMode, &a.TriggerPrefix, &a.AvatarURL,
+		&inChat, &a.TriggerMode, &a.TriggerPrefix, &a.AvatarURL, &asHuman,
 		&a.Position, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return Agent{}, err
@@ -39,6 +39,7 @@ func scanAgent(s interface {
 	a.Enabled = enabled != 0
 	a.IsSummarizer = summarizer != 0
 	a.InChatEnabled = inChat != 0
+	a.ChatAsHuman = asHuman != 0
 	return a, nil
 }
 
@@ -138,12 +139,12 @@ func (r *Repo) CreateAgent(ctx context.Context, a Agent) error {
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO ai_agents (id, community_id, name, provider, base_url, model, api_key_enc,
 			system_prompt, vision, tools_enabled, enabled, is_summarizer,
-			in_chat_enabled, trigger_mode, trigger_prefix, avatar_url,
+			in_chat_enabled, trigger_mode, trigger_prefix, avatar_url, chat_as_human,
 			position, created_at, updated_at, updated_by)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.CommunityID, a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc,
 		a.SystemPrompt, boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), boolToInt(a.IsSummarizer),
-		boolToInt(a.InChatEnabled), agentTriggerMode(a.TriggerMode), agentTriggerPrefix(a.TriggerPrefix), a.AvatarURL,
+		boolToInt(a.InChatEnabled), agentTriggerMode(a.TriggerMode), agentTriggerPrefix(a.TriggerPrefix), a.AvatarURL, boolToInt(a.ChatAsHuman),
 		a.Position, a.CreatedAt, a.UpdatedAt, updatedBy)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
@@ -160,11 +161,11 @@ func (r *Repo) UpdateAgent(ctx context.Context, a Agent) error {
 	_, err := r.DB.ExecContext(ctx, `
 		UPDATE ai_agents SET name=?, provider=?, base_url=?, model=?, api_key_enc=?,
 			system_prompt=?, vision=?, tools_enabled=?, enabled=?, is_summarizer=?,
-			in_chat_enabled=?, trigger_mode=?, trigger_prefix=?, avatar_url=?, updated_at=?, updated_by=?
+			in_chat_enabled=?, trigger_mode=?, trigger_prefix=?, avatar_url=?, chat_as_human=?, updated_at=?, updated_by=?
 		WHERE id = ?`,
 		a.Name, a.Provider, a.BaseURL, a.Model, a.APIKeyEnc, a.SystemPrompt,
 		boolToInt(a.Vision), boolToInt(a.ToolsEnabled), boolToInt(a.Enabled), boolToInt(a.IsSummarizer),
-		boolToInt(a.InChatEnabled), agentTriggerMode(a.TriggerMode), agentTriggerPrefix(a.TriggerPrefix), a.AvatarURL,
+		boolToInt(a.InChatEnabled), agentTriggerMode(a.TriggerMode), agentTriggerPrefix(a.TriggerPrefix), a.AvatarURL, boolToInt(a.ChatAsHuman),
 		a.UpdatedAt, updatedBy, a.ID)
 	if err != nil {
 		return fmt.Errorf("update agent: %w", err)
