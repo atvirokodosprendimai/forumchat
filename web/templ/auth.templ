@@ -1,5 +1,7 @@
 package templ
 
+import "strconv"
+
 // OAuthButton is a single enabled social-login provider, rendered as a
 // "Continue with <Label>" link. Defined here (not in internal/auth) because
 // web/templ is a leaf package — handlers map auth.OAuthProvider → OAuthButton.
@@ -50,8 +52,10 @@ templ oauthIcon(provider string) {
 
 // RegisterPage shows the self-signup form. When openReg is true the invite
 // code is optional and tucked behind a disclosure so the default form is just
-// email + password; otherwise the invite field is shown and required.
-templ RegisterPage(openReg bool, oauth []OAuthButton) {
+// email + password; otherwise the invite field is shown and required. When
+// minAge > 0 the age gate is on: a required self-attestation checkbox is shown
+// and the Register button stays disabled until it is ticked (server re-checks).
+templ RegisterPage(openReg bool, minAge int, oauth []OAuthButton) {
 	@Layout("Register", Viewer{}) {
 		<section class="card narrow">
 			<h1>Create your account</h1>
@@ -75,11 +79,28 @@ templ RegisterPage(openReg bool, oauth []OAuthButton) {
 					<input type="text" data-bind="invite_code" autocomplete="off"/>
 				</div>
 			}
-			<button data-on:click="@post('/register')">Register</button>
+			if minAge > 0 {
+				@AgeGate(minAge)
+				<button data-on:click="@post('/register')" data-attr:disabled="!$age_confirmed">Register</button>
+			} else {
+				<button data-on:click="@post('/register')">Register</button>
+			}
 			@OAuthOptions(oauth)
 			<p class="muted">Have an account? <a href="/login">Sign in</a>.</p>
 		</section>
 	}
+}
+
+// AgeGate renders the self-attestation checkbox shown when RegisterMinAge > 0.
+// The checkbox binds the age_confirmed signal that both gates the Register
+// button (data-attr:disabled) and is re-validated server-side in PostRegister —
+// the boolean is the attestation, so a spoofed client can at most skip the
+// disabled-button affordance, never the server check.
+templ AgeGate(minAge int) {
+	<label class="field age-gate">
+		<input type="checkbox" data-bind="age_confirmed"/>
+		<span>I confirm I am at least { strconv.Itoa(minAge) } years old.</span>
+	</label>
 }
 
 // RegisterAsAdminPage is the no-invite bootstrap form shown when the

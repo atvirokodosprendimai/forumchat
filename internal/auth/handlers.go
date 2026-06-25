@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,10 @@ type Handler struct {
 	CommunityID   string
 	CommunityName string
 	Log           *slog.Logger
+	// RegisterMinAge mirrors config.RegisterMinAge: when > 0 the register form
+	// shows a required self-attestation checkbox and PostRegister rejects an
+	// unticked signup. 0 = gate off. Wired in main.go.
+	RegisterMinAge int
 	// OAuthProviders are the enabled social-login providers (empty = OAuth off).
 	// Rendered as "Continue with …" buttons on the login + register pages.
 	OAuthProviders []OAuthProvider
@@ -101,7 +106,7 @@ func (h *Handler) GetRegister(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/register-as-admin", http.StatusSeeOther)
 		return
 	}
-	_ = webtempl.RegisterPage(h.Svc.OpenRegistration, h.oauthButtons()).Render(r.Context(), w)
+	_ = webtempl.RegisterPage(h.Svc.OpenRegistration, h.RegisterMinAge, h.oauthButtons()).Render(r.Context(), w)
 }
 
 // --- register-as-admin (zero-users bootstrap) ---
@@ -162,9 +167,10 @@ func (h *Handler) PostRegisterAsAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 type registerSignals struct {
-	Email      string `json:"email"`
-	Password   string `json:"password"`
-	InviteCode string `json:"invite_code"`
+	Email        string `json:"email"`
+	Password     string `json:"password"`
+	InviteCode   string `json:"invite_code"`
+	AgeConfirmed bool   `json:"age_confirmed"`
 }
 
 func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
@@ -183,6 +189,15 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 	if invite == "" && !h.Svc.OpenRegistration {
 		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment("Invite code required"))
+		return
+	}
+	// Age gate: when configured, the self-attestation checkbox is required. The
+	// boolean IS the attestation, so we re-check it server-side here rather than
+	// trusting the client-side disabled button (which a crafted request skips).
+	if h.RegisterMinAge > 0 && !in.AgeConfirmed {
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.RegisterErrorFragment(
+			"You must confirm you are at least " + strconv.Itoa(h.RegisterMinAge) + " years old to register."))
 		return
 	}
 	res, err := h.Svc.Register(r.Context(), RegisterInput{Email: email, Password: in.Password, InviteCode: invite})

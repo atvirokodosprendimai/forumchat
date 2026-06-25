@@ -98,6 +98,13 @@ type Config struct {
 	// → /pending → admin approves). Independent of OpenRegistration.
 	OpenRegistrationAutoApprove bool `env:"OPEN_REGISTRATION_AUTO_APPROVE" envDefault:"false"`
 
+	// RegisterMinAge gates self-signup behind a single self-attestation
+	// checkbox ("I confirm I am at least N years old"). 0 (default) = off: the
+	// register form is byte-identical to today. Any value > 0 turns the gate on
+	// — the checkbox is required and PostRegister rejects a signup whose box
+	// isn't ticked. It is honor-based self-attestation, not identity proof.
+	RegisterMinAge int `env:"REGISTER_MIN_AGE" envDefault:"0"`
+
 	// AutoVerifyEmail skips email verification entirely: registrants are
 	// activated and signed in immediately, no verify link needed. Intended for
 	// short demo windows (turn on, record/invite, turn off). Independent of the

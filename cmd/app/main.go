@@ -230,6 +230,7 @@ func run() error {
 		CommunityID:    bootCommunity.ID,
 		CommunityName:  bootCommunity.Name,
 		Log:            log,
+		RegisterMinAge: cfg.RegisterMinAge,
 		OAuthProviders: oauthProviders,
 	}
 	// Leave-community picker on the global /profile page: list every community the
