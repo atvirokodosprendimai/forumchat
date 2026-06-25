@@ -225,3 +225,4 @@
 - 2026-06-25 `ec44fd6` feat(chatagents): per-community bot reply surface (/surface)
 - 2026-06-25 `3160ef8` fix(chat): jump instantly to newest message, no smooth scroll
 - 2026-06-25 `efa73da` feat(auth): self-serve "leave community" on the profile page
+- 2026-06-25 `172d882` fix(chat): hide soft-deleted messages from everyone, super-admins included
