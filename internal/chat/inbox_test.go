@@ -109,13 +109,17 @@ func TestRecentForCommunities_ScopesAndEmptySafety(t *testing.T) {
 		t.Fatalf("includeDeleted feed must include deleted + both communities")
 	}
 
-	// God-mode reads every community + deleted.
+	// God-mode reads every community but HIDES soft-deleted rows: a removed
+	// message is invisible to everyone, super-admins included.
 	all, err := repo.RecentGlobal(ctx, 100)
 	if err != nil {
 		t.Fatalf("global: %v", err)
 	}
-	if !has(all, msgA) || !has(all, msgB) || !has(all, msgADel) {
-		t.Fatalf("god-mode feed must include all communities + deleted")
+	if !has(all, msgA) || !has(all, msgB) {
+		t.Fatalf("god-mode feed must include every community's live messages")
+	}
+	if has(all, msgADel) {
+		t.Fatalf("god-mode feed must hide soft-deleted messages from super-admins too")
 	}
 }
 

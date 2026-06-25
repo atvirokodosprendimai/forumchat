@@ -120,6 +120,71 @@ func TestChannelScope_InsertRecent(t *testing.T) {
 	}
 }
 
+// TestRecent_HidesSoftDeleted asserts the channel history loader excludes
+// soft-deleted messages entirely — the query drops them, not the template, so
+// EVERY viewer (member, mod, super-admin) sees the message vanish, never a
+// "[message removed]" placeholder. A surviving reply whose parent was deleted
+// must also not leak the parent's content through its quote snippet (the
+// reply-parent JOIN filters deleted_at).
+func TestRecent_HidesSoftDeleted(t *testing.T) {
+	t.Parallel()
+	h, cid, _ := setupMentionHandler(t)
+	ctx := context.Background()
+
+	general, err := h.Repo.DefaultChannel(ctx, cid)
+	if err != nil {
+		t.Fatalf("default channel: %v", err)
+	}
+
+	liveID, delID, replyID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	if err := h.Repo.Insert(ctx, chat.Message{
+		ID: liveID, CommunityID: cid, ChannelID: general.ID,
+		Kind: chat.KindUser, BodyMarkdown: "still here", BodyHTML: "still here", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("insert live: %v", err)
+	}
+	if err := h.Repo.Insert(ctx, chat.Message{
+		ID: delID, CommunityID: cid, ChannelID: general.ID,
+		Kind: chat.KindUser, BodyMarkdown: "secret to remove", BodyHTML: "secret to remove", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("insert to-delete: %v", err)
+	}
+	// A reply pointing at the message we're about to delete.
+	if err := h.Repo.Insert(ctx, chat.Message{
+		ID: replyID, CommunityID: cid, ChannelID: general.ID, ReplyToID: &delID,
+		Kind: chat.KindUser, BodyMarkdown: "re: secret", BodyHTML: "re: secret", CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("insert reply: %v", err)
+	}
+
+	if err := h.Repo.SoftDelete(ctx, delID); err != nil {
+		t.Fatalf("soft-delete: %v", err)
+	}
+
+	got, err := h.Repo.Recent(ctx, general.ID, 100)
+	if err != nil {
+		t.Fatalf("recent: %v", err)
+	}
+	var sawReply bool
+	for _, m := range got {
+		if m.ID == delID {
+			t.Fatalf("Recent must hide soft-deleted messages from channel history")
+		}
+		if m.ID == replyID {
+			sawReply = true
+			if m.ReplyTo != nil {
+				t.Fatalf("reply to a deleted message must not leak the parent snippet, got %q", m.ReplyTo.Snippet)
+			}
+		}
+	}
+	if !sawReply {
+		t.Fatalf("the surviving reply should still be in history")
+	}
+	if len(got) != 2 { // live + reply; deleted gone
+		t.Fatalf("want 2 live messages, got %d", len(got))
+	}
+}
+
 func TestGetMentionSearch_PrefixHits(t *testing.T) {
 	t.Parallel()
 	h, cid, id := setupMentionHandler(t)

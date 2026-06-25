@@ -96,7 +96,9 @@ templ BookmarksList(rows []BookmarkRow, slug string) {
 							· <span class="error">message deleted</span>
 						}
 					</div>
-					<blockquote class="quote">{ b.MessageSnippet }</blockquote>
+					if b.MessageSnippet != "" {
+						<blockquote class="quote">{ b.MessageSnippet }</blockquote>
+					}
 					if b.Note != "" {
 						<div class="muted">note: { b.Note }</div>
 					}

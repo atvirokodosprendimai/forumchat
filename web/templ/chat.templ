@@ -603,21 +603,26 @@ func reverseMessages(msgs []MsgView) []MsgView {
 templ MessageGroup(g MsgGroup, isMod bool, currentUserID, viewerName, slug string) {
 	<div class={ groupClass(g) }>
 		for i, m := range g.Messages {
-			@MessageView(m, isMod, currentUserID, viewerName, slug, i == 0)
+			// Soft-deleted messages render NOTHING — for everyone, member, mod,
+			// and super-admin alike. listBefore already filters deleted_at out of
+			// channel history, so this is belt-and-braces: a removed message can
+			// never flutter the channel with a "[message removed]" placeholder or
+			// leak its content. MessageGroup is MessageView's only caller, so
+			// gating here keeps the per-message template lean.
+			if !m.Deleted {
+				@MessageView(m, isMod, currentUserID, viewerName, slug, i == 0)
+			}
 		}
 	</div>
 }
 
 templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, showMeta bool) {
+	// Callers (MessageGroup) never pass a soft-deleted message — those are
+	// filtered out of channel history in listBefore and gated again at the call
+	// site, so deleted content is hidden from everyone. There is deliberately no
+	// deleted/placeholder branch here; don't re-introduce one.
 	<article class={ msgClass(m) } id={ "msg-" + m.ID } data-id={ m.ID }>
-		if m.Deleted {
-			if isMod {
-				<div class="muted">[deleted by mod] · { fmtTime(m.CreatedAt) }</div>
-				<div class="body deleted">@templ.Raw(render.RichHTML(render.HighlightMentions(m.BodyHTML, viewerName)))</div>
-			} else {
-				<div class="muted">[message removed]</div>
-			}
-		} else if m.Kind == MsgKindThreadAnnounce {
+		if m.Kind == MsgKindThreadAnnounce {
 			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
 			@templ.Raw(render.RichHTML(m.BodyHTML))
 		} else if (m.Kind == MsgKindWebhook || m.Kind == MsgKindBot) && !m.AsHuman {

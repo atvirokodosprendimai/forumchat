@@ -184,7 +184,14 @@ func (r *Repo) List(ctx context.Context, userID, communityID string, f Filter) (
 		row.CreatedAt = time.Unix(created, 0)
 		row.MessageCreatedAt = time.Unix(msgCreated, 0)
 		row.MessageDeleted = msgDel.Valid
-		row.MessageSnippet = SnippetForList(row.MessageSnippet)
+		// A since-deleted message must not leak its body here: blank the snippet
+		// and let the template show the "message deleted" marker instead. Deleted
+		// chat content is hidden from everyone — bookmarks included.
+		if row.MessageDeleted {
+			row.MessageSnippet = ""
+		} else {
+			row.MessageSnippet = SnippetForList(row.MessageSnippet)
+		}
 		out = append(out, row)
 	}
 	return out, rows.Err()

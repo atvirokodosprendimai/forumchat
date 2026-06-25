@@ -31,7 +31,8 @@ type MembershipScoper interface {
 //   - the SaaS member inbox (/chats): GodMode=false, scoped to the viewer's own
 //     communities — "see your communities' chats, not everyone's".
 //   - the self-hosted super-admin god-mode inbox (/superadmin/chat):
-//     GodMode=true, every community + soft-deleted rows.
+//     GodMode=true, every community. Soft-deleted rows are hidden here too —
+//     a removed message is invisible to everyone, super-admins included.
 //
 // One engine; the only axis of variation is the scope. Strictly readonly —
 // there is no composer and no write path.
@@ -46,8 +47,8 @@ type InboxHandler struct {
 	// Members resolves the viewer's community scope. Required when GodMode is
 	// false; ignored (may be nil) for god-mode.
 	Members MembershipScoper
-	// GodMode true → every community + soft-deleted rows. False → scoped to the
-	// viewer's memberships, deleted rows hidden.
+	// GodMode true → every community. False → scoped to the viewer's
+	// memberships. Either way, soft-deleted rows are hidden.
 	GodMode bool
 	// StreamPath is the SSE endpoint the page opens on mount and re-opens on
 	// reconnect ("/chats/stream" or "/superadmin/chat/stream").
@@ -148,8 +149,8 @@ func (h *InboxHandler) scope(ctx context.Context) ([]string, error) {
 // rows — the read model reused by GetPage and GetStream. The scope is
 // re-resolved on EVERY call (not captured once at connect), so a member banned
 // or removed from a community mid-stream stops seeing its chat on the next
-// event, not only after a reconnect. God-mode reads every community (deleted
-// included); member mode reads the scope (deleted hidden). RecentGlobal /
+// event, not only after a reconnect. God-mode reads every community, member
+// mode reads the scope; both hide soft-deleted rows. RecentGlobal /
 // RecentForCommunities return newest-first; the inbox renders oldest→newest
 // with the newest at the bottom, so we reverse here.
 func (h *InboxHandler) feedRows(ctx context.Context) ([]webtempl.SAChatRow, error) {

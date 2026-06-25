@@ -319,74 +319,80 @@ func BookmarksList(rows []BookmarkRow, slug string) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</div><blockquote class=\"quote\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var16 string
-			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(b.MessageSnippet)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 99, Col: 49}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</blockquote>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
+			if b.MessageSnippet != "" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<blockquote class=\"quote\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var16 string
+				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(b.MessageSnippet)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 100, Col: 50}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</blockquote>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
 			if b.Note != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div class=\"muted\">note: ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<div class=\"muted\">note: ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var17 string
 				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(b.Note)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 101, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 103, Col: 39}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<div class=\"bm-row-actions\"><a class=\"link\" href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div class=\"bm-row-actions\"><a class=\"link\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var18 templ.SafeURL
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL("/c/" + slug + "/history?d=" + b.MessageCreatedAt.Local().Format("2006-01-02") + "#msg-" + b.ChatMessageID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 105, Col: 131}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 107, Col: 131}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "\">open in history</a> <button class=\"link danger\" data-on:click=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "\">open in history</a> <button class=\"link danger\" data-on:click=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/bookmarks/delete?id=" + b.ID + "')")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 109, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 111, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var19)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "\">delete</button></div></li>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "\">delete</button></div></li>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</ul></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</ul></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -420,20 +426,20 @@ func BookmarkDialog(slug string) templ.Component {
 			templ_7745c5c3_Var20 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "<div class=\"bm-dialog-backdrop\" data-cloak data-show=\"$_bm_open_msg !== ''\" data-on:click=\"$_bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''\"></div><div class=\"bm-dialog\" data-cloak data-show=\"$_bm_open_msg !== ''\"><h3>Bookmark message</h3><input type=\"text\" placeholder=\"title (optional)\" data-bind=\"bm_new_title\"> <input type=\"text\" placeholder=\"category (optional)\" data-bind=\"bm_new_category\"> <input type=\"text\" placeholder=\"note (optional)\" data-bind=\"bm_new_note\"><div class=\"bm-dialog-actions\"><button data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<div class=\"bm-dialog-backdrop\" data-cloak data-show=\"$_bm_open_msg !== ''\" data-on:click=\"$_bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''\"></div><div class=\"bm-dialog\" data-cloak data-show=\"$_bm_open_msg !== ''\"><h3>Bookmark message</h3><input type=\"text\" placeholder=\"title (optional)\" data-bind=\"bm_new_title\"> <input type=\"text\" placeholder=\"category (optional)\" data-bind=\"bm_new_category\"> <input type=\"text\" placeholder=\"note (optional)\" data-bind=\"bm_new_note\"><div class=\"bm-dialog-actions\"><button data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var21 string
 		templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/bookmarks?id=' + $_bm_open_msg)")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 130, Col: 83}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/bookmarks.templ`, Line: 132, Col: 83}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "\">save</button> <button class=\"ghost\" data-on:click=\"$_bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''\">cancel</button></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "\">save</button> <button class=\"ghost\" data-on:click=\"$_bm_open_msg=''; $bm_new_title=''; $bm_new_category=''; $bm_new_note=''\">cancel</button></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

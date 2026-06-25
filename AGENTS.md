@@ -1060,10 +1060,27 @@ channel and calls `loadRecent` + `fatMorph` on any signal from either.
 Same-process realtime works without NATS; cross-process realtime works
 when NATS is up.
 
-This is also why `chat.Handler.PostDelete` works for non-mod viewers in
+This is also why `chat.Handler.PostDelete` works for **every** viewer in
 the same process — the mod's delete triggers the Bus, every chat SSE
-stream refetches, and the non-mod sees the `[message removed]` placeholder
-that `MessageView` renders when `m.Deleted && !isMod`.
+stream refetches, and the deleted message simply **vanishes** for all of
+them.
+
+**Deleted = hidden from everyone, no placeholder (Jun 2026).** A
+soft-deleted chat message (`deleted_at` set) is filtered out at the query
+level (`listBefore`'s `WHERE … AND m.deleted_at IS NULL`), so it never
+reaches the DOM — not for members, not for mods, not for super-admins, and
+not in the super-admin god-mode inbox (`RecentGlobal` now passes
+`includeDeleted=false`). There is **no** `[message removed]` /
+`[deleted by mod]` placeholder anymore; the channel must never flutter with
+removed-message garbage. The reply-parent and forward-source JOINs also
+filter `deleted_at`, so a surviving reply/forward can't leak a removed
+message's content through its quote/preview snippet. `MessageGroup` (the only
+caller of `MessageView`) also gates each bubble behind `if !m.Deleted` as
+belt-and-braces, and `chat.Repo.ByID` now filters `deleted_at IS NULL` so the
+operational lookups (promote-to-thread, extract/forward, bookmark and to-do
+creation) can't resurrect a removed message either. But the channel-history
+query filter is the real fix. Don't re-introduce a per-viewer deleted-content
+branch in `MessageView`.
 
 ### 6.3b Chat replies + promote-to-thread
 

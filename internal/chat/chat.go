@@ -451,16 +451,21 @@ type GlobalMessage struct {
 	BodyMarkdown     string // plaintext fallback when body_html is blank
 	RefThreadID      *string
 	PromotedThreadID *string
-	Deleted          bool
-	CreatedAt        time.Time
+	// Deleted reflects deleted_at on the row. Both inbox feeds now exclude
+	// soft-deleted rows (see RecentGlobal / RecentForCommunities), so in
+	// practice this is always false; it is kept for the column scan and as a
+	// defensive flag for the [removed] fallback marker.
+	Deleted   bool
+	CreatedAt time.Time
 }
 
 // RecentGlobal returns the latest `limit` chat messages across EVERY
 // community and channel, newest first, for the super-admin's god-mode readonly
-// inbox (self-hosted only). Soft-deleted rows are included (the caller marks
-// them). Single SELECT, no N+1.
+// inbox (self-hosted only). Soft-deleted rows are EXCLUDED: a removed message
+// is hidden from everyone, super-admins included, so the god-mode history never
+// flutters with deleted garbage. Single SELECT, no N+1.
 func (r *Repo) RecentGlobal(ctx context.Context, limit int) ([]GlobalMessage, error) {
-	return r.recentFeed(ctx, true, nil, limit, true)
+	return r.recentFeed(ctx, true, nil, limit, false)
 }
 
 // RecentForCommunities returns the latest `limit` chat messages scoped to the
@@ -579,6 +584,13 @@ func (r *Repo) hydrateAttachments(ctx context.Context, msgs []Message) ([]Messag
 	return msgs, nil
 }
 
+// listBefore loads a channel's history newest-first, oldest of the page last.
+// Soft-deleted messages (deleted_at set) are excluded entirely: a removed
+// message must vanish from the channel for EVERYONE — member, mod, and
+// super-admin alike — so the fat-morph never re-renders it as "[message
+// removed]" garbage. The reply-parent (p) and forward-source (f) JOINs also
+// filter deleted_at so a surviving reply or forward can't leak a removed
+// message's content through its quote/preview snippet.
 func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Time, limit int) ([]Message, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
@@ -591,12 +603,12 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		       m.bot_agent_id, COALESCE(m.gen_status, ''), COALESCE(m.bot_as_human, 0)
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
-		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
+		LEFT JOIN chat_messages p ON p.id = m.reply_to_id AND p.deleted_at IS NULL
 		LEFT JOIN memberships pmb ON pmb.user_id = p.author_id AND pmb.community_id = p.community_id
-		LEFT JOIN chat_messages f ON f.id = m.forwarded_from_msg_id
+		LEFT JOIN chat_messages f ON f.id = m.forwarded_from_msg_id AND f.deleted_at IS NULL
 		LEFT JOIN chat_channels fch ON fch.id = f.channel_id
 		LEFT JOIN memberships fmb ON fmb.user_id = f.author_id AND fmb.community_id = f.community_id
-		WHERE m.channel_id = ? AND m.created_at < ?
+		WHERE m.channel_id = ? AND m.created_at < ? AND m.deleted_at IS NULL
 		ORDER BY m.created_at DESC
 		LIMIT ?`, channelID, before.Unix(), limit)
 	if err != nil {
@@ -659,6 +671,13 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 	return msgs, rows.Err()
 }
 
+// ByID loads a single chat message by id, but NEVER a soft-deleted one
+// (`AND m.deleted_at IS NULL`). This is the operational lookup behind
+// promote-to-thread, extract/forward, bookmark and to-do creation; making
+// "ByID never returns a deleted message" a hard invariant means none of those
+// flows can resurrect a removed message's content — they all get sql.ErrNoRows
+// and reject. The reply-parent (p) and forward-source (f) JOINs likewise filter
+// deleted_at so quote/preview snippets can't leak a removed message either.
 func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 	rows, err := r.DB.QueryContext(ctx, `
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
@@ -671,12 +690,12 @@ func (r *Repo) ByID(ctx context.Context, id string) (Message, error) {
 		       m.bot_agent_id, COALESCE(m.gen_status, ''), COALESCE(m.bot_as_human, 0)
 		FROM chat_messages m
 		LEFT JOIN memberships mb ON mb.user_id = m.author_id AND mb.community_id = m.community_id
-		LEFT JOIN chat_messages p ON p.id = m.reply_to_id
+		LEFT JOIN chat_messages p ON p.id = m.reply_to_id AND p.deleted_at IS NULL
 		LEFT JOIN memberships pmb ON pmb.user_id = p.author_id AND pmb.community_id = p.community_id
-		LEFT JOIN chat_messages f ON f.id = m.forwarded_from_msg_id
+		LEFT JOIN chat_messages f ON f.id = m.forwarded_from_msg_id AND f.deleted_at IS NULL
 		LEFT JOIN chat_channels fch ON fch.id = f.channel_id
 		LEFT JOIN memberships fmb ON fmb.user_id = f.author_id AND fmb.community_id = f.community_id
-		WHERE m.id = ?`, id)
+		WHERE m.id = ? AND m.deleted_at IS NULL`, id)
 	if err != nil {
 		return Message{}, err
 	}

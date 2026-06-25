@@ -369,6 +369,57 @@ func (s *Service) resolveLinks(ctx context.Context, slug string, rs []Result) {
 			rs[i].URL = links[rs[i].Kind+":"+rs[i].RefID]
 		}
 	}
+	s.dropDeletedChat(ctx, rs)
+}
+
+// dropDeletedChat blanks the URL of any chat result whose live row is
+// soft-deleted (or gone), so the handler drops it. The FTS index clears chat
+// rows synchronously on soft-delete, but the semantic (RAG) vector store lags by
+// one worker tick and still holds the deleted body's snippet — without this
+// re-check a removed chat message could surface in semantic search during that
+// window. Deleted chat content is hidden from everyone, search included.
+func (s *Service) dropDeletedChat(ctx context.Context, rs []Result) {
+	ids := make([]string, 0)
+	for i := range rs {
+		if rs[i].Kind == kindChat && rs[i].URL != "" {
+			ids = append(ids, rs[i].RefID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	live, err := s.liveChatIDs(ctx, ids)
+	for i := range rs {
+		if rs[i].Kind != kindChat || rs[i].URL == "" {
+			continue
+		}
+		// Fail closed: if liveness couldn't be verified, drop the chat hit
+		// rather than risk surfacing a removed message.
+		if err != nil || !live[rs[i].RefID] {
+			rs[i].URL = "" // dropped by Views
+		}
+	}
+}
+
+// liveChatIDs returns the subset of ids whose chat_messages row exists and is
+// not soft-deleted.
+func (s *Service) liveChatIDs(ctx context.Context, ids []string) (map[string]bool, error) {
+	ph, args := placeholders(ids)
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT id FROM chat_messages WHERE id IN (`+ph+`) AND deleted_at IS NULL`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	live := make(map[string]bool, len(ids))
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		live[id] = true
+	}
+	return live, rows.Err()
 }
 
 // resolveKind batch-resolves one parent-needing kind to a map of
