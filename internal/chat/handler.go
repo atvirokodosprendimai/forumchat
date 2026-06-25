@@ -377,7 +377,10 @@ func (h *Handler) tryAgentCommand(w http.ResponseWriter, r *http.Request, sse *d
 	// From here we own the message — clear the composer and never store it.
 	_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
 
-	if !id.Membership.Role.AtLeast(auth.RoleAdmin) && !id.IsSuperAdmin {
+	// GodMode (not raw IsSuperAdmin): changing a community's agent settings is
+	// a tenant-config write, so in SaaS it needs a real admin role there, not
+	// platform god-mode.
+	if !id.Membership.Role.AtLeast(auth.RoleAdmin) && !id.GodMode() {
 		_ = sse.PatchElementTempl(webtempl.ChatCmdNotice("chat-agent-notice", "🔒", "Only admins can change agent settings."))
 		return true
 	}

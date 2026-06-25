@@ -122,13 +122,14 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Tenant boundary: an authenticated viewer must belong to the upload's
-	// community (super-admin bypasses). The HMAC signature is only advisory
-	// on the authed path (its Verify result is discarded above for stale/
+	// community (cross-tenant god-mode bypasses, self-host only — in SaaS the
+	// operator gets no tenant media). The HMAC signature is only advisory on
+	// the authed path (its Verify result is discarded above for stale/
 	// legacy-URL compatibility), so without this any logged-in user could
 	// read another community's media by guessing the id. Guests are scoped by
 	// their project-share session; the no-session path required a valid
 	// shared signature above. MemberOf nil keeps the legacy behaviour (tests).
-	if id, ok := auth.FromContext(r.Context()); ok && !id.IsSuperAdmin && h.MemberOf != nil {
+	if id, ok := auth.FromContext(r.Context()); ok && !id.GodMode() && h.MemberOf != nil {
 		if !h.MemberOf(r.Context(), id.User.ID, u.CommunityID) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return

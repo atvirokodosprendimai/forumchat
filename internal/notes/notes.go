@@ -96,7 +96,9 @@ func (n Note) IsPublic() bool { return n.Visibility == Public }
 // escalation). This is the one authority for editor management; handlers must
 // not re-derive it. It is the pre-grant meaning of "can edit".
 func (n Note) CanManage(id auth.Identity) bool {
-	if id.IsSuperAdmin {
+	// GodMode (not raw IsSuperAdmin): in SaaS the platform operator must not
+	// manage a tenant's notes — only a real author/mod/admin can.
+	if id.GodMode() {
 		return true
 	}
 	if id.User.ID == n.AuthorID {

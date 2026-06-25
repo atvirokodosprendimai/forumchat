@@ -47,7 +47,11 @@ func (h *Handler) callerIdentity(r *http.Request) (Identity, bool) {
 			switch {
 			case err == nil:
 				return Identity{UserID: id.User.ID, Name: m.DisplayName, Role: m.Role}, true
-			case id.IsSuperAdmin && errors.Is(err, auth.ErrNotFound):
+			// GodMode (not raw IsSuperAdmin): only self-host god-mode
+			// synthesizes a membership for a non-member operator here. In SaaS
+			// the operator gets no cross-tenant project access; the dedicated
+			// /support-inbox is their supported cross-tenant report surface.
+			case id.GodMode() && errors.Is(err, auth.ErrNotFound):
 				m = auth.SuperAdminMembership(id.User, c.ID)
 				return Identity{UserID: id.User.ID, Name: m.DisplayName, Role: m.Role}, true
 			}

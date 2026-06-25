@@ -567,6 +567,10 @@ func run() error {
 	webtempl.OpenRegistration = cfg.OpenRegistration
 	webtempl.SaaSEnabled = cfg.SAAS
 	webtempl.SaaSBrand = cfg.SAASBrand
+	// In SaaS each community is a paying tenant: the platform super-admin keeps
+	// platform-management powers but loses cross-tenant CONTENT god-mode. This
+	// boot-set flag is the single switch auth.Identity.GodMode consults.
+	auth.SaaSMode = cfg.SAAS
 
 	// ----- support inbox (hidden cross-tenant write-only issue inbox) ------
 	// ONE designated community (SUPPORT_INBOX_SLUG) collects reports filed

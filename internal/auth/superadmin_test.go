@@ -79,6 +79,61 @@ func TestRequireSuperAdmin(t *testing.T) {
 	}
 }
 
+// withSaaSMode sets the package-global SaaSMode for one test and restores it.
+// SaaSMode is a boot-time process global, so tests that flip it can't run in
+// parallel — they don't call t.Parallel.
+func withSaaSMode(t *testing.T, on bool) {
+	t.Helper()
+	prev := SaaSMode
+	SaaSMode = on
+	t.Cleanup(func() { SaaSMode = prev })
+}
+
+func TestGodMode_SaaSWithdrawsCrossTenantAccess(t *testing.T) {
+	super := Identity{User: User{ID: "b"}, IsSuperAdmin: true}
+	withSaaSMode(t, false)
+	if !super.GodMode() {
+		t.Fatal("self-host: a super-admin must have cross-tenant god-mode")
+	}
+	withSaaSMode(t, true)
+	if super.GodMode() {
+		t.Fatal("SaaS: a super-admin must NOT have cross-tenant god-mode")
+	}
+	// A non-super never has god-mode, in either mode.
+	plain := Identity{User: User{ID: "m"}, Membership: Membership{Role: RoleAdmin}}
+	if plain.GodMode() {
+		t.Fatal("a non-super-admin must never have god-mode")
+	}
+}
+
+func TestRequireRole_SaaSSuperAdminBlockedWithoutRealRole(t *testing.T) {
+	// In SaaS a super-admin with only a member role must be refused the admin
+	// gate — they can't enter a tenant's /c/<slug>/admin via god-mode.
+	withSaaSMode(t, true)
+	id := Identity{
+		User:         User{ID: "u1", Email: "boss@x.com"},
+		Membership:   Membership{Role: RoleMember},
+		IsSuperAdmin: true,
+	}
+	rr := httptest.NewRecorder()
+	RequireRole(RoleAdmin)(okHandler()).ServeHTTP(rr, reqWithIdentity(id))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("SaaS super-admin without a real admin role must be forbidden, got %d", rr.Code)
+	}
+}
+
+func TestRequireSuperAdmin_StillWorksInSaaS(t *testing.T) {
+	// The platform-management gate keys on IsSuperAdmin, not GodMode, so it must
+	// keep admitting the operator in SaaS (the platform must still work).
+	withSaaSMode(t, true)
+	super := Identity{User: User{ID: "b"}, Membership: Membership{Role: RoleMember}, IsSuperAdmin: true}
+	rr := httptest.NewRecorder()
+	RequireSuperAdmin(okHandler()).ServeHTTP(rr, reqWithIdentity(super))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("SaaS super-admin must still pass the /superadmin gate, got %d", rr.Code)
+	}
+}
+
 func TestSuperAdminMembership_IsApprovedAdmin(t *testing.T) {
 	m := SuperAdminMembership(User{ID: "u", Email: "boss@x.com"}, "c1")
 	// Owner so god-mode also clears the owner-only infra gate (SaaS).

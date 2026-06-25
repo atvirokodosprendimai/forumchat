@@ -69,7 +69,9 @@ func (h *Handler) PostSetBudget(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	if !(id.IsSuperAdmin || id.Membership.Role.AtLeast(auth.RoleAdmin)) {
+	// GodMode (not raw IsSuperAdmin): in SaaS a non-member operator never gets
+	// here (RequireMember), and a real member is gated by their own role.
+	if !(id.GodMode() || id.Membership.Role.AtLeast(auth.RoleAdmin)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -145,7 +147,7 @@ func (h *Handler) PostDeleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	c := community.MustFromContext(r.Context())
 	entryID := chi.URLParam(r, "id")
-	all := id.IsSuperAdmin || id.Membership.Role.AtLeast(auth.RoleMod)
+	all := id.GodMode() || id.Membership.Role.AtLeast(auth.RoleMod)
 	if err := h.Repo.DeleteEntry(r.Context(), c.ID, entryID, id.User.ID, all); err != nil {
 		h.Log.Error("delete time entry", "err", err)
 	}
@@ -182,8 +184,10 @@ func (h *Handler) panel(ctx context.Context, slug, communityID string, id auth.I
 		return webtempl.TimeBudgetPanel{}, err
 	}
 
-	canWrite := id.IsSuperAdmin || id.Membership.Role.AtLeast(auth.RoleMod)
-	canSetBudget := id.IsSuperAdmin || id.Membership.Role.AtLeast(auth.RoleAdmin)
+	// GodMode (not raw IsSuperAdmin): in SaaS write/budget powers come from a
+	// real per-community role only — the operator gets no tenant write access.
+	canWrite := id.GodMode() || id.Membership.Role.AtLeast(auth.RoleMod)
+	canSetBudget := id.GodMode() || id.Membership.Role.AtLeast(auth.RoleAdmin)
 
 	groups := groupByProject(rows, id.User.ID, canWrite)
 

@@ -16,6 +16,12 @@ import (
 // lines. Wired by main.go at boot; nil-safe (no-op when unset).
 var LoaderLog *slog.Logger
 
+// SaaSMode reports whether the platform runs in multi-tenant SaaS mode. It is
+// set once at boot from config.SAAS (mirroring webtempl.SaaSEnabled, which is
+// likewise a boot-set process global) and is immutable thereafter. Its sole
+// purpose is to gate cross-tenant content god-mode — see Identity.GodMode.
+var SaaSMode bool
+
 type ctxKey int
 
 const (
@@ -33,6 +39,18 @@ type Identity struct {
 	// community — see the Loader / RequireMember bypasses.
 	IsSuperAdmin bool
 }
+
+// GodMode reports whether this identity may transparently enter ANY community
+// and read/write its content without holding a real membership there. It is the
+// platform super-admin power — but ONLY in self-hosted mode. In SaaS each
+// community is a paying tenant whose private content the operator must never
+// read, so GodMode is forced off and the operator is confined to the platform
+// surface (the /superadmin dashboard, billing, delete, the operator inbox and
+// support inbox — all of which read aggregate metadata or content addressed to
+// the operator, never tenant content). IsSuperAdmin stays true in SaaS so those
+// platform-management gates keep working; only cross-tenant content access is
+// withdrawn. Every content-authority check consults this, not IsSuperAdmin.
+func (id Identity) GodMode() bool { return id.IsSuperAdmin && !SaaSMode }
 
 func FromContext(ctx context.Context) (Identity, bool) {
 	u, uok := ctx.Value(ctxKeyUser).(User)
@@ -107,9 +125,12 @@ func Loader(sm *scs.SessionManager, repo *Repo, supers SuperAdminSet) func(http.
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
 					// A super-admin need not be a member of the session
-					// community. Synthesize an approved admin membership so
-					// identity stays valid and god-mode works everywhere,
-					// instead of destroying the session.
+					// community. Synthesize a membership so identity stays
+					// valid (the operator can still reach /superadmin) instead
+					// of destroying the session. This is session-liveness ONLY:
+					// it does NOT grant tenant-content access — that is gated
+					// separately by Identity.GodMode, and on /c/<slug> routes
+					// community.RequireMember re-resolves the real membership.
 					if isSuper {
 						m = SuperAdminMembership(u, cid)
 					} else {
@@ -169,7 +190,10 @@ func RequireRole(min Role) func(http.Handler) http.Handler {
 				http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
 				return
 			}
-			if !id.IsSuperAdmin && !id.Membership.Role.AtLeast(min) {
+			// GodMode (not raw IsSuperAdmin): in SaaS the platform operator
+			// must clear this role gate via a real membership role, not by
+			// god-mode, so they can't reach a tenant's /c/<slug>/admin.
+			if !id.GodMode() && !id.Membership.Role.AtLeast(min) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
@@ -206,7 +230,10 @@ func RequireApproved(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login?next="+r.URL.Path, http.StatusSeeOther)
 			return
 		}
-		if id.IsSuperAdmin || id.Membership.IsApproved() || id.Membership.Role.AtLeast(RoleAdmin) {
+		// GodMode (not raw IsSuperAdmin): in SaaS the operator only skips the
+		// approval queue for a community where they hold a real approved/admin
+		// membership — never for an arbitrary tenant.
+		if id.GodMode() || id.Membership.IsApproved() || id.Membership.Role.AtLeast(RoleAdmin) {
 			next.ServeHTTP(w, r)
 			return
 		}

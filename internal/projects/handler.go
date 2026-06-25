@@ -103,7 +103,10 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 	// here is rebound to the slug community by RequireMember, so the role
 	// is correct for THIS community.
 	id, _ := auth.FromContext(r.Context())
-	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin) || id.IsSuperAdmin
+	// GodMode (not raw IsSuperAdmin): in SaaS a non-member operator never
+	// reaches here (RequireMember 403s); for a real member their own role
+	// decides whether restricted projects are visible.
+	isAdmin := id.Membership.Role.AtLeast(auth.RoleAdmin) || id.GodMode()
 	active, err := h.Repo.ListVisibleForCommunity(r.Context(), c.ID, id.User.ID, isAdmin, false)
 	if err != nil {
 		h.Log.Error("projects list active", "err", err, "community", c.ID)

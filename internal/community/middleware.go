@@ -53,9 +53,13 @@ func LoadCommunity(repo *Repo, cfg config.Config) func(http.Handler) http.Handle
 // RequireMember rejects requests whose viewer has no membership in the
 // resolved community. Ordinary global/community admins are not
 // auto-admitted — they need a membership row. The one exception is a
-// platform super-admin (SUPERADMIN_EMAILS): when they have no row we
-// synthesize an approved admin membership so god-mode reaches every
-// community's admin surface without a join.
+// platform super-admin with cross-tenant god-mode (auth.Identity.GodMode):
+// when they have no row we synthesize an approved owner membership so god-mode
+// reaches every community without a join. In SaaS GodMode is off, so a
+// super-admin with no real membership is refused here exactly like any other
+// non-member — the privacy wall that keeps the platform operator out of a
+// tenant's chat/notes/forum/projects. (They still manage the platform via the
+// separate /superadmin surface, which does not pass through this middleware.)
 func RequireMember(authRepo *auth.Repo) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +75,7 @@ func RequireMember(authRepo *auth.Repo) func(http.Handler) http.Handler {
 			}
 			m, err := authRepo.MembershipFor(r.Context(), id.User.ID, c.ID)
 			if err != nil {
-				if id.IsSuperAdmin && errors.Is(err, auth.ErrNotFound) {
+				if id.GodMode() && errors.Is(err, auth.ErrNotFound) {
 					m = auth.SuperAdminMembership(id.User, c.ID)
 				} else {
 					http.Error(w, "forbidden", http.StatusForbidden)
