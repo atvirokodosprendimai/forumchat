@@ -164,20 +164,37 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 	// the second-granular floor).
 	resumeFrom = resumeFrom.Truncate(time.Second)
 
+	// Does the resume point reflect content we've ALREADY delivered — a
+	// stateless-worker cursor resume, or a live-only first connect — rather than
+	// an explicit ?since= replay request? It matters for the boundary second:
+	// created_at is unix-second granular and the watermark query is inclusive
+	// (>=), so the messages sitting exactly AT the resume second were already sent
+	// last session. If we don't mark them seen, every idle reconnect re-delivers
+	// that whole second — the "I keep getting all messages from X on every
+	// reconnect" bug. An explicit ?since= is the opposite: a deliberate replay, so
+	// we must NOT seed (the caller wants everything at/after that instant).
+	q := r.URL.Query()
+	fromCursor := q.Get("live") != "1" && q.Get("since") == "" && conn.CursorAt != nil && conn.CursorAt.Unix() > 0
+	seedBoundary := !catchUp || fromCursor
+
 	// Per-channel watermark (inclusive) + a seen-set for the boundary second so
-	// same-second messages (created_at is unix seconds) are neither missed nor
-	// duplicated. In LIVE-ONLY mode (no backlog) seed seen with anything already
-	// at the resume second so we don't re-deliver it; in CATCH-UP mode leave seen
-	// empty so the backlog drain delivers it.
+	// same-second messages are neither missed nor duplicated. When seedBoundary,
+	// seed seen with the rows at exactly the resume second (already delivered);
+	// the catch-up drain then delivers only what's strictly newer. For an explicit
+	// ?since= replay seen starts empty so the boundary second IS delivered.
 	wm := make(map[string]time.Time, len(subs))
 	seen := make(map[string]map[string]bool, len(subs))
 	for id := range subs {
 		wm[id] = resumeFrom
 		seen[id] = map[string]bool{}
-		if !catchUp {
+		if seedBoundary {
 			if existing, err := h.ChatRepo.ListAfter(r.Context(), id, resumeFrom, streamBatchLimit); err == nil {
 				for _, m := range existing {
-					seen[id][m.ID] = true
+					// Only the boundary (resume) second — rows strictly later are
+					// genuine backlog the drain must still deliver.
+					if m.CreatedAt.Unix() == resumeFrom.Unix() {
+						seen[id][m.ID] = true
+					}
 				}
 			}
 		}

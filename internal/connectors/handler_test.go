@@ -383,6 +383,51 @@ func TestStreamHoldsGeneratingBot(t *testing.T) {
 	}
 }
 
+// TestStreamCursorResumeSkipsBoundarySecond is the regression for "every
+// reconnect re-delivers all messages from X": with a stored cursor at a
+// message's second (i.e. delivered in a prior session), a fresh cursor-resume
+// connect must seed that boundary second as already-seen and NOT replay it —
+// while still delivering genuinely newer messages.
+func TestStreamCursorResumeSkipsBoundarySecond(t *testing.T) {
+	t.Parallel()
+	hz := newHarness(t)
+	ctx := context.Background()
+	conn, err := hz.svc.Create(ctx, connectors.CreateInput{
+		CommunityID: hz.comm.ID, Name: "Acme", Capabilities: []string{"send"},
+		ChannelIDs: []string{hz.general.ID},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// A message exists and the connector's cursor already points at its second —
+	// exactly the state a prior session leaves behind on close.
+	_, msgID := hz.memberSay(t, "alice", "already delivered last time")
+	m, err := hz.h.ChatRepo.ByID(ctx, msgID)
+	if err != nil {
+		t.Fatalf("byid: %v", err)
+	}
+	if err := hz.h.Repo.SetCursor(ctx, hz.comm.ID, conn.ID, m.CreatedAt.Unix()); err != nil {
+		t.Fatalf("set cursor: %v", err)
+	}
+
+	// Cursor resume (no ?since / ?live): ready → live, with NO replay of the
+	// boundary-second message in between.
+	s := hz.openStream(t, conn)
+	if ev := s.next(t); ev.event != "ready" {
+		t.Fatalf("first frame = %q, want ready", ev.event)
+	}
+	if ev := s.next(t); ev.event != "live" {
+		t.Fatalf("cursor resume replayed the boundary second (the bug): got %q/%s, want live", ev.event, ev.data)
+	}
+
+	// A genuinely newer message still flows.
+	hz.memberSay(t, "bob", "a new one")
+	if ev := s.next(t); ev.event != "message" || !strings.Contains(ev.data, "a new one") {
+		t.Fatalf("new message not delivered after cursor resume: %q/%s", ev.event, ev.data)
+	}
+}
+
 // ----- small SSE client + post helpers ---------------------------------------
 
 func (hz *harness) post(t *testing.T, id string, body []byte, sig string) int {

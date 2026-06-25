@@ -1921,9 +1921,16 @@ func run() error {
 			return t.ID, nil
 		}
 		// SendDM opens/continues a DM thread from the connector member to another
-		// member. The recipient MUST belong to this community — otherwise a connector
-		// could DM any user platform-wide just by knowing an id (cross-tenant leak).
+		// member. BOTH parties must belong to this community: the recipient so a
+		// connector can't DM an arbitrary platform user by id (cross-tenant leak),
+		// and the sender (the connector's synthetic member) so a connector whose
+		// member was removed/banned from the community while its row lingered can't
+		// keep opening DMs (Codex-flagged). The connector's own Enabled flag remains
+		// the primary kill-switch; this is defence-in-depth.
 		connectorsHandler.SendDM = func(ctx context.Context, communityID, fromUserID, toUserID, body string) (string, error) {
+			if _, err := aRepo.MembershipFor(ctx, fromUserID, communityID); err != nil {
+				return "", fmt.Errorf("connector is no longer a member of this community")
+			}
 			if _, err := aRepo.MembershipFor(ctx, toUserID, communityID); err != nil {
 				return "", fmt.Errorf("recipient is not a member of this community")
 			}
