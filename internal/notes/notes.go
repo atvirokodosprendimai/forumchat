@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -46,6 +47,18 @@ var (
 	ErrNotFound = errors.New("notes: not found")
 	// ErrBadPatch is returned when a collab sync patch can't be parsed.
 	ErrBadPatch = errors.New("notes: malformed patch")
+	// ErrAlreadyEditor is returned when a member requests edit rights on a note
+	// they can already edit (an editor, or an already-granted collaborator).
+	ErrAlreadyEditor = errors.New("notes: already an editor")
+)
+
+// EditRequest statuses. A row is either awaiting a decision (pending) or has
+// been approved into a collaborator grant (granted); no row means no
+// relationship. Decline/revoke delete the row rather than store a third state,
+// so a member is free to ask again later.
+const (
+	RequestPending = "pending"
+	RequestGranted = "granted"
 )
 
 // Note is one shared note. Body is the markdown source (shown in the editor);
@@ -66,15 +79,23 @@ type Note struct {
 	Version     int // monotonic; bumped on every merged collab edit and on Save
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	// GrantedEditors holds the user IDs approved as collaborators via the
+	// "request to edit" flow (note_edit_requests, status='granted'). Populated by
+	// Repo.ByID; nil on list/token reads where per-note grants don't matter. It
+	// is the data CanEdit consults in addition to the author/mod base authority.
+	GrantedEditors []string
 }
 
 // IsPublic reports whether the note is listed community-wide.
 func (n Note) IsPublic() bool { return n.Visibility == Public }
 
-// CanEdit reports whether id may edit/share/delete the note: the author, a
-// moderator/admin of the community, or the platform super-admin. This is the one
-// authority for write access — handlers must not re-derive it.
-func (n Note) CanEdit(id auth.Identity) bool {
+// CanManage reports whether id owns the note's edit policy: the author, a
+// moderator/admin of the community, or the platform super-admin. Only managers
+// approve/decline/revoke edit-rights requests — a granted collaborator may edit
+// content but must NOT be able to grant edit rights to others (no privilege
+// escalation). This is the one authority for editor management; handlers must
+// not re-derive it. It is the pre-grant meaning of "can edit".
+func (n Note) CanManage(id auth.Identity) bool {
 	if id.IsSuperAdmin {
 		return true
 	}
@@ -82,6 +103,17 @@ func (n Note) CanEdit(id auth.Identity) bool {
 		return true
 	}
 	return id.Membership.Role.AtLeast(auth.RoleMod)
+}
+
+// CanEdit reports whether id may edit/share/delete the note's content: a
+// manager (author/mod/super-admin) OR a member granted edit rights via the
+// request-to-edit flow. This is the one authority for write access — handlers
+// must not re-derive it. Grants come from GrantedEditors (populated by ByID).
+func (n Note) CanEdit(id auth.Identity) bool {
+	if n.CanManage(id) {
+		return true
+	}
+	return id.User.ID != "" && slices.Contains(n.GrantedEditors, id.User.ID)
 }
 
 // Comment is one inline comment anchored to a rendered block of a note.
@@ -104,13 +136,15 @@ type Comment struct {
 // IsResolved reports whether the comment has been closed.
 func (c Comment) IsResolved() bool { return c.ResolvedAt != nil }
 
-// CanModerate reports whether id may resolve/delete the comment: its author, the
-// note's author, a moderator/admin, or the super-admin.
+// CanModerate reports whether id may resolve/delete the comment: its own author,
+// or a note MANAGER (author/mod/super-admin). It deliberately uses CanManage,
+// not CanEdit — a granted collaborator edits the note's body but does not curate
+// other members' comments. This preserves the pre-grant moderation behaviour.
 func (c Comment) CanModerate(id auth.Identity, note Note) bool {
 	if id.User.ID == c.AuthorID {
 		return true
 	}
-	return note.CanEdit(id)
+	return note.CanManage(id)
 }
 
 type Repo struct{ DB *sql.DB }
@@ -145,9 +179,20 @@ func (r *Repo) Create(ctx context.Context, n Note) error {
 	return err
 }
 
-// ByID returns a note. Returns sql.ErrNoRows when the id is unknown.
+// ByID returns a note with its granted-collaborator set loaded (so CanEdit can
+// honour per-note edit grants). Returns sql.ErrNoRows when the id is unknown.
+// The grant query is a tiny indexed lookup; a note has at most a handful of
+// granted editors, so this stays cheap on the single-note read paths.
 func (r *Repo) ByID(ctx context.Context, id string) (Note, error) {
-	return scanNote(r.DB.QueryRowContext(ctx, `SELECT `+noteCols+` FROM notes WHERE id = ?`, id))
+	n, err := scanNote(r.DB.QueryRowContext(ctx, `SELECT `+noteCols+` FROM notes WHERE id = ?`, id))
+	if err != nil {
+		return Note{}, err
+	}
+	n.GrantedEditors, err = r.GrantedEditorIDs(ctx, id)
+	if err != nil {
+		return Note{}, err
+	}
+	return n, nil
 }
 
 // ByShareToken returns the note carrying token. The token is the bearer
@@ -347,6 +392,123 @@ func channelArg(channelID *string) any {
 	return *channelID
 }
 
+// --- edit requests ----------------------------------------------------------
+
+// EditRequest is one member's request to edit a note, or (once approved) their
+// standing collaborator grant. UserName is denormalized at read time for the
+// manage panel. DecidedAt is nil while pending.
+type EditRequest struct {
+	ID          string
+	NoteID      string
+	UserID      string
+	UserName    string
+	Status      string // RequestPending | RequestGranted
+	Message     string
+	RequestedAt time.Time
+	DecidedAt   *time.Time
+}
+
+// CreateEditRequest records a pending edit request. It is idempotent on
+// (note_id, user_id): a duplicate request, or one from a user who is already a
+// granted collaborator, is a no-op (ON CONFLICT DO NOTHING) — so a repeat ask
+// can never clobber an existing grant back to pending.
+func (r *Repo) CreateEditRequest(ctx context.Context, communityID string, req EditRequest) error {
+	_, err := r.DB.ExecContext(ctx, `
+		INSERT INTO note_edit_requests (id, note_id, community_id, user_id, status, message, requested_at)
+		VALUES (?, ?, ?, ?, 'pending', ?, ?)
+		ON CONFLICT (note_id, user_id) DO NOTHING`,
+		req.ID, req.NoteID, communityID, req.UserID, req.Message, req.RequestedAt.Unix())
+	return err
+}
+
+// GrantedEditorIDs returns the user IDs approved as collaborators on a note.
+func (r *Repo) GrantedEditorIDs(ctx context.Context, noteID string) ([]string, error) {
+	rows, err := r.DB.QueryContext(ctx,
+		`SELECT user_id FROM note_edit_requests WHERE note_id = ? AND status = 'granted'`, noteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// ListEditRequests returns a note's requests of the given status (pending or
+// granted), oldest first, with each requester's effective display name joined.
+func (r *Repo) ListEditRequests(ctx context.Context, noteID, status string) ([]EditRequest, error) {
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT er.id, er.note_id, er.user_id, COALESCE(m.effective_display_name, 'member'),
+			er.status, er.message, er.requested_at, er.decided_at
+		FROM note_edit_requests er
+		JOIN notes n ON n.id = er.note_id
+		LEFT JOIN memberships m ON m.user_id = er.user_id AND m.community_id = n.community_id
+		WHERE er.note_id = ? AND er.status = ?
+		ORDER BY er.requested_at`, noteID, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []EditRequest
+	for rows.Next() {
+		var e EditRequest
+		var decided sql.NullInt64
+		var requested int64
+		if err := rows.Scan(&e.ID, &e.NoteID, &e.UserID, &e.UserName,
+			&e.Status, &e.Message, &requested, &decided); err != nil {
+			return nil, err
+		}
+		e.RequestedAt = time.Unix(requested, 0)
+		if decided.Valid {
+			t := time.Unix(decided.Int64, 0)
+			e.DecidedAt = &t
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// EditRequestStatus returns a member's current relationship to a note:
+// RequestPending, RequestGranted, or "" (no row). Used to render the
+// requester's own state on the note page.
+func (r *Repo) EditRequestStatus(ctx context.Context, noteID, userID string) (string, error) {
+	var status string
+	err := r.DB.QueryRowContext(ctx,
+		`SELECT status FROM note_edit_requests WHERE note_id = ? AND user_id = ?`, noteID, userID).
+		Scan(&status)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return status, err
+}
+
+// GrantEditRequest approves a pending request into a collaborator grant. The
+// WHERE clause requires status='pending', so approving twice (or approving a
+// row that was deleted) is a harmless no-op rather than re-stamping a decision.
+func (r *Repo) GrantEditRequest(ctx context.Context, noteID, userID, decidedBy string) error {
+	_, err := r.DB.ExecContext(ctx, `
+		UPDATE note_edit_requests
+		SET status = 'granted', decided_at = ?, decided_by = ?
+		WHERE note_id = ? AND user_id = ? AND status = 'pending'`,
+		time.Now().Unix(), decidedBy, noteID, userID)
+	return err
+}
+
+// DeleteEditRequest removes a note's request row for a user. It backs BOTH
+// "decline" (a pending row) and "revoke" (a granted row): no row means no
+// relationship, and the member may request again later.
+func (r *Repo) DeleteEditRequest(ctx context.Context, noteID, userID string) error {
+	_, err := r.DB.ExecContext(ctx,
+		`DELETE FROM note_edit_requests WHERE note_id = ? AND user_id = ?`, noteID, userID)
+	return err
+}
+
 // --- service ----------------------------------------------------------------
 
 type Service struct{ Repo *Repo }
@@ -436,7 +598,13 @@ func (s *Service) Save(ctx context.Context, id auth.Identity, in SaveInput) (Not
 	n.Body = body
 	n.DraftBody = body // draft == published after a save
 	n.BodyHTML = html
-	n.Visibility = normalizeVisibility(in.Visibility)
+	// Visibility (public vs private) is a distribution decision reserved for a
+	// manager. A granted collaborator edits content; they must not flip the
+	// note's visibility, so a non-manager save preserves the stored value and
+	// ignores the client's note_visibility signal.
+	if n.CanManage(id) {
+		n.Visibility = normalizeVisibility(in.Visibility)
+	}
 	if n.ShareToken == "" {
 		tok, err := newToken()
 		if err != nil {
@@ -521,6 +689,80 @@ func (s *Service) AddComment(ctx context.Context, communityID string, id auth.Id
 	}
 	c.AuthorName = id.Membership.ShownName()
 	return c, nil
+}
+
+// RequestEdit records a member's request for edit rights on a note. It enforces
+// community scope and that the note is actually reachable by the requester (a
+// public note, or one they can already edit — though in the latter case there
+// is nothing to request). A caller who can already edit gets ErrAlreadyEditor;
+// otherwise a pending request is recorded idempotently. Returns the note so the
+// handler can re-render the access panel from the same load.
+func (s *Service) RequestEdit(ctx context.Context, communityID string, id auth.Identity, noteID, message string) (Note, error) {
+	n, err := s.Repo.ByID(ctx, noteID)
+	if err != nil {
+		// A missing note must be indistinguishable from one the caller may not
+		// reach (wrong community, or private + non-editor below) — collapse all
+		// to ErrForbidden so a request can't be used to probe note existence.
+		if errors.Is(err, sql.ErrNoRows) {
+			return Note{}, ErrForbidden
+		}
+		return Note{}, err
+	}
+	if n.CommunityID != communityID {
+		return Note{}, ErrForbidden
+	}
+	// A member can only request edit rights on a note they can see. Private notes
+	// are unreachable to non-editors (they 404 at GetPage), so disallow here too —
+	// a request must never be an existence oracle for an unlisted note.
+	if !n.IsPublic() && !n.CanEdit(id) {
+		return Note{}, ErrForbidden
+	}
+	if n.CanEdit(id) {
+		return Note{}, ErrAlreadyEditor
+	}
+	req := EditRequest{
+		ID:          uuid.NewString(),
+		NoteID:      noteID,
+		UserID:      id.User.ID,
+		Message:     clip(strings.TrimSpace(message), 280),
+		RequestedAt: time.Now(),
+	}
+	if err := s.Repo.CreateEditRequest(ctx, communityID, req); err != nil {
+		return Note{}, fmt.Errorf("create edit request: %w", err)
+	}
+	return n, nil
+}
+
+// DecideEditRequest approves (grant=true) or removes (grant=false) a member's
+// edit-rights request on a note. Only a manager (author/mod/super-admin) may
+// decide — a granted collaborator can edit content but cannot grant rights to
+// others (no privilege escalation). grant=false backs both "decline" (a pending
+// row) and "revoke" (a granted row). Returns the reloaded note so the handler
+// re-renders from a fresh grant set.
+func (s *Service) DecideEditRequest(ctx context.Context, communityID string, id auth.Identity, noteID, targetUserID string, grant bool) (Note, error) {
+	n, err := s.Repo.ByID(ctx, noteID)
+	if err != nil {
+		// Same no-oracle treatment as RequestEdit: missing and not-allowed both
+		// surface as ErrForbidden.
+		if errors.Is(err, sql.ErrNoRows) {
+			return Note{}, ErrForbidden
+		}
+		return Note{}, err
+	}
+	if n.CommunityID != communityID {
+		return Note{}, ErrForbidden
+	}
+	if !n.CanManage(id) {
+		return Note{}, ErrForbidden
+	}
+	if grant {
+		if err := s.Repo.GrantEditRequest(ctx, noteID, targetUserID, id.User.ID); err != nil {
+			return Note{}, fmt.Errorf("grant edit request: %w", err)
+		}
+	} else if err := s.Repo.DeleteEditRequest(ctx, noteID, targetUserID); err != nil {
+		return Note{}, fmt.Errorf("remove edit request: %w", err)
+	}
+	return s.Repo.ByID(ctx, noteID)
 }
 
 // normalizeVisibility coerces an input to a known visibility, defaulting to

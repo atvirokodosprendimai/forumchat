@@ -19,12 +19,51 @@ editable*, with a *visibility split* and *inline comments*.
 
 ## Authority (one place each — don't re-derive in handlers)
 
-- **`Note.CanEdit(id)`** = author OR `Role.AtLeast(RoleMod)` OR `IsSuperAdmin`.
-  Editors edit/share/delete; everyone else reads + comments.
-- **`Comment.CanModerate(id, note)`** = comment author OR `note.CanEdit`.
-- **`Service.Save`** enforces BOTH `n.CommunityID == in.CommunityID` (no
-  cross-tenant write — a mod of community B must not save a note from A) AND
-  `CanEdit`. The community guard is load-bearing; a Codex pass caught its absence.
+Two tiers, deliberately split (a granted collaborator edits CONTENT only; the
+note's owners still control distribution + lifecycle):
+
+- **`Note.CanManage(id)`** = author OR `Role.AtLeast(RoleMod)` OR `IsSuperAdmin`.
+  The policy authority — the pre-grant meaning of "editor". Managers approve
+  edit-rights requests, change **visibility**, **share**, **delete**, and
+  moderate others' comments.
+- **`Note.CanEdit(id)`** = `CanManage` OR a member granted edit rights via the
+  request-to-edit flow (`Note.GrantedEditors`, populated by `Repo.ByID`).
+  Gates content editing only: the editor zone, `Save` (body/title), `SyncBody`,
+  `GetCollab`.
+- **`Comment.CanModerate(id, note)`** = comment author OR `note.CanManage` (NOT
+  CanEdit — a granted collaborator doesn't curate others' comments).
+- **`Service.Save`** enforces `n.CommunityID == in.CommunityID` (no cross-tenant
+  write — a mod of community B must not save a note from A) AND `CanEdit`; it
+  applies `note_visibility` **only** when `CanManage` (a collaborator's forged
+  visibility signal is ignored). The community guard is load-bearing; a Codex
+  pass caught its absence.
+
+### Request to edit (migration 00075 `note_edit_requests`)
+
+A regular member can read + comment a PUBLIC note but, by design, never edit it
+— which also blocked the whole community from the collaborative diff-sync
+editor. The fix is a per-note grant ACL, opt-in one note at a time:
+
+- A non-editor member sees a **"Request edit rights"** button (the
+  `#note-access` panel, `NoteAccessPanel`); OTHER members only — an editor never
+  sees it. `Service.RequestEdit` records a `pending` row (idempotent on
+  `(note_id, user_id)` via `ON CONFLICT DO NOTHING`; an already-editor caller
+  gets `ErrAlreadyEditor`). A request on a missing / cross-community / private
+  note all collapse to `ErrForbidden` → flat 404 (no existence oracle).
+- A **manager** sees the pending requests + current collaborators in the same
+  panel and `Service.DecideEditRequest(grant)`s: `grant=true` flips the row to
+  `granted` (→ `CanEdit` true → the member gets the live editor on next load);
+  `grant=false` DELETEs (declines a pending row OR revokes a grant — no row =
+  no relationship, re-requestable). **Manager-only** (`CanManage`, not CanEdit)
+  so a granted collaborator can't escalate by granting others — Codex-checked.
+- `Repo.ByID` loads `GrantedEditors` on every single-note read (tiny indexed
+  lookup) so `CanEdit` is uniform across handler + service paths. List/token
+  reads don't load grants (don't need them).
+- Handlers call the service BEFORE `render.NewSSE` (errors reply with a plain
+  status; only success/already-editor patch the panel) — opening SSE first then
+  `http.Error` would emit a garbled second header (the project's NewSSE caveat).
+- Approval is not pushed cross-session: the approved member gains the editor on
+  their next page load (they hold no collab stream while non-editor).
 
 ## Visibility & the public token reader
 

@@ -6449,6 +6449,44 @@ body:has(.chat-layout) .site-footer { display: none; }
   background: var(--accent-soft); border-radius: var(--radius-sm); padding: .4rem .6rem; }
 .note-share-actions { display: flex; justify-content: flex-end; gap: .5rem; }
 
+/* notes — request-to-edit access panel (#note-access) */
+.note-access:empty { display: none; }
+/* The "ask for edit rights" prompt OTHER members see on a public note. Accent
+   surface so it reads as a friendly invitation, not an error. */
+.note-access-req { display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  flex-wrap: wrap; background: var(--accent-soft); border-color: var(--accent-ring); }
+.note-access-req-copy { display: flex; flex-direction: column; gap: .15rem; min-width: 12rem; flex: 1; }
+.note-access-req-copy strong { color: var(--accent-strong); }
+.note-access-req-form { display: flex; align-items: center; gap: .5rem; flex: 1; min-width: 14rem; }
+.note-access-req-msg { flex: 1; min-width: 0; }
+.note-access-req-form .btn { white-space: nowrap; }
+@media (max-width: 560px) {
+  .note-access-req-form { width: 100%; }
+  .note-access-req-form .btn { flex-shrink: 0; }
+}
+/* A member who has asked but not yet been approved. */
+.note-access-pending { margin: 0; font-size: .9rem; color: var(--accent-strong);
+  background: var(--accent-soft); border: 1px solid var(--accent-ring);
+  border-radius: var(--radius); padding: .55rem .8rem; }
+/* A granted collaborator's quiet confirmation. */
+.note-access-granted { margin: 0; font-size: .88rem; padding: .4rem 0; }
+/* Manager view: pending requests + current collaborators. */
+.note-access-manage { display: flex; flex-direction: column; gap: 1rem; }
+.note-access-sec { display: flex; flex-direction: column; gap: .5rem; }
+.note-access-h { margin: 0; font-size: .95rem; display: flex; align-items: center; gap: .5rem; }
+.note-access-count { font-size: .72rem; font-weight: 700; color: var(--accent-strong);
+  background: var(--accent-soft); border: 1px solid var(--accent-ring);
+  border-radius: var(--radius-pill); padding: .05rem .45rem; }
+.note-access-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.note-access-item { display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .55rem .7rem; background: var(--surface-alt); }
+.note-access-who { display: flex; flex-direction: column; gap: .1rem; min-width: 0; flex: 1; }
+.note-access-who > span { font-size: .8rem; }
+.note-access-msg { font-style: italic; color: var(--fg-muted); overflow-wrap: anywhere; }
+.note-access-acts { display: flex; gap: .4rem; flex-shrink: 0; }
+.note-access-acts .btn.sm { font-size: .8rem; padding: .3rem .65rem; }
+
 /* notes — inline comments */
 .note-reader-grid { display: grid; grid-template-columns: minmax(0,1fr) 16rem; gap: 1.25rem; align-items: start; }
 .note-reader-grid.solo { grid-template-columns: minmax(0,1fr); }

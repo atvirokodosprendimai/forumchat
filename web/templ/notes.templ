@@ -52,6 +52,51 @@ type NoteChannelOption struct {
 	Name string
 }
 
+// NoteEditRequestView is one member's request to edit a note (manage panel).
+type NoteEditRequestView struct {
+	UserID    string
+	UserName  string
+	Message   string
+	Requested time.Time
+}
+
+// NoteEditorView is one granted collaborator on a note (manage panel).
+type NoteEditorView struct {
+	UserID   string
+	UserName string
+}
+
+// NoteAccessData drives the request-to-edit panel (#note-access). It is its own
+// stable-id fragment so request/approve/decline/revoke can morph it in place
+// without disturbing the editor or reader zones (AGENTS §4.7).
+type NoteAccessData struct {
+	Slug   string
+	NoteID string
+	// CanManage: viewer owns the note's edit policy (author/mod/super) → show
+	// the pending-requests + collaborators management list.
+	CanManage bool
+	// CanEdit: viewer already edits (manager OR granted collaborator).
+	CanEdit bool
+	// IsAuthed: viewer is a signed-in member (only members can request).
+	IsAuthed bool
+	// IsPublic: the note is publicly listed; only then does a non-editor see
+	// (and reach) it to request rights.
+	IsPublic bool
+	// MyStatus: the viewer's own relationship — "pending" while awaiting a
+	// decision, "" when they have never asked. ("granted" implies CanEdit.)
+	MyStatus string
+	// Pending / Collaborators populate the manager's lists.
+	Pending       []NoteEditRequestView
+	Collaborators []NoteEditorView
+}
+
+// hasManageWork reports whether the manager has anything to show — pending
+// requests or standing collaborators. With neither, the panel stays hidden so a
+// quiet note carries no empty chrome.
+func (d NoteAccessData) hasManageWork() bool {
+	return len(d.Pending) > 0 || len(d.Collaborators) > 0
+}
+
 type NotesPageData struct {
 	Viewer Viewer
 	Slug   string
@@ -68,9 +113,10 @@ type NotePageData struct {
 	Comments     []NoteCommentView
 	BlockCount   int
 	Channels     []NoteChannelOption
-	Edit         bool // viewer may edit (author/mod) — show the editor zone
+	Edit         bool // viewer may edit (author/mod/granted) — show the editor zone
 	CanComment   bool // viewer is an approved member — show comment affordances
 	Shared       bool // rendered via the public token link (read-only, anon)
+	Access       NoteAccessData // request-to-edit panel (#note-access)
 }
 
 // openComments returns the comments that are still open (unresolved); resolved
@@ -168,6 +214,9 @@ templ NotePage(d NotePageData) {
 			if d.Edit {
 				@noteEditor(d)
 			}
+			if !d.Shared {
+				@NoteAccessPanel(d.Access)
+			}
 			@NoteReader(d)
 		</section>
 		if !d.Shared {
@@ -196,15 +245,22 @@ templ noteEditor(d NotePageData) {
 			</button>
 			<div class="note-editor-tools" data-show="$_note_edit">
 				<input class="note-title-input" type="text" data-bind="note_title" placeholder="Title" autocomplete="off"/>
-				<label class="note-vis">
-					<select data-bind="note_visibility">
-						<option value="private">🔒 Private</option>
-						<option value="public">🌐 Public</option>
-					</select>
-				</label>
+				if d.Access.CanManage {
+					// Visibility, share and delete are manager-only — a granted
+					// collaborator edits content but doesn't control distribution
+					// or lifecycle (the server enforces this regardless of UI).
+					<label class="note-vis">
+						<select data-bind="note_visibility">
+							<option value="private">🔒 Private</option>
+							<option value="public">🌐 Public</option>
+						</select>
+					</label>
+				}
 				<button class="primary" data-on:click={ "$note_patch = (window.fcNoteCollabPatch ? window.fcNoteCollabPatch() : ''); @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/save')" }>Save</button>
-				<button class="btn ghost" data-on:click="$_note_share_open = true">Share…</button>
-				<button class="btn ghost danger" data-on:click={ "confirm('Delete this note?') && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/delete')" }>Delete</button>
+				if d.Access.CanManage {
+					<button class="btn ghost" data-on:click="$_note_share_open = true">Share…</button>
+					<button class="btn ghost danger" data-on:click={ "confirm('Delete this note?') && @post('/c/" + d.Slug + "/notes/" + d.Note.ID + "/delete')" }>Delete</button>
+				}
 			</div>
 		</div>
 		<div class="note-editor-body" data-show="$_note_edit">
@@ -288,6 +344,108 @@ func shareURL(d NotePageData) string {
 		return base + "/c/" + d.Slug + "/notes/" + d.Note.ID
 	}
 	return base + "/n/" + d.Note.ShareToken
+}
+
+// NoteAccessPanel is the request-to-edit surface, a stable-id fragment morphed
+// after every request/approve/decline/revoke. It shows ONE of three faces:
+//   - a manager (author/mod/super) with work: the pending requests + current
+//     collaborators, each with an action;
+//   - a granted collaborator: a quiet confirmation they may edit;
+//   - any other signed-in member on a PUBLIC note: the "Request edit rights"
+//     affordance (or, once they have asked, a pending status).
+// Everyone else (e.g. the author of a quiet note) gets an empty, hidden panel —
+// the root id always renders so morphs have a target (`.note-access:empty`
+// collapses it). The button is for OTHER members, never the editor.
+templ NoteAccessPanel(d NoteAccessData) {
+	<div id="note-access" class="note-access">
+		if d.CanManage && d.hasManageWork() {
+			<div class="note-access-manage card">
+				if len(d.Pending) > 0 {
+					<div class="note-access-sec">
+						<h2 class="note-access-h">
+							✋ Edit-rights requests
+							<span class="note-access-count">{ strconv.Itoa(len(d.Pending)) }</span>
+						</h2>
+						<ul class="note-access-list">
+							for _, req := range d.Pending {
+								@noteAccessRequest(d.Slug, d.NoteID, req)
+							}
+						</ul>
+					</div>
+				}
+				if len(d.Collaborators) > 0 {
+					<div class="note-access-sec">
+						<h2 class="note-access-h">🖉 Collaborators</h2>
+						<ul class="note-access-list">
+							for _, c := range d.Collaborators {
+								@noteAccessCollaborator(d.Slug, d.NoteID, c)
+							}
+						</ul>
+					</div>
+				}
+			</div>
+		} else if d.CanEdit && !d.CanManage {
+			<p class="note-access-granted muted">🖉 You've been granted edit rights on this note — open the editor above to collaborate.</p>
+		} else if d.IsAuthed && d.IsPublic {
+			if d.MyStatus == "pending" {
+				<p class="note-access-pending">⏳ Edit access requested — an editor will review it.</p>
+			} else {
+				<div class="note-access-req card">
+					<div class="note-access-req-copy">
+						<strong>Want to help edit this note?</strong>
+						<span class="muted">Only its editors can change it. Ask for edit rights and an editor can grant you collaborative access.</span>
+					</div>
+					<div class="note-access-req-form">
+						<input
+							class="note-access-req-msg"
+							type="text"
+							data-bind="note_req_msg"
+							maxlength="280"
+							autocomplete="off"
+							aria-label="Optional message to the editors"
+							placeholder="Optional: why you'd like to edit"
+						/>
+						<button
+							class="btn primary"
+							data-on:click={ "@post('/c/" + d.Slug + "/notes/" + d.NoteID + "/request-edit')" }
+							data-indicator="_note_req_busy"
+							data-attr:disabled="$_note_req_busy"
+						>Request edit rights</button>
+					</div>
+				</div>
+			}
+		}
+	</div>
+}
+
+// noteAccessRequest is one pending requester row with approve / decline.
+templ noteAccessRequest(slug, noteID string, req NoteEditRequestView) {
+	<li class="note-access-item">
+		<div class="note-access-who">
+			<strong>{ req.UserName }</strong>
+			<span class="muted">{ req.Requested.Format("Jan 2, 15:04") }</span>
+			if req.Message != "" {
+				<span class="note-access-msg">“{ req.Message }”</span>
+			}
+		</div>
+		<div class="note-access-acts">
+			<button class="btn primary sm" data-on:click={ "@post('/c/" + slug + "/notes/" + noteID + "/editors/" + req.UserID + "/approve')" }>Approve</button>
+			<button class="btn ghost sm" data-on:click={ "@post('/c/" + slug + "/notes/" + noteID + "/editors/" + req.UserID + "/remove')" }>Decline</button>
+		</div>
+	</li>
+}
+
+// noteAccessCollaborator is one granted editor with a revoke action.
+templ noteAccessCollaborator(slug, noteID string, c NoteEditorView) {
+	<li class="note-access-item">
+		<div class="note-access-who">
+			<strong>{ c.UserName }</strong>
+			<span class="muted">can edit</span>
+		</div>
+		<div class="note-access-acts">
+			<button class="btn ghost sm danger" data-on:click={ "confirm('Remove this collaborator?') && @post('/c/" + slug + "/notes/" + noteID + "/editors/" + c.UserID + "/remove')" }>Revoke</button>
+		</div>
+	</li>
 }
 
 // NoteReader is the rendered article everyone sees: editors (below their
@@ -468,6 +626,7 @@ func noteInitSignals(n NoteView) string {
 		`,"note_visibility":` + strconv.Quote(vis) +
 		`,"note_body":` + strconv.Quote(n.Body) +
 		`,"note_c_block":"0","note_c_quote":"","note_c_body":"","note_share_channel":"","note_patch":"","note_cursor":0,` +
-		`"_note_canon":"","_note_ver":0,"_note_cursors":"[]",` +
+		`"note_req_msg":"",` +
+		`"_note_canon":"","_note_ver":0,"_note_cursors":"[]","_note_req_busy":false,` +
 		`"_note_share_open":false,"_note_comment_open":false,"_note_edit":` + edit + `,"_note_live":false}`
 }

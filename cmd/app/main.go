@@ -2102,6 +2102,12 @@ func run() error {
 		r.Post("/notes/{id}/comments", notesHandler.PostComment)
 		r.Post("/notes/comments/{cid}/resolve", notesHandler.PostResolveComment)
 		r.Post("/notes/comments/{cid}/delete", notesHandler.PostDeleteComment)
+		// Request-to-edit: a member asks for edit rights; an editor (author/mod)
+		// approves into a collaborator grant or declines/revokes. {uid} is a user
+		// id; static "editors" wins over the {id} wildcard, no shadowing.
+		r.Post("/notes/{id}/request-edit", notesHandler.PostRequestEdit)
+		r.Post("/notes/{id}/editors/{uid}/approve", notesHandler.PostApproveEditor)
+		r.Post("/notes/{id}/editors/{uid}/remove", notesHandler.PostRemoveEditor)
 
 		// Agent — per-community AI chat with threads + history. Static
 		// segments (new) win over the {thread} wildcard in chi. Gated by the

@@ -185,6 +185,7 @@ func (h *Handler) GetPage(w http.ResponseWriter, r *http.Request) {
 	}
 	data := h.readerData(r.Context(), n, id, canEdit, true)
 	data.Viewer = h.viewer(r)
+	data.Access = h.accessData(r.Context(), n, id)
 	if canEdit {
 		data.Channels = h.channelOptions(r.Context(), n.CommunityID)
 	}
@@ -276,7 +277,10 @@ func (h *Handler) PostShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := render.NewSSE(w, r)
-	if !n.CanEdit(id) {
+	// Sharing is a distribution decision (it can post a private note's capability
+	// link into a channel), so it stays manager-only — a granted collaborator
+	// edits content but does not publish the note.
+	if !n.CanManage(id) {
 		_ = sse.PatchElementTempl(webtempl.NoteShareStatus("You can't share this note."))
 		return
 	}
@@ -519,7 +523,9 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sse := render.NewSSE(w, r)
-	if !n.CanEdit(id) {
+	// Deleting a note is a lifecycle action reserved for managers; a granted
+	// collaborator can edit it but not destroy it.
+	if !n.CanManage(id) {
 		_ = sse.PatchElementTempl(webtempl.NoteError("You can't delete this note."))
 		return
 	}
@@ -624,6 +630,161 @@ func (h *Handler) moderateComment(w http.ResponseWriter, r *http.Request, do fun
 		return
 	}
 	_ = sse.PatchElementTempl(webtempl.NoteReader(h.readerData(r.Context(), n, id, n.CanEdit(id), true)))
+}
+
+type requestSignals struct {
+	Message string `json:"note_req_msg"`
+}
+
+// PostRequestEdit records the viewer's request for edit rights on a note (the
+// "Request edit rights" button OTHER members see — never the editor). On
+// success it clears the message field and re-renders the access panel to its
+// pending state; an already-editor caller just gets the panel re-rendered in
+// their (editor) state.
+func (h *Handler) PostRequestEdit(w http.ResponseWriter, r *http.Request) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	var in requestSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals", http.StatusBadRequest)
+		return
+	}
+	cid := h.cid(r.Context())
+	noteID := chi.URLParam(r, "id")
+	// Call the service BEFORE opening the SSE stream: render.NewSSE flushes the
+	// response, after which an http.Error would emit a garbled second header
+	// ("superfluous WriteHeader"). Only the success / already-editor branches
+	// need SSE; the hard-error branches reply with a plain status (cf. PostSync).
+	n, err := h.Svc.RequestEdit(r.Context(), cid, id, noteID, in.Message)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrAlreadyEditor):
+			// Already an editor — reload the note so the panel reflects reality.
+			fresh, ferr := h.Repo.ByID(r.Context(), noteID)
+			if ferr != nil {
+				http.Error(w, "request failed", http.StatusInternalServerError)
+				return
+			}
+			sse := render.NewSSE(w, r)
+			_ = sse.PatchElementTempl(webtempl.NoteAccessPanel(h.accessData(r.Context(), fresh, id)))
+		case errors.Is(err, ErrForbidden):
+			// Missing, wrong-community and private-unreachable all land here — a
+			// flat 404 keeps them indistinguishable (no existence oracle).
+			http.NotFound(w, r)
+		default:
+			h.Log.Error("note request edit", "err", err)
+			http.Error(w, "request failed", http.StatusInternalServerError)
+		}
+		return
+	}
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchSignals([]byte(`{"note_req_msg":""}`))
+	_ = sse.PatchElementTempl(webtempl.NoteAccessPanel(h.accessData(r.Context(), n, id)))
+}
+
+// PostApproveEditor grants a pending requester edit rights; PostRemoveEditor
+// declines a pending request OR revokes a standing grant (both delete the row).
+// Both are manager-only (author/mod/super-admin) — enforced in the service.
+func (h *Handler) PostApproveEditor(w http.ResponseWriter, r *http.Request) {
+	h.decideEditor(w, r, true)
+}
+
+func (h *Handler) PostRemoveEditor(w http.ResponseWriter, r *http.Request) {
+	h.decideEditor(w, r, false)
+}
+
+// decideEditor approves or removes one member's edit-rights row and re-renders
+// the manage panel. The decision (grant vs remove) rides the route, so there is
+// no request body to read. A grant/revoke pings the note's collab streams so
+// open editors' cursor lists refresh.
+func (h *Handler) decideEditor(w http.ResponseWriter, r *http.Request, grant bool) {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	cid := h.cid(r.Context())
+	noteID := chi.URLParam(r, "id")
+	targetID := chi.URLParam(r, "uid")
+	// Decide BEFORE NewSSE so an auth/DB failure can reply with a plain status
+	// instead of writing a header after the SSE stream has been flushed.
+	n, err := h.Svc.DecideEditRequest(r.Context(), cid, id, noteID, targetID, grant)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrForbidden):
+			// Not a manager, or the note is gone/cross-community — same response.
+			http.NotFound(w, r)
+		default:
+			h.Log.Error("note decide editor", "err", err)
+			http.Error(w, "action failed", http.StatusInternalServerError)
+		}
+		return
+	}
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.NoteAccessPanel(h.accessData(r.Context(), n, id)))
+	h.broadcast(r.Context(), n.CommunityID, n.ID)
+}
+
+// accessData builds the request-to-edit panel's view model for the viewer. The
+// manager lists (pending + collaborators) load only for a manager; a non-editor
+// member only needs their own request status; everyone else gets an inert
+// (hidden) panel.
+func (h *Handler) accessData(ctx context.Context, n Note, id auth.Identity) webtempl.NoteAccessData {
+	canManage := n.CanManage(id)
+	d := webtempl.NoteAccessData{
+		Slug:      h.cslug(ctx),
+		NoteID:    n.ID,
+		CanManage: canManage,
+		CanEdit:   n.CanEdit(id),
+		IsAuthed:  id.User.ID != "",
+		IsPublic:  n.IsPublic(),
+	}
+	switch {
+	case canManage:
+		if pend, err := h.Repo.ListEditRequests(ctx, n.ID, RequestPending); err != nil {
+			h.Log.Error("notes list edit requests", "err", err)
+		} else {
+			d.Pending = toRequestViews(pend)
+		}
+		if grants, err := h.Repo.ListEditRequests(ctx, n.ID, RequestGranted); err != nil {
+			h.Log.Error("notes list collaborators", "err", err)
+		} else {
+			d.Collaborators = toEditorViews(grants)
+		}
+	case !d.CanEdit && d.IsAuthed && n.IsPublic():
+		// A plain member on a public note: surface only their own request state.
+		if st, err := h.Repo.EditRequestStatus(ctx, n.ID, id.User.ID); err != nil {
+			h.Log.Error("notes edit request status", "err", err)
+		} else {
+			d.MyStatus = st
+		}
+	}
+	return d
+}
+
+func toRequestViews(rs []EditRequest) []webtempl.NoteEditRequestView {
+	out := make([]webtempl.NoteEditRequestView, 0, len(rs))
+	for _, e := range rs {
+		out = append(out, webtempl.NoteEditRequestView{
+			UserID:    e.UserID,
+			UserName:  e.UserName,
+			Message:   e.Message,
+			Requested: e.RequestedAt,
+		})
+	}
+	return out
+}
+
+func toEditorViews(rs []EditRequest) []webtempl.NoteEditorView {
+	out := make([]webtempl.NoteEditorView, 0, len(rs))
+	for _, e := range rs {
+		out = append(out, webtempl.NoteEditorView{UserID: e.UserID, UserName: e.UserName})
+	}
+	return out
 }
 
 // readerData builds the reader-zone data for a note in the CURRENT community
