@@ -22,16 +22,16 @@ type EventAttachment struct {
 // templ DOM (spec "Why JSON, not datastar"). Keep field names stable.
 type StreamEvent struct {
 	ID          string            `json:"id"`
-	Channel     string            `json:"channel"`       // channel slug
+	Channel     string            `json:"channel"` // channel slug
 	ChannelID   string            `json:"channel_id"`
-	Nick        string            `json:"nick"`          // author display name
-	AuthorID    string            `json:"author_id"`     // stable user id (for moderation actions); "" for author-less rows
-	Kind        string            `json:"kind"`          // user | webhook | bot
+	Nick        string            `json:"nick"`      // author display name
+	AuthorID    string            `json:"author_id"` // stable user id (for moderation actions); "" for author-less rows
+	Kind        string            `json:"kind"`      // user | webhook | bot
 	BodyMD      string            `json:"body_md"`
 	BodyHTML    string            `json:"body_html"`
-	Mentioned   bool              `json:"mentioned"`     // body @mentions THIS connector
+	Mentioned   bool              `json:"mentioned"` // body @mentions THIS connector
 	ReplyTo     string            `json:"reply_to,omitempty"`
-	CreatedAt   string            `json:"created_at"`    // RFC3339 UTC
+	CreatedAt   string            `json:"created_at"` // RFC3339 UTC
 	Attachments []EventAttachment `json:"attachments,omitempty"`
 }
 

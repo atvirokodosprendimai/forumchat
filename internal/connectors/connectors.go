@@ -55,7 +55,7 @@ type Connector struct {
 	ID           string
 	CommunityID  string
 	UserID       string // synthetic member identity; sends are authored by this user
-	Name         string   // nick == membership display name
+	Name         string // nick == membership display name
 	AvatarURL    string
 	Secret       string   // HMAC key for the stream signature and the /send X-Signature
 	Capabilities []string // moderation powers the admin granted (always includes CapSend unless cleared)

@@ -591,8 +591,11 @@ func (r *Repo) hydrateAttachments(ctx context.Context, msgs []Message) ([]Messag
 // removed]" garbage. The reply-parent (p) and forward-source (f) JOINs also
 // filter deleted_at so a surviving reply or forward can't leak a removed
 // message's content through its quote/preview snippet.
-func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Time, limit int) ([]Message, error) {
-	rows, err := r.DB.QueryContext(ctx, `
+// messageSelectSQL is the shared SELECT + JOIN block behind the channel read
+// queries (listBefore / listAfter). The two differ only in the WHERE comparator
+// and ORDER direction; the column list + identity JOINs are identical, so they
+// live here once and feed the shared scanMessageRows.
+const messageSelectSQL = `
 		SELECT m.id, m.community_id, COALESCE(m.channel_id, ''), m.author_id, m.kind, m.body_md, m.body_html,
 		       m.ref_thread_id, m.promoted_thread_id, m.reply_to_id, m.deleted_at, m.created_at,
 		       COALESCE(mb.effective_display_name, ''), COALESCE(mb.avatar_url, ''),
@@ -607,14 +610,12 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		LEFT JOIN memberships pmb ON pmb.user_id = p.author_id AND pmb.community_id = p.community_id
 		LEFT JOIN chat_messages f ON f.id = m.forwarded_from_msg_id AND f.deleted_at IS NULL
 		LEFT JOIN chat_channels fch ON fch.id = f.channel_id
-		LEFT JOIN memberships fmb ON fmb.user_id = f.author_id AND fmb.community_id = f.community_id
-		WHERE m.channel_id = ? AND m.created_at < ? AND m.deleted_at IS NULL
-		ORDER BY m.created_at DESC
-		LIMIT ?`, channelID, before.Unix(), limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+		LEFT JOIN memberships fmb ON fmb.user_id = f.author_id AND fmb.community_id = f.community_id`
+
+// scanMessageRows decodes the messageSelectSQL column layout into []Message,
+// applying the kind='webhook'|'bot' identity override and the forward/reply
+// context. Shared by every query that uses messageSelectSQL.
+func scanMessageRows(rows *sql.Rows) ([]Message, error) {
 	var msgs []Message
 	for rows.Next() {
 		var m Message
@@ -669,6 +670,47 @@ func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Tim
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
+}
+
+func (r *Repo) listBefore(ctx context.Context, channelID string, before time.Time, limit int) ([]Message, error) {
+	rows, err := r.DB.QueryContext(ctx, messageSelectSQL+`
+		WHERE m.channel_id = ? AND m.created_at < ? AND m.deleted_at IS NULL
+		ORDER BY m.created_at DESC
+		LIMIT ?`, channelID, before.Unix(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMessageRows(rows)
+}
+
+// listAfter returns messages in a channel at-or-after `after` (created_at >=),
+// in chronological (ascending) order. The boundary is INCLUSIVE because
+// created_at has only second granularity: a strict `>` would drop a message
+// that lands in the same second as the watermark. The caller (the connector SSE
+// stream) carries a small seen-set to dedupe the boundary second. Soft-deleted
+// rows are excluded, exactly like listBefore.
+func (r *Repo) listAfter(ctx context.Context, channelID string, after time.Time, limit int) ([]Message, error) {
+	rows, err := r.DB.QueryContext(ctx, messageSelectSQL+`
+		WHERE m.channel_id = ? AND m.created_at >= ? AND m.deleted_at IS NULL
+		ORDER BY m.created_at ASC
+		LIMIT ?`, channelID, after.Unix(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMessageRows(rows)
+}
+
+// ListAfter returns a channel's messages at-or-after `after` (inclusive — see
+// listAfter), chronological, with attachments hydrated. Public entry point for
+// the connector stream's watermark read model.
+func (r *Repo) ListAfter(ctx context.Context, channelID string, after time.Time, limit int) ([]Message, error) {
+	msgs, err := r.listAfter(ctx, channelID, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	return r.hydrateAttachments(ctx, msgs)
 }
 
 // ByID loads a single chat message by id, but NEVER a soft-deleted one

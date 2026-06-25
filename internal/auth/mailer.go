@@ -23,14 +23,14 @@ type Mailer interface {
 //   - "tls"      implicit TLS from the first byte (SMTPS, port 465)
 //   - "none"     plaintext only
 type SMTPMailer struct {
-	Host     string
-	Port     int
-	User     string
-	Pass     string
-	From     string
-	TLSMode  string
-	TLSSkip  bool
-	Log      *slog.Logger
+	Host    string
+	Port    int
+	User    string
+	Pass    string
+	From    string
+	TLSMode string
+	TLSSkip bool
+	Log     *slog.Logger
 }
 
 func (m *SMTPMailer) Send(_ context.Context, to, subject, body string) error {
