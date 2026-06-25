@@ -6461,7 +6461,10 @@ body:has(.chat-layout) .site-footer { display: none; }
 .note-access-req-msg { flex: 1; min-width: 0; }
 .note-access-req-form .btn { white-space: nowrap; }
 @media (max-width: 560px) {
-  .note-access-req-form { width: 100%; }
+  /* Stack the optional message above a full-width button so the input isn't
+     squeezed to a few characters on a phone. */
+  .note-access-req-form { width: 100%; flex-wrap: wrap; }
+  .note-access-req-msg { flex-basis: 100%; }
   .note-access-req-form .btn { flex-shrink: 0; }
 }
 /* A member who has asked but not yet been approved. */
