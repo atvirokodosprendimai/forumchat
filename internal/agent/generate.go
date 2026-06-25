@@ -129,7 +129,11 @@ func Generate(ctx context.Context, prov Provider, a Agent, msgs []ChatMessage, t
 			})
 			dirty = true
 			mu.Unlock()
-			msgs = append(msgs, ChatMessage{Role: RoleTool, ToolName: call.Name, Content: text})
+			// Fence the result as untrusted before the model reads it: a tool
+			// (especially internal search over member-authored content) can
+			// return text that tries to inject instructions. The display trace
+			// above keeps the raw text — only the model-facing turn is wrapped.
+			msgs = append(msgs, ChatMessage{Role: RoleTool, ToolName: call.Name, Content: wrapToolResult(call.Name, text)})
 		}
 		// Surface the tool chips immediately, before the next (possibly slow) turn.
 		persist(StatusGenerating, "", true)
@@ -141,27 +145,19 @@ func Generate(ctx context.Context, prov Provider, a Agent, msgs []ChatMessage, t
 func EncodeToolCalls(t []ToolResult) string { return encodeToolCalls(t) }
 func DecodeToolCalls(s string) []ToolResult { return decodeToolCalls(s) }
 
-// BuildSystemHistory prepends agent a's system prompt to msgs (with a small
-// preamble) and drops images for a non-vision agent, returning the message
-// slice ready for Generate. Shared so the pane and forum bots build identical
-// histories. preamble is an optional surface-specific note (e.g. "answering in
-// a forum thread"); empty uses just the system prompt.
+// BuildSystemHistory prepends agent a's hardened system prompt to msgs and drops
+// images for a non-vision agent, returning the message slice ready for Generate.
+// Shared so the pane and forum bots build identical histories. preamble is an
+// optional surface-specific note (e.g. "answering in a forum thread"). The
+// returned system message ALWAYS leads with InjectionGuard (via Harden), so
+// every generation that flows through here — pane, chat channel, forum thread —
+// is prompt-injection hardened from one place.
 func BuildSystemHistory(a Agent, preamble string, msgs []ChatMessage) []ChatMessage {
 	if !a.Vision {
 		msgs = stripImages(msgs)
 	}
-	sp := strings.TrimSpace(a.SystemPrompt)
-	var system string
-	switch {
-	case preamble != "" && sp != "":
-		system = preamble + "\n\n" + sp
-	case preamble != "":
-		system = preamble
-	default:
-		system = sp
-	}
-	if system != "" {
-		msgs = append([]ChatMessage{{Role: RoleSystem, Content: system}}, msgs...)
-	}
-	return msgs
+	// Harden is never empty (the guard is always present), so the system turn is
+	// always emitted even for an agent with no configured system prompt.
+	system := Harden(preamble, a.SystemPrompt)
+	return append([]ChatMessage{{Role: RoleSystem, Content: system}}, msgs...)
 }

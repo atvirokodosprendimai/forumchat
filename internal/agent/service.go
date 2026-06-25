@@ -197,11 +197,13 @@ func (s *Service) SummarizeToThread(ctx context.Context, communityID, userID str
 	if !a.Vision {
 		images = nil // a text-only model 400s on image input
 	}
-	msgs := make([]ChatMessage, 0, 2)
-	if sp := strings.TrimSpace(a.SystemPrompt); sp != "" {
-		msgs = append(msgs, ChatMessage{Role: RoleSystem, Content: sp})
+	// Harden the system prompt: the summary prompt is built from untrusted
+	// channel messages, so the guard must lead even here (Harden always emits
+	// the guard, so the system turn is unconditional now).
+	msgs := []ChatMessage{
+		{Role: RoleSystem, Content: Harden(a.SystemPrompt)},
+		{Role: RoleUser, Content: prompt, Images: images},
 	}
-	msgs = append(msgs, ChatMessage{Role: RoleUser, Content: prompt, Images: images})
 
 	var sb strings.Builder
 	if _, err := prov.Stream(ctx, a.Model, msgs, nil, func(d string) error {

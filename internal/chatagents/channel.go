@@ -219,11 +219,10 @@ func (r *ChannelRunner) buildHistory(ctx context.Context, channelID string, a ag
 			out = append(out, agent.ChatMessage{Role: agent.RoleAssistant, Content: body})
 			continue
 		}
-		name := strings.TrimSpace(m.AuthorName)
-		if name == "" {
-			name = "member"
-		}
-		out = append(out, agent.ChatMessage{Role: agent.RoleUser, Content: name + ": " + body})
+		// Every other speaker (humans AND other bots) is untrusted input — the
+		// shared constructor sanitizes the label + body so a member can't forge
+		// turns or smuggle hidden instructions. See agent.UntrustedTurn.
+		out = append(out, agent.UntrustedTurn(m.AuthorName, body))
 	}
 	return out, nil
 }

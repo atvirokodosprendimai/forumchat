@@ -177,11 +177,10 @@ func (r *ThreadRunner) buildHistory(ctx context.Context, threadID string, a agen
 		posts = posts[len(posts)-r.ContextLimit:]
 	}
 	out := make([]agent.ChatMessage, 0, len(posts)+1)
-	name := t.AuthorName
-	if name == "" {
-		name = "member"
-	}
-	out = append(out, agent.ChatMessage{Role: agent.RoleUser, Content: name + ": " + t.BodyMarkdown})
+	// The opening thread body and every non-bot post are untrusted member input:
+	// the shared constructor sanitizes the speaker label + body so the replayed
+	// "name: body" can't forge turns or hide instructions. See agent.UntrustedTurn.
+	out = append(out, agent.UntrustedTurn(t.AuthorName, t.BodyMarkdown))
 	for _, p := range posts {
 		if p.IsDeleted() {
 			continue
@@ -196,11 +195,7 @@ func (r *ThreadRunner) buildHistory(ctx context.Context, threadID string, a agen
 			}
 			continue
 		}
-		nm := p.AuthorName
-		if nm == "" {
-			nm = "member"
-		}
-		out = append(out, agent.ChatMessage{Role: agent.RoleUser, Content: nm + ": " + body})
+		out = append(out, agent.UntrustedTurn(p.AuthorName, body))
 	}
 	return out, nil
 }
