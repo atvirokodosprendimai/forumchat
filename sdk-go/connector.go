@@ -185,13 +185,11 @@ func (c *Client) Stream(ctx context.Context, h Handlers, exp int64) error {
 		}
 		return true
 	})
-	// Translate the read outcome into the documented contract: caller cancel wins,
-	// a clean EOF is a normal close (nil), anything else is the real failure.
+	// Translate the read outcome into the documented contract: caller cancel wins;
+	// otherwise scanSSE already returns nil on a clean close and the real cause
+	// (transport error, ErrFrameTooLarge, bufio.ErrTooLong) otherwise.
 	if ctx.Err() != nil {
 		return ctx.Err()
-	}
-	if scanErr == io.EOF {
-		return nil
 	}
 	return scanErr
 }
