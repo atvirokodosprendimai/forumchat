@@ -219,3 +219,5 @@
 - 2026-06-25 `10aab9e` feat(agent): harden agents against prompt injection
 - 2026-06-25 `6d46242` feat(agent): close prompt-injection coverage gaps found by Codex review
 - 2026-06-25 `945241f` docs(changelog): auto-append agent prompt-injection hardening entries
+- 2026-06-25 `6043804` docs(changelog): auto-append hardening changelog entry
+- 2026-06-25 `6e1a047` chore: untrack local mempalace/chroma tooling state
