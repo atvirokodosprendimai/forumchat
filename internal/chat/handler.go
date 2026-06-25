@@ -121,6 +121,14 @@ type Handler struct {
 	// inside the runner) so a throttled trigger can surface a notice on the
 	// open SSE. The result reports whether the trigger was rate-limited.
 	Dispatch func(ctx context.Context, t AgentTrigger) DispatchResult
+	// Moderate, if non-nil, hands a freshly-sent USER message to the automated
+	// safety classifier (Phase B, internal/moderation). Wired in main.go only
+	// when MODERATION_MODEL is set; nil otherwise. The implementation is
+	// fire-and-forget (it classifies on a detached, timeout-bounded context and
+	// records a metadata-only audit on a hit), so this call never blocks the
+	// send. Like Dispatch it is invoked ONLY on the human user-send path, so a
+	// bot/webhook/system message is never classified.
+	Moderate func(communityID, channelID, messageID, authorID, body string)
 	// SetAgentsChatEnabled / SetAgentsAutochatEnabled back the admin /bots,
 	// /autochat and /kill slash commands — they flip the community's
 	// channel-agent switches (master, bot-to-bot). Wired in main.go to
@@ -1261,6 +1269,14 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		if res.RateLimited {
 			_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("chat-agent-notice", res.RetryAfter))
 		}
+	}
+
+	// Hand the message to the automated safety classifier (Phase B). Human
+	// user-send path only (same loop guard as Dispatch), so bots/webhooks/system
+	// messages are never classified. The audit stores categories, never the
+	// body, and the call detaches internally — no added send latency.
+	if h.Moderate != nil {
+		h.Moderate(h.cid(r.Context()), ch.ID, sent.ID, id.User.ID, body)
 	}
 
 	// Relay to outbound webhooks (Slack/Discord/generic). Fire-and-forget;

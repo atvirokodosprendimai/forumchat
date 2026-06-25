@@ -253,6 +253,19 @@ type Config struct {
 	TranslateBaseURL string `env:"TRANSLATE_BASEURL" envDefault:"http://localhost:11434"`
 	TranslateModel   string `env:"TRANSLATE_MODEL" envDefault:""`
 
+	// Moderation (Phase B: automated safety classifier). When a model is set,
+	// every USER chat message is classified by a Llama Guard model on Ollama
+	// (e.g. llama-guard3:1b) and any policy hit is recorded as a metadata-only
+	// AUDIT — community + message + author + category codes, NEVER the body —
+	// feeding the super-admin Red flags panel. This keeps the SaaS privacy wall
+	// intact: an automated scanner flags, the operator sees only counts +
+	// categories, never tenant content. Off by default (empty model = inert, no
+	// classification, no cost). Each classification is metered into
+	// ai_usage_events (feature "moderation") so the operator can see the compute.
+	ModerationOllamaURL string `env:"MODERATION_OLLAMA_URL" envDefault:"http://localhost:11434"`
+	ModerationModel     string `env:"MODERATION_MODEL" envDefault:""`
+	ModerationTimeoutMS int    `env:"MODERATION_TIMEOUT_MS" envDefault:"8000"`
+
 	// Platform AI (SaaS only) — the operator's OWN hosted AI compute, offered to
 	// communities that opt into "use system-wide settings" and are authorized
 	// (super-admin grant OR active Stripe subscription). It is a DISTINCT
@@ -297,6 +310,13 @@ type Config struct {
 }
 
 func (c Config) IsProd() bool { return strings.EqualFold(c.Env, "prod") }
+
+// ModerationEnabled reports whether the automated safety classifier (Phase B)
+// is configured: both an Ollama URL and a model must be set. With the model
+// empty the feature is fully inert — no classification, no audit, no compute.
+func (c Config) ModerationEnabled() bool {
+	return strings.TrimSpace(c.ModerationModel) != "" && strings.TrimSpace(c.ModerationOllamaURL) != ""
+}
 
 // EffectiveStorageBackend resolves the platform default blob backend: an explicit
 // STORAGE_BACKEND wins, otherwise SaaS defaults to s3 (Qdrant+S3 are the SaaS

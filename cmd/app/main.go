@@ -51,6 +51,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/invites"
 	"github.com/atvirokodosprendimai/forumchat/internal/lobbies"
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
+	"github.com/atvirokodosprendimai/forumchat/internal/moderation"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
 	"github.com/atvirokodosprendimai/forumchat/internal/netguard"
 	"github.com/atvirokodosprendimai/forumchat/internal/notes"
@@ -1280,6 +1281,21 @@ func run() error {
 	chatHandler.PushNotify = pushNotifyFn
 	forumHandler.PushNotify = pushNotifyFn
 	projectsHandler.PushNotify = pushNotifyFn
+
+	// Moderation (Phase B): when MODERATION_MODEL is configured, classify every
+	// user chat message via a Llama Guard model on Ollama and record a
+	// metadata-only audit (categories, never the body) that feeds the
+	// super-admin Red flags panel. Detached + metered on the platform-AI ledger
+	// (feature "moderation"). Inert otherwise — no model, no classification.
+	if cfg.ModerationEnabled() {
+		modAuditor := moderation.NewAuditor(
+			cfg.ModerationOllamaURL, cfg.ModerationModel,
+			time.Duration(cfg.ModerationTimeoutMS)*time.Millisecond,
+			moderation.NewRepo(db), usageRec, log,
+		)
+		chatHandler.Moderate = modAuditor.Audit
+		log.Info("moderation classifier enabled", "model", cfg.ModerationModel, "url", cfg.ModerationOllamaURL)
+	}
 
 	// ----- Webhooks (inbound bot messages + outbound chat relay) -----------
 	var webhooksHandler *webhooks.Handler
