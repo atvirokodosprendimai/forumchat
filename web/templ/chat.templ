@@ -642,7 +642,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 				}
 				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
 			</header>
-			<details class="msg-menu">
+			<details class="msg-menu" data-on:toggle="window.fcMenuFlip(el)">
 				<summary aria-label="Actions"><span class="msg-menu-dot"></span></summary>
 				<div class="msg-menu-list" role="menu">
 					<div class="msg-menu-handle" aria-hidden="true"></div>
@@ -689,7 +689,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 					<span class="muted">{ fmtTime(m.CreatedAt) }</span>
 				</header>
 			}
-			<details class="msg-menu">
+			<details class="msg-menu" data-on:toggle="window.fcMenuFlip(el)">
 				<summary aria-label="Actions"><span class="msg-menu-dot"></span></summary>
 				<div class="msg-menu-list" role="menu">
 					<div class="msg-menu-handle" aria-hidden="true"></div>

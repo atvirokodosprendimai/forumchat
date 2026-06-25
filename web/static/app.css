@@ -257,7 +257,16 @@ button.link:hover, .link-button:hover {
   padding: .35rem;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow);
+  /* Safety net: a tall menu (mod variant) on a short viewport scrolls rather
+     than spilling past the .messages scroll container in either direction. */
+  max-height: 60vh; overflow-y: auto;
 }
+/* Flip the dropdown to grow UPWARD from the trigger. window.fcMenuFlip adds
+   `.flip-up` on the native `toggle` event when a bubble sits too low in the
+   .messages scroller for the menu to fit below — without this the lower items
+   were clipped off-screen. Mobile (.msg-menu-list is a fixed bottom sheet)
+   overrides position in the @media block below, so this is desktop-only. */
+.msg-menu.flip-up .msg-menu-list { top: auto; bottom: calc(100% + .35rem); }
 .msg-menu-handle { display: none; }
 .msg-menu-item {
   background: transparent; color: var(--fg); border: none;

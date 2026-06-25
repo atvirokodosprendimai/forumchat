@@ -59,6 +59,37 @@ window.fcPickImage = function (evt, signalName) {
 // <body> in layout.templ (data-on:click__window / data-on:keydown__window),
 // so this file is purely clipboard / file-picker / drag-drop image helpers.
 
+// fcMenuFlip decides whether a per-message ⋮ kebab dropdown opens upward.
+// A native <details> grows its absolutely-positioned .msg-menu-list DOWNWARD
+// by default, and the .messages scroll container (overflow-y:auto) clips
+// anything below the fold — so the menu for a bubble near the bottom lost its
+// lower items off-screen. On the native `toggle` event we measure the room
+// below vs above the trigger INSIDE the scroller and add `.flip-up` (CSS then
+// anchors the list to the trigger's top) only when there isn't room below and
+// there is more room above. This mirrors the roster .ucm vertical-flip fix.
+// It is desktop-only by effect: on mobile .msg-menu-list is a fixed bottom
+// sheet whose media query overrides the .flip-up rule, so the class is inert.
+window.fcMenuFlip = function (details) {
+  // On close, drop the class so the next open recomputes from a clean state.
+  if (!details.open) { details.classList.remove('flip-up'); return; }
+  const list = details.querySelector('.msg-menu-list');
+  const summary = details.querySelector('summary');
+  if (!list || !summary) return;
+  const scroller = details.closest('.messages');
+  const trigger = summary.getBoundingClientRect();
+  // Fall back to the viewport when no scroller is found (defensive; the kebab
+  // only renders inside .messages today).
+  const bounds = scroller
+    ? scroller.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight };
+  const need = list.scrollHeight + 12; // menu height + the .35rem gap, rounded up
+  const below = bounds.bottom - trigger.bottom;
+  const above = trigger.top - bounds.top;
+  // Flip up only when the menu can't fit below AND there is more room above —
+  // never flip into an even tighter space.
+  details.classList.toggle('flip-up', below < need && above > below);
+};
+
 window.fcDropImage = function (evt, signalName) {
   const dt = evt.dataTransfer;
   if (!dt) return;

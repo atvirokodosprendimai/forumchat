@@ -1516,7 +1516,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "</span></header><details class=\"msg-menu\"><summary aria-label=\"Actions\"><span class=\"msg-menu-dot\"></span></summary><div class=\"msg-menu-list\" role=\"menu\"><div class=\"msg-menu-handle\" aria-hidden=\"true\"></div><button class=\"msg-menu-item\" role=\"menuitem\" data-on:click=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "</span></header><details class=\"msg-menu\" data-on:toggle=\"window.fcMenuFlip(el)\"><summary aria-label=\"Actions\"><span class=\"msg-menu-dot\"></span></summary><div class=\"msg-menu-list\" role=\"menu\"><div class=\"msg-menu-handle\" aria-hidden=\"true\"></div><button class=\"msg-menu-item\" role=\"menuitem\" data-on:click=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1707,7 +1707,7 @@ func MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string, 
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, " <details class=\"msg-menu\"><summary aria-label=\"Actions\"><span class=\"msg-menu-dot\"></span></summary><div class=\"msg-menu-list\" role=\"menu\"><div class=\"msg-menu-handle\" aria-hidden=\"true\"></div><button class=\"msg-menu-item\" role=\"menuitem\" data-on:click=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, " <details class=\"msg-menu\" data-on:toggle=\"window.fcMenuFlip(el)\"><summary aria-label=\"Actions\"><span class=\"msg-menu-dot\"></span></summary><div class=\"msg-menu-list\" role=\"menu\"><div class=\"msg-menu-handle\" aria-hidden=\"true\"></div><button class=\"msg-menu-item\" role=\"menuitem\" data-on:click=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
