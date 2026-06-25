@@ -212,3 +212,7 @@
 - 2026-06-25 `3e5277a` feat(chat): point composer button + /paste command to Notes
 - 2026-06-25 `e01f10e` docs(changelog): auto-append composer→Notes entry-point swap
 - 2026-06-25 `9b9ed68` docs(policies): add Google OAuth privacy policy page
+- 2026-06-25 `715fbb3` feat(chatagents): in-channel replies, bot-to-bot autochat, /bots & /autochat
+- 2026-06-25 `108f426` test(chatagents): cover bot-to-bot dispatch, cooldown, policy gating + bot writes
+- 2026-06-25 `f6a3a03` test(templ): as-human bot bubble renders as a member (no AI badge), keeps cursor
+- 2026-06-25 `ed9295d` docs(agents): §6.9.0 un-pivot — in-channel replies + bot-to-bot + slash commands
