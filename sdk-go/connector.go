@@ -35,6 +35,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Client talks to one connector's endpoints. It is safe for concurrent use: the
@@ -86,6 +87,17 @@ type Ready struct {
 	Channels  []Channel `json:"channels"`
 }
 
+// Live is the boundary frame (event: live) sent once after any missed-message
+// backlog has been replayed: everything before it is history, everything after
+// it is live. Since is the Unix second the backlog started from (0 on a
+// live-only connect, i.e. no replay); Truncated is true when the resume point
+// was older than the server's catch-up window so older messages were dropped. A
+// worker that doesn't care can simply leave OnLive nil.
+type Live struct {
+	Since     int64 `json:"since"`
+	Truncated bool  `json:"truncated"`
+}
+
 // Attachment is one file on a streamed message: a directly fetchable,
 // shared-signed URL plus metadata.
 type Attachment struct {
@@ -121,18 +133,36 @@ type Event struct {
 type Handlers struct {
 	OnReady   func(Ready)
 	OnMessage func(Event)
+	// OnLive fires once, after any backlog replay, when the stream goes live. Use
+	// it to distinguish replayed history from new traffic, or to learn whether the
+	// catch-up was truncated. Optional.
+	OnLive func(Live)
 }
 
 // ---- read: the signed SSE stream ---------------------------------------------
 
-// StreamURL builds the signed GET URL for the read stream. exp is a Unix expiry
-// after which the URL stops working; pass 0 for a non-expiring URL. The
-// signature binds the URL to this connector id, so it can't be reused for
-// another connector or extended to a later expiry.
+// StreamURL builds the signed GET URL for the read stream, resuming from the
+// server-owned cursor (the worker just reconnects and the server replays what it
+// missed). exp is a Unix expiry after which the URL stops working; pass 0 for a
+// non-expiring URL. The signature binds the URL to this connector id, so it
+// can't be reused for another connector or extended to a later expiry. For a
+// client-chosen resume point use streamURL(exp, since) via StreamSince; the
+// server also honours a `&live=1` override (force live-only) if you build the
+// URL yourself.
 func (c *Client) StreamURL(exp int64) string {
+	return c.streamURL(exp, time.Time{})
+}
+
+// streamURL builds the signed stream URL, optionally pinning the resume
+// watermark with `&since=<unix>`. A zero `since` omits the param, so the server
+// falls back to its own cursor (resume) or live-only (first connect).
+func (c *Client) streamURL(exp int64, since time.Time) string {
 	q := url.Values{}
 	q.Set("exp", strconv.FormatInt(exp, 10))
 	q.Set("sig", streamSig(c.Secret, c.ID, exp))
+	if !since.IsZero() {
+		q.Set("since", strconv.FormatInt(since.Unix(), 10))
+	}
 	return fmt.Sprintf("%s/bots/%s/stream?%s", c.BaseURL, c.ID, q.Encode())
 }
 
@@ -143,11 +173,29 @@ func (c *Client) StreamURL(exp int64) string {
 //   - ctx.Err() when the caller cancels,
 //   - a non-nil error on an HTTP error status or a transport failure.
 //
+// On reconnect the server replays the messages this connector missed while away
+// (from its server-owned cursor) before going live — so a bare reconnect loop
+// already catches up; use StreamSince to choose the resume point yourself.
+//
 // Stream does NOT reconnect on its own — that policy (and its backoff) belongs
 // to the caller, so it stays a few lines (see examples/tinychat). exp is the
 // signed-URL expiry; 0 means non-expiring.
 func (c *Client) Stream(ctx context.Context, h Handlers, exp int64) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.StreamURL(exp), nil)
+	return c.stream(ctx, h, c.StreamURL(exp))
+}
+
+// StreamSince is Stream with a client-chosen resume watermark: the server
+// replays messages created at or after `since` (clamped to its catch-up window)
+// as backlog, then goes live. Use it when the worker tracks its own watermark
+// and wants to override the server cursor — e.g. to re-process from a known-good
+// point. A zero `since` behaves exactly like Stream (server-cursor resume).
+func (c *Client) StreamSince(ctx context.Context, h Handlers, exp int64, since time.Time) error {
+	return c.stream(ctx, h, c.streamURL(exp, since))
+}
+
+// stream is the shared open-and-dispatch body behind Stream / StreamSince.
+func (c *Client) stream(ctx context.Context, h Handlers, streamURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
 	if err != nil {
 		return err
 	}
@@ -180,6 +228,13 @@ func (c *Client) Stream(ctx context.Context, h Handlers, exp int64) error {
 				var ev Event
 				if json.Unmarshal(f.data, &ev) == nil {
 					h.OnMessage(ev)
+				}
+			}
+		case "live":
+			if h.OnLive != nil {
+				var lv Live
+				if json.Unmarshal(f.data, &lv) == nil {
+					h.OnLive(lv)
 				}
 			}
 		}
