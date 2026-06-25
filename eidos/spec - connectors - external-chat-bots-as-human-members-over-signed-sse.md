@@ -1,6 +1,6 @@
 ---
 name: spec-connectors
-status: draft
+status: implemented
 type: spec
 tldr: Per-community "external chat bot" connectors — a long-lived, HMAC-signed SSE stream pushes realtime channel messages (JSON, with nick + mentioned flags) to an external worker, and a body-HMAC-signed POST lets it send back. Each connector is backed by a real synthetic member (own user + membership), so it acts as a human (roster, @mentionable, profile) and can join one or many channels. Admin-curated under /c/{slug}/admin/connectors, gated by CONNECTORS_ENABLED. The bidirectional, persistent-stream sibling of webhooks.
 ---
@@ -74,6 +74,28 @@ connector removes the synthetic member (its authored messages survive as a
   allowlist means **all** non-archived community channels.
 - A send is rejected (`403`) for a channel outside the allowlist (or archived,
   or another community's) — defence-in-depth even though the URL is the bearer.
+- The allowlist is enforced on **moderation targets too**: a connector scoped to
+  channel X cannot delete a message in channel Y by id. A non-empty channel set
+  that fully fails validation is **refused** (never silently widened to "all").
+
+### Capabilities — admin-granted powers (not just send)
+
+A connector "acts as a human", but *which* human powers it gets is the admin's
+choice — stored as an open-ended CSV grant set on the connector
+(`connectors.capabilities`, default `send`). Each capability enables a matching
+signed action endpoint, gated by `Connector.Can(cap)`:
+
+- **`send`** — `POST /bots/{id}/send`, post as the member (the base ability).
+- **`delete`** — `POST /bots/{id}/delete`, soft-delete a message (hidden from
+  everyone, §6.3a), allowlist-checked on the target.
+- **`ban`** — `POST /bots/{id}/ban`, ban a member by `user_id` (the wiring
+  refuses to ban an admin/owner; self-ban refused).
+- **`rename`** — `POST /bots/{id}/rename`, rename a channel (refuses `#general`).
+
+Each power is a per-connector capability checkbox in the admin UI. New powers are
+additive — one CSV token + one endpoint + one moderation seam (a closure wired in
+main.go so `connectors` doesn't import auth/chat for the action), no migration.
+A nil seam ⇒ the action is unavailable (501) even if granted.
 
 ### Read — `GET /bots/{id}/stream?exp=<unix>&sig=<hex>`
 
@@ -181,6 +203,7 @@ connectors
   name          TEXT NOT NULL                                    -- nick == membership display name
   avatar_url    TEXT NOT NULL DEFAULT ''
   secret        TEXT NOT NULL                                    -- HMAC key (stream sig + body sig)
+  capabilities  TEXT NOT NULL DEFAULT 'send'                     -- CSV grant set (send,delete,ban,rename)
   mentions_only INTEGER NOT NULL DEFAULT 0
   enabled       INTEGER NOT NULL DEFAULT 1
   created_by    TEXT REFERENCES users(id)

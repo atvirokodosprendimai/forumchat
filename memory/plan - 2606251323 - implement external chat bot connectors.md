@@ -111,3 +111,16 @@ folded, smoke + screenshot captured, plan + memory updated.
 - 2606251323 — Plan created from spec; branch `task/external-chat-bot-connectors`
   off main (latest migration 00072 → new 00073). Four design decisions locked
   with the user.
+- 2606251323 — Mid-flight scope add (user): connectors carry an admin-granted
+  **capability set** (send/delete/ban/rename) → migration `capabilities` CSV
+  column, `Connector.Can`, signed action endpoints + moderation seams.
+- 2606251323 — Phases 1-3 shipped (3 commits): schema+repo+sign+identity;
+  signed JSON stream + send + actions + `chat.Repo.ListAfter`; admin UI + main.go
+  wiring + `CONNECTORS_ENABLED`. `make gen/build/test` green throughout.
+- 2606251323 — Phase 4: Codex read-only review (1 high + 4 medium) folded —
+  delete-allowlist enforcement, reply_to same-channel validation, archived-channel
+  rejection, all-invalid-channel-set refused, stream burst drain loop. Regression
+  tests added. Live e2e smoke against the real binary (connector A streams,
+  connector B sends a signed message → A receives it, bad-sig 401, anti-enum 404).
+  Playwright screenshots of the admin UI; fixed checkbox-picker layout + health dot.
+  All phases complete; spec → implemented.
