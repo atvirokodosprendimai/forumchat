@@ -4838,6 +4838,21 @@ button.ghost.danger:hover:not([disabled]) {
 .sa-debug-toggle .role-pill.active { background: var(--danger); color: #fff; border-radius: var(--radius-pill); padding: .2rem .6rem; font-size: .78rem; font-weight: 600; }
 .sa-debug-toggle a.ghost { margin-left: auto; font-size: .85rem; }
 
+/* Red-flags (privacy-preserving abuse) panel — one card row per flagged community. */
+.risk-row { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .7rem .85rem; margin-top: .6rem; background: var(--surface); }
+.risk-row-head { display: flex; align-items: center; gap: .55rem; flex-wrap: wrap; }
+.risk-pill { font-size: .75rem; font-weight: 600; padding: .15rem .55rem; border-radius: var(--radius-pill); white-space: nowrap; }
+.risk-pill.high { background: var(--danger-soft); color: var(--danger); }
+.risk-pill.elevated { background: var(--warning-soft, oklch(95% 0.06 75)); color: oklch(45% 0.13 70); }
+.risk-score-track { flex: 1 1 120px; min-width: 90px; height: 6px; border-radius: var(--radius-pill); background: var(--surface-sunken); overflow: hidden; }
+.risk-score-fill { height: 100%; border-radius: var(--radius-pill); transition: width .3s var(--ease-out); }
+.risk-score-fill.high { background: var(--danger); }
+.risk-score-fill.elevated { background: var(--warning); }
+.risk-score { font-size: .8rem; white-space: nowrap; }
+.risk-reasons { margin: .45rem 0 0; padding-left: 1.15rem; }
+.risk-reasons li { font-size: .9rem; margin: .15rem 0; color: var(--fg); }
+.risk-stats { margin: .4rem 0 0; font-size: .8rem; color: var(--fg-muted); }
+
 .sa-debug-list { display: flex; flex-direction: column; gap: .4rem; margin-top: .6rem; }
 .sa-debug-entry { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); overflow: hidden; }
 .sa-debug-entry > summary {

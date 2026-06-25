@@ -14,6 +14,22 @@ type SACommunity struct {
 	CreatedAt    string
 }
 
+// SACommunityRisk is one flagged community in the privacy-preserving abuse
+// panel. Every field is an aggregate metric or a derived score/reason — there
+// is deliberately NO message content here, because in SaaS the operator cannot
+// read a tenant's content (see auth.Identity.GodMode); these signals are how a
+// botnet is spotted from metadata alone.
+type SACommunityRisk struct {
+	Slug          string
+	Name          string
+	Score         int      // 0..100
+	Band          string   // "elevated" | "high"
+	Reasons       []string // human-readable signals that fired
+	MembersTotal  int
+	MembersNew24h int
+	Messages24h   int
+}
+
 type SAUser struct {
 	ID          string
 	Email       string
@@ -43,6 +59,7 @@ type SuperAdminPageData struct {
 	Users        []SAUser
 	Requests     []SARequest
 	PlatformAI   []SAPlatformAIRow
+	RedFlags     []SACommunityRisk // communities scored elevated/high, worst first
 	DebugEnabled bool
 	DebugCount   int
 }
@@ -188,6 +205,8 @@ templ SuperAdminPage(data SuperAdminPageData) {
 			}
 			<div id="sa-result"></div>
 		</section>
+
+		@SARiskCard(data.RedFlags)
 
 		<section class="card">
 			<h2>📢 Broadcast to all chats</h2>
@@ -409,6 +428,47 @@ func kindLabel(kind string) string {
 	default:
 		return "(empty message)"
 	}
+}
+
+// SARiskCard is the privacy-preserving abuse panel: communities whose last-24h
+// METADATA looks botnet-like (mass signups, copypasta, a few accounts flooding,
+// bursts). It exists because the operator can no longer read tenant content in
+// SaaS — these are aggregate counts and a derived score, never message bodies or
+// member identities. Worst score first; an empty list is the healthy state.
+templ SARiskCard(rows []SACommunityRisk) {
+	<section class="card">
+		<h2>🚩 Red flags ({ itoa(len(rows)) })</h2>
+		<p class="muted">Possible botnet / abuse activity, scored from the last 24h of <strong>metadata only</strong> — signup rate, message bursts, author concentration and duplicate-message ratio. No message content is read. Investigate via the user and community lists below.</p>
+		if len(rows) == 0 {
+			<p class="muted">✅ No red flags — every community looks healthy on the last-24h metadata.</p>
+		} else {
+			for _, c := range rows {
+				<div class="risk-row">
+					<div class="risk-row-head">
+						<span class={ "risk-pill " + c.Band }>
+							if c.Band == "high" {
+								● high risk
+							} else {
+								▲ elevated
+							}
+						</span>
+						<strong>{ c.Name }</strong>
+						<span class="muted">/ { c.Slug }</span>
+						<div class="risk-score-track" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={ itoa(c.Score) } aria-label="risk score">
+							<div class={ "risk-score-fill " + c.Band } style={ "width:" + itoa(c.Score) + "%" }></div>
+						</div>
+						<span class="risk-score muted">{ itoa(c.Score) }/100</span>
+					</div>
+					<ul class="risk-reasons">
+						for _, why := range c.Reasons {
+							<li>{ why }</li>
+						}
+					</ul>
+					<p class="risk-stats">{ itoa(c.MembersTotal) } members · +{ itoa(c.MembersNew24h) } in 24h · { itoa(c.Messages24h) } messages in 24h</p>
+				</div>
+			}
+		}
+	</section>
 }
 
 // SAReindexResult is the morph target for the "Reindex everything" button —

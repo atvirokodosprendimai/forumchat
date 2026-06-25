@@ -133,12 +133,21 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load platform AI: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Privacy-preserving abuse signals (botnet "red flags"). Computed from
+	// metadata only — never message content — which is the whole point: in SaaS
+	// the operator can't read a tenant's content, so this is how abuse surfaces.
+	redFlags, err := h.redFlags(r.Context())
+	if err != nil {
+		http.Error(w, "load red flags: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	data := webtempl.SuperAdminPageData{
 		Viewer:       h.viewer(r),
 		Communities:  toSACommunities(comms),
 		Users:        toSAUsers(users),
 		Requests:     toSARequests(reqs),
 		PlatformAI:   platformAI,
+		RedFlags:     redFlags,
 		DebugEnabled: h.Debug.Enabled(),
 		DebugCount:   debugCount,
 	}
@@ -344,6 +353,34 @@ func (h *Handler) platformAIRows(ctx context.Context) ([]webtempl.SAPlatformAIRo
 }
 
 const dateFmt = "2006-01-02"
+
+// redFlags computes the per-community abuse signals and keeps only those scored
+// above "low", worst first — the dashboard's "Red flags" panel. Everything here
+// is aggregate metadata (counts/ratios/score), so it never exposes the tenant
+// content the operator can no longer read in SaaS.
+func (h *Handler) redFlags(ctx context.Context) ([]webtempl.SACommunityRisk, error) {
+	risks, err := h.Communities.RiskSignals(ctx, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	out := make([]webtempl.SACommunityRisk, 0, len(risks))
+	for _, cr := range risks {
+		if cr.Assessment.Band == community.RiskLow {
+			continue // healthy — not a flag
+		}
+		out = append(out, webtempl.SACommunityRisk{
+			Slug:          cr.Community.Slug,
+			Name:          cr.Community.Name,
+			Score:         cr.Assessment.Score,
+			Band:          cr.Assessment.Band,
+			Reasons:       cr.Assessment.Reasons,
+			MembersTotal:  cr.Signals.MembersTotal,
+			MembersNew24h: cr.Signals.MembersNew24h,
+			Messages24h:   cr.Signals.Messages24h,
+		})
+	}
+	return out, nil
+}
 
 func toSACommunities(in []community.CommunityStat) []webtempl.SACommunity {
 	out := make([]webtempl.SACommunity, 0, len(in))
