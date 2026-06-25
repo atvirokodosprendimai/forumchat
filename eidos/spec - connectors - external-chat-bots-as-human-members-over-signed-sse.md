@@ -311,7 +311,15 @@ works without it (§6.3a).
   cursor advances only on stream close, so two simultaneous streams for one
   connector race on it (last-closer wins — documented edge; run one stream).
   Resuming re-delivers the boundary second (idempotent dedupe expected of the
-  worker). JetStream-backed cross-process replay is still Future.
+  worker). An admin "Reset replay" mid-session is overwritten when the live
+  stream closes — by design: reset is honoured on the worker's NEXT connect (one
+  replay), then the cursor advances normally (preserving 0 would loop-replay
+  forever). The watermark is second-granular and shares `chat.Repo.ListAfter`
+  with the live path, so a single second holding **more than** `streamBatchLimit`
+  (200) messages in one channel can starve the overflow — a pre-existing
+  live-path bound, not catch-up-specific; a compound `(created_at,id)` cursor
+  would be the fix if scale ever demands it. JetStream-backed cross-process
+  replay is still Future.
 - **No outbound retry / delivery guarantee on the stream.** SSE is best-effort;
   if the worker's socket stalls, messages queue in the channel buffer and are
   dropped past capacity (logged). Acceptable for a chat participant.

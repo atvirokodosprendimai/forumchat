@@ -238,3 +238,9 @@
 - 2026-06-25 `bcb34f6` docs(plan): mark dev-docs plan complete + progress log
 - 2026-06-25 `308ee92` docs(changelog): dev-docs site + landing connectors section
 - 2026-06-25 `b4dba31` docs(changelog): append dev-docs session entries
+- 2026-06-25 `3c84368` docs(changelog): trailing dev-docs entry
+- 2026-06-25 `ecc4079` docs(plan): connector catch-up stream — server cursor + ?since= override
+- 2026-06-25 `0dc75f0` feat(connectors): server-owned resume cursor + ?since= catch-up stream
+- 2026-06-25 `32f01a9` feat(sdk-go): catch-up — StreamSince + OnLive + Live boundary frame
+- 2026-06-25 `3f8a0b4` feat(examples): tinychat reports catch-up via OnLive
+- 2026-06-25 `f736250` docs(connectors): document catch-up — server cursor, ?since=, event: live
