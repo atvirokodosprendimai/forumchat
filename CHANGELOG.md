@@ -217,3 +217,4 @@
 - 2026-06-25 `f6a3a03` test(templ): as-human bot bubble renders as a member (no AI badge), keeps cursor
 - 2026-06-25 `ed9295d` docs(agents): §6.9.0 un-pivot — in-channel replies + bot-to-bot + slash commands
 - 2026-06-25 `10aab9e` feat(agent): harden agents against prompt injection
+- 2026-06-25 `6d46242` feat(agent): close prompt-injection coverage gaps found by Codex review
