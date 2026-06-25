@@ -1,0 +1,323 @@
+/* devdocs.css — standalone styling for the /dev/docs developer documentation.
+
+   This stylesheet is INLINED into each docs page (no app.css, no datastar CDN),
+   so the page is self-contained like policies/policygoogle.html and renders
+   identically on a full navigation with no flash of unstyled content. The
+   palette mirrors the Commons flat-light app: ◇ brand, warm paper, indigo
+   accent. Code-block token colours come from chroma's inline styles (the
+   renderer emits them directly — see internal/devdocs/render.go), so there is
+   no syntax-highlight stylesheet to keep in sync here. */
+
+:root {
+	color-scheme: light;                 /* native controls stop inverting on dark-OS */
+	--bg: #fbfaf8;                        /* warm paper */
+	--surface: #ffffff;
+	--ink: #1b1b21;                      /* near-black, warm — body text (>=14:1 on bg) */
+	--muted: #585863;                    /* secondary text (>=4.6:1 on bg) */
+	--faint: #878794;                    /* tertiary / meta */
+	--hairline: rgba(20, 20, 30, 0.10);
+	--accent: oklch(57% 0.19 272);       /* indigo — same as app */
+	--accent-ink: oklch(46% 0.18 272);   /* darker accent for text on light */
+	--accent-soft: color-mix(in oklch, var(--accent) 9%, white);
+	--accent-line: color-mix(in oklch, var(--accent) 28%, transparent);
+	--radius: 14px;
+	--shadow: 0 1px 2px rgba(20, 20, 30, 0.04), 0 8px 28px rgba(20, 20, 30, 0.05);
+	/* Editorial serif for display, humanist sans for prose, mono for code —
+	   system stacks only, distinctive yet dependency-free. */
+	--serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+	--sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+	--hh: 58px;                          /* sticky header height, for scroll-margin */
+	--maxw: 1180px;
+}
+
+/* Fallback for engines without oklch. */
+@supports not (color: oklch(57% 0.19 272)) {
+	:root { --accent: #4f46e5; --accent-ink: #3f37c9; --accent-soft: #eef0fe; --accent-line: rgba(79, 70, 229, .28); }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+	margin: 0;
+	font-family: var(--sans);
+	font-size: 16.5px;
+	line-height: 1.7;
+	color: var(--ink);
+	background: var(--bg);
+	/* Two barely-there washes for calm atmosphere — not a gradient slab. */
+	background-image:
+		radial-gradient(1200px 600px at 85% -8%, color-mix(in oklch, var(--accent) 6%, transparent), transparent 70%),
+		radial-gradient(900px 500px at -10% 0%, rgba(20, 20, 30, 0.025), transparent 60%);
+	background-attachment: fixed;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+}
+
+a { color: var(--accent-ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible {
+	outline: 3px solid var(--accent-line);
+	outline-offset: 3px;
+	border-radius: 4px;
+}
+
+/* ---- Skip link (keyboard a11y) ---- */
+.dd-skip {
+	position: absolute; left: 12px; top: -60px;
+	background: var(--ink); color: #fff;
+	padding: 10px 16px; border-radius: 8px; z-index: 100;
+	transition: top .15s ease;
+}
+.dd-skip:focus { top: 12px; }
+
+/* ---- Sticky brand bar ---- */
+.dd-bar {
+	position: sticky; top: 0; z-index: 40;
+	height: var(--hh);
+	display: flex; align-items: center; gap: 14px;
+	padding: 0 clamp(16px, 4vw, 32px);
+	background: color-mix(in oklch, var(--bg) 84%, transparent);
+	backdrop-filter: saturate(1.4) blur(10px);
+	-webkit-backdrop-filter: saturate(1.4) blur(10px);
+	border-bottom: 1px solid var(--hairline);
+}
+.dd-brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -0.01em; color: var(--ink); text-decoration: none; }
+.dd-brand:hover { text-decoration: none; }
+.dd-brand-mark { color: var(--accent-ink); font-size: 1.15em; }
+.dd-bar-tag {
+	font-size: .72rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+	color: var(--accent-ink); background: var(--accent-soft);
+	border: 1px solid var(--accent-line); border-radius: 999px; padding: 2px 9px;
+}
+.dd-bar-spacer { flex: 1; }
+.dd-bar-link { color: var(--muted); text-decoration: none; font-size: .92rem; font-weight: 550; }
+.dd-bar-link:hover { color: var(--ink); text-decoration: none; }
+@media (max-width: 560px) { .dd-bar-tag { display: none; } }
+
+/* ===================================================================== */
+/*  Doc page — sidebar + prose                                           */
+/* ===================================================================== */
+
+.dd-shell {
+	max-width: var(--maxw);
+	margin: 0 auto;
+	padding: clamp(20px, 4vw, 44px) clamp(16px, 4vw, 32px) 80px;
+	display: grid;
+	grid-template-columns: 244px minmax(0, 1fr);
+	gap: clamp(24px, 4vw, 56px);
+	/* NB: do NOT set align-items:start on this grid — that would shrink the
+	   sticky sidebar's track to its own height and break position:sticky.
+	   Instead the sidebar item opts out of the stretch via align-self:start. */
+}
+
+.dd-side {
+	align-self: start;
+	position: sticky;
+	top: calc(var(--hh) + 22px);
+	max-height: calc(100dvh - var(--hh) - 44px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	font-size: .92rem;
+}
+.dd-side-h {
+	font-size: .72rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+	color: var(--faint); margin: 0 0 10px; padding-left: 12px;
+}
+.dd-side-h:not(:first-child) { margin-top: 26px; }
+.dd-side-nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.dd-side-link {
+	display: flex; align-items: center; gap: 9px;
+	padding: 7px 12px; border-radius: 9px;
+	color: var(--muted); text-decoration: none; font-weight: 550;
+	border-left: 2px solid transparent;
+}
+.dd-side-link:hover { background: color-mix(in oklch, var(--accent) 5%, transparent); color: var(--ink); text-decoration: none; }
+.dd-side-link[aria-current="page"] {
+	background: var(--accent-soft); color: var(--accent-ink);
+	border-left-color: var(--accent);
+}
+.dd-side-link .ic { font-size: 1em; line-height: 1; }
+
+/* On-this-page TOC */
+.dd-toc { display: flex; flex-direction: column; gap: 1px; border-left: 1px solid var(--hairline); }
+.dd-toc a {
+	display: block; padding: 5px 12px;
+	color: var(--muted); text-decoration: none; font-size: .88rem;
+	border-left: 2px solid transparent; margin-left: -1px;
+	line-height: 1.4;
+}
+.dd-toc a.sub { padding-left: 26px; font-size: .84rem; }
+.dd-toc a:hover { color: var(--ink); text-decoration: none; }
+.dd-toc a.active { color: var(--accent-ink); border-left-color: var(--accent); font-weight: 600; }
+
+/* ---- Prose ---- */
+.dd-prose { max-width: 76ch; min-width: 0; }
+.dd-prose > :first-child { margin-top: 0; }
+
+.dd-prose h1 {
+	font-family: var(--serif);
+	font-size: clamp(2rem, 1.4rem + 2.2vw, 2.7rem);
+	line-height: 1.12; letter-spacing: -0.02em; font-weight: 600;
+	margin: 0 0 .5em;
+}
+.dd-prose h2 {
+	font-family: var(--serif);
+	font-size: 1.55rem; line-height: 1.2; letter-spacing: -0.01em; font-weight: 600;
+	margin: 2.4em 0 .6em; padding-top: .4em;
+	border-top: 1px solid var(--hairline);
+	scroll-margin-top: calc(var(--hh) + 18px);
+}
+.dd-prose h3 {
+	font-size: 1.18rem; font-weight: 650; letter-spacing: -0.01em;
+	margin: 1.9em 0 .5em;
+	scroll-margin-top: calc(var(--hh) + 18px);
+}
+.dd-prose h2 a.anchor, .dd-prose h3 a.anchor { /* reserved for future heading-link affordance */ }
+
+.dd-prose p { margin: 0 0 1.05em; }
+.dd-prose strong { font-weight: 650; }
+.dd-prose ul, .dd-prose ol { margin: 0 0 1.05em; padding-left: 1.4em; }
+.dd-prose li { margin: .3em 0; }
+.dd-prose li > ul, .dd-prose li > ol { margin: .3em 0; }
+.dd-prose hr { border: 0; border-top: 1px solid var(--hairline); margin: 2.4em 0; }
+
+/* Inline code */
+.dd-prose :not(pre) > code {
+	font-family: var(--mono);
+	font-size: 0.85em;
+	background: var(--accent-soft);
+	color: var(--accent-ink);
+	padding: 0.13em 0.42em;
+	border-radius: 6px;
+	border: 1px solid var(--accent-line);
+	word-break: break-word;
+}
+
+/* Fenced code blocks — chroma supplies token colours inline; we own the frame. */
+.dd-prose pre {
+	font-family: var(--mono);
+	font-size: 0.86rem;
+	line-height: 1.6;
+	margin: 0 0 1.3em;
+	padding: 16px 18px;
+	border-radius: var(--radius);
+	border: 1px solid var(--hairline);
+	box-shadow: var(--shadow);
+	overflow-x: auto;
+	-webkit-overflow-scrolling: touch;
+	tab-size: 2;
+}
+.dd-prose pre code { font-family: inherit; font-size: inherit; background: none; border: 0; padding: 0; white-space: pre; color: inherit; }
+
+/* Blockquote — calm accent callout (used for tips/warnings in the docs) */
+.dd-prose blockquote {
+	margin: 1.3em 0;
+	padding: 2px 18px;
+	border-left: 3px solid var(--accent-line);
+	background: color-mix(in oklch, var(--accent) 4%, transparent);
+	border-radius: 0 10px 10px 0;
+	color: var(--ink);
+}
+.dd-prose blockquote p { margin: .7em 0; }
+
+/* Tables (GFM) */
+.dd-prose .dd-tablewrap, .dd-prose table { width: 100%; }
+.dd-prose table {
+	border-collapse: collapse;
+	margin: 0 0 1.4em;
+	font-size: 0.94rem;
+	display: block;
+	overflow-x: auto;
+}
+.dd-prose thead th {
+	text-align: left; font-weight: 650;
+	background: color-mix(in oklch, var(--accent) 6%, white);
+	color: var(--ink);
+	border-bottom: 2px solid var(--accent-line);
+}
+.dd-prose th, .dd-prose td {
+	padding: 9px 14px;
+	border: 1px solid var(--hairline);
+	vertical-align: top;
+}
+.dd-prose tbody tr:nth-child(even) { background: color-mix(in oklch, var(--ink) 1.5%, transparent); }
+.dd-prose td code { white-space: nowrap; }
+
+/* ===================================================================== */
+/*  Index page — hero + cards                                            */
+/* ===================================================================== */
+
+.dd-index { max-width: 920px; margin: 0 auto; padding: clamp(36px, 7vw, 84px) clamp(16px, 4vw, 32px) 80px; }
+.dd-hero-eyebrow {
+	display: inline-block; font-size: .8rem; font-weight: 600; letter-spacing: .02em;
+	color: var(--accent-ink); background: var(--accent-soft);
+	border: 1px solid var(--accent-line); border-radius: 999px; padding: 4px 13px; margin-bottom: 20px;
+}
+.dd-index h1 {
+	font-family: var(--serif);
+	font-size: clamp(2.3rem, 1.5rem + 3vw, 3.4rem);
+	line-height: 1.08; letter-spacing: -0.025em; font-weight: 600;
+	margin: 0 0 .35em;
+}
+.dd-index .dd-lead { font-size: clamp(1.05rem, 1rem + .4vw, 1.25rem); color: var(--muted); max-width: 60ch; margin: 0 0 2.6em; }
+
+.dd-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.dd-card {
+	display: flex; flex-direction: column; gap: 10px;
+	padding: 24px 24px 22px;
+	background: var(--surface);
+	border: 1px solid var(--hairline);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	text-decoration: none; color: inherit;
+	transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease;
+}
+.dd-card:hover {
+	transform: translateY(-3px);
+	border-color: var(--accent-line);
+	box-shadow: 0 2px 4px rgba(20,20,30,.05), 0 16px 40px rgba(20,20,30,.08);
+	text-decoration: none;
+}
+@media (prefers-reduced-motion: reduce) { .dd-card { transition: none; } .dd-card:hover { transform: none; } }
+.dd-card-ic {
+	width: 44px; height: 44px; display: grid; place-items: center;
+	font-size: 1.4rem; border-radius: 12px;
+	background: var(--accent-soft); border: 1px solid var(--accent-line);
+}
+.dd-card h2 { font-size: 1.2rem; font-weight: 650; letter-spacing: -0.01em; margin: 4px 0 0; }
+.dd-card p { color: var(--muted); font-size: .96rem; margin: 0; flex: 1; }
+.dd-card-go { color: var(--accent-ink); font-weight: 600; font-size: .92rem; margin-top: 6px; }
+.dd-card-go::after { content: " →"; }
+
+/* ---- Footer ---- */
+.dd-foot {
+	max-width: var(--maxw); margin: 0 auto;
+	padding: 28px clamp(16px, 4vw, 32px) 44px;
+	border-top: 1px solid var(--hairline);
+	color: var(--faint); font-size: .88rem;
+	display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center;
+}
+.dd-foot a { color: var(--muted); text-decoration: none; }
+.dd-foot a:hover { color: var(--ink); }
+.dd-foot-spacer { flex: 1; }
+
+/* ===================================================================== */
+/*  Responsive                                                           */
+/* ===================================================================== */
+
+@media (max-width: 880px) {
+	.dd-shell { grid-template-columns: 1fr; gap: 8px; }
+	.dd-side {
+		position: static; max-height: none; overflow: visible;
+		padding-bottom: 14px; margin-bottom: 8px;
+		border-bottom: 1px solid var(--hairline);
+	}
+	/* On narrow screens collapse the on-this-page list — the doc-nav above is
+	   the useful affordance; the full outline just adds scroll. */
+	.dd-toc { display: none; }
+	.dd-prose { max-width: none; }
+}

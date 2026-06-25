@@ -52,14 +52,6 @@ type Doc struct {
 // Order sort them. Editing this slice is how a doc is published or retired.
 var Manifest = []Doc{
 	{
-		Slug:    "index",
-		Title:   "Developer documentation",
-		Summary: "Build on top of a community: integration surfaces, auth, and SDKs.",
-		Icon:    "◇",
-		File:    "index.md",
-		Order:   0,
-	},
-	{
 		Slug:    "connectors",
 		Title:   "External connectors",
 		Summary: "Run an outside program as a human chat member over a signed SSE stream.",

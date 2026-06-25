@@ -42,6 +42,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/connectors"
 	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
 	"github.com/atvirokodosprendimai/forumchat/internal/dataexport"
+	"github.com/atvirokodosprendimai/forumchat/internal/devdocs"
 	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
 	"github.com/atvirokodosprendimai/forumchat/internal/explore"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
@@ -2296,6 +2297,12 @@ func run() error {
 	// global), so a logged-in member following the link still reads it. Any miss
 	// renders the generic "unavailable" page (no existence oracle).
 	r.Get("/n/{token}", notesHandler.GetShared)
+
+	// Public developer documentation — /dev/docs (index) + /dev/docs/{slug}.
+	// First-party Markdown compiled into the binary (package docs); no auth, no
+	// secrets, no datastore. Mounted unconditionally: the docs are useful in
+	// self-host and SaaS alike, and the landing links here only in SaaS.
+	devdocs.New(log).Mount(r)
 
 	// Public Stripe webhook — no session/CSRF; authenticity is the HMAC signature
 	// verified in billing.Service.Webhook against STRIPE_WEBHOOK_SECRET. It is the

@@ -1,0 +1,198 @@
+package templ
+
+// View models for the standalone developer-docs site at /dev/docs. web/templ is
+// a leaf package (§4.13): the devdocs handler maps the domain/render output into
+// these structs, so this file imports no internal/* package.
+
+// DevDocLink is one doc in the cross-doc navigation and on the index cards.
+type DevDocLink struct {
+	Slug    string
+	Title   string
+	Summary string
+	Icon    string
+	Active  bool // current page — highlighted in the sidebar / index
+}
+
+// DevDocTOCItem is one on-this-page heading anchor (h2, or h3 when Sub).
+type DevDocTOCItem struct {
+	ID    string
+	Title string
+	Sub   bool
+}
+
+// DevDocPageData is everything one rendered doc page needs. BodyHTML is the
+// trusted, pre-rendered Markdown HTML (first-party content — see
+// internal/devdocs), embedded verbatim.
+type DevDocPageData struct {
+	Title    string
+	Summary  string
+	BodyHTML string
+	TOC      []DevDocTOCItem
+	Nav      []DevDocLink
+}
+
+// DevDocsIndexData backs the /dev/docs landing.
+type DevDocsIndexData struct {
+	Docs []DevDocLink
+}
+
+// ddCurrent spreads aria-current="page" onto the active nav link only, so the
+// CSS [aria-current="page"] rule and assistive tech both see the current page.
+func ddCurrent(active bool) templ.Attributes {
+	if active {
+		return templ.Attributes{"aria-current": "page"}
+	}
+	return templ.Attributes{}
+}
+
+// ddDocURL builds the path for a doc slug.
+func ddDocURL(slug string) templ.SafeURL {
+	return templ.URL("/dev/docs/" + slug)
+}
+
+// ---- shared chrome ----------------------------------------------------------
+
+// devDocsHead is the shared <head>: inlined self-contained styles (no CDN), so
+// the page renders identically on a cold navigation. title is the page title.
+templ devDocsHead(title, desc string) {
+	<head>
+		<meta charset="utf-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>{ title } — { brandName() } developer docs</title>
+		<meta name="description" content={ desc }/>
+		<meta name="color-scheme" content="light"/>
+		<meta name="theme-color" content="#fbfaf8"/>
+		<meta name="robots" content="index, follow"/>
+		<link rel="icon" type="image/svg+xml" href="/static/icon.svg"/>
+		@InlineStyle("devdocs.css")
+	</head>
+}
+
+// devDocsBar is the sticky brand bar shared by index and doc pages.
+templ devDocsBar() {
+	<header class="dd-bar">
+		<a class="dd-brand" href="/">
+			<span class="dd-brand-mark" aria-hidden="true">◇</span>
+			<span>{ brandName() }</span>
+		</a>
+		<span class="dd-bar-tag">Developer docs</span>
+		<span class="dd-bar-spacer"></span>
+		<a class="dd-bar-link" href="/dev/docs">All docs</a>
+		<a class="dd-bar-link" href={ templ.URL(landingRepoURL) } target="_blank" rel="noopener">GitHub ↗</a>
+	</header>
+}
+
+// devDocsFooter closes both layouts.
+templ devDocsFooter() {
+	<footer class="dd-foot">
+		<span>{ brandName() } developer documentation</span>
+		<span class="dd-foot-spacer"></span>
+		<a href="/dev/docs">All docs</a>
+		<a href={ templ.URL(landingRepoURL) } target="_blank" rel="noopener">Source</a>
+		<a href="/">← Back to { brandName() }</a>
+	</footer>
+}
+
+// ---- index page -------------------------------------------------------------
+
+// DevDocsIndex renders the docs landing: hero + one card per published doc.
+templ DevDocsIndex(data DevDocsIndexData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		@devDocsHead("Developer documentation", "Build on top of a "+brandName()+" community — integration surfaces, auth model, JSON wire formats and SDKs.")
+		<body>
+			<a class="dd-skip" href="#dd-main">Skip to content</a>
+			@devDocsBar()
+			<main id="dd-main" class="dd-index">
+				<span class="dd-hero-eyebrow">✦ Developer documentation</span>
+				<h1>Build on top of your community.</h1>
+				<p class="dd-lead">
+					{ brandName() } exposes a few small, sharp surfaces for wiring the outside
+					world into a community — from a fire-and-forget webhook to a full external
+					member that lives in the conversation. Pick a surface to get started.
+				</p>
+				<div class="dd-cards">
+					for _, d := range data.Docs {
+						<a class="dd-card" href={ ddDocURL(d.Slug) }>
+							<span class="dd-card-ic" aria-hidden="true">{ d.Icon }</span>
+							<h2>{ d.Title }</h2>
+							<p>{ d.Summary }</p>
+							<span class="dd-card-go">Read the guide</span>
+						</a>
+					}
+				</div>
+			</main>
+			@devDocsFooter()
+		</body>
+	</html>
+}
+
+// ---- doc page ---------------------------------------------------------------
+
+// DevDocPage renders one documentation page: sidebar (cross-doc nav +
+// on-this-page TOC) and the prose. The grid keeps the sidebar sticky while the
+// long article scrolls.
+templ DevDocPage(data DevDocPageData) {
+	<!DOCTYPE html>
+	<html lang="en">
+		@devDocsHead(data.Title, data.Summary)
+		<body>
+			<a class="dd-skip" href="#dd-main">Skip to content</a>
+			@devDocsBar()
+			<div class="dd-shell">
+				<nav class="dd-side" aria-label="Documentation">
+					<p class="dd-side-h">Documentation</p>
+					<div class="dd-side-nav">
+						for _, d := range data.Nav {
+							<a class="dd-side-link" href={ ddDocURL(d.Slug) } { ddCurrent(d.Active)... }>
+								<span class="ic" aria-hidden="true">{ d.Icon }</span>
+								<span>{ d.Title }</span>
+							</a>
+						}
+					</div>
+					if len(data.TOC) > 0 {
+						<p class="dd-side-h">On this page</p>
+						<div class="dd-toc">
+							for _, t := range data.TOC {
+								<a href={ templ.SafeURL("#" + t.ID) } class={ ddTocClass(t.Sub) }>{ t.Title }</a>
+							}
+						</div>
+					}
+				</nav>
+				<article id="dd-main" class="dd-prose">
+					@templ.Raw(data.BodyHTML)
+				</article>
+			</div>
+			@devDocsFooter()
+			@devDocsScrollSpy()
+		</body>
+	</html>
+}
+
+// ddTocClass marks h3 entries so the CSS can indent them under their h2.
+func ddTocClass(sub bool) string {
+	if sub {
+		return "sub"
+	}
+	return ""
+}
+
+// devDocsScrollSpy highlights the on-this-page TOC entry for the section
+// currently in view. Pure vanilla JS, inlined to keep the page self-contained;
+// degrades gracefully where IntersectionObserver is unavailable.
+templ devDocsScrollSpy() {
+	@templ.Raw(`<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('.dd-toc a'));
+  if(!links.length||!('IntersectionObserver' in window))return;
+  var heads=links.map(function(a){return document.getElementById(a.getAttribute('href').slice(1));}).filter(Boolean);
+  var cur=null;
+  function paint(){links.forEach(function(a){a.classList.toggle('active',a.getAttribute('href').slice(1)===cur);});}
+  var obs=new IntersectionObserver(function(es){
+    es.forEach(function(e){if(e.isIntersecting)cur=e.target.id;});
+    paint();
+  },{rootMargin:'-70px 0px -75% 0px',threshold:0});
+  heads.forEach(function(h){obs.observe(h);});
+})();
+</script>`)
+}
