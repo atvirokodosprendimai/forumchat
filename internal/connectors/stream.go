@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -19,6 +20,13 @@ const (
 	streamBatchLimit = 200
 	// heartbeatEvery keeps an idle stream from being reaped by proxies.
 	heartbeatEvery = 25 * time.Second
+	// maxCatchupWindow bounds how far back a reconnecting worker may replay. The
+	// signed stream URL is a bearer capability on a public route, so an unbounded
+	// resume (?since=0, or a days-old server cursor) would let one connect replay
+	// all history; the clamp caps cost and memory. 24h mirrors the upload-orphan
+	// sweep window (§6.7) and the chat-replay roadmap horizon. Anything older is
+	// truncated (the `live` marker reports it).
+	maxCatchupWindow = 24 * time.Hour
 )
 
 // readyEvent is the one-shot handshake frame: it tells the worker who it is and
@@ -34,6 +42,63 @@ type channelBrief struct {
 	ID   string `json:"id"`
 	Slug string `json:"slug"`
 	Name string `json:"name"`
+}
+
+// liveEvent is the one-shot boundary frame emitted after any backlog replay,
+// telling the worker "history (if any) is flushed — everything from here is
+// live". It makes the contract uniform: ready → [backlog message…] → live →
+// [live message…]. Since is the unix second the backlog started from (0 when
+// there was no backlog, i.e. a live-only connect); Truncated is true when the
+// requested resume point predated maxCatchupWindow so older messages were
+// dropped. A worker can ignore this frame entirely (older SDKs do).
+type liveEvent struct {
+	Since     int64 `json:"since"`
+	Truncated bool  `json:"truncated"`
+}
+
+// resumeWatermark decides where the stream starts delivering from, in priority:
+//
+//	?live=1          → now (explicit live-only; ignore the server cursor)
+//	?since=<unix>    → that instant (client override), clamped to the window
+//	cursor_at (>0)   → resume where delivery last stopped (the stateless-worker
+//	                   default); a 0/epoch cursor = an admin "Reset replay" →
+//	                   replay the whole window
+//	otherwise        → now (first-ever connect, no stored position)
+//
+// It returns the resume instant, whether that implies replaying a backlog
+// (catchUp), and whether the clamp dropped older messages (truncated). It is a
+// pure function of (connector, query, now) so the policy is unit-testable
+// without a DB or an HTTP server.
+func resumeWatermark(conn Connector, q url.Values, now time.Time) (resumeFrom time.Time, catchUp, truncated bool) {
+	windowStart := now.Add(-maxCatchupWindow)
+	// clamp pins a requested instant into [windowStart, now]: older than the
+	// window snaps forward (and flags truncation); a future instant snaps to now.
+	clamp := func(t time.Time) (time.Time, bool) {
+		switch {
+		case t.Before(windowStart):
+			return windowStart, true
+		case t.After(now):
+			return now, false
+		default:
+			return t, false
+		}
+	}
+	if q.Get("live") == "1" {
+		return now, false, false
+	}
+	if v := q.Get("since"); v != "" {
+		// A malformed since is ignored (fall through to the cursor) rather than
+		// silently replaying the whole window.
+		if sec, err := strconv.ParseInt(v, 10, 64); err == nil {
+			rf, tr := clamp(time.Unix(sec, 0))
+			return rf, rf.Before(now), tr
+		}
+	}
+	if conn.CursorAt != nil {
+		rf, tr := clamp(*conn.CursorAt)
+		return rf, rf.Before(now), tr
+	}
+	return now, false, false
 }
 
 // GetStream is the long-lived, signed JSON SSE read stream. The signed URL is
@@ -84,21 +149,69 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Decide where to start: the server-owned cursor (stateless-worker resume),
+	// an explicit ?since= / ?live=1 override, or now (first connect). See
+	// resumeWatermark.
+	now := time.Now()
+	resumeFrom, catchUp, truncated := resumeWatermark(conn, r.URL.Query(), now)
+
 	// Per-channel watermark (inclusive) + a seen-set for the boundary second so
 	// same-second messages (created_at is unix seconds) are neither missed nor
-	// duplicated. Seed seen with anything already at the connect second so we
-	// stay live-only (no pre-connect backlog).
-	now := time.Now()
+	// duplicated. In LIVE-ONLY mode (no backlog) seed seen with anything already
+	// at the resume second so we don't re-deliver it; in CATCH-UP mode leave seen
+	// empty so the backlog drain delivers it.
 	wm := make(map[string]time.Time, len(subs))
 	seen := make(map[string]map[string]bool, len(subs))
 	for id := range subs {
-		wm[id] = now
+		wm[id] = resumeFrom
 		seen[id] = map[string]bool{}
-		if existing, err := h.ChatRepo.ListAfter(r.Context(), id, now, streamBatchLimit); err == nil {
-			for _, m := range existing {
-				seen[id][m.ID] = true
+		if !catchUp {
+			if existing, err := h.ChatRepo.ListAfter(r.Context(), id, resumeFrom, streamBatchLimit); err == nil {
+				for _, m := range existing {
+					seen[id][m.ID] = true
+				}
 			}
 		}
+	}
+
+	// Advance the server-owned resume cursor on close, ONCE, to the furthest
+	// second delivered, so the next reconnect (no params) resumes here — the
+	// "almost stateless worker" contract. Detached ctx: r.Context() is already
+	// cancelled by the time the stream ends. Registered after wm is built so the
+	// closure observes the fully-advanced map at close time.
+	defer func() {
+		var maxSec int64
+		for _, t := range wm {
+			if u := t.Unix(); u > maxSec {
+				maxSec = u
+			}
+		}
+		if maxSec > 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := h.Repo.SetCursor(ctx, conn.CommunityID, conn.ID, maxSec); err != nil {
+				h.Log.Warn("connectors: persist cursor", "connector", conn.ID, "err", err)
+			}
+		}
+	}()
+
+	// Catch-up: flush the backlog the worker missed, in order, BEFORE going live.
+	// (Skipped in live-only mode — running it there would clear the pre-seeded
+	// boundary-second seen-set and risk re-delivering the connect second.)
+	if catchUp {
+		for id := range subs {
+			if !h.drainChannel(r.Context(), w, flush, conn, subs, wm, seen, id) {
+				return
+			}
+		}
+	}
+	// Boundary marker: history (if any) flushed, everything after this is live.
+	live := liveEvent{}
+	if catchUp {
+		live.Since, live.Truncated = resumeFrom.Unix(), truncated
+	}
+	if !writeFrame(w, flush, "live", live) {
+		return
 	}
 
 	local, unsubscribe := h.Bus.Subscribe()

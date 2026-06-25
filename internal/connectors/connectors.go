@@ -65,6 +65,13 @@ type Connector struct {
 	CreatedAt    time.Time
 	LastSeenAt   *time.Time
 	LastStatus   string
+
+	// CursorAt is the server-owned resume watermark (the furthest message second
+	// delivered to this connector's stream). nil = no position yet → first connect
+	// is live-only; a zero/epoch value = an admin "Reset replay" → next connect
+	// replays the whole catch-up window. See stream.go resumeWatermark + §migration
+	// 00074. Written once on stream close, never per message.
+	CursorAt *time.Time
 }
 
 // Can reports whether the connector was granted a capability — the single
@@ -112,16 +119,16 @@ type Repo struct{ DB *sql.DB }
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 
 const selectCols = `id, community_id, user_id, name, avatar_url, secret, capabilities,
-	mentions_only, enabled, COALESCE(created_by, ''), created_at, last_seen_at, last_status`
+	mentions_only, enabled, COALESCE(created_by, ''), created_at, last_seen_at, last_status, cursor_at`
 
 func scanConnector(s interface{ Scan(...any) error }) (Connector, error) {
 	var c Connector
 	var capabilities string
 	var mentionsOnly, enabled int
 	var created int64
-	var lastSeen sql.NullInt64
+	var lastSeen, cursor sql.NullInt64
 	if err := s.Scan(&c.ID, &c.CommunityID, &c.UserID, &c.Name, &c.AvatarURL, &c.Secret, &capabilities,
-		&mentionsOnly, &enabled, &c.CreatedBy, &created, &lastSeen, &c.LastStatus); err != nil {
+		&mentionsOnly, &enabled, &c.CreatedBy, &created, &lastSeen, &c.LastStatus, &cursor); err != nil {
 		return Connector{}, err
 	}
 	c.Capabilities = splitCapabilities(capabilities)
@@ -131,6 +138,13 @@ func scanConnector(s interface{ Scan(...any) error }) (Connector, error) {
 	if lastSeen.Valid {
 		t := time.Unix(lastSeen.Int64, 0)
 		c.LastSeenAt = &t
+	}
+	// cursor_at is NULL until the first stream closes; a NULL CursorAt means
+	// "live-only first connect" (resumeWatermark), distinct from a stored 0/epoch
+	// ("reset → replay the window").
+	if cursor.Valid {
+		t := time.Unix(cursor.Int64, 0)
+		c.CursorAt = &t
 	}
 	return c, nil
 }
@@ -243,6 +257,19 @@ func (r *Repo) Stamp(ctx context.Context, id, status string) error {
 	_, err := r.DB.ExecContext(ctx,
 		`UPDATE connectors SET last_seen_at = ?, last_status = ? WHERE id = ?`,
 		time.Now().Unix(), status, id)
+	return err
+}
+
+// SetCursor stores the resume watermark for a connector, scoped to its community
+// (defence-in-depth even though both callers already trust the id). The stream
+// calls it ONCE on close with the furthest delivered second so a reconnect
+// resumes there; the admin "Reset replay" calls it with 0 so the next connect
+// replays the whole catch-up window. One write per connection, never per message
+// (§8 single-writer).
+func (r *Repo) SetCursor(ctx context.Context, communityID, id string, unix int64) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE connectors SET cursor_at = ? WHERE id = ? AND community_id = ?`,
+		unix, id, communityID)
 	return err
 }
 

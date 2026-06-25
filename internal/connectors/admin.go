@@ -140,6 +140,26 @@ func (h *Handler) PostRotate(w http.ResponseWriter, r *http.Request) {
 	h.reveal(sse, conn)
 }
 
+// PostResetCursor resets a connector's server-owned resume cursor to 0, so its
+// next fresh connect replays the whole catch-up window instead of resuming where
+// delivery last stopped. It takes effect on the connector's NEXT connection: a
+// worker that is currently streaming overwrites the cursor with its own
+// furthest-delivered second when that stream closes, so reset only "sticks" once
+// the worker reconnects (the realistic "worker was down, replay on return" flow).
+func (h *Handler) PostResetCursor(w http.ResponseWriter, r *http.Request) {
+	cm, ok := community.FromContext(r.Context())
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.Repo.SetCursor(r.Context(), cm.ID, r.URL.Query().Get("id"), 0); err != nil {
+		h.Log.Error("connectors: reset cursor", "err", err)
+	}
+	sse := render.NewSSE(w, r)
+	h.renderList(sse, r, cm)
+	_ = sse.PatchSignals([]byte(`{"toast_text":"Replay reset — the bot catches up on its next reconnect"}`))
+}
+
 // PostDelete removes a connector and its synthetic member.
 func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	cm, ok := community.FromContext(r.Context())
@@ -210,6 +230,7 @@ func (h *Handler) pageData(r *http.Request, cm community.Community) (webtempl.Co
 			SendURL:      h.sendURL(c),
 			LastStatus:   c.LastStatus,
 			LastAt:       lastAtLabel(c.LastSeenAt),
+			CursorLabel:  cursorLabel(c.CursorAt),
 		})
 	}
 
@@ -306,4 +327,20 @@ func lastAtLabel(t *time.Time) string {
 		return "never"
 	}
 	return t.Local().Format("15:04 Jan 2")
+}
+
+// cursorLabel renders the connector's resume state for the admin row: nothing
+// when there's no stored position yet (first connect will be live-only), "replay
+// queued" after a reset (0/epoch → next connect replays the window), otherwise
+// the instant a reconnect would resume from. Mirrors the CursorAt semantics in
+// stream.go resumeWatermark.
+func cursorLabel(t *time.Time) string {
+	switch {
+	case t == nil:
+		return ""
+	case t.Unix() <= 0:
+		return "replay queued"
+	default:
+		return "resumes " + t.Local().Format("15:04 Jan 2")
+	}
 }

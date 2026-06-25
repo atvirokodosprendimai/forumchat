@@ -16,6 +16,7 @@ type ConnectorRowView struct {
 	SendURL      string // send endpoint (worker signs the body)
 	LastStatus   string
 	LastAt       string
+	CursorLabel  string // resume state: "" (live-only), "replay queued", or "resumes …"
 }
 
 // ConnectorChannelOpt is one channel checkbox in the create/edit form.
@@ -250,6 +251,8 @@ templ connectorRow(r ConnectorRowView, slug string) {
 			<button type="button" class="ghost" data-con-url={ r.SendURL }
 				data-on:click="navigator.clipboard.writeText(el.dataset.conUrl); $toast_text='Send URL copied'">Copy send</button>
 			@connectorToggleBtn(r, slug)
+			<button class="ghost" title="Replay missed messages from the start on the bot's next reconnect"
+				data-on:click={ "if(confirm('Reset replay? On its next reconnect this bot re-receives the last 24h of messages it can, instead of resuming where it left off.')){@post('/c/" + slug + "/admin/connectors/reset?id=" + r.ID + "')}" }>Reset replay</button>
 			<button class="ghost" data-on:click={ "@post('/c/" + slug + "/admin/connectors/rotate?id=" + r.ID + "')" }>Rotate</button>
 			<button class="ghost danger" data-on:click={ "if(confirm('Delete this chat bot and its member? Its past messages stay as a deleted member.')){@post('/c/" + slug + "/admin/connectors/delete?id=" + r.ID + "')}" }>Delete</button>
 		</td>
@@ -272,6 +275,9 @@ templ connectorHealth(r ConnectorRowView) {
 			<span class={ "wh-dot wh-dot-" + healthTone(r.LastStatus) }></span>
 			{ r.LastStatus } · { r.LastAt }
 		</span>
+	}
+	if r.CursorLabel != "" {
+		<span class="wh-cursor" title="Where this bot resumes on reconnect">↻ { r.CursorLabel }</span>
 	}
 }
 

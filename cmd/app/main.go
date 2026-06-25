@@ -2117,6 +2117,7 @@ func run() error {
 				r.Post("/admin/connectors/update", connectorsHandler.PostUpdate)
 				r.Post("/admin/connectors/toggle", connectorsHandler.PostToggle)
 				r.Post("/admin/connectors/rotate", connectorsHandler.PostRotate)
+				r.Post("/admin/connectors/reset", connectorsHandler.PostResetCursor)
 				r.Post("/admin/connectors/delete", connectorsHandler.PostDelete)
 			}
 			if cfg.AIEnabled {

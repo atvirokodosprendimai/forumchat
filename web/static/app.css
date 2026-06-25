@@ -5484,6 +5484,8 @@ button.ghost.danger:hover:not([disabled]) {
 .wh-dot-bad { background: var(--danger); }
 .wh-dot-warn { background: var(--warning); }
 .wh-dot-none { background: var(--fg-subtle); }
+/* Resume-cursor hint under the health line: muted, its own row, never wraps. */
+.wh-cursor { display: block; margin-top: .15rem; color: var(--fg-subtle); font-size: .76rem; white-space: nowrap; }
 .wh-actions { display: flex; gap: .4rem; justify-content: flex-end; white-space: nowrap; }
 .wh-actions button, .wh-copy { padding: .35rem .65rem; font-size: .82rem; }
 .wh-actions .danger { color: var(--danger); }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -177,6 +178,13 @@ func TestStreamDeliversSkipsOwn(t *testing.T) {
 	if ev := frames.next(t); ev.event != "ready" {
 		t.Fatalf("first frame = %q, want ready", ev.event)
 	}
+	// Live-only connect (no cursor, no params): the boundary marker follows the
+	// handshake immediately, with since=0 (no backlog replayed).
+	if ev := frames.next(t); ev.event != "live" {
+		t.Fatalf("second frame = %q, want live", ev.event)
+	} else if !strings.Contains(ev.data, `"since":0`) {
+		t.Fatalf("live frame should report no backlog, got: %s", ev.data)
+	}
 
 	// The connector's OWN message must not echo back. Post it, then post a human
 	// message; the next delivered frame must be the human one, proving the own
@@ -196,6 +204,51 @@ func TestStreamDeliversSkipsOwn(t *testing.T) {
 	}
 	if strings.Contains(ev.data, "i am the bot") {
 		t.Fatalf("connector echoed its own message: %s", ev.data)
+	}
+}
+
+// TestStreamCatchUpReplaysBacklog proves the missed-message replay: a human
+// message posted BEFORE the worker connects is delivered as backlog when the
+// stream carries a ?since= older than it, then the `live` marker follows — and a
+// plain (live-only) connect does NOT replay it.
+func TestStreamCatchUpReplaysBacklog(t *testing.T) {
+	t.Parallel()
+	hz := newHarness(t)
+	conn, err := hz.svc.Create(context.Background(), connectors.CreateInput{
+		CommunityID: hz.comm.ID, Name: "Acme", Capabilities: []string{"send"},
+		ChannelIDs: []string{hz.general.ID},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// A human types while no worker is attached.
+	since := time.Now().Add(-time.Second) // a watermark just before the message
+	hz.memberSay(t, "alice", "you missed this one")
+
+	// Catch-up connect: ready → backlog message → live.
+	cu := hz.openStreamSince(t, conn, since)
+	if ev := cu.next(t); ev.event != "ready" {
+		t.Fatalf("catch-up first frame = %q, want ready", ev.event)
+	}
+	ev := cu.next(t)
+	if ev.event != "message" || !strings.Contains(ev.data, "you missed this one") {
+		t.Fatalf("catch-up frame = %q/%s, want the backlog message", ev.event, ev.data)
+	}
+	if ev := cu.next(t); ev.event != "live" {
+		t.Fatalf("after backlog, frame = %q, want live", ev.event)
+	} else if strings.Contains(ev.data, `"since":0`) {
+		t.Fatalf("catch-up live marker should carry a non-zero since, got: %s", ev.data)
+	}
+
+	// Control: a live-only connect (no ?since=) must NOT replay the same message —
+	// ready is followed straight by the live marker.
+	live := hz.openStream(t, conn)
+	if ev := live.next(t); ev.event != "ready" {
+		t.Fatalf("live-only first frame = %q, want ready", ev.event)
+	}
+	if ev := live.next(t); ev.event != "live" {
+		t.Fatalf("live-only second frame = %q, want live (no backlog)", ev.event)
 	}
 }
 
@@ -267,8 +320,17 @@ type sseReader struct {
 }
 
 func (hz *harness) openStream(t *testing.T, conn connectors.Connector) *sseReader {
+	return hz.openStreamRaw(t, conn, "")
+}
+
+// openStreamSince opens the stream with a ?since= catch-up watermark.
+func (hz *harness) openStreamSince(t *testing.T, conn connectors.Connector, since time.Time) *sseReader {
+	return hz.openStreamRaw(t, conn, "&since="+strconv.FormatInt(since.Unix(), 10))
+}
+
+func (hz *harness) openStreamRaw(t *testing.T, conn connectors.Connector, extra string) *sseReader {
 	t.Helper()
-	url := hz.srv.URL + "/bots/" + conn.ID + "/stream?exp=0&sig=" + connectors.StreamSig(conn.Secret, conn.ID, 0)
+	url := hz.srv.URL + "/bots/" + conn.ID + "/stream?exp=0&sig=" + connectors.StreamSig(conn.Secret, conn.ID, 0) + extra
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := http.DefaultClient.Do(req)
