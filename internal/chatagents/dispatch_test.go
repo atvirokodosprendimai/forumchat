@@ -3,6 +3,8 @@ package chatagents_test
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,14 +136,24 @@ func TestDispatch_LoopGuardSkipsBotKind(t *testing.T) {
 }
 
 // fakeChannel records in-channel reply generations for the bot-to-bot tests.
+// Mutex-guarded because paced replies fire on a time.AfterFunc goroutine.
 type fakeChannel struct {
+	mu     sync.Mutex
 	calls  int
 	agents []string
 }
 
 func (f *fakeChannel) Generate(_, _, _ string, a agent.Agent) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	f.agents = append(f.agents, a.ID)
+}
+
+func (f *fakeChannel) Count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
 }
 
 // botTrigger is a Kind==KindBot trigger authored by agent authorID — the shape
@@ -198,20 +210,49 @@ func TestDispatch_BotToBot_ExcludesSelfAndStreamsOthers(t *testing.T) {
 	}
 }
 
-func TestDispatch_BotToBot_CooldownPerAgent(t *testing.T) {
+func TestDispatch_BotToBot_PacesQueueDoesNotDrop(t *testing.T) {
 	created := 0
 	d := newDispatcher(t, twoAgents(), &stubGate{}, &created, nil)
 	d.Policy = func(context.Context, string) (bool, bool) { return true, true }
+	d.Cooldown = 40 * time.Millisecond // tiny window so the test is fast
 	fc := &fakeChannel{}
 	d.Channel = fc
 
-	// Two bot messages from a2 in quick succession: a1 replies once, then is
-	// cooling down (BotReplyCooldown) so the second is dropped.
-	d.Dispatch(context.Background(), botTrigger("ping", "a2"))
-	d.Dispatch(context.Background(), botTrigger("ping again", "a2"))
+	// Three bot messages from a2 in quick succession. a1 answers the first
+	// immediately; the next two land inside a1's cooldown window and must
+	// COALESCE into exactly ONE queued reply (not be dropped, not stack to 3).
+	d.Dispatch(context.Background(), botTrigger("ping 1", "a2"))
+	d.Dispatch(context.Background(), botTrigger("ping 2", "a2"))
+	d.Dispatch(context.Background(), botTrigger("ping 3", "a2"))
 
-	if fc.calls != 1 {
-		t.Fatalf("per-agent 15s cooldown: want 1 reply, got %d", fc.calls)
+	if got := fc.Count(); got != 1 {
+		t.Fatalf("immediately: want 1 reply (window open once), got %d", got)
+	}
+	// After the window elapses the single queued reply fires.
+	time.Sleep(90 * time.Millisecond)
+	if got := fc.Count(); got != 2 {
+		t.Fatalf("after cooldown: want 2 (1 immediate + 1 queued), got %d — queue dropped or stacked", got)
+	}
+}
+
+func TestDispatch_BotToBot_QueuedReplyRespectsKill(t *testing.T) {
+	created := 0
+	d := newDispatcher(t, twoAgents(), &stubGate{}, &created, nil)
+	// atomic: the Policy closure is read from the paced-reply goroutine while the
+	// test goroutine flips it (mirrors the real DB-backed Policy being concurrent).
+	var autochat atomic.Bool
+	autochat.Store(true)
+	d.Policy = func(context.Context, string) (bool, bool) { return true, autochat.Load() }
+	d.Cooldown = 40 * time.Millisecond
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	d.Dispatch(context.Background(), botTrigger("ping 1", "a2")) // a1 fires now
+	d.Dispatch(context.Background(), botTrigger("ping 2", "a2")) // a1 queued
+	autochat.Store(false)                                       // admin /kill during the wait
+	time.Sleep(90 * time.Millisecond)
+	if got := fc.Count(); got != 1 {
+		t.Fatalf("a queued reply must re-check the switch and NOT fire after /kill, got %d", got)
 	}
 }
 

@@ -90,12 +90,17 @@ type Dispatcher struct {
 	Policy       PolicyFunc     // optional; nil → bots on, autochat off
 	Log          *slog.Logger
 
-	// cooldown enforces BotReplyCooldown per (channel, agent) for bot-to-bot.
-	// Process-local: it's a cost throttle, not a correctness gate, so exactness
-	// across processes isn't required (each process also caps one in-flight
-	// generation per (channel, agent) via the runner's active map).
-	cooldownMu sync.Mutex
-	cooldownAt map[string]time.Time
+	// Cooldown overrides BotReplyCooldown (tests set it small). 0 → the const.
+	Cooldown time.Duration
+
+	// botMu guards the bot-to-bot pacing state. botLast is each (channel,agent)'s
+	// last reply START; botPending marks that a paced reply is already scheduled
+	// for that key, so a flurry of triggers during the window coalesces into ONE
+	// queued reply instead of being dropped (the user's "queue, don't drop"). All
+	// process-local — a cost/pacing throttle, not a correctness gate.
+	botMu      sync.Mutex
+	botLast    map[string]time.Time
+	botPending map[string]bool
 }
 
 // NewDispatcher builds a Dispatcher. gate may be nil to disable rate limiting.
@@ -104,24 +109,70 @@ type Dispatcher struct {
 func NewDispatcher(agents AgentSource, create CreateThreadFunc, runner *ThreadRunner, gate RateGate, log *slog.Logger) *Dispatcher {
 	return &Dispatcher{
 		Agents: agents, CreateThread: create, Runner: runner, Gate: gate, Log: log,
-		cooldownAt: map[string]time.Time{},
+		botLast: map[string]time.Time{}, botPending: map[string]bool{},
 	}
 }
 
-// allowBotReply reserves a bot-to-bot reply slot for (channelID, agentID): it
-// returns true (and stamps "now") only when at least BotReplyCooldown has
-// elapsed since this agent last replied in this channel. Check-and-reserve is
-// atomic under the mutex so two concurrent bot messages can't both slip through.
-func (d *Dispatcher) allowBotReply(channelID, agentID string) bool {
-	key := channelID + "|" + agentID
-	now := time.Now()
-	d.cooldownMu.Lock()
-	defer d.cooldownMu.Unlock()
-	if last, ok := d.cooldownAt[key]; ok && now.Sub(last) < BotReplyCooldown {
-		return false
+// cooldown is the effective per-agent bot-to-bot gap.
+func (d *Dispatcher) cooldown() time.Duration {
+	if d.Cooldown > 0 {
+		return d.Cooldown
 	}
-	d.cooldownAt[key] = now
-	return true
+	return BotReplyCooldown
+}
+
+// scheduleBotReplies paces bot-to-bot: for each matched agent, fire its reply
+// now if the cooldown window is open, otherwise QUEUE exactly one reply at the
+// window's end (coalescing further triggers for that agent). This is what keeps
+// a two-bot conversation alive — a turn that arrives mid-cooldown is delayed,
+// not dropped — while still capping each agent to one reply per window.
+func (d *Dispatcher) scheduleBotReplies(communityID, slug, channelID string, agents []agent.Agent) {
+	cd := d.cooldown()
+	now := time.Now()
+	for _, a := range agents {
+		key := channelID + "|" + a.ID
+		d.botMu.Lock()
+		last, seen := d.botLast[key]
+		switch {
+		case !seen || now.Sub(last) >= cd:
+			// Window open → reply now, stamp the start.
+			d.botLast[key] = now
+			d.botMu.Unlock()
+			if d.Channel != nil {
+				d.Channel.Generate(communityID, channelID, slug, a)
+			}
+		case d.botPending[key]:
+			// A reply is already queued for this agent — coalesce.
+			d.botMu.Unlock()
+		default:
+			// Window closed → queue one reply for when it opens.
+			d.botPending[key] = true
+			wait := cd - now.Sub(last)
+			ag := a
+			d.botMu.Unlock()
+			time.AfterFunc(wait, func() { d.firePacedReply(communityID, slug, channelID, ag) })
+		}
+	}
+}
+
+// firePacedReply runs a queued bot reply when its cooldown window opens. It
+// re-checks the switches first — an admin may have /killed autochat (or run
+// /bots 0) during the wait — so a queued turn never fires against a disabled
+// community.
+func (d *Dispatcher) firePacedReply(communityID, slug, channelID string, a agent.Agent) {
+	key := channelID + "|" + a.ID
+	d.botMu.Lock()
+	delete(d.botPending, key)
+	d.botLast[key] = time.Now()
+	d.botMu.Unlock()
+	if d.Policy != nil {
+		if bots, autochat := d.Policy(context.Background(), communityID); !bots || !autochat {
+			return
+		}
+	}
+	if d.Channel != nil {
+		d.Channel.Generate(communityID, channelID, slug, a)
+	}
 }
 
 // Dispatch is the load-bearing entry, called after a message persists and fans
@@ -177,22 +228,17 @@ func (d *Dispatcher) Dispatch(ctx context.Context, t Trigger) DispatchResult {
 	}
 
 	if isBot {
-		// Bot-to-bot: per-agent 15s cooldown instead of the human budget. Drop
-		// the agents still cooling down; if all are, nothing runs this turn.
-		ready := matched[:0]
-		for _, a := range matched {
-			if d.allowBotReply(t.ChannelID, a.ID) {
-				ready = append(ready, a)
-			}
-		}
-		matched = ready
-		if len(matched) == 0 {
-			return DispatchResult{}
-		}
-	} else if d.Gate != nil {
-		// Human trigger: one trigger message is one request regardless of how
-		// many agents it addresses. Consulted only once a match exists, so plain
-		// chatter never consumes a member's budget.
+		// Bot-to-bot: pace each matched agent (≤1 reply per cooldown window),
+		// QUEUEING a mid-window turn rather than dropping it so the conversation
+		// keeps flowing. Channel-only — no forum thread per bot turn.
+		d.scheduleBotReplies(t.CommunityID, t.Slug, t.ChannelID, matched)
+		return DispatchResult{}
+	}
+
+	// Human trigger: one trigger message is one request regardless of how many
+	// agents it addresses. The gate is consulted only once a match exists, so
+	// plain chatter never consumes a member's budget.
+	if d.Gate != nil {
 		if dec := d.Gate.Check(ctx, t.CommunityID, t.AuthorID, t.IsSuperAdmin); !dec.Allowed {
 			if d.Log != nil {
 				d.Log.Info("chatagents: rate limited", "community", t.CommunityID, "user", t.AuthorID, "retry", dec.RetryAfter)
@@ -203,10 +249,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, t Trigger) DispatchResult {
 
 	for _, a := range matched {
 		// Forum thread — human triggers only (the formal answer, tool trace, and
-		// resumable archive). Bot-to-bot stays in the channel: a thread per bot
-		// turn would be noise. A thread-create failure is logged but does NOT
+		// resumable archive). A thread-create failure is logged but does NOT
 		// suppress the in-channel reply below.
-		if !isBot && d.CreateThread != nil {
+		if d.CreateThread != nil {
 			if threadID, err := d.CreateThread(ctx, t.CommunityID, t.Slug, t.AuthorID, a.ID, a.Name, t.Body); err != nil {
 				if d.Log != nil {
 					d.Log.Warn("chatagents: create agent thread", "agent", a.ID, "err", err)
@@ -215,7 +260,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, t Trigger) DispatchResult {
 				d.Runner.Generate(t.CommunityID, threadID, a)
 			}
 		}
-		// In-channel streaming bubble — both human and bot triggers.
+		// In-channel streaming bubble.
 		if d.Channel != nil {
 			d.Channel.Generate(t.CommunityID, t.ChannelID, t.Slug, a)
 		}
