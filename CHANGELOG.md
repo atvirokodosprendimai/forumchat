@@ -234,3 +234,4 @@
 - 2026-06-25 `afc0453` feat(docs): embedded dev-docs content for connectors + webhooks
 - 2026-06-25 `73f436f` feat(devdocs): /dev/docs developer documentation site
 - 2026-06-25 `02ac811` feat(landing): developer/connectors section linking to /dev/docs
+- 2026-06-25 `3430896` test(devdocs): manifest resolves + renderer heading ids/TOC/highlight

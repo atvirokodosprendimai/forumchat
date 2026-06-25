@@ -1,6 +1,6 @@
 ---
 name: plan-dev-docs-connectors
-status: active
+status: completed
 type: plan
 tldr: Ship a self-contained `/dev/docs/*` developer documentation site (markdown in `./docs`, embedded via embed.FS, rendered as standalone HTML styled like policies/policygoogle.html) whose flagship doc is the external-connectors integration guide (auth model, JSON structs, curl + SDK examples), and add a comprehensive "Connectors / Developers" section to the SaaS landing page linking to it.
 ---
@@ -57,48 +57,48 @@ tldr: Ship a self-contained `/dev/docs/*` developer documentation site (markdown
 
 ## Phases
 
-### Phase 1 — Docs content + embed package — status: open
+### Phase 1 — Docs content + embed package — status: completed
 
-1. [ ] `docs/docs.go` — `package docs`, `//go:embed *.md`, `embed.FS` +
+1. [x] `docs/docs.go` — `package docs`, `//go:embed *.md`, `embed.FS` +
    `Doc{Slug,Title,Summary,File,Order}` manifest + `Get(slug)` / `List()`.
-2. [ ] `docs/connectors.md` — the flagship connector dev guide: what a
+2. [x] `docs/connectors.md` — the flagship connector dev guide: what a
    connector is (vs webhooks/agents), the signed-URL/body-HMAC auth model,
    the `GET /bots/{id}/stream` wire (ready + message JSON structs), the
    `POST /bots/{id}/send` + moderation (`delete`/`ban`/`rename`) contract,
    **curl examples** for every endpoint, the Go SDK quickstart, reconnect +
    security notes, error table.
-3. [ ] `docs/index.md` (overview / getting-started landing for the docs site)
+3. [x] `docs/index.md` (overview / getting-started landing for the docs site)
    + `docs/webhooks.md` (sibling integration surface, brief) if cheap.
 
-### Phase 2 — Trusted renderer + standalone page — status: open
+### Phase 2 — Trusted renderer + standalone page — status: completed
 
-4. [ ] `internal/devdocs/render.go` — goldmark (GFM + autoheading-id), render
+4. [x] `internal/devdocs/render.go` — goldmark (GFM + autoheading-id), render
    markdown→trusted HTML; `tableOfContents(html)` extracts h2/h3 → `[]TOCItem`.
-5. [ ] `web/static/devdocs.css` — flat-light tokens mirrored from
+5. [x] `web/static/devdocs.css` — flat-light tokens mirrored from
    policygoogle.html; prose, code blocks, tables, sticky TOC (grid parent must
    NOT be `align-items:start`), responsive (TOC collapses under prose on
    mobile), focus states, `prefers-reduced-motion`.
-6. [ ] `web/templ/devdocs.templ` — `DevDocPage(meta, tocHTML, bodyHTML)` full
+6. [x] `web/templ/devdocs.templ` — `DevDocPage(meta, tocHTML, bodyHTML)` full
    standalone doc + `DevDocsIndex(docs)` cards index; view-model structs local
    to `web/templ` (§4.13). `make gen`.
 
-### Phase 3 — Handler + routes — status: open
+### Phase 3 — Handler + routes — status: completed
 
-7. [ ] `internal/devdocs/handler.go` — `GetIndex` (renders `DevDocsIndex`),
+7. [x] `internal/devdocs/handler.go` — `GetIndex` (renders `DevDocsIndex`),
    `GetDoc` (manifest lookup → render → `DevDocPage`; unknown slug → 404).
-8. [ ] Wire in `cmd/app/main.go`: `r.Get("/dev/docs", …)` +
+8. [x] Wire in `cmd/app/main.go`: `r.Get("/dev/docs", …)` +
    `r.Get("/dev/docs/{slug}", …)` at router root (public).
 
-### Phase 4 — Landing connector section — status: open
+### Phase 4 — Landing connector section — status: completed
 
-9. [ ] `web/templ/landing.templ` — `landingConnectors()` section (what
+9. [x] `web/templ/landing.templ` — `landingConnectors()` section (what
    connectors unlock, the human-member model, a code/curl peek, CTA to
    `/dev/docs/connectors`); insert into `LandingPage()` flow; add a
    "Developers" nav link. `make gen`.
 
-### Phase 5 — Verify + ship — status: open
+### Phase 5 — Verify + ship — status: completed
 
-10. [ ] `make gen && make build && make test`; boot with SAAS + CONNECTORS,
+10. [x] `make gen && make build && make test`; boot with SAAS + CONNECTORS,
     Playwright screenshot `/` connector section + `/dev/docs` + `/dev/docs/connectors`
     (desktop + 375px). Codex read-only review of the new handler (untrusted URL
     slug input). Commit per phase, push, merge to main.
@@ -111,3 +111,29 @@ tldr: Ship a self-contained `/dev/docs/*` developer documentation site (markdown
 - Landing `/` shows the connectors section with a live link into the docs.
 - Mobile 375px: no horizontal scroll, TOC reflows under prose.
 - `go build` + `go test ./...` green; `templ generate` clean.
+
+## Progress Log
+
+- **2606251445** — Plan created.
+- **2606251500** — Phase 1: `docs/` embed package (Manifest-driven, no path
+  traversal) + `connectors.md` (signed-URL/body-HMAC auth, stream/send/mod JSON
+  + curl + Go SDK) + `webhooks.md`. Dropped `index.md` (redundant with the
+  templ cards index). Builds.
+- **2606251530** — Phases 2+3: `internal/devdocs` trusted goldmark renderer
+  (GFM + autoheading-id + inline chroma, no sanitizer) + TOC extractor;
+  `web/templ/devdocs.templ` (standalone page, sticky sidebar nav + on-this-page
+  TOC + scroll-spy, cards index) + `web/static/devdocs.css`; routes mounted
+  public at `/dev/docs` + `/dev/docs/{slug}`. Smoke: 200/200/200, unknown→404.
+- **2606251545** — Phase 4: landing `landingConnectors()` "Build on it" split
+  (checklist + dark-terminal curl peek + CTAs) + "Developers" nav link.
+  Playwright verified desktop + 375px, no horizontal scroll.
+- **2606251600** — Phase 5: `go test ./...` green; Codex read-only review of the
+  handler/renderer — no material defects (one LOW: assert manifest resolves →
+  added `docs/docs_test.go` + `internal/devdocs/render_test.go`). Merged.
+
+## Adjustments
+
+- **2606251500** — Dropped the planned `docs/index.md` routable doc. The
+  `/dev/docs` index is a purpose-built templ cards page (`DevDocsIndex`), so a
+  markdown "index" doc would have been a redundant second home. Manifest is now
+  just `connectors` + `webhooks`.
