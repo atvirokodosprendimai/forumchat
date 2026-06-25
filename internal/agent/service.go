@@ -236,7 +236,15 @@ func buildHistory(msgs []Message) []ChatMessage {
 			if strings.TrimSpace(m.BodyMD) == "" && len(m.Images) == 0 {
 				continue
 			}
-			out = append(out, ChatMessage{Role: m.Role, Content: m.BodyMD, Images: m.Images})
+			// A user turn is untrusted member input (and on a SHARED thread it may
+			// be another member's prompt replayed as context), so strip hidden-text
+			// smuggling chars before it re-enters the model. The InjectionGuard is
+			// added later by BuildSystemHistory.
+			content := m.BodyMD
+			if m.Role == RoleUser {
+				content = sanitizeUntrusted(content)
+			}
+			out = append(out, ChatMessage{Role: m.Role, Content: content, Images: m.Images})
 		case RoleAssistant:
 			if m.Status != StatusDone || strings.TrimSpace(m.BodyMD) == "" {
 				continue

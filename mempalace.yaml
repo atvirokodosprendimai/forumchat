@@ -1,0 +1,70 @@
+wing: forumchat
+rooms:
+- name: cmd
+  description: Files from cmd/
+  keywords:
+  - cmd
+  - cmd
+- name: migrations
+  description: Files from migrations/
+  keywords:
+  - migrations
+  - migrations
+- name: memory
+  description: Files from memory/
+  keywords:
+  - memory
+  - memory
+- name: eidos
+  description: Files from eidos/
+  keywords:
+  - eidos
+  - eidos
+- name: bin
+  description: Files from bin/
+  keywords:
+  - bin
+  - bin
+- name: web
+  description: Files from web/
+  keywords:
+  - web
+  - web
+- name: internal
+  description: Files from internal/
+  keywords:
+  - internal
+  - internal
+- name: uploads
+  description: Files from uploads/
+  keywords:
+  - uploads
+  - uploads
+- name: documentation
+  description: Files from docs/
+  keywords:
+  - documentation
+  - docs
+- name: examples
+  description: Files from examples/
+  keywords:
+  - examples
+  - examples
+- name: data
+  description: Files from data/
+  keywords:
+  - data
+  - data
+- name: tmp
+  description: Files from tmp/
+  keywords:
+  - tmp
+  - tmp
+- name: configuration
+  description: Files from config/
+  keywords:
+  - configuration
+  - config
+- name: general
+  description: Files that don't fit other rooms
+  keywords: []

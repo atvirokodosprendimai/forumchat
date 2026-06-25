@@ -2532,19 +2532,22 @@ func formatChatForSummary(repo *chat.Repo, ctx context.Context, channelID string
 		if body == "" {
 			continue
 		}
-		name := strings.TrimSpace(m.AuthorName)
-		if name == "" {
-			name = "User"
-		}
-		b.WriteString(name)
-		b.WriteString(": ")
-		b.WriteString(body)
+		// Sanitize the speaker label + body the same way the channel/thread bots
+		// do (agent.UntrustedLine) — the summary prompt is untrusted member
+		// content, so a forged name or hidden-char payload must not slip through.
+		b.WriteString(agent.UntrustedLine(m.AuthorName, body))
 		b.WriteByte('\n')
 	}
 	s := b.String()
 	const maxChars = 16000
 	if len(s) > maxChars {
-		s = "…(earlier messages truncated)…\n" + s[len(s)-maxChars:]
+		// Keep the most recent maxChars, but cut on a UTF-8 rune boundary so the
+		// tail can't start mid-rune (which would corrupt the first kept line).
+		tail := s[len(s)-maxChars:]
+		if i := strings.IndexByte(tail, '\n'); i >= 0 {
+			tail = tail[i+1:] // start at the next whole line
+		}
+		s = "…(earlier messages truncated)…\n" + tail
 	}
 	return s
 }

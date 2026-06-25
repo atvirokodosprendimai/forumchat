@@ -34,9 +34,15 @@ func Translate(ctx context.Context, baseURL, model, text string) ([]string, erro
 	defer cancel()
 
 	o := NewOllama(baseURL)
+	// The text is untrusted member input. Strip hidden-text smuggling chars (the
+	// translation engine has no use for zero-width/bidi formatting anyway). The
+	// system prompt is naturally injection-resistant (it only translates) and the
+	// reply is shown as candidate options, never acted on, so the full
+	// InjectionGuard isn't warranted here — sanitizing the input is the right
+	// surgical defence.
 	msgs := []ChatMessage{
 		{Role: "system", Content: translateSystemPrompt},
-		{Role: "user", Content: text},
+		{Role: "user", Content: sanitizeUntrusted(text)},
 	}
 	var b strings.Builder
 	if _, err := o.Stream(ctx, model, msgs, nil, func(d string) error {

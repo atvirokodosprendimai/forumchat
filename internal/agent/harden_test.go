@@ -13,6 +13,10 @@ const (
 	zwsp = string(rune(0x200B))
 	rlo  = string(rune(0x202E))
 	bom  = string(rune(0xFEFF))
+	lrm  = string(rune(0x200E)) // left-to-right mark
+	rlm  = string(rune(0x200F)) // right-to-left mark
+	alm  = string(rune(0x061C)) // arabic letter mark
+	nel  = string(rune(0x0085)) // C1 NEL (acts as a line separator)
 )
 
 // TestHardenAlwaysLeadsWithGuard verifies the injection guard is unconditionally
@@ -119,6 +123,22 @@ func TestUntrustedTurnStripsHiddenChars(t *testing.T) {
 	}
 }
 
+// TestSanitizeStripsDirectionalAndC1 covers the extended hidden-char set added
+// after review: directional marks (LRM/RLM/ALM) and C1 controls (NEL) — all
+// invisible/line-affecting and stripped while plain text survives.
+func TestSanitizeStripsDirectionalAndC1(t *testing.T) {
+	t.Parallel()
+
+	in := "a" + lrm + "b" + rlm + "c" + alm + "d" + nel + "e"
+	if got := SanitizeUntrusted(in); got != "abcde" {
+		t.Fatalf("directional/C1 chars not stripped: %q", got)
+	}
+	// Legitimate non-Latin text (Arabic letters, not formatting marks) survives.
+	if got := SanitizeUntrusted("مرحبا"); got != "مرحبا" {
+		t.Fatalf("legitimate RTL text damaged: %q", got)
+	}
+}
+
 // TestWrapToolResultFencesOutput verifies tool output is labelled untrusted and
 // also sanitized — the indirect-injection vector.
 func TestWrapToolResultFencesOutput(t *testing.T) {
@@ -133,5 +153,16 @@ func TestWrapToolResultFencesOutput(t *testing.T) {
 	}
 	if strings.Contains(got, zwsp) {
 		t.Fatal("zero-width char should be stripped from tool output")
+	}
+
+	// A model-supplied tool name carrying a newline can't forge wrapper text:
+	// the name is collapsed to one line before interpolation.
+	forged := wrapToolResult("evil\ntool", "x")
+	header := strings.SplitN(forged, "\n", 2)[0]
+	if strings.Contains(header, "\n") {
+		t.Fatal("tool-name newline leaked into the wrapper header")
+	}
+	if !strings.Contains(header, "evil tool") {
+		t.Fatalf("tool name not sanitized into the header: %q", header)
 	}
 }
