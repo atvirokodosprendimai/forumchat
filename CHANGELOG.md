@@ -230,3 +230,4 @@
 - 2026-06-25 `2c1ed08` feat(connectors): phase 1 — schema, repo, signing, identity
 - 2026-06-25 `623f290` feat(connectors): phase 2 — signed JSON stream + send + moderation actions
 - 2026-06-25 `1581b62` feat(connectors): phase 3 — admin UI + wiring + flag
+- 2026-06-25 `476c513` docs(plan): dev-docs site for external connectors + landing section
