@@ -208,3 +208,4 @@
 - 2026-06-24 `f12f1eb` feat(render): server-side syntax highlighting for fenced code blocks
 - 2026-06-24 `7eaca4d` docs(changelog): auto-append
 - 2026-06-24 `dc0e2f0` feat(landing): long-form SEO + human content on the marketing page
+- 2026-06-25 `0ff192b` fix(preview): bind sandboxed HTML preview srcdoc to a signal
