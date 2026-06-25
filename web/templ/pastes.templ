@@ -104,7 +104,7 @@ templ pasteView(d PastePageData) {
 				<span class="muted">{ d.Paste.CreatedAt.Format("2006-01-02 15:04") }</span>
 				<button class="link" data-on:click="window.fcToggleSource(el)">&lt;/&gt; Source</button>
 				if render.LooksLikeHTML(d.Paste.Body) {
-					<button class="link" data-on:click="window.fcPreviewSource(el);$_html_open=true">👁 Preview</button>
+					<button class="link" data-on:click="$_html_src = window.fcSourceText(el); $_html_open = true">👁 Preview</button>
 				}
 				<button class="link" data-on:click="navigator.clipboard.writeText(el.closest('.paste-card').querySelector('.body-source code').textContent)">Copy</button>
 				<a class="link" href={ templ.URL("/c/" + d.Slug + "/chat") }>Back to chat</a>

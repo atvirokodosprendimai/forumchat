@@ -420,7 +420,8 @@ const InitialSignals = `{
 	"worklog_note":"",
 	"_yt_open":false,
 	"_yt_id":"",
-	"_html_open":false
+	"_html_open":false,
+	"_html_src":""
 }`
 
 templ Layout(title string, v Viewer) {
@@ -572,11 +573,13 @@ templ Layout(title string, v Viewer) {
 			</div>
 			// HTML preview lightbox — a single global sandboxed iframe outside any
 			// morph target, so opening it never disturbs chat/agent streams. The
-			// "👁 Preview" button on an HTML code block (render.DownloadableCode)
-			// loads the block's raw source into #fc-html-frame via
-			// window.fcPreviewCode, then flips $_html_open. sandbox WITHOUT
-			// allow-same-origin keeps agent HTML isolated from the app origin; the
-			// data-effect blanks srcdoc on close so any script/audio stops.
+			// "👁 Preview" button on an HTML code block (render.DownloadableCode) or
+			// the agent SourceTools reads the raw source into the FE-only $_html_src
+			// signal, then flips $_html_open. srcdoc is bound declaratively to those
+			// signals (mirrors the YouTube lightbox's data-attr:src) so there is no
+			// imperative-set ↔ reactive-clear race: it shows the source while open
+			// and blanks to '' on close, stopping any script/audio. sandbox WITHOUT
+			// allow-same-origin keeps the previewed HTML isolated from the app origin.
 			<div class="html-lightbox" data-cloak data-show="$_html_open"
 				data-on:click="$_html_open=false">
 				<div class="html-lightbox-inner" data-on:click="evt.stopPropagation()">
@@ -587,7 +590,7 @@ templ Layout(title string, v Viewer) {
 					</div>
 					<iframe id="fc-html-frame" class="html-lightbox-frame" title="HTML preview"
 						sandbox="allow-scripts allow-modals allow-popups allow-forms"
-						data-effect="if(!$_html_open){el.srcdoc=''}"></iframe>
+						data-attr:srcdoc="$_html_open ? $_html_src : ''"></iframe>
 				</div>
 			</div>
 			<footer class="site-footer">

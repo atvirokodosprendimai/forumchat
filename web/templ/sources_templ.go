@@ -18,8 +18,9 @@ import "strconv"
 //
 // The raw source rides in a hidden <pre class="body-source"> sibling of the
 // rendered .body / .agent-body. fcToggleSource flips a .show-source class on the
-// enclosing bubble to swap rendered ↔ source; fcPreviewSource loads the raw HTML
-// into the global sandboxed iframe (#fc-html-frame); fcDownloadSource saves it.
+// enclosing bubble to swap rendered ↔ source; the Preview button reads the raw
+// HTML into the FE-only $_html_src signal (the global sandboxed iframe in
+// layout.templ binds its srcdoc to it); fcDownloadSource saves it.
 // No per-message signals — the toggle is plain DOM, so it composes with the chat
 // fat-morph (the class just resets on morph, which is fine).
 func SourceTools(rawMD, filename string, fullDoc bool) templ.Component {
@@ -56,7 +57,7 @@ func SourceTools(rawMD, filename string, fullDoc bool) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(rawMD)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 21, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 22, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -67,12 +68,12 @@ func SourceTools(rawMD, filename string, fullDoc bool) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if fullDoc {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<button type=\"button\" class=\"src-btn primary\" data-on:click=\"window.fcPreviewSource(el);$_html_open=true\">👁 Open preview</button> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<button type=\"button\" class=\"src-btn primary\" data-on:click=\"$_html_src = window.fcSourceText(el); $_html_open = true\">👁 Open preview</button> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<button type=\"button\" class=\"src-btn\" data-on:click=\"window.fcPreviewSource(el);$_html_open=true\">👁 Preview</button> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<button type=\"button\" class=\"src-btn\" data-on:click=\"$_html_src = window.fcSourceText(el); $_html_open = true\">👁 Preview</button> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -84,7 +85,7 @@ func SourceTools(rawMD, filename string, fullDoc bool) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue("window.fcDownloadSource(el," + strconv.Quote(filename) + ")")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 29, Col: 117}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 30, Col: 117}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 		if templ_7745c5c3_Err != nil {
@@ -133,7 +134,7 @@ func ReplyDownload(rawMD, htmlDoc, baseName string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(rawMD)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 41, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 42, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -146,7 +147,7 @@ func ReplyDownload(rawMD, htmlDoc, baseName string) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(htmlDoc)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 42, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 43, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -159,7 +160,7 @@ func ReplyDownload(rawMD, htmlDoc, baseName string) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue("window.fcDownloadReply(el,'md'," + strconv.Quote(baseName) + ")")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 44, Col: 121}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 45, Col: 121}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {
@@ -172,7 +173,7 @@ func ReplyDownload(rawMD, htmlDoc, baseName string) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue("window.fcDownloadReply(el,'html'," + strconv.Quote(baseName) + ")")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 45, Col: 123}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/sources.templ`, Line: 46, Col: 123}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 		if templ_7745c5c3_Err != nil {

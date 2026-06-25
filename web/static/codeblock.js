@@ -24,18 +24,16 @@ window.fcDownloadCode = function (btn) {
   window.fcDownloadText(code.textContent || '', 'snippet.' + (btn.dataset.ext || 'txt'), btn.dataset.mime);
 };
 
-// fcOpenHtmlPreview loads raw HTML into the global sandboxed preview iframe.
-// The caller flips $_html_open in the same Datastar expression to show it.
-window.fcOpenHtmlPreview = function (html) {
-  const frame = document.getElementById('fc-html-frame');
-  if (frame) frame.srcdoc = html || '';
-};
-
-window.fcPreviewCode = function (btn) {
+// fcCodeBlockText returns the raw source text of the fenced code block a Preview
+// button belongs to. The caller assigns it into the FE-only $_html_src signal and
+// flips $_html_open in the same Datastar expression; the global preview iframe
+// binds its srcdoc to those signals (web/templ/layout.templ), so there is no
+// imperative srcdoc write here — that hybrid raced the iframe's reactive clear and
+// could leave the overlay open over a blank frame.
+window.fcCodeBlockText = function (btn) {
   const fig = btn.closest('.codeblock');
   const code = fig && fig.querySelector('pre code');
-  if (!code) return;
-  window.fcOpenHtmlPreview(code.textContent || '');
+  return code ? (code.textContent || '') : '';
 };
 
 // ── Whole-message raw source (SourceTools) ──────────────────────────────────
@@ -58,9 +56,10 @@ window.fcToggleSource = function (btn) {
   btn.innerHTML = on ? 'Rendered' : '&lt;/&gt; Source';
 };
 
-window.fcPreviewSource = function (btn) {
-  window.fcOpenHtmlPreview(fcSourceText(btn));
-};
+// fcSourceText is exposed so the Preview button can assign the raw source into the
+// FE-only $_html_src signal (see fcCodeBlockText for why we no longer set srcdoc
+// imperatively).
+window.fcSourceText = fcSourceText;
 
 window.fcDownloadSource = function (btn, filename) {
   const mime = /\.html?$/i.test(filename || '') ? 'text/html' : 'text/markdown';

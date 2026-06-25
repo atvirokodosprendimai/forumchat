@@ -301,7 +301,7 @@ func pasteView(d PastePageData) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if render.LooksLikeHTML(d.Paste.Body) {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<button class=\"link\" data-on:click=\"window.fcPreviewSource(el);$_html_open=true\">👁 Preview</button> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<button class=\"link\" data-on:click=\"$_html_src = window.fcSourceText(el); $_html_open = true\">👁 Preview</button> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

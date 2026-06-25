@@ -296,11 +296,12 @@ func DownloadableCode(s string) string {
 		ext, mime := codeExt(lang)
 		bar := ""
 		// HTML blocks also get a "Preview" that runs the code in the global
-		// sandboxed iframe overlay (web/templ/layout.templ). fcPreviewCode reads
-		// the code textContent; $_html_open shows the overlay.
+		// sandboxed iframe overlay (web/templ/layout.templ). The overlay binds its
+		// srcdoc to $_html_src/$_html_open, so we just read the code text into the
+		// signal and flip the overlay open — no imperative srcdoc write to race.
 		if ext == "html" {
 			bar += `<button type="button" class="codeblock-prev"` +
-				` data-on:click="window.fcPreviewCode(el);$_html_open=true">👁 Preview</button>`
+				` data-on:click="$_html_src = window.fcCodeBlockText(el); $_html_open = true">👁 Preview</button>`
 		}
 		bar += `<button type="button" class="codeblock-dl" data-ext="` + ext + `" data-mime="` + mime + `"` +
 			` data-on:click="window.fcDownloadCode(el)">⬇ Download .` + ext + `</button>`

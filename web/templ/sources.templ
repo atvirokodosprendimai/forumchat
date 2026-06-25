@@ -10,8 +10,9 @@ import "strconv"
 //
 // The raw source rides in a hidden <pre class="body-source"> sibling of the
 // rendered .body / .agent-body. fcToggleSource flips a .show-source class on the
-// enclosing bubble to swap rendered ↔ source; fcPreviewSource loads the raw HTML
-// into the global sandboxed iframe (#fc-html-frame); fcDownloadSource saves it.
+// enclosing bubble to swap rendered ↔ source; the Preview button reads the raw
+// HTML into the FE-only $_html_src signal (the global sandboxed iframe in
+// layout.templ binds its srcdoc to it); fcDownloadSource saves it.
 // No per-message signals — the toggle is plain DOM, so it composes with the chat
 // fat-morph (the class just resets on morph, which is fine).
 templ SourceTools(rawMD, filename string, fullDoc bool) {
@@ -21,9 +22,9 @@ templ SourceTools(rawMD, filename string, fullDoc bool) {
 	<pre class="body-source" aria-hidden="true"><code>{ rawMD }</code></pre>
 	<div class="body-tools">
 		if fullDoc {
-			<button type="button" class="src-btn primary" data-on:click="window.fcPreviewSource(el);$_html_open=true">👁 Open preview</button>
+			<button type="button" class="src-btn primary" data-on:click="$_html_src = window.fcSourceText(el); $_html_open = true">👁 Open preview</button>
 		} else {
-			<button type="button" class="src-btn" data-on:click="window.fcPreviewSource(el);$_html_open=true">👁 Preview</button>
+			<button type="button" class="src-btn" data-on:click="$_html_src = window.fcSourceText(el); $_html_open = true">👁 Preview</button>
 		}
 		<button type="button" class="src-btn" data-on:click="window.fcToggleSource(el)">&lt;/&gt; Source</button>
 		<button type="button" class="src-btn" data-on:click={ "window.fcDownloadSource(el," + strconv.Quote(filename) + ")" }>⬇ Download</button>
