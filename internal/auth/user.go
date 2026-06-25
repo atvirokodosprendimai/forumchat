@@ -56,7 +56,7 @@ type User struct {
 // change-password flow uses it to decide whether to require the current
 // password: OAuth users are *setting* a first password, not changing one.
 func (u User) HasPassword() bool {
-	return u.PasswordHash != "" && u.PasswordHash != oauthSentinelHash
+	return u.PasswordHash != "" && u.PasswordHash != oauthSentinelHash && u.PasswordHash != serviceSentinelHash
 }
 
 // Age reports how long ago the account was created, relative to now. Drives the
