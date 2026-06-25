@@ -2,13 +2,22 @@ FROM golang:1.26-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
 COPY go.mod go.sum ./
-RUN go mod download
+# Cache mounts persist the module + compile caches across builds. On CI they are
+# kept warm by buildkit-cache-dance (see .github/workflows/docker.yml); locally
+# they survive between `docker build` runs. Modules live in the mount, not the
+# layer, so every step that compiles must re-mount /go/pkg/mod to see them.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 COPY . .
-RUN go tool templ generate
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go tool templ generate
 # VERSION is injected by CI on tagged builds (see .github/workflows/docker.yml).
 # Defaults to "dev" for a plain `docker build` so the footer never shows blank.
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath \
       -ldflags="-s -w -X github.com/atvirokodosprendimai/forumchat/web/templ.Version=${VERSION}" \
       -o /out/forumchat ./cmd/app \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/forumchat-cli ./cmd/cli \

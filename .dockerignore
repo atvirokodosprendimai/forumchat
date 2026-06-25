@@ -1,0 +1,31 @@
+# Keep the build context small + stop stray files from busting the `COPY . .`
+# layer. Anything go:embed needs (web/static, internal/.../migrations/*.sql) is
+# NOT listed here on purpose.
+.git
+.github
+.dockerignore
+Dockerfile
+docker-compose*.yml
+
+# Runtime data — 89M of sqlite/uploads/keys, never belongs in the image.
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+chroma.sqlite3
+entities.json
+
+# Secrets + local dev cruft.
+.env
+.env.*
+*.log
+
+# Docs / specs — large, not embedded, not needed to build.
+eidos/
+memory/
+**/CLAUDE.md
+README.md
+CHANGELOG.md
