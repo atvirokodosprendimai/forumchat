@@ -59,5 +59,20 @@ plus `*` catch-all (fallback 16 if `*` omitted).
 - Set → country picker prefilled from CF-IPCountry, age text updates on change,
   Register blocked server-side until the checkbox is ticked.
 
+## Adjustments
+- 2606252100 — **Scope cut by user mid-build**: dropped the per-country model
+  (dropdown + CF-IPCountry header + ISO country table + `agegate` package +
+  consent migration 00077) in favour of ONE global minimum age. Far smaller
+  surface. Env var is now `REGISTER_MIN_AGE` (int, 0 = off), not
+  `AGE_MIN_BY_COUNTRY`. The deleted `internal/agegate` package and migration are
+  gone; number is operator-set (user weighing 14 vs 16; `.env.example` shows 16).
+
 ## Progress Log
 - 2606252055 — plan created after Step-1 bootstrap + user clarification.
+- 2606252100 — scope reduced to single age; agegate pkg + migration removed.
+- 2606252105 — shipped: `RegisterMinAge` config, `age_confirmed` signal,
+  `AgeGate` templ checkbox + disabled Register, server re-validate in
+  PostRegister, main.go wiring, `.env.example`. `make gen` + `go build ./...` +
+  `go test ./internal/auth` green. HTTP smoke: checkbox renders, unticked POST
+  rejected ("at least 16"), ticked POST proceeds. Committed (feat(auth)).
+  Note: gate is honor-based self-attestation; not persisted (no schema change).
