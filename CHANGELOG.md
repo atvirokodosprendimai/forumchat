@@ -210,3 +210,5 @@
 - 2026-06-24 `dc0e2f0` feat(landing): long-form SEO + human content on the marketing page
 - 2026-06-25 `0ff192b` fix(preview): bind sandboxed HTML preview srcdoc to a signal
 - 2026-06-25 `3e5277a` feat(chat): point composer button + /paste command to Notes
+- 2026-06-25 `e01f10e` docs(changelog): auto-append composer→Notes entry-point swap
+- 2026-06-25 `9b9ed68` docs(policies): add Google OAuth privacy policy page
