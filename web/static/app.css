@@ -6119,7 +6119,10 @@ body:has(.chat-layout) .site-footer { display: none; }
   box-shadow: none;
   padding: 1.1rem 1.1rem 1.4rem;
   gap: .35rem;
-  scroll-behavior: smooth;
+  /* No scroll-behavior: smooth — the realtime auto-scroll-to-bottom jumps
+     instantly to the newest message instead of animating through ~100 bubbles
+     on every send. (scroll-behavior affects only programmatic/anchor scrolls,
+     never the user's own wheel/trackpad scrolling.) */
 }
 
 /* Own bubbles read clearly as "mine" — a confident accent tint with a
