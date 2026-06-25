@@ -1441,6 +1441,35 @@ func run() error {
 			}
 			return nil
 		}
+		// Presence: show the connector's member online in the roster while its
+		// stream is attached. The roster is TTL-based (presenceTracker expires a
+		// member PresenceTTL after its last touch), so a one-shot touch at connect
+		// would flip the bot back to "offline" after the TTL even while it's still
+		// streaming — the reported bug. Re-touch on a heartbeat under the TTL, like
+		// the browser presence stream's 10s heartbeat, and stop it on disconnect
+		// (the member then expires naturally, like a closed tab).
+		connectorsHandler.Presence = func(communityID, userID, nick, avatar string) func() {
+			m := presence.Member{UserID: userID, DisplayName: nick, AvatarURL: avatar}
+			presenceTracker.Touch(communityID, m)
+			stop := make(chan struct{})
+			go func() {
+				interval := cfg.PresenceTTL / 2
+				if interval < time.Second {
+					interval = 5 * time.Second
+				}
+				t := time.NewTicker(interval)
+				defer t.Stop()
+				for {
+					select {
+					case <-stop:
+						return
+					case <-t.C:
+						presenceTracker.Touch(communityID, m)
+					}
+				}
+			}()
+			return func() { close(stop) }
+		}
 	}
 	webtempl.ConnectorsEnabled = cfg.ConnectorsEnabled
 

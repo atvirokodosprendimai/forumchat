@@ -428,6 +428,57 @@ func TestStreamCursorResumeSkipsBoundarySecond(t *testing.T) {
 	}
 }
 
+// TestStreamMarksConnectorPresent proves the connector's member is marked
+// present for the life of its stream (the "bot shows offline in the web UI"
+// bug was a nil Presence seam): GetStream must invoke Presence on connect with
+// the connector's identity, and run the returned cleanup on disconnect.
+func TestStreamMarksConnectorPresent(t *testing.T) {
+	t.Parallel()
+	hz := newHarness(t)
+	conn, err := hz.svc.Create(context.Background(), connectors.CreateInput{
+		CommunityID: hz.comm.ID, Name: "PresenceBot", AvatarURL: "https://x/a.png",
+		Capabilities: []string{"send"}, ChannelIDs: []string{hz.general.ID},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	called := make(chan [4]string, 1)
+	cleaned := make(chan struct{}, 1)
+	hz.h.Presence = func(communityID, userID, nick, avatar string) func() {
+		select {
+		case called <- [4]string{communityID, userID, nick, avatar}:
+		default:
+		}
+		return func() {
+			select {
+			case cleaned <- struct{}{}:
+			default:
+			}
+		}
+	}
+
+	s := hz.openStream(t, conn)
+	if ev := s.next(t); ev.event != "ready" { // ensures the handler ran past the Presence call
+		t.Fatalf("first frame = %q, want ready", ev.event)
+	}
+	select {
+	case got := <-called:
+		if got[0] != hz.comm.ID || got[1] != conn.UserID || got[2] != "PresenceBot" || got[3] != "https://x/a.png" {
+			t.Fatalf("Presence called with %v, want community/%s, user/%s, PresenceBot, avatar", got, hz.comm.ID, conn.UserID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Presence was never called on stream connect (bot would show offline)")
+	}
+
+	s.cancel() // disconnect → cleanup must run
+	select {
+	case <-cleaned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Presence cleanup did not run on disconnect")
+	}
+}
+
 // ----- small SSE client + post helpers ---------------------------------------
 
 func (hz *harness) post(t *testing.T, id string, body []byte, sig string) int {

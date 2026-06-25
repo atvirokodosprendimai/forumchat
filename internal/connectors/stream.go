@@ -132,9 +132,11 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Presence: show the member online while the worker is attached.
+	// Presence: show the member online while the worker is attached. The seam
+	// keeps the member fresh on a heartbeat (the roster is TTL-based) and the
+	// cleanup marks it offline on disconnect.
 	if h.Presence != nil {
-		if cleanup := h.Presence(conn.CommunityID, conn.UserID, conn.Name); cleanup != nil {
+		if cleanup := h.Presence(conn.CommunityID, conn.UserID, conn.Name, conn.AvatarURL); cleanup != nil {
 			defer cleanup()
 		}
 	}

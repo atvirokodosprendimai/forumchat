@@ -37,8 +37,12 @@ type Handler struct {
 	ResolveAttachments func(ctx context.Context, uploadIDs []string) []EventAttachment
 
 	// Presence, if set, marks the connector's member online while a stream is
-	// attached and returns a cleanup run on disconnect. nil → no presence.
-	Presence func(communityID, userID, nick string) (cleanup func())
+	// attached and returns a cleanup run on disconnect. The wiring (main.go) is
+	// responsible for KEEPING the member fresh for the life of the stream — the
+	// roster is TTL-based, so a one-shot touch would let a long-lived connector
+	// fall back to "offline"; the seam re-touches on a heartbeat under the TTL.
+	// nil → no presence (the member shows offline even while streaming).
+	Presence func(communityID, userID, nick, avatar string) (cleanup func())
 
 	// Moderation seams. Each is nil unless wired in main.go; a nil seam means the
 	// capability is unavailable (501) even when granted. They encapsulate their
