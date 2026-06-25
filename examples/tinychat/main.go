@@ -3,19 +3,22 @@
 // signed SSE stream to print messages live, and sends whatever you type back
 // into the channel as the connector's (human-looking) member.
 //
-// Get the three values from the community admin page
-// (/c/{slug}/admin/connectors, with CONNECTORS_ENABLED=true) — they're revealed
-// once on create. Then:
+// The admin page (/c/{slug}/admin/connectors, with CONNECTORS_ENABLED=true)
+// reveals the credentials once on create. You can connect two ways:
 //
+//	# A) Base URL + id + secret (the "Copy as .env" block):
 //	go run . \
 //	  -base https://chat.example.com \
 //	  -id   <connector id> \
 //	  -secret <connector secret> \
 //	  -channel support        # optional; omit to use the connector's sole channel
 //
-// Flags fall back to the env vars BASE_URL, CONNECTOR_ID, CONNECTOR_SECRET,
-// CHANNEL. Type a line and press Enter to send; "/quit" or Ctrl-C exits. Set
-// NO_COLOR to disable ANSI colour.
+//	# B) Just the Stream URL + secret (the SDK pulls the base + id out of it):
+//	go run . -stream "https://chat.example.com/bots/<id>/stream?exp=0&sig=…" -secret <secret>
+//
+// Flags fall back to the env vars BASE_URL / CONNECTOR_ID / CONNECTOR_SECRET /
+// CONNECTOR_STREAM_URL / CHANNEL. Type a line and press Enter to send; "/quit"
+// or Ctrl-C exits. Set NO_COLOR to disable ANSI colour.
 package main
 
 import (
@@ -40,11 +43,31 @@ func main() {
 	base := flag.String("base", env("BASE_URL", "http://localhost:8080"), "forumchat base URL")
 	id := flag.String("id", env("CONNECTOR_ID", ""), "connector id")
 	secret := flag.String("secret", env("CONNECTOR_SECRET", ""), "connector secret")
+	stream := flag.String("stream", env("CONNECTOR_STREAM_URL", ""), "full stream URL from the admin page (alternative to -base + -id)")
 	channel := flag.String("channel", env("CHANNEL", ""), "channel slug to send to (default: the connector's sole channel)")
 	flag.Parse()
 
-	if *id == "" || *secret == "" {
-		fmt.Fprintln(os.Stderr, "tinychat: -id and -secret are required (see admin → connectors). Run with -h for help.")
+	if *secret == "" {
+		fmt.Fprintln(os.Stderr, "tinychat: -secret is required (see admin → connectors). Run with -h for help.")
+		os.Exit(2)
+	}
+
+	// Two ways to build the client: a full stream URL (the SDK derives the base +
+	// id from it — the admin page only gives you the stream/send URLs unless you
+	// copy the .env block), or the explicit base + id triple.
+	var client *connector.Client
+	switch {
+	case *stream != "":
+		c, err := connector.NewFromStreamURL(*stream, *secret)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tinychat: bad -stream URL:", err)
+			os.Exit(2)
+		}
+		client = c
+	case *id != "":
+		client = connector.New(*base, *id, *secret)
+	default:
+		fmt.Fprintln(os.Stderr, "tinychat: pass either -stream <url> or -id <id> (+ -base). Run with -h for help.")
 		os.Exit(2)
 	}
 
@@ -54,7 +77,7 @@ func main() {
 	defer stop()
 
 	a := &app{
-		client:  connector.New(*base, *id, *secret),
+		client:  client,
 		channel: *channel,
 		color:   os.Getenv("NO_COLOR") == "",
 	}

@@ -31,11 +31,17 @@ on this.
    `/c/{slug}/admin/connectors`).
 3. **Create** a connector: give it a name (this becomes its member nick), tick
    the channels it should see (none = all non-archived channels), optionally set
-   `mentions_only`, and grant the **capabilities** you want
-   (`send`, and optionally `delete` / `ban` / `rename`).
-4. On save the page **reveals once**: the `secret`, the signed **stream URL**,
-   and the **send URL**. Copy the **id** and **secret** now — rotating
-   re-reveals and invalidates the old ones.
+   `mentions_only`, and grant the **capabilities** you want. The capabilities are
+   the same powers a member has from the chat menu, grouped:
+   - **Messaging** — `send`, `forward`, `promote`, `delete`
+   - **Members** — `ban`
+   - **Channels** — `rename`, `set-topic`, `archive`, `create-channel`, `delete-channel`
+   - **Personal** (the bot's own state) — `bookmark`, `todo`, `dm`
+4. On save the page **reveals once**: the **Base URL**, the connector **id**, the
+   **secret**, and the ready-made **stream URL** + **send URL**. The Go SDK and the
+   examples need the **Base URL + id + secret** triple — use the **Copy as `.env`**
+   button to grab all three at once. Copy them now: rotating re-reveals and
+   invalidates the old ones.
 
 You now have three things:
 
@@ -270,12 +276,33 @@ curl -X POST "$BASE/bots/$ID/send" \
 
 ---
 
-## Moderation actions
+## Actions
 
-These act as the human member too, but each is gated by a capability the admin
-grants per connector. A granted-but-unwired action returns `501`; a
-not-granted one returns `403`. All take the same `X-Signature` body HMAC as
-`send`.
+Beyond `send`, a connector can run the same powers a member has from the chat
+menu — each a signed `POST /bots/{id}/<action>` where **the action name is the
+capability token**, gated per connector. A granted-but-unwired action returns
+`501`; a not-granted one returns `403`. All take the same `X-Signature` body
+HMAC as `send`. Actions that target a channel/message enforce the connector's
+channel allowlist on that target.
+
+| Action | Capability | Body |
+|---|---|---|
+| `POST /bots/{id}/forward` | `forward` | `{ "message_id", "channel", "note"? }` |
+| `POST /bots/{id}/promote` | `promote` | `{ "message_id" }` → `{ "thread_id" }` |
+| `POST /bots/{id}/delete` | `delete` | `{ "message_id" }` |
+| `POST /bots/{id}/ban` | `ban` | `{ "user_id", "hours" }` |
+| `POST /bots/{id}/rename` | `rename` | `{ "channel", "name" }` |
+| `POST /bots/{id}/set-topic` | `set-topic` | `{ "channel", "topic" }` |
+| `POST /bots/{id}/archive` | `archive` | `{ "channel" }` |
+| `POST /bots/{id}/create-channel` | `create-channel` | `{ "name", "topic"? }` → `{ "id", "slug" }` |
+| `POST /bots/{id}/delete-channel` | `delete-channel` | `{ "channel" }` |
+| `POST /bots/{id}/bookmark` | `bookmark` | `{ "message_id", "note"? }` |
+| `POST /bots/{id}/todo` | `todo` | `{ "message_id", "title"?, "note"? }` → `{ "todo_id" }` |
+| `POST /bots/{id}/dm` | `dm` | `{ "user_id", "body" }` → `{ "thread_id" }` |
+
+`message_id` / `user_id` are the `id` / `author_id` you saw on a stream
+`message`. `channel` is always a **slug**. A few worked examples follow; the
+rest are identical bar the path + body.
 
 ### Delete a message — capability `delete`
 
@@ -323,6 +350,50 @@ SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^
 curl -X POST "$BASE/bots/$ID/rename" \
   -H "Content-Type: application/json" -H "X-Signature: sha256=$SIG" --data-raw "$BODY"
 ```
+
+### Forward a message — capability `forward`
+
+```
+POST /bots/{id}/forward    body: { "message_id": "msg_…", "channel": "ops", "note": "fyi" }
+```
+
+Re-posts the message into another of the connector's channels with a "Forwarded
+from #x" embed. Both the source message's channel **and** the target channel
+must be in the connector's allowlist.
+
+### Promote to a thread — capability `promote`
+
+```
+POST /bots/{id}/promote    body: { "message_id": "msg_…" }   → { "thread_id": "thr_…" }
+```
+
+Turns a chat message into a forum thread (idempotent — an already-promoted
+message returns its existing thread). The source must be in an allowed channel.
+
+### Manage channels — `set-topic` / `archive` / `create-channel` / `delete-channel`
+
+```
+POST /bots/{id}/set-topic       body: { "channel": "ops", "topic": "deploys & alerts" }
+POST /bots/{id}/archive         body: { "channel": "ops" }
+POST /bots/{id}/create-channel  body: { "name": "incidents", "topic": "" }  → { "id", "slug" }
+POST /bots/{id}/delete-channel  body: { "channel": "ops" }
+```
+
+`delete-channel` is **destructive** (it removes the channel and its messages);
+the server refuses `#general`. `create-channel` enforces the per-community
+channel cap and slug rules.
+
+### Personal — `bookmark` / `todo` / `dm`
+
+```
+POST /bots/{id}/bookmark   body: { "message_id": "msg_…", "note": "" }
+POST /bots/{id}/todo       body: { "message_id": "msg_…", "title": "", "note": "" }  → { "todo_id" }
+POST /bots/{id}/dm         body: { "user_id": "usr_…", "body": "hi there" }          → { "thread_id" }
+```
+
+`bookmark` and `todo` act on the **connector member's own** lists. `dm` opens
+or continues a private-message thread to a member — the recipient must belong to
+the same community (a connector can't DM an arbitrary platform user by id).
 
 ---
 
@@ -381,10 +452,20 @@ func main() {
 }
 ```
 
-The client also exposes `Reply`, `Delete`, `Ban`, and `Rename`, each requiring
-the matching capability. Errors from any call are an `*connector.APIError`
-carrying the HTTP status and the server's short message — switch on
-`.Status` to branch on the failure modes below.
+The client exposes one method per capability — `Reply`, `Forward`, `Promote`,
+`Delete`, `Ban`, `Rename`, `SetTopic`, `Archive`, `CreateChannel`,
+`DeleteChannel`, `Bookmark`, `Todo`, `DM` — each requiring the matching grant.
+Errors from any call are an `*connector.APIError` carrying the HTTP status and
+the server's short message — switch on `.Status` to branch on the failure modes
+below.
+
+If the admin page only handed you the **stream URL** (plus the secret) rather
+than the Base URL + id, construct the client straight from it — the SDK pulls
+the origin and id out of the URL:
+
+```go
+c, err := connector.NewFromStreamURL(streamURL, secret)
+```
 
 ---
 

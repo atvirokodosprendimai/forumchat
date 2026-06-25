@@ -21,24 +21,31 @@ member. It's the smallest real demonstration of the
    filters), or go straight to **`/c/{slug}/admin/connectors`**.
 4. **Create** one: give it a name (this becomes its member nick), tick the
    channels it should see (none = all), optionally `mentions_only`, and grant
-   the **send** capability (plus `delete`/`ban`/`rename` if you want it to
-   moderate).
-5. On save the page **reveals once**: the `secret`, the signed **stream URL**,
-   and the **send URL**. Copy the **id** and **secret** now — rotate re-reveals.
+   the **send** capability (plus any of `forward`/`promote`/`delete`/`ban`/
+   `rename`/channel-management/`bookmark`/`todo`/`dm` if you want it to do more).
+5. On save the page **reveals once**: the **Base URL**, the connector **id**, the
+   **secret**, and the ready-made **stream URL** + **send URL**. Grab the
+   **Base URL + id + secret** with the **Copy as `.env`** button (or just copy the
+   **stream URL** + secret — see option B below). Rotate re-reveals.
 
 ## 2. Run
 
 ```sh
 cd examples/tinychat
+
+# A) Base URL + id + secret (the "Copy as .env" block)
 go run . \
   -base   https://chat.example.com \
   -id     <connector id> \
   -secret <connector secret> \
   -channel support          # optional; omit to use the connector's sole channel
+
+# B) Just the Stream URL + secret — the SDK derives the base + id from it
+go run . -stream "https://chat.example.com/bots/<id>/stream?exp=0&sig=…" -secret <secret>
 ```
 
 Flags fall back to env: `BASE_URL`, `CONNECTOR_ID`, `CONNECTOR_SECRET`,
-`CHANNEL`. Set `NO_COLOR=1` to disable ANSI colour.
+`CONNECTOR_STREAM_URL`, `CHANNEL`. Set `NO_COLOR=1` to disable ANSI colour.
 
 - Type a line + Enter to **send**. Your own line is echoed locally (the stream
   never echoes the connector's own messages).
@@ -50,8 +57,10 @@ Flags fall back to env: `BASE_URL`, `CONNECTOR_ID`, `CONNECTOR_SECRET`,
 | SDK call | Used for |
 |---|---|
 | `connector.New(base, id, secret)` | bind a client to one connector |
+| `connector.NewFromStreamURL(streamURL, secret)` | bind from the admin page's Stream URL (base + id parsed out) |
 | `c.Stream(ctx, Handlers{OnReady, OnMessage}, 0)` | the long-lived **read** stream (signed URL built + signed for you) |
 | `c.Send(ctx, channel, body)` | **write** a message as the member (body-HMAC signed) |
+| `c.Forward / Promote / Delete / Ban / Rename / SetTopic / Archive / CreateChannel / DeleteChannel / Bookmark / Todo / DM` | the capability-gated actions (each needs the matching grant) |
 
 The reconnect-with-backoff loop lives in the app, not the SDK — `Stream` is
 one-shot on purpose so the policy stays visible (see `streamLoop` in
