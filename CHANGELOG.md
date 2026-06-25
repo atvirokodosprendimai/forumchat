@@ -251,3 +251,4 @@
 - 2026-06-25 `85e948b` feat(connectors): all chat-dropdown powers as capabilities + fix bot stream
 - 2026-06-25 `8596b4c` docs(connectors): document all capabilities, NewFromStreamURL, .env reveal
 - 2026-06-25 `ee3924a` style(notes): stack request-edit input above button on mobile
+- 2026-06-25 `2e1e077` feat(superadmin): privacy-preserving 'Red flags' abuse panel
