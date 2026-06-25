@@ -229,29 +229,27 @@ func run() error {
 		Log:            log,
 		OAuthProviders: oauthProviders,
 	}
-	// Leave-community support on the global /profile page: resolve the session
-	// community's display name for the card label, and pick a community to land on
-	// after leaving (closures so auth needn't import community).
-	authHandler.ResolveCommunityName = func(ctx context.Context, communityID string) string {
-		c, err := cRepo.ByID(ctx, communityID)
-		if err != nil {
-			return ""
-		}
-		return c.Name
-	}
-	authHandler.NextCommunityAfterLeave = func(ctx context.Context, userID, excludeID string) (string, string, bool) {
+	// Leave-community picker on the global /profile page: list every community the
+	// member can leave (approved, non-banned), flagging the session one. Reused to
+	// rebind/re-render after a leave. Closure so auth needn't import community.
+	authHandler.MyCommunities = func(ctx context.Context, userID, currentID string) []webtempl.LeaveCommunityRow {
 		rows, err := cRepo.ListForUser(ctx, userID)
 		if err != nil {
-			return "", "", false
+			return nil
 		}
+		out := make([]webtempl.LeaveCommunityRow, 0, len(rows))
 		for _, row := range rows {
-			// Only approved, non-banned memberships are somewhere they can land.
-			if row.Community.ID == excludeID || !row.IsApproved || row.IsBanned {
+			if !row.IsApproved || row.IsBanned {
 				continue
 			}
-			return row.Community.Slug, row.Community.ID, true
+			out = append(out, webtempl.LeaveCommunityRow{
+				CommunityID: row.Community.ID,
+				Slug:        row.Community.Slug,
+				Name:        row.Community.Name,
+				IsCurrent:   row.Community.ID == currentID,
+			})
 		}
-		return "", "", false
+		return out
 	}
 
 	r := chi.NewRouter()

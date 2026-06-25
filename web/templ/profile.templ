@@ -15,7 +15,7 @@ func profileSeedSignals(displayName, avatarURL string) string {
 	return string(b)
 }
 
-templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool, communityName string) {
+templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool, leaveCommunities []LeaveCommunityRow) {
 	@Layout("Profile", v) {
 		<div data-signals={ profileSeedSignals(displayName, avatarURL) }></div>
 		<section class="card narrow profile-card">
@@ -45,36 +45,87 @@ templ ProfilePage(v Viewer, displayName, avatarURL string, hasPassword bool, com
 			</div>
 		</section>
 		@PasswordCard(hasPassword, false)
-		@LeaveCommunityCard(communityName)
+		@LeaveCommunityCard(leaveCommunities)
 		@DeleteAccountCard(hasPassword)
 	}
 }
 
-// LeaveCommunityCard removes the member from their current community. Distinct
-// from (and milder than) the red DeleteAccountCard danger-zone: a plain card with
-// a destructive (red) confirm button, since leaving is reversible by rejoining
-// and keeps the account + authored content. The disclosure is the "are you sure"
-// friction; the button posts straight away. communityName names the exact
-// community being left so the action is unambiguous.
-templ LeaveCommunityCard(communityName string) {
-	<section id="leave-community-card" class="card narrow profile-card">
-		<h2>Leave { communityName }</h2>
-		<p class="muted">
-			Remove yourself from <strong>{ communityName }</strong>. You'll lose access to its
-			channels, threads and projects, but anything you posted stays and you can rejoin later.
-		</p>
-		<details class="delete-disclosure">
-			<summary>Leave this community…</summary>
-			<div id="leave-community-status" class="muted"></div>
-			<div class="profile-actions">
-				<button class="danger" data-on:click="@post('/profile/leave')">Leave { communityName }</button>
-			</div>
-		</details>
+// LeaveCommunityRow is one community the viewer can leave, for the
+// LeaveCommunityCard picker. IsCurrent flags the session/landing community so it
+// can be labelled and pre-selected.
+type LeaveCommunityRow struct {
+	CommunityID string
+	Slug        string
+	Name        string
+	IsCurrent   bool
+}
+
+// leaveSeedSignals seeds the leave_community_id signal so the bound <select>
+// starts on a real value (the current community if present, else the first) —
+// otherwise the bag would carry "" and the first leave would have no target.
+func leaveSeedSignals(cs []LeaveCommunityRow) string {
+	sel := ""
+	for _, c := range cs {
+		if c.IsCurrent {
+			sel = c.CommunityID
+			break
+		}
+	}
+	if sel == "" && len(cs) > 0 {
+		sel = cs[0].CommunityID
+	}
+	b, _ := json.Marshal(map[string]string{"leave_community_id": sel})
+	return string(b)
+}
+
+// leaveOptionLabel marks the current community in the picker so the user knows
+// which one they're signed into right now.
+func leaveOptionLabel(c LeaveCommunityRow) string {
+	if c.IsCurrent {
+		return c.Name + " (current)"
+	}
+	return c.Name
+}
+
+// LeaveCommunityCard lets a member leave ANY community they belong to — a member
+// can be in many, so the card lists them in a picker instead of forcing the one
+// the global /profile page happens to be bound to. Milder than the red
+// DeleteAccountCard danger-zone (plain card, red confirm): leaving is reversible
+// by rejoining and keeps the account + authored content. The disclosure is the
+// "are you sure" friction. The status line sits at card level (outside the
+// disclosure) so a success/error shows even after the picker re-renders.
+templ LeaveCommunityCard(communities []LeaveCommunityRow) {
+	<section id="leave-community-card" class="card narrow profile-card" data-signals={ leaveSeedSignals(communities) }>
+		<h2>Leave a community</h2>
+		<div id="leave-community-status" class="muted"></div>
+		if len(communities) == 0 {
+			<p class="muted">You're not a member of any community to leave.</p>
+		} else {
+			<p class="muted">
+				Remove yourself from a community. You'll lose access to its channels, threads and
+				projects, but anything you posted stays and you can rejoin later.
+			</p>
+			<details class="delete-disclosure">
+				<summary>Leave a community…</summary>
+				<div class="field">
+					<label for="leave-community-select">Community</label>
+					<select id="leave-community-select" data-bind="leave_community_id">
+						for _, c := range communities {
+							<option value={ c.CommunityID }>{ leaveOptionLabel(c) }</option>
+						}
+					</select>
+				</div>
+				<div class="profile-actions">
+					<button class="danger" data-on:click="@post('/profile/leave')">Leave selected community</button>
+				</div>
+			</details>
+		}
 	</section>
 }
 
-// LeaveCommunityStatusFragment reports why a leave was blocked (last admin, not a
-// member, transient error). Success never renders here — it redirects.
+// LeaveCommunityStatusFragment reports the outcome of a leave: an error (last
+// admin, not a member, transient) or — when the viewer left a community OTHER
+// than their session one and stays on /profile — a success line.
 templ LeaveCommunityStatusFragment(msg string, ok bool) {
 	if ok {
 		<div id="leave-community-status" class="success">{ msg }</div>

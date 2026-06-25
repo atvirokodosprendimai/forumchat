@@ -56,17 +56,14 @@ type Handler struct {
 	// OAuthProviders are the enabled social-login providers (empty = OAuth off).
 	// Rendered as "Continue with …" buttons on the login + register pages.
 	OAuthProviders []OAuthProvider
-	// ResolveCommunityName returns a community's display name by id, used to label
-	// the "leave community" card with the community actually being left (the
-	// session community — on the global /profile page that can differ from the
-	// bootstrap CommunityName in multi-tenant mode). nil falls back to
-	// CommunityName. Wired in main.go (a closure so auth doesn't import community).
-	ResolveCommunityName func(ctx context.Context, communityID string) string
-	// NextCommunityAfterLeave returns a community the caller still belongs to after
-	// leaving excludeID — its (slug, id) — so PostLeaveCommunity can rebind the
-	// session there instead of signing them out. ok=false when none remain. Wired
-	// in main.go to community.Repo.ListForUser (closure, no community import).
-	NextCommunityAfterLeave func(ctx context.Context, userID, excludeID string) (slug, communityID string, ok bool)
+	// MyCommunities lists the communities the caller can leave — every approved,
+	// non-banned membership — so the leave-community picker can offer all of them
+	// (a member may belong to many; the global /profile page must not force the
+	// one the session happens to be bound to). currentID flags and pre-selects
+	// the session community. Also reused after a leave to rebind the session or
+	// re-render the picker. Wired in main.go to community.Repo.ListForUser (a
+	// closure so auth doesn't import community).
+	MyCommunities func(ctx context.Context, userID, currentID string) []webtempl.LeaveCommunityRow
 }
 
 type chiMux interface {
@@ -395,60 +392,92 @@ func (h *Handler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	// Label the leave-community card with the community actually being left (the
-	// session community), which on this global page can differ from the bootstrap
-	// CommunityName in multi-tenant mode.
-	commName := h.CommunityName
-	if h.ResolveCommunityName != nil {
-		if n := h.ResolveCommunityName(r.Context(), id.Membership.CommunityID); n != "" {
-			commName = n
-		}
+	// The leave-community picker lists every community the member belongs to (a
+	// member may be in many), with the session one pre-selected.
+	var leaveRows []webtempl.LeaveCommunityRow
+	if h.MyCommunities != nil {
+		leaveRows = h.MyCommunities(r.Context(), id.User.ID, id.Membership.CommunityID)
 	}
 	// hasPassword decides whether the password card asks for the current one.
 	// OAuth-only users (sentinel hash) are setting a first password, not changing.
-	_ = webtempl.ProfilePage(h.Viewer(r), id.Membership.DisplayName, id.Membership.AvatarURL, id.User.HasPassword(), commName).Render(r.Context(), w)
+	_ = webtempl.ProfilePage(h.Viewer(r), id.Membership.DisplayName, id.Membership.AvatarURL, id.User.HasPassword(), leaveRows).Render(r.Context(), w)
 }
 
-// PostLeaveCommunity removes the caller's own membership in their CURRENT
-// (session) community, then rebinds the session to another of their communities
-// or signs them out if none remain. Single-step (no email confirm) because
-// leaving is reversible by rejoining — the disclosure + explicit button is enough
-// friction. The last-admin guard lives in Service.LeaveCommunity.
+type leaveSignals struct {
+	// CommunityID is which of the caller's OWN communities to leave (picker
+	// value). Trusted only as "one of MY memberships": Service.LeaveCommunity
+	// scopes the delete to (sessionUserID, CommunityID), so a forged id can at
+	// most leave a community the caller isn't in → ErrNotAMember. No IDOR.
+	CommunityID string `json:"leave_community_id"`
+}
+
+// PostLeaveCommunity removes the caller's own membership in the community they
+// picked. If that was the community their session is bound to, it rebinds the
+// session to another of their communities (or signs out if none remain) and
+// redirects; otherwise the session is untouched and the picker re-renders in
+// place. Single-step (no email confirm) because leaving is reversible by
+// rejoining. The last-admin orphan guard lives in Service.LeaveCommunity.
 func (h *Handler) PostLeaveCommunity(w http.ResponseWriter, r *http.Request) {
 	id, ok := FromContext(r.Context())
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
-	cid := id.Membership.CommunityID
-	if err := h.Svc.LeaveCommunity(r.Context(), id.User.ID, cid); err != nil {
+	var in leaveSignals
+	if err := datastar.ReadSignals(r, &in); err != nil {
+		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Default to the session community so a single-community member (whose picker
+	// may not have seeded a value) still works.
+	leaveCID := strings.TrimSpace(in.CommunityID)
+	if leaveCID == "" {
+		leaveCID = id.Membership.CommunityID
+	}
+
+	if err := h.Svc.LeaveCommunity(r.Context(), id.User.ID, leaveCID); err != nil {
 		sse := render.NewSSE(w, r)
 		var msg string
 		switch {
 		case errors.Is(err, ErrLeaveLastAdmin):
-			msg = "You're the last admin here — promote another admin or delete the community before leaving."
+			msg = "You're the last admin there — promote another admin or delete the community before leaving."
 		case errors.Is(err, ErrNotAMember):
-			msg = "You're not a member of this community."
+			msg = "You're not a member of that community."
 		default:
-			h.Log.Error("leave community", "user_id", id.User.ID, "community_id", cid, "err", err)
+			h.Log.Error("leave community", "user_id", id.User.ID, "community_id", leaveCID, "err", err)
 			msg = "Couldn't leave — please try again."
 		}
 		_ = sse.PatchElementTempl(webtempl.LeaveCommunityStatusFragment(msg, false))
 		return
 	}
-	h.Log.Info("member left community", "user_id", id.User.ID, "community_id", cid)
+	h.Log.Info("member left community", "user_id", id.User.ID, "community_id", leaveCID)
 
-	// Rebind to a community the caller still belongs to (so a multi-community
-	// member isn't kicked out entirely), else sign out. Session mutation must be
-	// committed BEFORE render.NewSSE flushes, per §4.4.
-	if h.NextCommunityAfterLeave != nil {
-		if slug, newCID, has := h.NextCommunityAfterLeave(r.Context(), id.User.ID, cid); has {
-			PutLogin(r.Context(), h.Sessions, id.User.ID, newCID)
-			commitSession(h.Sessions, w, r)
-			sse := render.NewSSE(w, r)
-			_ = sse.Redirect("/c/" + slug + "/chat")
-			return
+	// Leaving a community OTHER than the session one leaves the session valid —
+	// just re-render the picker (now without it) plus a success line. No redirect.
+	if leaveCID != id.Membership.CommunityID {
+		var rows []webtempl.LeaveCommunityRow
+		if h.MyCommunities != nil {
+			rows = h.MyCommunities(r.Context(), id.User.ID, id.Membership.CommunityID)
 		}
+		sse := render.NewSSE(w, r)
+		_ = sse.PatchElementTempl(webtempl.LeaveCommunityCard(rows))
+		_ = sse.PatchElementTempl(webtempl.LeaveCommunityStatusFragment("You've left the community.", true))
+		return
+	}
+
+	// They left the community the session is bound to: rebind to another they
+	// still belong to (so a multi-community member isn't signed out entirely), or
+	// sign out. Session mutation must be committed BEFORE render.NewSSE (§4.4).
+	var remaining []webtempl.LeaveCommunityRow
+	if h.MyCommunities != nil {
+		remaining = h.MyCommunities(r.Context(), id.User.ID, "")
+	}
+	if len(remaining) > 0 {
+		PutLogin(r.Context(), h.Sessions, id.User.ID, remaining[0].CommunityID)
+		commitSession(h.Sessions, w, r)
+		sse := render.NewSSE(w, r)
+		_ = sse.Redirect("/c/" + remaining[0].Slug + "/chat")
+		return
 	}
 	_ = Logout(r.Context(), h.Sessions)
 	commitSession(h.Sessions, w, r)

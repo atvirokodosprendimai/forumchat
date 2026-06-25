@@ -565,28 +565,35 @@ where `cleanup` is `chat,threads,posts` or `all`.
 ### Leave community (self-serve, Jun 2026)
 
 The member-side counterpart to admin remove (§5c) and account erasure (§5g):
-a member removes their OWN membership in their current (session) community
-from the **global `/profile`** page (`LeaveCommunityCard`, a plain card with a
-red confirm — milder than the red `danger-zone` delete-account card).
+a member removes their OWN membership in a community they choose, from the
+**global `/profile`** page (`LeaveCommunityCard`, a plain card with a red
+confirm — milder than the red `danger-zone` delete-account card).
 
-- `POST /profile/leave` → `auth.Handler.PostLeaveCommunity`. Both `userID` and
-  `communityID` come from the **session identity** (`id.User.ID`,
-  `id.Membership.CommunityID`) — never request input, so there's no IDOR and
-  you can only ever leave your own current community.
-- `auth.Service.LeaveCommunity` deletes the membership via
-  `Repo.DeleteMembershipIfNotLastAdmin` — an **atomic** guarded DELETE whose
-  WHERE refuses to remove the last admin/owner (orphan guard, race-free vs a
-  `CountAdmins` read-then-delete). `!deleted → ErrLeaveLastAdmin`; a missing
-  membership (e.g. a super-admin's synthetic row) → `ErrNotAMember`. Authored
-  content is **kept** (only the membership row goes), unlike `DeleteAccount`'s
-  anonymise. No email confirm — leaving is reversible by rejoining; the
-  `<details>` disclosure is the friction.
-- After a successful leave the handler **rebinds the session** to another of
-  the caller's approved/non-banned communities (`PutLogin` →
-  `/c/{slug}/chat`) or signs them out (`/`) if none remain —
-  `commitSession` BEFORE `render.NewSSE` per §4.4. The community list +
-  session-community name come from `community.Repo.ListForUser`/`ByID` via
-  closures wired in main.go (auth doesn't import community).
+- **A member can belong to MANY communities**, and `/profile` is global (bound
+  to the session community), so the card is a **picker**: a
+  `<select data-bind="leave_community_id">` listing every community the member
+  is in (`MyCommunities` closure → `community.Repo.ListForUser`, approved +
+  non-banned only), session one flagged `(current)` and pre-selected via
+  `leaveSeedSignals`. Do NOT revert this to "leave the session community" — that
+  was the original bug (a multi-community member could only leave one).
+- `POST /profile/leave` → `auth.Handler.PostLeaveCommunity` reads
+  `leave_community_id` (client-supplied) but `userID` is always the **session
+  identity**. `auth.Service.LeaveCommunity(sessionUserID, pickedCID)` scopes
+  `MembershipFor` + the delete to that user, so a forged id can at most leave a
+  community the caller is actually in (else `ErrNotAMember`) — no IDOR.
+- Delete goes through `Repo.DeleteMembershipIfNotLastAdmin` — an **atomic**
+  guarded DELETE whose WHERE refuses to remove the last admin/owner (orphan
+  guard, race-free vs a `CountAdmins` read-then-delete). `!deleted →
+  ErrLeaveLastAdmin`. Authored content is **kept** (only the membership row
+  goes), unlike `DeleteAccount`'s anonymise. No email confirm — reversible by
+  rejoining; the `<details>` disclosure is the friction.
+- After leaving: if the picked community **was the session one**, the handler
+  **rebinds the session** to another of the member's communities (`PutLogin` →
+  `/c/{slug}/chat`) or signs out (`/`) if none remain — `commitSession` BEFORE
+  `render.NewSSE` per §4.4. If it was a **different** community, the session is
+  untouched and the picker re-renders in place (morph `#leave-community-card` +
+  a success line in the card-level `#leave-community-status`). Closures
+  (`MyCommunities`) wired in main.go so auth doesn't import community.
 - Note: the admin `PostRemoveMember` path (§5c) still uses the older
   `CountAdmins` read-then-`RejectMembership` and so has the same latent
   last-admin TOCTOU this path now avoids — fold it onto
