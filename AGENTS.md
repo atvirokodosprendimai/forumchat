@@ -1163,6 +1163,41 @@ non-archived channel — **no membership table**, just a `channel_id` column.
   `channelID`. `PostSystem` is the exception (stays community-level, lands in
   `#general`).
 
+### 6.9.0 Un-pivot — agents reply IN-CHANNEL again, + bot-to-bot autochat (migration 00070, Jun 2026)
+
+The pivot below (forum-thread reply) is **no longer the whole story**. A trigger
+now drives **BOTH** surfaces: the forum thread (§6.9, unchanged) AND a live
+`kind='bot'` bubble streamed back into the channel (the dormant in-channel path,
+revived). This is wired in `chatagents.Dispatcher` — one match pass; for a human
+trigger it opens the thread *and* calls `ChannelRunner.Generate`.
+
+- **`chatagents.ChannelRunner`** (`channel.go`) is the in-channel twin of
+  `ThreadRunner`: inserts a `kind='bot'` placeholder via `chat.Repo.Insert`,
+  100ms-flushes `chat.Repo.UpdateBotBody`, fans out on the chat Bus/NewMsgBus +
+  NATS; boot sweep `chat.Repo.MarkBotGeneratingInterrupted`. So §6.9's "NO
+  `kind='bot'` channel bubble" and §6.9's "removed `chat.Repo.UpdateBotBody`" are
+  **reversed** — those methods are back and live.
+- **Bot-to-bot (`/autochat`)**: a finished in-channel reply re-enters
+  `Dispatcher.Dispatch` as a `KindBot` trigger via `ChannelRunner.OnReply`. The
+  loop guard is relaxed for `KindBot` **only when `agents_autochat_enabled`**;
+  the authoring agent is excluded (`Trigger.AuthorAgentID`); each agent is capped
+  to one bot-triggered reply per **15s per channel** (`BotReplyCooldown`,
+  in-memory `allowBotReply`). No auto-stop by design — an admin halts it. Each
+  reply still costs a fresh model generation, so the cooldown + gate bound spend.
+- **Admin slash commands** in `chat.PostSend` → `tryAgentCommand` (admin/super
+  only): `/bots 1|0` (master `agents_chat_enabled`), `/autochat 1|0`
+  (`agents_autochat_enabled`), `/kill` (= `/autochat 0`). Never stored; posts a
+  transparency system line + `webtempl.ChatCmdNotice` for non-admin/usage. Backed
+  by `community.Repo.SetAgents{Chat,Autochat}Enabled`; `Dispatcher.Policy` reads
+  the two flags (fail-open master, fail-closed autochat).
+- **`ai_agents.chat_as_human`** (the admin checkbox "appear as a regular member"):
+  denormalised onto each message as `chat_messages.bot_as_human`; the bubble then
+  routes through the **member** render (initial dot + name, no "AI" badge, but
+  keeps the streaming cursor). `Dispatcher.Channel` is the `ChannelReplier`
+  interface so the gating/cooldown/self-exclusion is unit-tested without a model.
+
+---
+
 ### 6.9 Chat-agents — a trigger opens a FORUM THREAD (migrations 00043 + 00044)
 
 Spec: `eidos/spec - chat-agents - …` (see its **Pivot** note). Plans:
