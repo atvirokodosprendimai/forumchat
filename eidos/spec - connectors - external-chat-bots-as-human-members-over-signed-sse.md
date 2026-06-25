@@ -115,8 +115,15 @@ middleware group, behind `httprate` + a heartbeat.
    chat itself uses, §6.3a). The Bus carries only the *changed channel id*; the
    stream keeps a per-channel watermark and on each signal loads messages newer
    than it via `chat.Repo.ListAfter(channelID, after, limit)`, emitting one
-   `event: message` per new message. Watermark starts at *connect time* —
-   v1 is **live-only**, no backlog replay (Future).
+   `event: message` per new message. The watermark's **start** is decided by
+   `resumeWatermark` (catch-up, added Jun 2026): a `?live=1` forces connect-time
+   (live-only); a `?since=<unix>` is a client override; otherwise the
+   **server-owned `connectors.cursor_at`** resumes where delivery last stopped
+   (the "almost stateless worker" default), or connect-time on the first ever
+   connect. Any backlog is drained before going live, bounded to a 24h
+   `maxCatchupWindow`; the cursor is advanced ONCE on stream close (never per
+   message). An `event: live` `{since, truncated}` frame marks the boundary
+   between replayed history and live traffic.
 6. Per-message filtering: **skip the connector's own messages** (author ==
    `user_id`, no echo), skip soft-deleted, skip `kind='system'`. Deliver
    `user` / `webhook` / `bot` content. If `mentions_only`, deliver **only**
@@ -298,9 +305,13 @@ works without it (§6.3a).
 
 ## Friction
 
-- **Live-only stream (v1).** A reconnecting worker misses messages sent while it
-  was away (watermark resets to connect-time). JetStream-backed replay / a
-  `?since=` backlog is Future — mirrors the chat replay roadmap item.
+- **Catch-up replay (Jun 2026).** A reconnecting worker no longer misses
+  messages: the server-owned `cursor_at` resumes delivery where it stopped, with
+  `?since=`/`?live=1` overrides, bounded to a 24h window. ~~Live-only v1.~~ The
+  cursor advances only on stream close, so two simultaneous streams for one
+  connector race on it (last-closer wins — documented edge; run one stream).
+  Resuming re-delivers the boundary second (idempotent dedupe expected of the
+  worker). JetStream-backed cross-process replay is still Future.
 - **No outbound retry / delivery guarantee on the stream.** SSE is best-effort;
   if the worker's socket stalls, messages queue in the channel buffer and are
   dropped past capacity (logged). Acceptable for a chat participant.
@@ -348,7 +359,9 @@ works without it (§6.3a).
 - {[ ] Phase 1 — migration + repo + service + `auth.CreateServiceAccount` + sign + tests.}
 - {[ ] Phase 2 — public `/bots/{id}/stream` (JSON SSE, watermark) + `/bots/{id}/send` (body HMAC) + `chat.Repo.ListAfter`.}
 - {[ ] Phase 3 — admin CRUD page (reveal-once secret + stream/send URL + snippet) + /admin link + main.go wiring + flag.}
-- {[?] Backlog replay (`?since=` / JetStream) so a reconnecting worker catches up.}
+- {[x] Backlog replay so a reconnecting worker catches up — **done** (Jun 2026):
+  server cursor + `?since=`/`?live=1` + `event: live` + admin "Reset replay",
+  migration 00074, 24h window. Cross-process JetStream replay still open.}
 - {[?] Per-connector send rate limit + monthly quota.}
 - {[?] Typed event kinds beyond `message` (member joined/left, channel created) so a bridge can mirror structure.}
 - {[?] Outbound delivery log + redelivery (shared with the webhooks retry-queue Future).}

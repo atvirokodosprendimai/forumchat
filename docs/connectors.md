@@ -94,16 +94,35 @@ whitespace change, or trailing newline will fail verification.
 ## Receiving messages — the stream
 
 ```
-GET /bots/{id}/stream?exp=<unix>&sig=<hex>
+GET /bots/{id}/stream?exp=<unix>&sig=<hex>[&since=<unix>][&live=1]
 Accept: text/event-stream
 ```
 
 Public, no session, no CSRF — the signed URL *is* the bearer capability. The
 response is a **raw `text/event-stream`** (JSON, not HTML — the consumer is a
-machine). The stream is **live-only**: the watermark starts at connect time, so
-you receive messages sent *after* you attach (no backlog replay).
+machine).
 
-It emits two event types.
+**Catch-up on reconnect (you don't lose messages while away).** The server keeps
+a per-connector **resume cursor** — the point your stream last delivered up to,
+saved when the stream closes. So a bare reconnect (same URL, no extra params)
+**replays the messages you missed** while disconnected, then goes live. You don't
+have to track anything client-side.
+
+Where the stream starts is resolved in this priority:
+
+| URL | Starts from |
+|---|---|
+| `…/stream?exp=…&sig=…` | the **server cursor** — resume where you left off (replays the backlog). First-ever connect has no cursor, so it's live-only. |
+| `…&since=<unix>` | a **resume point you choose** (Unix seconds) — overrides the cursor. |
+| `…&live=1` | **live-only** — ignore the cursor, deliver only messages sent after you attach. |
+
+The replay is **bounded to the last 24 hours** (a signed URL is a bearer
+capability, so an unbounded replay is refused). A resume point older than that is
+silently clamped; the `live` frame's `truncated` flag tells you older messages
+were dropped. An admin can press **Reset replay** in the connectors admin to set
+your cursor back so your next connect replays the whole window from scratch.
+
+It emits three event types.
 
 ### `event: ready` — the one-shot handshake
 
@@ -159,6 +178,24 @@ Sent once, first. A stateless worker can configure itself from it alone:
 body `@mentions` your connector. A `:` comment heartbeat is sent every ~25 s so
 idle proxies don't reap the stream.
 
+### `event: live` — the history/live boundary
+
+Sent **once**, after any backlog replay, to mark "everything before this was
+replayed history; everything after is live":
+
+```json
+{ "since": 1750000000, "truncated": false }
+```
+
+| Field | Meaning |
+|---|---|
+| `since` | Unix second the backlog replay started from; **`0` means no replay** (a live-only connect) |
+| `truncated` | `true` when your resume point was older than the 24h window, so older messages were dropped |
+
+The frame order is always: `ready` → (zero or more replayed `message`) → `live` →
+(live `message` …). You can ignore `live` entirely if you don't need the
+distinction — older clients do.
+
 ### curl
 
 ```sh
@@ -171,11 +208,19 @@ EXP=0   # non-expiring; or a future Unix timestamp
 SIG=$(printf '%s\nstream\n%s' "$ID" "$EXP" \
   | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.* //')
 
+# Resume from the server cursor (replays anything you missed), then go live:
 curl -N "$BASE/bots/$ID/stream?exp=$EXP&sig=$SIG"
+
+# Catch up from a point you choose (last hour) — sig is unchanged, since is not signed:
+curl -N "$BASE/bots/$ID/stream?exp=$EXP&sig=$SIG&since=$(($(date +%s) - 3600))"
+
+# Force live-only (ignore the cursor, no replay):
+curl -N "$BASE/bots/$ID/stream?exp=$EXP&sig=$SIG&live=1"
 ```
 
 `-N` disables curl's buffering so frames print as they arrive. You'll see the
-`ready` frame immediately, then a `message` frame per new chat message.
+`ready` frame, then any replayed `message` frames, then `live`, then a `message`
+frame per new chat message.
 
 ---
 
@@ -315,6 +360,13 @@ func main() {
 						_, _ = c.Reply(context.Background(), e.Channel, "👋 hi!", e.ID)
 					}
 				},
+				// Fires once after any missed-message replay; Since==0 means there
+				// was no backlog (a fresh, live-only connect).
+				OnLive: func(l connector.Live) {
+					if l.Since > 0 {
+						log.Printf("caught up from %d (truncated=%v) — now live", l.Since, l.Truncated)
+					}
+				},
 			}, 0 /* exp: 0 = non-expiring URL */)
 			log.Printf("stream ended: %v — reconnecting", err)
 			// add a backoff/sleep here in real code
@@ -345,9 +397,16 @@ A minimal robust loop:
 - reconnect on any return,
 - back off (e.g. 1s → 2s → … capped at 30s) and reset the backoff after a
   successful `ready`,
-- because the stream is **live-only**, assume you may have missed messages while
-  disconnected; if you need exactly-once semantics, reconcile against your own
-  store on reconnect.
+- **you no longer need to track a watermark** — a bare `Stream` reconnect resumes
+  from the server cursor and replays what you missed (up to 24h) before the
+  `live` frame. Want exactly-once? Make your `OnMessage` idempotent (keyed on
+  `id`); the boundary second can re-deliver a message or two on resume.
+
+To take control of the resume point yourself, call
+`StreamSince(ctx, h, exp, since)` with the newest `created_at` you durably
+processed — handy when you process messages asynchronously and only want to
+advance past those you've truly handled. (You can also append `&live=1` to a
+hand-built URL to opt out of replay entirely.)
 
 The SDK exports `connector.ErrFrameTooLarge` so your loop can distinguish a
 misbehaving peer from an ordinary drop.
@@ -374,7 +433,9 @@ misbehaving peer from an ordinary drop.
   short-lived workers; the SDK rebuilds a fresh signed URL on each `Stream`
   call, so a reconnect loop can roll the expiry forward.
 - **Rotate** the secret the moment it might have leaked — it revokes the stream
-  URL and all body signatures simultaneously.
+  URL and all body signatures simultaneously. Note a leaked stream URL can now
+  replay up to **24 h** of your channels' history (the catch-up window), not just
+  future messages — one more reason to rotate promptly (and prefer `exp`).
 - The synthetic member behind a connector can never log in and is auto-approved;
   deleting the connector removes that member (its authored messages survive as a
   "deleted member", like account erasure).
