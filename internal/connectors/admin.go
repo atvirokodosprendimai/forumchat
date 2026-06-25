@@ -180,8 +180,13 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 // callout. The secret is shown ONLY here (create / rotate) — it's never
 // re-rendered into the list, like an API key.
 func (h *Handler) reveal(sse *datastar.ServerSentEventGenerator, c Connector) {
+	// con_new_id / con_new_base feed the reveal's "Connector ID" + "Base URL" rows
+	// and the "Copy as .env" button — the SDK needs the (base, id, secret) triple,
+	// so all three MUST be patched here, not just the secret.
 	_ = sse.PatchSignals([]byte(`{` +
 		`"con_new_secret":` + strconv.Quote(c.Secret) + `,` +
+		`"con_new_id":` + strconv.Quote(c.ID) + `,` +
+		`"con_new_base":` + strconv.Quote(strings.TrimRight(h.BaseURL, "/")) + `,` +
 		`"con_new_stream":` + strconv.Quote(h.streamURL(c)) + `,` +
 		`"con_new_send":` + strconv.Quote(h.sendURL(c)) + `,` +
 		`"con_id":"","con_name":"","con_avatar":"","con_channels":"","con_caps":"send","con_mentions":false,"con_error":""}`))

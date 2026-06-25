@@ -291,6 +291,8 @@ templ connectorRow(r ConnectorRowView, slug string) {
 				data-channels={ joinCSV(r.ChannelIDs) } data-caps={ joinCSV(r.Capabilities) }
 				data-mentions={ connectorBoolAttr(r.MentionsOnly) }
 				data-on:click="$con_id=el.dataset.id;$con_name=el.dataset.name;$con_avatar=el.dataset.avatar;$con_channels=el.dataset.channels;$con_caps=el.dataset.caps;$con_mentions=el.dataset.mentions==='1';window.scrollTo({top:0,behavior:'smooth'})">Edit</button>
+			<button type="button" class="ghost" data-con-id={ r.ID }
+				data-on:click="navigator.clipboard.writeText(el.dataset.conId); $toast_text='Connector ID copied'">Copy ID</button>
 			<button type="button" class="ghost" data-con-url={ r.StreamURL }
 				data-on:click="navigator.clipboard.writeText(el.dataset.conUrl); $toast_text='Stream URL copied'">Copy stream</button>
 			<button type="button" class="ghost" data-con-url={ r.SendURL }
@@ -298,7 +300,8 @@ templ connectorRow(r ConnectorRowView, slug string) {
 			@connectorToggleBtn(r, slug)
 			<button class="ghost" title="Replay missed messages from the start on the bot's next reconnect"
 				data-on:click={ "if(confirm('Reset replay? On its next reconnect this bot re-receives the last 24h of messages it can, instead of resuming where it left off.')){@post('/c/" + slug + "/admin/connectors/reset?id=" + r.ID + "')}" }>Reset replay</button>
-			<button class="ghost" data-on:click={ "@post('/c/" + slug + "/admin/connectors/rotate?id=" + r.ID + "')" }>Rotate</button>
+			<button class="ghost" title="Mint a new secret and reveal the id, base URL and secret again. Invalidates the current stream URL and any saved secret."
+				data-on:click={ "if(confirm('Rotate the secret? This reveals a fresh secret + id again, but invalidates the current stream URL and any saved secret.')){@post('/c/" + slug + "/admin/connectors/rotate?id=" + r.ID + "')}" }>Rotate / reveal secret</button>
 			<button class="ghost danger" data-on:click={ "if(confirm('Delete this chat bot and its member? Its past messages stay as a deleted member.')){@post('/c/" + slug + "/admin/connectors/delete?id=" + r.ID + "')}" }>Delete</button>
 		</td>
 	</tr>
