@@ -498,7 +498,7 @@ func DevDocPage(data DevDocPageData) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if len(data.TOC) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<p class=\"dd-side-h\">On this page</p><div class=\"dd-toc\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<p class=\"dd-side-h dd-toc-h\">On this page</p><div class=\"dd-toc\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

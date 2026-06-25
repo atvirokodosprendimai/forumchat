@@ -151,7 +151,7 @@ templ DevDocPage(data DevDocPageData) {
 						}
 					</div>
 					if len(data.TOC) > 0 {
-						<p class="dd-side-h">On this page</p>
+						<p class="dd-side-h dd-toc-h">On this page</p>
 						<div class="dd-toc">
 							for _, t := range data.TOC {
 								<a href={ templ.SafeURL("#" + t.ID) } class={ ddTocClass(t.Sub) }>{ t.Title }</a>

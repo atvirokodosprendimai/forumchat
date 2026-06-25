@@ -232,3 +232,4 @@
 - 2026-06-25 `1581b62` feat(connectors): phase 3 — admin UI + wiring + flag
 - 2026-06-25 `476c513` docs(plan): dev-docs site for external connectors + landing section
 - 2026-06-25 `afc0453` feat(docs): embedded dev-docs content for connectors + webhooks
+- 2026-06-25 `73f436f` feat(devdocs): /dev/docs developer documentation site

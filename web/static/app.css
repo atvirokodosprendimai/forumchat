@@ -5993,12 +5993,55 @@ html.lp-doc body.lp {
 .lp-footer-meta { display: flex; align-items: center; gap: .8rem; font-size: .8rem; color: var(--fg-subtle); width: 100%; padding-top: .8rem; border-top: 1px solid var(--border-subtle); }
 .lp-footer-meta .fc-version { margin-left: auto; font-family: var(--font-mono); }
 
+/* ---- developers / connectors split section ---- */
+.lp-conn {
+  max-width: 1120px; margin: 2.2rem auto 0; padding-inline: 1.5rem;
+  display: grid; grid-template-columns: 1fr 1.05fr; gap: clamp(1.6rem, 4vw, 3.2rem);
+  align-items: center;
+}
+.lp-conn-points { list-style: none; margin: 0 0 1.7rem; padding: 0; display: grid; gap: .9rem; }
+.lp-conn-points li { position: relative; padding-left: 2rem; color: var(--fg-muted); line-height: 1.55; }
+.lp-conn-points li strong { color: var(--fg); font-weight: 650; }
+.lp-conn-points li code { font-size: .82em; }
+.lp-conn-points li::before {
+  content: "✓"; position: absolute; left: 0; top: .05rem;
+  width: 1.4rem; height: 1.4rem; display: grid; place-items: center;
+  font-size: .8rem; font-weight: 700; line-height: 1;
+  color: var(--accent-strong); background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-strong); border-radius: 50%;
+}
+.lp-conn-cta { display: flex; flex-wrap: wrap; gap: .8rem; }
+
+/* terminal code card — a dark accent panel against the light landing */
+.lp-term {
+  margin: 0; border-radius: 14px; overflow: hidden;
+  background: oklch(22% 0.02 270);
+  border: 1px solid oklch(32% 0.02 270);
+  box-shadow: 0 1px 2px rgba(20, 20, 30, .06), 0 24px 60px -22px oklch(40% 0.1 272 / .45);
+}
+.lp-term-bar {
+  display: flex; align-items: center; gap: .4rem;
+  padding: .6rem .9rem;
+  background: oklch(26% 0.02 270);
+  border-bottom: 1px solid oklch(32% 0.02 270);
+}
+.lp-term-bar .lp-dot { width: .62rem; height: .62rem; }
+.lp-term-title { margin-left: .5rem; font-family: var(--font-mono); font-size: .76rem; color: oklch(70% 0.02 270); }
+.lp-term-pre {
+  margin: 0; padding: 1.1rem 1.2rem; overflow-x: auto;
+  font-family: var(--font-mono); font-size: .82rem; line-height: 1.65;
+  color: oklch(88% 0.02 250); white-space: pre;
+  -webkit-overflow-scrolling: touch;
+}
+.lp-term-pre code { font-family: inherit; font-size: inherit; color: inherit; background: none; padding: 0; border: 0; }
+
 /* ---- responsive ---- */
 @media (max-width: 900px) {
   .lp-hero { grid-template-columns: 1fr; gap: 2.2rem; padding-block: 3rem 2.5rem; }
   .lp-hero-art { order: -1; }
   .lp-window { transform: none; max-width: 26rem; }
   .lp-grid, .lp-steps, .lp-usecases { grid-template-columns: repeat(2, 1fr); }
+  .lp-conn { grid-template-columns: 1fr; gap: 1.8rem; }
 }
 @media (max-width: 620px) {
   .lp-nav-links { display: none; }

@@ -316,8 +316,8 @@ a:focus-visible, button:focus-visible, summary:focus-visible {
 		padding-bottom: 14px; margin-bottom: 8px;
 		border-bottom: 1px solid var(--hairline);
 	}
-	/* On narrow screens collapse the on-this-page list — the doc-nav above is
-	   the useful affordance; the full outline just adds scroll. */
-	.dd-toc { display: none; }
+	/* On narrow screens collapse the on-this-page outline (header + list) — the
+	   doc-nav above is the useful affordance; the full outline just adds scroll. */
+	.dd-toc, .dd-toc-h { display: none; }
 	.dd-prose { max-width: none; }
 }

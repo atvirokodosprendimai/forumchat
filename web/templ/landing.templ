@@ -218,6 +218,7 @@ templ LandingPage() {
 				@landingPrivacy()
 				@landingUseCases()
 				@landingTech()
+				@landingConnectors()
 				@landingFAQ()
 				@landingFinalCTA()
 			</main>
@@ -239,6 +240,7 @@ templ landingNav() {
 			<a href="#features">Features</a>
 			<a href="#how">How it works</a>
 			<a href="#use-cases">Use cases</a>
+			<a href="#developers">Developers</a>
 			<a href={ templ.URL(landingRepoURL) } target="_blank" rel="noopener">GitHub</a>
 		</nav>
 		<div class="lp-nav-cta">
@@ -551,6 +553,57 @@ templ landingTech() {
 			<li class="lp-tech-item"><strong>Open source (AGPL-3.0)</strong><span>Read it, audit it, change it. The code is the contract.</span></li>
 			<li class="lp-tech-item"><strong>Deploy in minutes</strong><span>One container command and your community is live — no pipeline, no cluster.</span></li>
 		</ul>
+	</section>
+}
+
+// connCurlSample is the two-command curl peek shown in the developers section.
+// Kept as a Go string (not inline templ text) so templ never tries to parse the
+// JSON braces as a template expression (the bare-`{` gotcha) and so the `$`,
+// quotes and emoji pass through verbatim.
+func connCurlSample() string {
+	return `# receive — open the signed SSE stream of channel messages
+curl -N "$BASE/bots/$ID/stream?exp=0&sig=$SIG"
+
+# send — one signed POST; it appears as a human member's message
+curl -X POST "$BASE/bots/$ID/send" \
+  -H "X-Signature: sha256=$SIG" \
+  --data-raw '{"channel":"support","body":"on it 👋"}'`
+}
+
+// landingConnectors — the "build on it" / developer section. The headline pitch
+// for external connectors (run an outside program as a human member over a
+// signed SSE stream) paired with a curl peek and CTAs into /dev/docs. This is
+// the page's developer differentiator, so it gets a dedicated split layout
+// rather than another card grid.
+templ landingConnectors() {
+	<section id="developers" class="lp-section" aria-label="External connectors and developer docs">
+		<div class="lp-section-head">
+			<span class="lp-kicker">Build on it</span>
+			<h2 class="lp-h2">Plug the outside world in — as a member</h2>
+			<p class="lp-lead">Connectors let any external program take part in a channel <strong>as if it were a person</strong>: it holds open one signed SSE stream to receive messages and POSTs signed requests to send them back. A support desk, a shop concierge, a bridge to another network, your own bot — from the community's side it's just another member typing.</p>
+		</div>
+		<div class="lp-conn">
+			<div class="lp-conn-copy">
+				<ul class="lp-conn-points">
+					<li><strong>Acts as a human.</strong> Roster presence, @mentions, replies and a profile — every member feature works for it for free, no bot badge.</li>
+					<li><strong>Live and two-way.</strong> A persistent JSON SSE stream in, signed POSTs out — not fire-and-forget webhooks.</li>
+					<li><strong>Simple, rotatable auth.</strong> Read with a signed URL, write with a body HMAC. One secret powers both; rotating it revokes both at once.</li>
+					<li><strong>Admin-granted powers.</strong> Grant just <code>send</code>, or add <code>delete</code>, <code>ban</code> and <code>rename</code> to let it moderate.</li>
+					<li><strong>Tiny Go SDK.</strong> A dependency-free client and a ~200-line runnable example — or speak the wire yourself in any language.</li>
+				</ul>
+				<div class="lp-conn-cta">
+					<a href="/dev/docs/connectors" class="btn lp-btn-lg">Read the connector docs</a>
+					<a href="/dev/docs" class="btn ghost lp-btn-lg">All developer docs</a>
+				</div>
+			</div>
+			<figure class="lp-term" aria-label="Example: receive and send over a connector">
+				<div class="lp-term-bar">
+					<span class="lp-dot"></span><span class="lp-dot"></span><span class="lp-dot"></span>
+					<span class="lp-term-title">connector.sh</span>
+				</div>
+				<pre class="lp-term-pre"><code>{ connCurlSample() }</code></pre>
+			</figure>
+		</div>
 	</section>
 }
 
