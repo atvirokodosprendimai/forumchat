@@ -9,14 +9,25 @@ package templ
 // moderation endpoints via query params, so the body payload stays clean.
 //
 // Visibility is class-toggled (data-class:open) so data-attr:style is
-// free to own left/top — combining data-show with data-attr:style would
-// have both fight over the inline `display`/`style`.
+// free to own left + top/bottom — combining data-show with data-attr:style
+// would have both fight over the inline `display`/`style`.
+//
+// Positioning flips vertically: the admin variant of this menu is ~9 items
+// (~400px) tall, so a fixed downward anchor clipped the last item ("Remove
+// from community") below the fold when a member was clicked low in a long
+// roster. When the anchor sits in the lower viewport we pin the menu's
+// BOTTOM to the cursor and let it grow upward ($_ctx_up); otherwise we pin
+// the top ($_ctx_y is the offset from whichever edge). $_ctx_maxh caps the
+// menu to the space actually available from that anchor (viewport − offset −
+// gutter), so a menu taller than the room left scrolls inside itself — the
+// belt-and-braces guarantee that every item, "Remove from community"
+// included, is always reachable even on a short viewport.
 templ UserContextMenu(slug, currentUserID string, isAdmin bool) {
 	<div id="user-ctx-menu" class="ucm" role="menu"
 		data-class:open="$_ctx_open"
-		data-attr:style="'left:' + $_ctx_x + 'px;top:' + $_ctx_y + 'px'"
+		data-attr:style="'left:' + $_ctx_x + 'px;' + ($_ctx_up ? 'bottom:' : 'top:') + $_ctx_y + 'px;max-height:' + $_ctx_maxh + 'px'"
 		data-on:click="evt.stopPropagation()"
-		data-on:fc:user-menu__window="$_ctx_user_id=evt.detail.id; $_ctx_membership_id=evt.detail.mid; $_ctx_name=evt.detail.name; $_ctx_role=evt.detail.role; $_ctx_online=evt.detail.online; $_ctx_banned=evt.detail.banned; $_ctx_blocked=evt.detail.blocked; $_ctx_x=Math.max(8, Math.min(evt.detail.x, window.innerWidth-228)); $_ctx_y=Math.max(8, Math.min(evt.detail.y, window.innerHeight-300)); $_ctx_open=true"
+		data-on:fc:user-menu__window="$_ctx_user_id=evt.detail.id; $_ctx_membership_id=evt.detail.mid; $_ctx_name=evt.detail.name; $_ctx_role=evt.detail.role; $_ctx_online=evt.detail.online; $_ctx_banned=evt.detail.banned; $_ctx_blocked=evt.detail.blocked; var vh=window.innerHeight; var down=evt.detail.y<=vh*0.55; var off=down?Math.max(8,evt.detail.y):Math.max(8,vh-evt.detail.y); $_ctx_x=Math.max(8, Math.min(evt.detail.x, window.innerWidth-248)); $_ctx_up=!down; $_ctx_y=off; $_ctx_maxh=vh-off-8; $_ctx_open=true"
 		data-on:click__window="$_ctx_open=false"
 		data-on:keydown__window="evt.key==='Escape' && ($_ctx_open=false)">
 		<div class="ucm-head">

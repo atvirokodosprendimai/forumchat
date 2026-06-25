@@ -4738,13 +4738,20 @@ hr {
 @media (hover: none) { .roster-menu-btn { opacity: .7; } }
 
 /* ── User context menu (floating popup) ───────────────────────────────
-   One element, positioned via data-attr:style (left/top from _ctx_x/y),
-   shown via data-class:open. Consumes the bubbling fc:user-menu event. */
+   One element, positioned via data-attr:style (left + top|bottom from
+   _ctx_x/_ctx_y, flipping upward via _ctx_up), shown via data-class:open.
+   Consumes the bubbling fc:user-menu event.
+   max-height + overflow guarantee the menu never exceeds the viewport — the
+   admin variant is tall (~9 items), so without this the last item ("Remove
+   from community") could clip off-screen; it now scrolls instead. */
 .ucm {
   position: fixed; z-index: 120; display: none;
   min-width: 13rem; max-width: 15rem;
   flex-direction: column; gap: .15rem;
   padding: .35rem;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow);
   animation: ucmPop .12s cubic-bezier(.2,.8,.2,1);

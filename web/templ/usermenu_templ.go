@@ -17,8 +17,19 @@ import templruntime "github.com/a-h/templ/runtime"
 // moderation endpoints via query params, so the body payload stays clean.
 //
 // Visibility is class-toggled (data-class:open) so data-attr:style is
-// free to own left/top — combining data-show with data-attr:style would
-// have both fight over the inline `display`/`style`.
+// free to own left + top/bottom — combining data-show with data-attr:style
+// would have both fight over the inline `display`/`style`.
+//
+// Positioning flips vertically: the admin variant of this menu is ~9 items
+// (~400px) tall, so a fixed downward anchor clipped the last item ("Remove
+// from community") below the fold when a member was clicked low in a long
+// roster. When the anchor sits in the lower viewport we pin the menu's
+// BOTTOM to the cursor and let it grow upward ($_ctx_up); otherwise we pin
+// the top ($_ctx_y is the offset from whichever edge). $_ctx_maxh caps the
+// menu to the space actually available from that anchor (viewport − offset −
+// gutter), so a menu taller than the room left scrolls inside itself — the
+// belt-and-braces guarantee that every item, "Remove from community"
+// included, is always reachable even on a short viewport.
 func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -40,14 +51,14 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			templ_7745c5c3_Var1 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"user-ctx-menu\" class=\"ucm\" role=\"menu\" data-class:open=\"$_ctx_open\" data-attr:style=\"'left:' + $_ctx_x + 'px;top:' + $_ctx_y + 'px'\" data-on:click=\"evt.stopPropagation()\" data-on:fc:user-menu__window=\"$_ctx_user_id=evt.detail.id; $_ctx_membership_id=evt.detail.mid; $_ctx_name=evt.detail.name; $_ctx_role=evt.detail.role; $_ctx_online=evt.detail.online; $_ctx_banned=evt.detail.banned; $_ctx_blocked=evt.detail.blocked; $_ctx_x=Math.max(8, Math.min(evt.detail.x, window.innerWidth-228)); $_ctx_y=Math.max(8, Math.min(evt.detail.y, window.innerHeight-300)); $_ctx_open=true\" data-on:click__window=\"$_ctx_open=false\" data-on:keydown__window=\"evt.key==='Escape' && ($_ctx_open=false)\"><div class=\"ucm-head\"><span class=\"ucm-name\" data-text=\"$_ctx_name\"></span></div><div class=\"ucm-list\"><button class=\"ucm-item\" role=\"menuitem\" data-show=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div id=\"user-ctx-menu\" class=\"ucm\" role=\"menu\" data-class:open=\"$_ctx_open\" data-attr:style=\"'left:' + $_ctx_x + 'px;' + ($_ctx_up ? 'bottom:' : 'top:') + $_ctx_y + 'px;max-height:' + $_ctx_maxh + 'px'\" data-on:click=\"evt.stopPropagation()\" data-on:fc:user-menu__window=\"$_ctx_user_id=evt.detail.id; $_ctx_membership_id=evt.detail.mid; $_ctx_name=evt.detail.name; $_ctx_role=evt.detail.role; $_ctx_online=evt.detail.online; $_ctx_banned=evt.detail.banned; $_ctx_blocked=evt.detail.blocked; var vh=window.innerHeight; var down=evt.detail.y<=vh*0.55; var off=down?Math.max(8,evt.detail.y):Math.max(8,vh-evt.detail.y); $_ctx_x=Math.max(8, Math.min(evt.detail.x, window.innerWidth-248)); $_ctx_up=!down; $_ctx_y=off; $_ctx_maxh=vh-off-8; $_ctx_open=true\" data-on:click__window=\"$_ctx_open=false\" data-on:keydown__window=\"evt.key==='Escape' && ($_ctx_open=false)\"><div class=\"ucm-head\"><span class=\"ucm-name\" data-text=\"$_ctx_name\"></span></div><div class=\"ucm-list\"><button class=\"ucm-item\" role=\"menuitem\" data-show=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_ctx_user_id !== '" + currentUserID + "'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 27, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 38, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var2)
 		if templ_7745c5c3_Err != nil {
@@ -60,7 +71,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs("@")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 33, Col: 32}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 44, Col: 32}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -73,7 +84,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_ctx_user_id !== '" + currentUserID + "' && !$_ctx_blocked")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 40, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 51, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -86,7 +97,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/block?user=' + $_ctx_user_id); $_ctx_open=false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 41, Col: 92}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 52, Col: 92}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -99,7 +110,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/unblock?user=' + $_ctx_user_id); $_ctx_open=false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 46, Col: 94}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 57, Col: 94}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
@@ -112,7 +123,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_ctx_user_id !== '" + currentUserID + "'")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 50, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 61, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {
@@ -130,7 +141,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_ctx_user_id !== '" + currentUserID + "'")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 55, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 66, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
 			if templ_7745c5c3_Err != nil {
@@ -143,7 +154,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_ctx_user_id !== '" + currentUserID + "' && !$_ctx_banned")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 57, Col: 77}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 68, Col: 77}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
 			if templ_7745c5c3_Err != nil {
@@ -156,7 +167,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/unban?id=' + $_ctx_membership_id); $_ctx_open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 63, Col: 103}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 74, Col: 103}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
 			if templ_7745c5c3_Err != nil {
@@ -169,7 +180,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_ctx_user_id !== '" + currentUserID + "' && $_ctx_role === 'member'")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 67, Col: 87}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 78, Col: 87}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 			if templ_7745c5c3_Err != nil {
@@ -182,7 +193,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/set-role?id=' + $_ctx_membership_id + '&role=moderator'); $_ctx_open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 68, Col: 126}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 79, Col: 126}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 			if templ_7745c5c3_Err != nil {
@@ -195,7 +206,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/set-role?id=' + $_ctx_membership_id + '&role=member'); $_ctx_open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 73, Col: 123}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 84, Col: 123}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var13)
 			if templ_7745c5c3_Err != nil {
@@ -208,7 +219,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.ResolveAttributeValue("$_ctx_user_id !== '" + currentUserID + "'")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 81, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 92, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
 			if templ_7745c5c3_Err != nil {
@@ -221,7 +232,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.ResolveAttributeValue("if(confirm('Remove ' + $_ctx_name + ' from the community?')){$cleanup_chat=false; $cleanup_threads=false; $cleanup_posts=false; @post('/c/" + slug + "/admin/remove?id=' + $_ctx_membership_id)}; $_ctx_open=false")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 82, Col: 233}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 93, Col: 233}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 			if templ_7745c5c3_Err != nil {
@@ -292,7 +303,7 @@ func AliasDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var17 string
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.ResolveAttributeValue("$admin_nick=''; @post('/c/" + slug + "/admin/set-nick?id=' + $_ctx_membership_id); $_ctx_nick_open=false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 117, Col: 159}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 128, Col: 159}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
@@ -305,7 +316,7 @@ func AliasDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/set-nick?id=' + $_ctx_membership_id); $_ctx_nick_open=false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 118, Col: 130}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 129, Col: 130}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var18)
 		if templ_7745c5c3_Err != nil {
@@ -350,7 +361,7 @@ func ReportDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/report?user=' + $_ctx_user_id)")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 143, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 154, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 		if templ_7745c5c3_Err != nil {
@@ -396,7 +407,7 @@ func BanDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/ban?id=' + $_ctx_membership_id); $_ctx_ban_open=false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 173, Col: 124}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 184, Col: 124}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 		if templ_7745c5c3_Err != nil {
