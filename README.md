@@ -51,7 +51,7 @@ a Discord + forum mix would fit but you want to own the data.
 - **Multi-channel realtime chat.** Discord-style named text channels, durable in SQLite, with mentions, image paste/drop, multi-file attachments, reply quote, forward, and per-channel unread dots.
 - **Self-hosted AI assistant.** Per-community ChatGPT-style agent with persistent threads, streaming answers, vision, multiple named agents, and a tool layer (internal full-text/semantic search + connectable MCP servers). Backed by *your* Ollama.
 - **Fused search.** SQLite FTS5 (instant) + semantic vector search (RAG) merged by Reciprocal Rank Fusion across chat, forum, projects, issues, and AI threads.
-- **Slash commands in chat.** `/search`, `/summary` (AI recap of the channel, personal panel), `/prompt` (run a prompt → thread), `/translate` (live typeahead, auto-detected source language), `/paste` (pastebin editor → link in chat).
+- **Slash commands in chat.** `/search`, `/summary` (AI recap of the channel, personal panel), `/prompt` (run a prompt → thread), `/translate` (live typeahead, auto-detected source language), `/note` (shareable markdown note → link in chat; `/paste` alias).
 - **Email in.** Optional read-only IMAP ingest: per-community filters route matched mail into an inbox, optionally auto-file as project issues.
 - **Built-in video rooms.** Mesh WebRTC, screen + camera as independent tiles, no Jitsi sidecar.
 - **Push notifications that don't spam.** Per-event toggles + 5 / 15 / 60 / 240-min digest mode.
@@ -234,9 +234,9 @@ optional and degrade to silent no-ops when their backing feature is disabled.
 | `/summary`    | AI agent         | Summarises the channel's recent history (~last 300 messages) with an agent in a public agent thread, then shows the recap in an **ephemeral panel visible only to you** (not posted). You can post it to the channel from the panel. |
 | `/prompt <p>` | AI agent         | Runs a free-form prompt through an agent in a new public thread and posts the result (+ a link to the thread) back to the channel. |
 | `/translate <text>` | Ollama     | Interactive composer typeahead: a popup offers up to 3 English translations (source language auto-detected) that you send as yourself. 150 ms debounced. |
-| `/paste`      | pastes           | Opens a dedicated paste editor (big textarea + format select) at `/c/{slug}/pastes/{id}` for a long code/markdown/text snippet. **Save** posts the paste's link back into the channel as you and returns you to chat. The composer's 📋 button does the same. |
+| `/note`       | notes            | Opens a shared **note** editor (markdown → rendered HTML, colors, inline comments, optional collaborative editing) at `/c/{slug}/notes/{id}` for content longer than a chat line. **Save** posts the note's link back into the channel as you and returns you to chat. The composer's 📝 button does the same. `/paste` is kept as a back-compat alias (notes superseded the old pastebin as the in-chat share surface; existing `/pastes/{id}` links still render). |
 
-`/summary`, `/prompt`, `/translate`, and `/paste` are wired as closures in `main.go` so the
+`/summary`, `/prompt`, `/translate`, and `/note` are wired as closures in `main.go` so the
 chat package bridges to the agent/translate packages without an import cycle.
 `/search` / `/summary` and `/prompt` differ in visibility: search and summary
 results are personal until you choose to share them; prompt output is posted for

@@ -709,20 +709,20 @@ func ChatComposer(slug, channelSlug string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<div class=\"composer-row\"><label class=\"btn ghost icon-btn\" aria-label=\"Attach files\" title=\"Attach files (images, video, audio, documents)\">📎 <input type=\"file\" accept=\"*/*\" multiple style=\"display:none\"></label> <button type=\"button\" class=\"btn ghost icon-btn\" aria-label=\"New paste\" title=\"New paste — long code, markdown, or text\" data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<div class=\"composer-row\"><label class=\"btn ghost icon-btn\" aria-label=\"Attach files\" title=\"Attach files (images, video, audio, documents)\">📎 <input type=\"file\" accept=\"*/*\" multiple style=\"display:none\"></label> <button type=\"button\" class=\"btn ghost icon-btn\" aria-label=\"New note\" title=\"New note — shareable markdown, longer than a chat line\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var28 string
-		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/pastes/new?channel=" + channelSlug + "')")
+		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/notes/new?channel=" + channelSlug + "')")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 355, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/chat.templ`, Line: 355, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var28)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "\">📋</button>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "\">📝</button>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

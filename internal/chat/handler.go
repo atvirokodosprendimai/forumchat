@@ -100,11 +100,13 @@ type Handler struct {
 	// typeahead: a community where it's off never fires the request, so the
 	// popup can't flash open and close. nil ⇒ treated as disabled.
 	TranslateEnabled func(ctx context.Context) bool
-	// NewPaste runs the /paste slash command: create a draft paste opened from
-	// the current channel and return its id ("" on failure) so the handler can
-	// redirect to /c/{slug}/pastes/{id}. Wired in main.go to pastes.Service — a
-	// closure to avoid a chat↔pastes import cycle (pastes imports chat).
-	NewPaste func(ctx context.Context, communityID, channelID, authorID string) string
+	// NewNote runs the /note slash command (and its /paste back-compat alias):
+	// create a draft note opened from the current channel and return its id ("" on
+	// failure) so the handler can redirect to /c/{slug}/notes/{id}. Wired in
+	// main.go to notes.Service — a closure to avoid a chat↔notes import cycle
+	// (notes imports chat). Notes superseded pastes as the share surface; the
+	// /pastes routes remain for existing links.
+	NewNote func(ctx context.Context, communityID, channelID, authorID string) string
 	// MentionAgents, when set, returns the community's in-chat agents as
 	// mention hits (UserID = agent id, DisplayName = agent name) to union into
 	// the @mention autocomplete so a member can address a bot by name. Wired in
@@ -1016,13 +1018,15 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// /paste — open a fresh paste page (big editor) for a long code / markdown /
-	// text snippet, then return. Creates a draft and redirects; the Save there
-	// posts the paste's link back into THIS channel and returns the author here.
-	if h.NewPaste != nil && isSlashCommand(body, "paste") {
+	// /note — open a fresh note editor (markdown, shareable, colors) for content
+	// longer than a chat line, then return. Creates a draft and redirects; Save
+	// there posts the note's link back into THIS channel and returns the author
+	// here. /paste is kept as a back-compat alias (notes superseded pastes as the
+	// share surface) so old muscle memory doesn't post a literal "/paste" message.
+	if h.NewNote != nil && (isSlashCommand(body, "note") || isSlashCommand(body, "paste")) {
 		_ = sse.PatchSignals([]byte(`{"body":"","reply_to_id":"","image_data":"","attachment_ids":""}`))
-		if pid := h.NewPaste(r.Context(), h.cid(r.Context()), ch.ID, id.User.ID); pid != "" {
-			_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/pastes/" + pid)
+		if nid := h.NewNote(r.Context(), h.cid(r.Context()), ch.ID, id.User.ID); nid != "" {
+			_ = sse.Redirect("/c/" + h.cslug(r.Context()) + "/notes/" + nid)
 		}
 		return
 	}

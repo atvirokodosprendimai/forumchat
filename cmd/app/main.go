@@ -1026,17 +1026,6 @@ func run() error {
 		}
 		return nil
 	}
-	// /paste slash command → create a draft paste, return its id so chat
-	// redirects the author to the editor.
-	chatHandler.NewPaste = func(ctx context.Context, communityID, channelID, authorID string) string {
-		p, err := pastesHandler.Svc.CreateDraft(ctx, communityID, channelID, authorID)
-		if err != nil {
-			log.Error("paste: create draft", "err", err)
-			return ""
-		}
-		return p.ID
-	}
-
 	// ----- Notes (per-community shared notes) -------------------------------
 	notesRepo := notes.NewRepo(db)
 	notesHandler := &notes.Handler{
@@ -1084,6 +1073,17 @@ func run() error {
 			return "", "", false
 		}
 		return c.Name, c.Slug, true
+	}
+	// /note slash command + composer 📝 button → create a draft note, return its
+	// id so chat redirects the author to the editor. Notes superseded pastes as
+	// the in-chat share surface; /paste remains a back-compat alias in PostSend.
+	chatHandler.NewNote = func(ctx context.Context, communityID, channelID, authorID string) string {
+		n, err := notesHandler.Svc.CreateDraft(ctx, communityID, channelID, authorID)
+		if err != nil {
+			log.Error("note: create draft", "err", err)
+			return ""
+		}
+		return n.ID
 	}
 
 	// ----- Web Push (VAPID) -------------------------------------------------

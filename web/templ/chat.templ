@@ -351,8 +351,8 @@ templ ChatComposer(slug, channelSlug string) {
 				📎
 				<input type="file" accept="*/*" multiple style="display:none"/>
 			</label>
-			<button type="button" class="btn ghost icon-btn" aria-label="New paste" title="New paste — long code, markdown, or text"
-				data-on:click={ "@post('/c/" + slug + "/pastes/new?channel=" + channelSlug + "')" }>📋</button>
+			<button type="button" class="btn ghost icon-btn" aria-label="New note" title="New note — shareable markdown, longer than a chat line"
+				data-on:click={ "@post('/c/" + slug + "/notes/new?channel=" + channelSlug + "')" }>📝</button>
 			@EmojiButton(".composer-text")
 			<textarea
 				class="composer-text"
