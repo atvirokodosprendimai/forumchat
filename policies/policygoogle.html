@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<!--
+  policygoogle.html — standalone privacy policy for Google OAuth verification.
+
+  WHY standalone (no external CSS/JS/font dependencies): Google's OAuth review
+  fetches this URL directly and so do unfurlers/crawlers; a missing CDN asset
+  must never break the page. Everything (styles + the tiny progressive-
+  enhancement script) is inlined. Fonts are high-quality SYSTEM stacks so the
+  page renders identically offline.
+
+  Brand mirrors the Commons landing page (web/templ/landing.templ): ◇ mark,
+  flat-light theme, color-scheme:light, accent oklch(57% 0.19 272).
+
+  EDIT BEFORE PUBLISHING:
+    • Replace the contact email (search "privacy@ituoga.lt") with the address
+      you actually monitor — Google rejects placeholder/example addresses.
+    • Update the "Last updated" date if you change the substance.
+    • If your deployment uses a brand other than "Commons", swap the name.
+-->
+<html lang="en">
+<head>
+	<meta charset="utf-8"/>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<title>Privacy Policy — Commons</title>
+	<meta name="description" content="How Commons collects, uses, stores and protects your data, including data received through Google sign-in (OAuth)."/>
+	<meta name="robots" content="index, follow"/>
+	<meta name="color-scheme" content="light"/>
+	<meta name="theme-color" content="#fbfaf8"/>
+	<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext y='20' font-size='20'%3E%E2%97%87%3C/text%3E%3C/svg%3E"/>
+	<style>
+		/* ---- Design tokens — flat-light, mirrors the Commons app palette ---- */
+		:root {
+			color-scheme: light;                 /* native controls stop inverting on dark-OS */
+			--bg: #fbfaf8;                        /* warm paper */
+			--surface: #ffffff;
+			--ink: #1b1b21;                      /* near-black, warm — body text (>=14:1 on bg) */
+			--muted: #585863;                    /* secondary text (>=4.6:1 on bg) */
+			--faint: #878794;                    /* tertiary / meta */
+			--hairline: rgba(20, 20, 30, 0.10);
+			--accent: oklch(57% 0.19 272);       /* indigo — same as app */
+			--accent-ink: oklch(46% 0.18 272);   /* darker accent for text on light */
+			--accent-soft: color-mix(in oklch, var(--accent) 9%, white);
+			--accent-line: color-mix(in oklch, var(--accent) 28%, transparent);
+			--maxw: 70ch;
+			--radius: 14px;
+			--shadow: 0 1px 2px rgba(20, 20, 30, 0.04), 0 8px 28px rgba(20, 20, 30, 0.05);
+			/* Editorial serif for display, clean humanist sans for prose, mono for code.
+			   System stacks only — distinctive yet dependency-free. */
+			--serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+			--sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+			--mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+			--hh: 60px;                          /* sticky header height, for scroll-margin */
+		}
+
+		/* Fallback for engines without oklch (older review crawlers). */
+		@supports not (color: oklch(57% 0.19 272)) {
+			:root { --accent: #4f46e5; --accent-ink: #3f37c9; --accent-soft: #eef0fe; --accent-line: rgba(79, 70, 229, .28); }
+		}
+
+		*, *::before, *::after { box-sizing: border-box; }
+
+		html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+		@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+		body {
+			margin: 0;
+			font-family: var(--sans);
+			font-size: 17px;
+			line-height: 1.7;
+			color: var(--ink);
+			background: var(--bg);
+			/* Faint, calm atmosphere — two barely-there washes, not a gradient slab. */
+			background-image:
+				radial-gradient(1200px 600px at 80% -10%, color-mix(in oklch, var(--accent) 6%, transparent), transparent 70%),
+				radial-gradient(900px 500px at -10% 0%, rgba(20, 20, 30, 0.025), transparent 60%);
+			background-attachment: fixed;
+			-webkit-font-smoothing: antialiased;
+			text-rendering: optimizeLegibility;
+		}
+
+		a { color: var(--accent-ink); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+		a:hover { text-decoration-thickness: 2px; }
+		a:focus-visible, button:focus-visible, summary:focus-visible {
+			outline: 3px solid var(--accent-line);
+			outline-offset: 3px;
+			border-radius: 4px;
+		}
+
+		code {
+			font-family: var(--mono);
+			font-size: 0.86em;
+			background: var(--accent-soft);
+			color: var(--accent-ink);
+			padding: 0.12em 0.42em;
+			border-radius: 6px;
+			border: 1px solid var(--accent-line);
+			white-space: nowrap;
+		}
+
+		/* ---- Skip link (keyboard a11y) ---- */
+		.skip {
+			position: absolute; left: 12px; top: -60px;
+			background: var(--ink); color: #fff;
+			padding: 10px 16px; border-radius: 8px; z-index: 100;
+			transition: top .15s ease;
+		}
+		.skip:focus { top: 12px; }
+
+		/* ---- Sticky brand bar ---- */
+		.bar {
+			position: sticky; top: 0; z-index: 40;
+			height: var(--hh);
+			display: flex; align-items: center; gap: 14px;
+			padding: 0 clamp(18px, 5vw, 40px);
+			background: color-mix(in oklch, var(--bg) 86%, transparent);
+			backdrop-filter: saturate(1.4) blur(10px);
+			-webkit-backdrop-filter: saturate(1.4) blur(10px);
+			border-bottom: 1px solid var(--hairline);
+		}
+		.brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -0.01em; color: var(--ink); text-decoration: none; }
+		.brand .mark { color: var(--accent-ink); font-size: 1.15em; line-height: 1; }
+		.bar .doc { margin-left: auto; font-size: 0.82rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+
+		/* ---- Page frame ---- */
+		.wrap { max-width: 1120px; margin: 0 auto; padding: 0 clamp(18px, 5vw, 40px); }
+
+		/* ---- Hero ---- */
+		.hero { padding: clamp(48px, 8vw, 96px) 0 clamp(28px, 4vw, 44px); max-width: var(--maxw); }
+		.kicker {
+			display: inline-block;
+			font-size: 0.74rem; font-weight: 650; letter-spacing: 0.14em; text-transform: uppercase;
+			color: var(--accent-ink);
+			padding: 5px 11px; border: 1px solid var(--accent-line); border-radius: 999px;
+			background: var(--accent-soft);
+		}
+		h1 {
+			font-family: var(--serif);
+			font-weight: 600;
+			font-size: clamp(2.5rem, 7vw, 4rem);
+			line-height: 1.04;
+			letter-spacing: -0.02em;
+			margin: 22px 0 0;
+		}
+		.lead { font-size: 1.18rem; color: var(--muted); margin: 18px 0 0; }
+		.meta { margin-top: 22px; font-size: 0.9rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+		.meta strong { color: var(--muted); font-weight: 600; }
+
+		/* ---- Two-column layout: sticky TOC + content ---- */
+		.layout { display: grid; grid-template-columns: 1fr; gap: clamp(28px, 5vw, 64px); padding-bottom: 80px; }
+		@media (min-width: 940px) {
+			/* No align-items:start — the aside must STRETCH to the content row's
+			   full height, otherwise the sticky TOC has no track to travel and
+			   scrolls away as soon as you pass the short aside box. */
+			.layout { grid-template-columns: 232px minmax(0, 1fr); }
+		}
+
+		/* ---- Table of contents ---- */
+		.toc { font-size: 0.92rem; }
+		@media (min-width: 940px) { .toc { position: sticky; top: calc(var(--hh) + 24px); } }
+		.toc > summary, .toc-title { font-weight: 650; color: var(--faint); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.72rem; margin-bottom: 12px; }
+		/* On mobile the TOC is a collapsed <details>; on desktop it's always open. */
+		.toc summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; box-shadow: var(--shadow); }
+		.toc summary::-webkit-details-marker { display: none; }
+		.toc summary::after { content: "▾"; margin-left: auto; transition: transform .2s ease; color: var(--faint); }
+		.toc[open] summary::after { transform: rotate(180deg); }
+		.toc ol { list-style: none; counter-reset: toc; margin: 10px 0 0; padding: 0; }
+		.toc li { counter-increment: toc; margin: 1px 0; }
+		.toc a {
+			display: flex; gap: 10px; align-items: baseline;
+			padding: 7px 12px; border-radius: 8px;
+			color: var(--muted); text-decoration: none; line-height: 1.4;
+			border-left: 2px solid transparent;
+		}
+		.toc a::before { content: counter(toc, decimal-leading-zero); font-family: var(--mono); font-size: 0.74em; color: var(--faint); }
+		.toc a:hover { background: var(--accent-soft); color: var(--ink); }
+		.toc a.active { color: var(--accent-ink); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
+		.toc a.active::before { color: var(--accent-ink); }
+		@media (min-width: 940px) {
+			.toc summary { display: none; }       /* desktop: no toggle, list always shown */
+			.toc[data-desktop] > ol { display: block !important; }
+		}
+
+		/* ---- Content sections ---- */
+		.content { max-width: var(--maxw); counter-reset: sec; }
+		section { scroll-margin-top: calc(var(--hh) + 18px); padding-top: 14px; }
+		section + section { margin-top: clamp(34px, 5vw, 52px); }
+		h2 {
+			counter-increment: sec;
+			font-family: var(--serif);
+			font-weight: 600;
+			font-size: clamp(1.5rem, 3.5vw, 1.95rem);
+			line-height: 1.18;
+			letter-spacing: -0.01em;
+			margin: 0 0 14px;
+			padding-bottom: 14px;
+			border-bottom: 1px solid var(--hairline);
+			display: flex; align-items: baseline; gap: 14px;
+		}
+		h2::before {
+			content: counter(sec, decimal-leading-zero);
+			font-family: var(--mono);
+			font-size: 0.92rem; font-weight: 600;
+			color: var(--accent-ink);
+			background: var(--accent-soft);
+			border: 1px solid var(--accent-line);
+			border-radius: 8px;
+			padding: 3px 9px;
+			align-self: center;
+		}
+		h3 { font-size: 1.05rem; font-weight: 650; margin: 26px 0 6px; letter-spacing: -0.005em; }
+		p { margin: 0 0 16px; }
+		.content ul { margin: 0 0 16px; padding-left: 0; list-style: none; }
+		.content li { position: relative; padding-left: 26px; margin: 9px 0; }
+		.content li::before {
+			content: ""; position: absolute; left: 6px; top: 0.72em;
+			width: 7px; height: 7px; border-radius: 2px;
+			background: var(--accent); transform: rotate(45deg);   /* ◇ tick, echoes the brand mark */
+		}
+		.content li strong { font-weight: 650; }
+
+		/* ---- Callout — used for the Google Limited-Use disclosure ---- */
+		.callout {
+			background: var(--surface);
+			border: 1px solid var(--hairline);
+			border-left: 4px solid var(--accent);
+			border-radius: var(--radius);
+			padding: 22px 24px;
+			margin: 22px 0;
+			box-shadow: var(--shadow);
+		}
+		.callout h3 { margin-top: 0; }
+		.callout p:last-child { margin-bottom: 0; }
+
+		/* ---- Definition-style data table ---- */
+		.dl {
+			margin: 0 0 16px;
+			border: 1px solid var(--hairline);
+			border-radius: var(--radius);
+			overflow: hidden;
+			background: var(--surface);
+			box-shadow: var(--shadow);
+		}
+		.dl > div { display: grid; grid-template-columns: 1fr; gap: 2px 18px; padding: 16px 20px; }
+		.dl > div + div { border-top: 1px solid var(--hairline); }
+		.dl dt { font-weight: 650; color: var(--ink); }
+		.dl dd { margin: 0; color: var(--muted); }
+		@media (min-width: 620px) { .dl > div { grid-template-columns: 200px 1fr; align-items: baseline; } }
+
+		/* ---- Footer ---- */
+		.foot { border-top: 1px solid var(--hairline); background: color-mix(in oklch, var(--bg) 60%, white); }
+		.foot .wrap { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; padding-top: 30px; padding-bottom: 40px; }
+		.foot .brand { font-size: 0.98rem; }
+		.foot nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: 18px; font-size: 0.9rem; }
+		.foot nav a { color: var(--muted); text-decoration: none; }
+		.foot nav a:hover { color: var(--accent-ink); }
+		.foot .tag { width: 100%; color: var(--faint); font-size: 0.85rem; }
+
+		/* ---- Back-to-top (progressive enhancement; hidden without scroll) ---- */
+		#top {
+			position: fixed; right: 22px; bottom: 22px; z-index: 50;
+			width: 46px; height: 46px; border-radius: 50%;
+			display: grid; place-items: center;
+			background: var(--ink); color: #fff;
+			border: none; cursor: pointer; font-size: 18px;
+			box-shadow: 0 6px 20px rgba(20,20,30,.22);
+			opacity: 0; transform: translateY(10px); pointer-events: none;
+			transition: opacity .2s ease, transform .2s ease;
+		}
+		#top.show { opacity: 1; transform: none; pointer-events: auto; }
+		@media (prefers-reduced-motion: reduce) { #top { transition: none; } }
+
+		/* ---- Print: clean legal document, drop chrome ---- */
+		@media print {
+			.bar, .toc, #top, .foot nav { display: none !important; }
+			body { background: #fff; font-size: 12pt; }
+			.layout { grid-template-columns: 1fr; }
+			a { color: inherit; text-decoration: underline; }
+			.callout, .dl { box-shadow: none; }
+		}
+	</style>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to content</a>
+
+	<header class="bar">
+		<a class="brand" href="/"><span class="mark" aria-hidden="true">◇</span> Commons</a>
+		<span class="doc">Privacy Policy</span>
+	</header>
+
+	<div class="wrap">
+		<div class="hero">
+			<span class="kicker">Legal · Your data</span>
+			<h1>Privacy&nbsp;Policy</h1>
+			<p class="lead">How Commons collects, uses, stores and protects your information — including the data we receive when you sign in with Google.</p>
+			<p class="meta"><strong>Last updated:</strong> June&nbsp;25,&nbsp;2026 &nbsp;·&nbsp; Applies to this Commons community and its Google&nbsp;sign-in integration.</p>
+		</div>
+	</div>
+
+	<div class="wrap">
+		<div class="layout">
+			<!-- TOC: a collapsed <details> on mobile, an always-open sticky list on desktop. -->
+			<aside>
+				<details class="toc" data-desktop>
+					<summary>On this page</summary>
+					<ol>
+						<li><a href="#who">Who we are</a></li>
+						<li><a href="#collect">Information we collect</a></li>
+						<li><a href="#google">Google sign-in data</a></li>
+						<li><a href="#use">How we use information</a></li>
+						<li><a href="#legal">Why we are allowed to</a></li>
+						<li><a href="#store">Storage &amp; security</a></li>
+						<li><a href="#share">Sharing &amp; disclosure</a></li>
+						<li><a href="#retain">Retention &amp; deletion</a></li>
+						<li><a href="#rights">Your rights</a></li>
+						<li><a href="#cookies">Cookies</a></li>
+						<li><a href="#children">Children</a></li>
+						<li><a href="#changes">Changes</a></li>
+						<li><a href="#contact">Contact us</a></li>
+					</ol>
+				</details>
+			</aside>
+
+			<main id="main" class="content">
+
+				<section id="who">
+					<h2>Who we are</h2>
+					<p><strong>Commons</strong> is self-hosted community software that combines realtime chat, forum discussions, video rooms and an optional AI assistant. The community you are signing in to runs on a server operated by its administrators (“the operator”). This policy explains what data the Commons software handles on the operator’s behalf, and how the Google sign-in integration works.</p>
+					<p>Because Commons is open source (AGPL-3.0) and self-hosted, your community’s data lives on infrastructure the operator controls — not on a shared platform owned by us. References to “we”, “us” and “the service” below mean the operator of this Commons instance.</p>
+				</section>
+
+				<section id="collect">
+					<h2>Information we collect</h2>
+					<p>We collect only what is needed to run a community space. There is no advertising profile, no tracking pixel, and no data broker in the middle.</p>
+
+					<h3>Account information</h3>
+					<ul>
+						<li><strong>Email address</strong> — used to identify your account, send sign-in and verification links, and (if enabled) notify you.</li>
+						<li><strong>Display name</strong> — shown next to your messages and on your profile.</li>
+						<li><strong>Password</strong> — only for accounts that set one, and stored solely as a salted <code>bcrypt</code> hash. Accounts that use Google or a magic link never have a usable password on file.</li>
+					</ul>
+
+					<h3>Content you create</h3>
+					<ul>
+						<li><strong>Messages, threads, posts, notes and comments</strong> you write in the community.</li>
+						<li><strong>Files</strong> you upload (images, documents, and similar).</li>
+					</ul>
+					<p>By design, this content is shared with the other members of your community — Commons is a public-to-the-community space, not a private messaging app.</p>
+
+					<h3>Technical information</h3>
+					<ul>
+						<li><strong>Session data</strong> — an essential cookie that keeps you signed in (see <a href="#cookies">Cookies</a>).</li>
+						<li><strong>Server logs</strong> — standard records such as IP address, browser user-agent and timestamps, retained for security, debugging and abuse prevention.</li>
+					</ul>
+				</section>
+
+				<section id="google">
+					<h2>Google sign-in data</h2>
+					<p>When you choose <em>“Continue with Google”</em>, Google asks for your consent and then shares a limited set of profile details with us. We request only these scopes:</p>
+					<ul>
+						<li><code>openid</code> — a stable, anonymous identifier for your Google account.</li>
+						<li><code>email</code> — your email address and whether Google has verified it.</li>
+						<li><code>profile</code> — your basic public profile: name and profile picture.</li>
+					</ul>
+					<p>In short, all we receive is your <strong>email address</strong> and your <strong>basic public profile</strong> — your name, and your profile picture if you have one — together with the <strong>Google account identifier</strong> that links your future sign-ins to the same account. Nothing else.</p>
+					<p>We do <strong>not</strong> request — and therefore cannot read — your Gmail, Google Drive, Calendar, Contacts, or any other Google service data. Sign-in is the only purpose.</p>
+
+					<div class="callout">
+						<h3>Limited use of Google user data</h3>
+						<p>Our use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener">Google API Services User Data Policy</a>, including its Limited Use requirements. Specifically, data obtained through Google sign-in is used <strong>only</strong> to authenticate you and to populate your member profile (name and avatar). We do not sell it, do not use it for advertising, and do not transfer it to third parties except as needed to provide the sign-in feature or where required by law.</p>
+					</div>
+				</section>
+
+				<section id="use">
+					<h2>How we use information</h2>
+					<ul>
+						<li><strong>To run your account</strong> — create and authenticate it, recognise you on return visits, and link a Google identity to an existing account with the same verified email.</li>
+						<li><strong>To display your presence</strong> — show your name and avatar beside your contributions.</li>
+						<li><strong>To deliver the service</strong> — store and show the chat, threads, posts and files you and other members create.</li>
+						<li><strong>To keep things working and safe</strong> — diagnose problems, prevent abuse, and honour bans or moderation decisions.</li>
+						<li><strong>To communicate</strong> — send verification, sign-in and (opt-in) notification messages.</li>
+					</ul>
+					<p>We do not use your information for advertising, profiling, or automated decisions with legal effects.</p>
+				</section>
+
+				<section id="legal">
+					<h2>Why we are allowed to (legal bases)</h2>
+					<p>Where data-protection law such as the GDPR applies, we rely on:</p>
+					<ul>
+						<li><strong>Contract</strong> — to give you the account and community features you signed up for.</li>
+						<li><strong>Legitimate interests</strong> — to keep the service secure, reliable and free of abuse.</li>
+						<li><strong>Consent</strong> — for optional things you switch on, such as push notifications. You can withdraw consent at any time.</li>
+						<li><strong>Legal obligation</strong> — where we must retain or disclose data to comply with the law.</li>
+					</ul>
+				</section>
+
+				<section id="store">
+					<h2>Storage &amp; security</h2>
+					<ul>
+						<li><strong>Self-hosted by design.</strong> Everything — every account, message, thread, and file — lives in a single database and an uploads folder on the operator’s own server. No telemetry phones home and no analytics broker sits in the middle.</li>
+						<li><strong>Passwords are hashed</strong> with <code>bcrypt</code>; they are never stored or logged in plain text.</li>
+						<li><strong>Secrets are encrypted at rest</strong> (AES-GCM) where the deployment stores integration credentials such as OAuth client secrets.</li>
+						<li><strong>Your discussions stay yours.</strong> The optional AI assistant runs on models the operator hosts; by default no third-party AI service reads your community’s content.</li>
+						<li><strong>Transport security.</strong> When served over HTTPS, traffic between your browser and the server is encrypted, and session cookies are marked <code>Secure</code> in production.</li>
+					</ul>
+					<p>No system is perfectly secure, but data is kept on infrastructure the operator controls and is exposed to as few parties as possible.</p>
+				</section>
+
+				<section id="share">
+					<h2>Sharing &amp; disclosure</h2>
+					<p>We do not sell your personal data, and there are no advertising networks involved. Information is disclosed only:</p>
+					<ul>
+						<li><strong>Within your community</strong> — the content you post is visible to other members, as that is the point of the space.</li>
+						<li><strong>To essential providers</strong> — for example an email relay to deliver sign-in messages, or Google for the sign-in step itself. These handle data only to provide their function.</li>
+						<li><strong>When legally required</strong> — to comply with a valid legal request, or to protect the rights, safety and property of the community and its members.</li>
+					</ul>
+				</section>
+
+				<section id="retain">
+					<h2>Retention &amp; deletion</h2>
+					<p>We keep your information for as long as your account is active, then as described here:</p>
+					<ul>
+						<li><strong>Delete your account.</strong> You can delete your account from your profile. Your email is released, login is disabled, and personal records are removed; content you shared with the community is anonymised and reattributed to a “deleted user” so other members’ conversations stay intact.</li>
+						<li><strong>Export your data.</strong> Community owners can export the community’s data as a downloadable archive.</li>
+						<li><strong>Community deletion.</strong> An operator can delete an entire community, which irreversibly erases its messages, threads, files and member records.</li>
+						<li><strong>Logs</strong> are retained only as long as useful for security and debugging, then rotated out.</li>
+					</ul>
+				</section>
+
+				<section id="rights">
+					<h2>Your rights</h2>
+					<p>Depending on where you live, you may have the right to access, correct, export, restrict, or delete your personal data, and to object to certain processing. Commons gives you direct tools for most of this — editing your profile, exporting community data, and deleting your account — and you can contact us for anything else. You also have the right to lodge a complaint with your local data-protection authority.</p>
+				</section>
+
+				<section id="cookies">
+					<h2>Cookies</h2>
+					<p>Commons uses only the cookies it needs to function — there are no advertising or cross-site tracking cookies.</p>
+					<dl class="dl">
+						<div>
+							<dt><code>forumchat_session</code></dt>
+							<dd>Essential. Keeps you signed in. <code>HttpOnly</code>, <code>SameSite=Lax</code>, and <code>Secure</code> in production.</dd>
+						</div>
+						<div>
+							<dt>OAuth state cookie</dt>
+							<dd>Short-lived. Set only during a Google sign-in to protect the round-trip against forgery, then discarded.</dd>
+						</div>
+					</dl>
+				</section>
+
+				<section id="children">
+					<h2>Children</h2>
+					<p>Commons is not directed at children. The service is intended for users who are old enough to consent to data processing under their local law (generally 13, or 16 in parts of the EU). Operators may set their own age requirements for a community; if you believe a child has provided personal data, contact us and we will remove it.</p>
+				</section>
+
+				<section id="changes">
+					<h2>Changes to this policy</h2>
+					<p>We may update this policy as the software or the law evolves. When we do, we revise the “Last updated” date above, and we announce material changes within the community. Continued use after a change means you accept the updated policy.</p>
+				</section>
+
+				<section id="contact">
+					<h2>Contact us</h2>
+					<p>Questions about this policy or your data? Reach the operator of this Commons community:</p>
+					<ul>
+						<!-- EDIT: replace with the address you actually monitor before submitting to Google. -->
+						<li><strong>Email:</strong> <a href="mailto:privacy@ituoga.lt">privacy@ituoga.lt</a></li>
+						<li><strong>Source &amp; issues:</strong> <a href="https://github.com/atvirokodosprendimai/forumchat" target="_blank" rel="noopener">github.com/atvirokodosprendimai/forumchat</a></li>
+					</ul>
+				</section>
+
+			</main>
+		</div>
+	</div>
+
+	<footer class="foot">
+		<div class="wrap">
+			<a class="brand" href="/"><span class="mark" aria-hidden="true" style="color:var(--accent-ink)">◇</span>&nbsp;Commons</a>
+			<nav aria-label="Footer">
+				<a href="/">Home</a>
+				<a href="https://github.com/atvirokodosprendimai/forumchat" target="_blank" rel="noopener">GitHub</a>
+				<a href="#main">Back to top</a>
+			</nav>
+			<p class="tag">A calm home for your community. Open source under AGPL-3.0.</p>
+		</div>
+	</footer>
+
+	<button id="top" type="button" aria-label="Back to top" title="Back to top">↑</button>
+
+	<script>
+		/* Progressive enhancement only — the page is fully usable without JS.
+		   1) Desktop TOC stays open (the <details> toggle is hidden by CSS, but
+		      we force `open` so the list shows even where CSS :where support lags).
+		   2) Scroll-spy highlights the current section in the TOC.
+		   3) Back-to-top button appears after the user scrolls. */
+		(function () {
+			var toc = document.querySelector('.toc');
+			var mq = window.matchMedia('(min-width: 940px)');
+			function syncToc() { if (toc) toc.open = mq.matches ? true : toc.open; }
+			syncToc();
+			mq.addEventListener ? mq.addEventListener('change', syncToc) : mq.addListener(syncToc);
+
+			// Scroll-spy: mark the TOC link of the section nearest the top as active.
+			var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+			var map = {};
+			links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+			if ('IntersectionObserver' in window) {
+				var io = new IntersectionObserver(function (entries) {
+					entries.forEach(function (e) {
+						if (!e.isIntersecting) return;
+						links.forEach(function (l) { l.classList.remove('active'); l.removeAttribute('aria-current'); });
+						var a = map[e.target.id];
+						if (a) { a.classList.add('active'); a.setAttribute('aria-current', 'true'); }
+					});
+				}, { rootMargin: '-20% 0px -72% 0px' });
+				document.querySelectorAll('section[id]').forEach(function (s) { io.observe(s); });
+			}
+
+			// Back-to-top visibility.
+			var top = document.getElementById('top');
+			function onScroll() { top.classList.toggle('show', window.scrollY > 600); }
+			window.addEventListener('scroll', onScroll, { passive: true });
+			onScroll();
+			top.addEventListener('click', function () {
+				window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+			});
+		})();
+	</script>
+</body>
+</html>
