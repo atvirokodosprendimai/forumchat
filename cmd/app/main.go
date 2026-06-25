@@ -2567,7 +2567,7 @@ func run() error {
 
 	// Platform super-admin surface — global god-mode over every community
 	// and user, gated by the SUPERADMIN_EMAILS allowlist.
-	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, Chat: chatHandler, Debug: debugRec, Usage: usageRec, Auth: svc}
+	superHandler := &superadmin.Handler{AuthRepo: aRepo, Communities: cRepo, Provision: provSvc, Log: log, Bus: chatHandler.Bus, Chat: chatHandler, Debug: debugRec, Usage: usageRec, Auth: svc, Moderation: moderation.NewRepo(db), ModerationOn: cfg.ModerationEnabled()}
 	if ragSvc != nil {
 		superHandler.RAG = ragSvc
 	}

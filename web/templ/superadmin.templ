@@ -55,14 +55,29 @@ type SAUserMembership struct {
 }
 
 type SuperAdminPageData struct {
-	Viewer       Viewer
-	Communities  []SACommunity
-	Users        []SAUser
-	Requests     []SARequest
-	PlatformAI   []SAPlatformAIRow
-	RedFlags     []SACommunityRisk // communities scored elevated/high, worst first
-	DebugEnabled bool
-	DebugCount   int
+	Viewer          Viewer
+	Communities     []SACommunity
+	Users           []SAUser
+	Requests        []SARequest
+	PlatformAI      []SAPlatformAIRow
+	RedFlags        []SACommunityRisk // communities scored elevated/high, worst first
+	ModerationOn    bool              // safety classifier configured (MODERATION_MODEL set)
+	ModerationFlags []SAModerationFlag // newest individual flags, regardless of risk band
+	DebugEnabled    bool
+	DebugCount      int
+}
+
+// SAModerationFlag is one recorded safety-classifier hit in the raw audit card.
+// It carries NO message body (none is stored) — only when, where, who, and the
+// labelled categories — so the operator can act without reading content.
+type SAModerationFlag struct {
+	CreatedAt     string // formatted timestamp
+	CommunityName string
+	CommunitySlug string
+	Channel       string
+	AuthorEmail   string // "" when the author was erased
+	Categories    string // human labels, e.g. "Sexual content, Hate"; "" for Yes/No models
+	MessageID     string
 }
 
 // SAPlatformAIRow is one community's platform-AI standing plus its rolling
@@ -208,6 +223,8 @@ templ SuperAdminPage(data SuperAdminPageData) {
 		</section>
 
 		@SARiskCard(data.RedFlags)
+
+		@SAModerationCard(data.ModerationOn, data.ModerationFlags)
 
 		<section class="card">
 			<h2>📢 Broadcast to all chats</h2>
@@ -429,6 +446,60 @@ func kindLabel(kind string) string {
 	default:
 		return "(empty message)"
 	}
+}
+
+// SAModerationCard is the RAW safety-classifier audit: every individual flag,
+// newest first, regardless of risk band — the surface for "was this message
+// flagged?" that the aggregate Red flags panel can't answer (a single low-band
+// flag is hidden there). No message body is shown (none is stored): only when,
+// where, who, and the categories. When the classifier is off it says so.
+templ SAModerationCard(on bool, flags []SAModerationFlag) {
+	<section class="card">
+		<h2>🛡 Moderation log ({ itoa(len(flags)) })</h2>
+		if !on {
+			<p class="muted">The automated safety classifier is <strong>off</strong>. Set <code>MODERATION_OLLAMA_URL</code> + <code>MODERATION_MODEL</code> (e.g. <code>shieldgemma:2b</code> or <code>llama-guard3:1b</code>) and restart to classify chat messages. Test a phrase without the server via <code>forumchat-cli moderate "…"</code>.</p>
+		} else {
+			<p class="muted">Individual messages the classifier flagged, newest first — every hit, regardless of risk band. No message text is stored or shown; act via the user/community lists below.</p>
+			if len(flags) == 0 {
+				<p class="muted">✅ Nothing flagged yet. If you expected a hit, check the app log for <code>moderation: flagged</code> / <code>moderation: classify</code> lines, or run <code>forumchat-cli moderate "…"</code>.</p>
+			} else {
+				<table class="data-table">
+					<thead>
+						<tr><th>When</th><th>Community</th><th>Channel</th><th>Author</th><th>Categories</th></tr>
+					</thead>
+					<tbody>
+						for _, f := range flags {
+							<tr>
+								<td class="muted">{ f.CreatedAt }</td>
+								<td><strong>{ f.CommunityName }</strong> <span class="muted">/ { f.CommunitySlug }</span></td>
+								<td class="muted">
+									if f.Channel != "" {
+										#{ f.Channel }
+									} else {
+										—
+									}
+								</td>
+								<td>
+									if f.AuthorEmail != "" {
+										{ f.AuthorEmail }
+									} else {
+										<span class="muted">(erased)</span>
+									}
+								</td>
+								<td>
+									if f.Categories != "" {
+										<span class="risk-cats">{ f.Categories }</span>
+									} else {
+										<span class="role-pill high">● flagged</span>
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		}
+	</section>
 }
 
 // SARiskCard is the privacy-preserving abuse panel: communities whose last-24h

@@ -80,7 +80,16 @@ type Handler struct {
 	// Auth recovers signups stuck on email verification (force-verify / resend).
 	// Wired to *auth.Service in main.go.
 	Auth AuthVerifier
+	// Moderation reads the raw safety-classifier audit for the moderation-log
+	// card. Nil when the feature is unwired (card shows the "off" hint).
+	Moderation *moderation.Repo
+	// ModerationOn reflects cfg.ModerationEnabled() so the card distinguishes
+	// "classifier off" from "on but nothing flagged".
+	ModerationOn bool
 }
+
+// recentModerationLimit caps the raw moderation-log card.
+const recentModerationLimit = 50
 
 // usageWindow is the rolling lookback for the super-admin cost figures.
 const usageWindow = 30 * 24 * time.Hour
@@ -142,15 +151,29 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "load red flags: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Raw individual safety-classifier flags for the moderation-log card. Loaded
+	// only when the repo is wired; empty otherwise (the card then shows the
+	// off/empty hint based on ModerationOn).
+	var modFlags []webtempl.SAModerationFlag
+	if h.Moderation != nil {
+		rows, err := h.Moderation.Recent(r.Context(), recentModerationLimit)
+		if err != nil {
+			http.Error(w, "load moderation flags: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		modFlags = toSAModerationFlags(rows)
+	}
 	data := webtempl.SuperAdminPageData{
-		Viewer:       h.viewer(r),
-		Communities:  toSACommunities(comms),
-		Users:        toSAUsers(users),
-		Requests:     toSARequests(reqs),
-		PlatformAI:   platformAI,
-		RedFlags:     redFlags,
-		DebugEnabled: h.Debug.Enabled(),
-		DebugCount:   debugCount,
+		Viewer:          h.viewer(r),
+		Communities:     toSACommunities(comms),
+		Users:           toSAUsers(users),
+		Requests:        toSARequests(reqs),
+		PlatformAI:      platformAI,
+		RedFlags:        redFlags,
+		ModerationOn:    h.ModerationOn,
+		ModerationFlags: modFlags,
+		DebugEnabled:    h.Debug.Enabled(),
+		DebugCount:      debugCount,
 	}
 	_ = webtempl.SuperAdminPage(data).Render(r.Context(), w)
 }
@@ -382,6 +405,31 @@ func (h *Handler) redFlags(ctx context.Context) ([]webtempl.SACommunityRisk, err
 		})
 	}
 	return out, nil
+}
+
+// toSAModerationFlags maps raw flag rows to the audit-card view: formats the
+// timestamp and turns the stored category CSV into human labels. No message
+// body is involved — none is stored.
+func toSAModerationFlags(in []moderation.FlagRow) []webtempl.SAModerationFlag {
+	out := make([]webtempl.SAModerationFlag, 0, len(in))
+	for _, f := range in {
+		var codes []string
+		for _, c := range strings.Split(f.Categories, ",") {
+			if c = strings.TrimSpace(c); c != "" {
+				codes = append(codes, c)
+			}
+		}
+		out = append(out, webtempl.SAModerationFlag{
+			CreatedAt:     time.Unix(f.CreatedAt, 0).Local().Format("Jan 2 15:04"),
+			CommunityName: f.CommunityName,
+			CommunitySlug: f.CommunitySlug,
+			Channel:       f.ChannelID,
+			AuthorEmail:   f.AuthorEmail,
+			Categories:    categoryLabels(codes),
+			MessageID:     f.MessageID,
+		})
+	}
+	return out
 }
 
 // categoryLabels maps Llama Guard hazard codes (e.g. "S12") to their human
