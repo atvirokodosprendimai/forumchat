@@ -179,10 +179,11 @@ templ SuperAdminPage(data SuperAdminPageData) {
 	@Layout("Platform", data.Viewer) {
 		<section class="card">
 			<h1>🛡 Platform admin</h1>
-			<p class="muted">Super-admin god-mode. You can open any community’s admin, create communities, and disable accounts platform-wide. <strong>Delete is permanent</strong> — it erases the community and cascades its members, messages and threads; you must type the slug to confirm.</p>
 			if SaaSEnabled {
+				<p class="muted">Platform operator. You manage communities and accounts platform-wide — create, delete, disable, set roles, sponsor AI. <strong>You cannot read a community’s content</strong> (chat, notes, forum, files): each is a private tenant, so the abuse signals below are computed from metadata only. <strong>Delete is permanent</strong> — it erases the community and cascades its members, messages and threads; you must type the slug to confirm.</p>
 				<p><a href="/chats">💬 Your communities’ chats — live readonly feed →</a></p>
 			} else {
+				<p class="muted">Super-admin god-mode. You can open any community’s admin, create communities, and disable accounts platform-wide. <strong>Delete is permanent</strong> — it erases the community and cascades its members, messages and threads; you must type the slug to confirm.</p>
 				<p><a href="/superadmin/chat">💬 All chats — live cross-community feed →</a></p>
 			}
 			<div id="sa-result"></div>
@@ -236,7 +237,16 @@ templ SuperAdminPage(data SuperAdminPageData) {
 					for _, c := range data.Communities {
 						<tr>
 							<td>{ c.Name }</td>
-							<td><a href={ templ.URL("/c/" + c.Slug + "/admin") }>{ c.Slug } ↗</a></td>
+							<td>
+								// In SaaS the operator can't open a tenant's /admin
+								// (RequireMember 403s without a real membership), so the
+								// link would be a dead end — show the bare slug instead.
+								if SaaSEnabled {
+									{ c.Slug }
+								} else {
+									<a href={ templ.URL("/c/" + c.Slug + "/admin") }>{ c.Slug } ↗</a>
+								}
+							</td>
 							<td>{ itoa(c.MemberCount) }</td>
 							<td>{ itoa(c.MessageCount) }</td>
 							<td>{ itoa(c.ThreadCount) }</td>
@@ -619,7 +629,13 @@ templ SAUserMemberships(uid string, rows []SAUserMembership) {
 				<tbody>
 					for _, m := range rows {
 						<tr>
-							<td><a href={ templ.URL("/c/" + m.Slug + "/admin") }>{ m.Name } ↗</a></td>
+							<td>
+								if SaaSEnabled {
+									{ m.Name }
+								} else {
+									<a href={ templ.URL("/c/" + m.Slug + "/admin") }>{ m.Name } ↗</a>
+								}
+							</td>
 							<td>
 									<div class="sa-role-switch" role="group" aria-label="Set role">
 										@saRoleButton(uid, m, "member", "Member")
