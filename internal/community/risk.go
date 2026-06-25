@@ -4,8 +4,61 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
+
+// dedupeCSV splits a comma-joined list (GROUP_CONCAT of per-row category CSVs,
+// e.g. "S3,S12,S3"), trims, drops blanks, de-duplicates, and returns the codes
+// in a DETERMINISTIC order. SQLite's GROUP_CONCAT order is unspecified, so we
+// sort: hazard codes ("S<n>") by their numeric suffix (S3 before S12), and any
+// non-code values lexically after. Returns nil for empty input.
+func dedupeCSV(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		if _, dup := seen[p]; dup {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ni, oki := codeNum(out[i])
+		nj, okj := codeNum(out[j])
+		if oki && okj {
+			return ni < nj
+		}
+		if oki != okj {
+			return oki // numeric codes sort before non-codes
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+// codeNum extracts the integer from a hazard code like "S12" → (12, true).
+// Returns (0, false) for anything not of that shape.
+func codeNum(code string) (int, bool) {
+	if len(code) < 2 || (code[0] != 'S' && code[0] != 's') {
+		return 0, false
+	}
+	n := 0
+	for _, r := range code[1:] {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n, true
+}
 
 // RiskSignals are the privacy-preserving abuse indicators for one community.
 // Every field is an AGGREGATE COUNT or RATIO computed entirely inside SQL — no
@@ -26,6 +79,16 @@ type RiskSignals struct {
 	// the sum over identical-body groups of (count-1). Zero when every message
 	// is unique; high under copypasta spam.
 	DupExcess24h int
+	// Flagged24h is the count of messages the automated safety classifier
+	// flagged in the last 24h (internal/moderation; zero when that feature is
+	// off). FlaggedAuthors24h is how many DISTINCT authors those flags span —
+	// the signal that separates one bad actor from a coordinated community.
+	// FlaggedCategories are the distinct Llama Guard hazard CODES seen (e.g.
+	// "S12"); the codes are kept taxonomy-agnostic here and mapped to labels by
+	// the caller, so this package stays decoupled from internal/moderation.
+	Flagged24h        int
+	FlaggedAuthors24h int
+	FlaggedCategories []string
 }
 
 // CommunityRisk pairs a community with its signals and the computed assessment.
@@ -57,6 +120,7 @@ const (
 // and additive so several weak signals together still raise a flag.
 func ScoreRisk(s RiskSignals) RiskAssessment {
 	var score int
+	var floor int // a minimum the strongest signals pin the score to
 	var reasons []string
 
 	// 1. New-account surge — a botnet mass-registers. Score on the FRACTION of
@@ -112,6 +176,29 @@ func ScoreRisk(s RiskSignals) RiskAssessment {
 		}
 	}
 
+	// 5. Content flagged by the automated safety classifier (Phase B). The
+	//    strongest signal — this is actual policy-violating content, not just
+	//    volume. The author spread distinguishes one bad actor from a community
+	//    that is collectively abusive. Category labels are added by the caller;
+	//    the reason here stays code-free so this package needn't know the
+	//    taxonomy.
+	if s.Flagged24h > 0 {
+		if s.Flagged24h >= 10 || s.FlaggedAuthors24h >= 3 {
+			// Confirmed policy-violating content at volume or spread across
+			// several accounts is coordinated abuse — pin it to "high"
+			// regardless of the other heuristics.
+			score += 45
+			floor = 70
+			reasons = append(reasons, fmt.Sprintf("%d messages auto-flagged by the safety classifier from %d author(s) in 24h", s.Flagged24h, s.FlaggedAuthors24h))
+		} else {
+			score += 25
+			reasons = append(reasons, fmt.Sprintf("%d message(s) auto-flagged by the safety classifier from %d author(s) in 24h", s.Flagged24h, s.FlaggedAuthors24h))
+		}
+	}
+
+	if score < floor {
+		score = floor
+	}
 	if score > 100 {
 		score = 100
 	}
@@ -146,9 +233,12 @@ func (r *Repo) RiskSignals(ctx context.Context, now time.Time) ([]CommunityRisk,
 		       (SELECT COALESCE(SUM(cnt - 1), 0) FROM (
 		            SELECT COUNT(*) AS cnt FROM chat_messages cm
 		             WHERE cm.community_id = c.id AND cm.deleted_at IS NULL AND cm.kind = 'user' AND cm.created_at >= ?
-		             GROUP BY cm.body_md HAVING COUNT(*) > 1) g) AS dup_excess_24h
+		             GROUP BY cm.body_md HAVING COUNT(*) > 1) g) AS dup_excess_24h,
+		       (SELECT COUNT(*) FROM moderation_flags mf WHERE mf.community_id = c.id AND mf.created_at >= ?) AS flagged_24h,
+		       (SELECT COUNT(DISTINCT mf.author_id) FROM moderation_flags mf WHERE mf.community_id = c.id AND mf.created_at >= ?) AS flagged_authors_24h,
+		       (SELECT COALESCE(GROUP_CONCAT(mf.categories), '') FROM moderation_flags mf WHERE mf.community_id = c.id AND mf.created_at >= ?) AS flagged_cats_24h
 		FROM communities c
-		ORDER BY c.created_at DESC`, t24, t24, t1, t24, t24)
+		ORDER BY c.created_at DESC`, t24, t24, t1, t24, t24, t24, t24, t24)
 	if err != nil {
 		return nil, err
 	}
@@ -158,15 +248,18 @@ func (r *Repo) RiskSignals(ctx context.Context, now time.Time) ([]CommunityRisk,
 		var cr CommunityRisk
 		var created int64
 		var isPublic int
+		var flaggedCats string // GROUP_CONCAT of per-row category CSVs
 		if err := rows.Scan(&cr.Community.ID, &cr.Community.Slug, &cr.Community.Name,
 			&isPublic, &created,
 			&cr.Signals.MembersTotal, &cr.Signals.MembersNew24h,
 			&cr.Signals.Messages24h, &cr.Signals.Messages1h,
-			&cr.Signals.Authors24h, &cr.Signals.DupExcess24h); err != nil {
+			&cr.Signals.Authors24h, &cr.Signals.DupExcess24h,
+			&cr.Signals.Flagged24h, &cr.Signals.FlaggedAuthors24h, &flaggedCats); err != nil {
 			return nil, err
 		}
 		cr.Community.IsPublic = isPublic != 0
 		cr.Community.CreatedAt = time.Unix(created, 0)
+		cr.Signals.FlaggedCategories = dedupeCSV(flaggedCats)
 		cr.Assessment = ScoreRisk(cr.Signals)
 		out = append(out, cr)
 	}

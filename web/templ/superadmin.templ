@@ -25,6 +25,7 @@ type SACommunityRisk struct {
 	Score         int      // 0..100
 	Band          string   // "elevated" | "high"
 	Reasons       []string // human-readable signals that fired
+	Categories    string   // human-labelled safety categories, e.g. "Sexual content, Hate"; "" when none
 	MembersTotal  int
 	MembersNew24h int
 	Messages24h   int
@@ -464,6 +465,9 @@ templ SARiskCard(rows []SACommunityRisk) {
 							<li>{ why }</li>
 						}
 					</ul>
+					if c.Categories != "" {
+						<p class="risk-cats">⚠ Safety categories: <strong>{ c.Categories }</strong></p>
+					}
 					<p class="risk-stats">{ itoa(c.MembersTotal) } members · +{ itoa(c.MembersNew24h) } in 24h · { itoa(c.Messages24h) } messages in 24h</p>
 				</div>
 			}

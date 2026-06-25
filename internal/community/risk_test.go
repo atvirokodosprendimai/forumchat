@@ -3,9 +3,20 @@ package community
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"testing"
 	"time"
 )
+
+// insFlag inserts one moderation_flags row at a given time.
+func insFlag(t *testing.T, db *sql.DB, id, cid, author, cats string, at time.Time) {
+	t.Helper()
+	_, err := db.Exec(`INSERT INTO moderation_flags (id, community_id, message_id, author_id, categories, model, created_at)
+		VALUES (?, ?, ?, ?, ?, 'llama-guard3:1b', ?)`, id, cid, "msg-"+id, author, cats, at.Unix())
+	if err != nil {
+		t.Fatalf("insert flag %s: %v", id, err)
+	}
+}
 
 // mustUser inserts a minimal active user row so chat_messages.author_id (FK to
 // users) is satisfied.
@@ -59,6 +70,18 @@ func TestScoreRisk_Bands(t *testing.T) {
 			wantBand: RiskLow,
 			wantFire: false,
 		},
+		{
+			name:     "safety-classifier hits across authors = high",
+			sig:      RiskSignals{MembersTotal: 50, Messages24h: 40, Authors24h: 10, Flagged24h: 12, FlaggedAuthors24h: 4, FlaggedCategories: []string{"S12", "S3"}},
+			wantBand: RiskHigh, // +45 from the flagged-content signal
+			wantFire: true,
+		},
+		{
+			name:     "single flagged message from one author = elevated",
+			sig:      RiskSignals{MembersTotal: 50, Messages24h: 40, Authors24h: 10, Flagged24h: 1, FlaggedAuthors24h: 1},
+			wantBand: RiskLow, // +25, below the 40 elevated floor on its own
+			wantFire: true,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -109,6 +132,12 @@ func TestRiskSignals_AggregatesAndDuplicates(t *testing.T) {
 	}
 	insMsg(t, r.DB, "bold", bot.ID, "ua", "ancient", now.Add(-48*time.Hour))
 
+	// Bot also has safety-classifier flags: 2 within 24h from 2 distinct
+	// authors, plus one outside the window (must be excluded).
+	insFlag(t, r.DB, "f1", bot.ID, "ua", "S12", now.Add(-30*time.Minute))
+	insFlag(t, r.DB, "f2", bot.ID, "ub", "S3,S12", now.Add(-40*time.Minute))
+	insFlag(t, r.DB, "fold", bot.ID, "ua", "S10", now.Add(-50*time.Hour))
+
 	rows, err := r.RiskSignals(ctx, now)
 	if err != nil {
 		t.Fatalf("RiskSignals: %v", err)
@@ -122,6 +151,12 @@ func TestRiskSignals_AggregatesAndDuplicates(t *testing.T) {
 		t.Errorf("clean signals wrong: %+v", c)
 	}
 	b := got["bot"].Signals
+	if b.Flagged24h != 2 || b.FlaggedAuthors24h != 2 {
+		t.Errorf("bot flagged signals: Flagged24h=%d Authors=%d, want 2/2 (old flag excluded)", b.Flagged24h, b.FlaggedAuthors24h)
+	}
+	if !reflect.DeepEqual(b.FlaggedCategories, []string{"S3", "S12"}) {
+		t.Errorf("bot FlaggedCategories = %v, want [S3 S12] (deduped, numeric-sorted)", b.FlaggedCategories)
+	}
 	if b.Messages24h != 5 {
 		t.Errorf("bot Messages24h = %d, want 5 (old message must be excluded)", b.Messages24h)
 	}

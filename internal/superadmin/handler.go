@@ -22,6 +22,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
+	"github.com/atvirokodosprendimai/forumchat/internal/moderation"
 	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	webtempl "github.com/atvirokodosprendimai/forumchat/web/templ"
@@ -374,12 +375,28 @@ func (h *Handler) redFlags(ctx context.Context) ([]webtempl.SACommunityRisk, err
 			Score:         cr.Assessment.Score,
 			Band:          cr.Assessment.Band,
 			Reasons:       cr.Assessment.Reasons,
+			Categories:    categoryLabels(cr.Signals.FlaggedCategories),
 			MembersTotal:  cr.Signals.MembersTotal,
 			MembersNew24h: cr.Signals.MembersNew24h,
 			Messages24h:   cr.Signals.Messages24h,
 		})
 	}
 	return out, nil
+}
+
+// categoryLabels maps Llama Guard hazard codes (e.g. "S12") to their human
+// labels for display in the Red flags panel, joined for one line. Empty in →
+// "". This is where the moderation taxonomy is applied; community.RiskSignals
+// stays code-only so it needn't depend on internal/moderation.
+func categoryLabels(codes []string) string {
+	if len(codes) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(codes))
+	for _, c := range codes {
+		out = append(out, moderation.CategoryLabel(c))
+	}
+	return strings.Join(out, ", ")
 }
 
 func toSACommunities(in []community.CommunityStat) []webtempl.SACommunity {

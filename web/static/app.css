@@ -4851,6 +4851,7 @@ button.ghost.danger:hover:not([disabled]) {
 .risk-score { font-size: .8rem; white-space: nowrap; }
 .risk-reasons { margin: .45rem 0 0; padding-left: 1.15rem; }
 .risk-reasons li { font-size: .9rem; margin: .15rem 0; color: var(--fg); }
+.risk-cats { margin: .4rem 0 0; font-size: .85rem; color: var(--danger); }
 .risk-stats { margin: .4rem 0 0; font-size: .8rem; color: var(--fg-muted); }
 
 .sa-debug-list { display: flex; flex-direction: column; gap: .4rem; margin-top: .6rem; }
