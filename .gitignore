@@ -25,6 +25,12 @@
 *.db-*
 *.sqlite
 *.sqlite-*
+*.sqlite3
+
+# mempalace / chroma local tooling state (not project files)
+/chroma.sqlite3
+/entities.json
+/mempalace.yaml
 
 # uploads
 /uploads/
