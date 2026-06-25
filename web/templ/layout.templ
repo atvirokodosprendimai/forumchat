@@ -239,6 +239,11 @@ var MailboxEnabled bool
 // and the outbound relay hook.
 var WebhooksEnabled bool
 
+// ConnectorsEnabled — instance-level external-chat-bot flag. Gates the public
+// /bots/{id}/* routes (signed SSE stream + send/action API), the per-community
+// admin connectors page + its link.
+var ConnectorsEnabled bool
+
 // TimeEnabled — instance-level time-accounting flag. Toggles both the
 // per-community "Budget" link and the global personal "Journal" link, and
 // gates the route mounts in main.go. Tables always exist so flipping the

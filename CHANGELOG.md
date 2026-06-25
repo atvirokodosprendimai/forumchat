@@ -228,3 +228,4 @@
 - 2026-06-25 `172d882` fix(chat): hide soft-deleted messages from everyone, super-admins included
 - 2026-06-25 `2e5bd61` docs(connectors): spec + plan for external chat bot connectors
 - 2026-06-25 `2c1ed08` feat(connectors): phase 1 — schema, repo, signing, identity
+- 2026-06-25 `623f290` feat(connectors): phase 2 — signed JSON stream + send + moderation actions

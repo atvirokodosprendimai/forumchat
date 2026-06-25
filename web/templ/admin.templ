@@ -112,6 +112,14 @@ templ AdminPage(d AdminPageData) {
 				</section>
 			}
 
+			if ConnectorsEnabled {
+				<section class="card narrow">
+					<h2>Chat bots</h2>
+					<p class="muted">Connect an external worker (a custom chat app, a bot, an e-shop widget) over a signed realtime stream. It joins channels and acts as a regular member — and can be granted moderation powers.</p>
+					<a class="button" href={ templ.URL("/c/" + d.Viewer.CommunitySlug + "/admin/connectors") }>Manage chat bots →</a>
+				</section>
+			}
+
 			if RAGEnabled {
 				<section class="card narrow">
 					<h2>Semantic index</h2>

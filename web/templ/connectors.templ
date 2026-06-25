@@ -1,0 +1,306 @@
+package templ
+
+import "strconv"
+
+// ConnectorRowView is one connector rendered on the admin page.
+type ConnectorRowView struct {
+	ID           string
+	Name         string
+	AvatarURL    string
+	ChannelIDs   []string // allowlist ids (for the edit-seed data attr)
+	ChannelLabel string   // human label e.g. "#general, #ops" or "all channels"
+	Capabilities []string // granted tokens, e.g. ["send","delete"]
+	MentionsOnly bool
+	Enabled      bool
+	StreamURL    string // full signed stream URL (admin-shareable bearer)
+	SendURL      string // send endpoint (worker signs the body)
+	LastStatus   string
+	LastAt       string
+}
+
+// ConnectorChannelOpt is one channel checkbox in the create/edit form.
+type ConnectorChannelOpt struct {
+	ID   string
+	Name string
+}
+
+// ConnectorCapOpt is one capability checkbox (token + human label + description).
+type ConnectorCapOpt struct {
+	Key   string
+	Label string
+	Desc  string
+}
+
+// ConnectorsPageData is the /c/{slug}/admin/connectors page payload.
+type ConnectorsPageData struct {
+	Viewer       Viewer
+	Slug         string
+	Connectors   []ConnectorRowView
+	Channels     []ConnectorChannelOpt
+	Capabilities []ConnectorCapOpt
+}
+
+// ConnectorsPage renders the admin connectors page: a reveal-once secret
+// callout, a create/edit form, and the live connector table under the morphable
+// #connectors-root. Form signals (con_*) are declared inline.
+templ ConnectorsPage(d ConnectorsPageData) {
+	@Layout("Chat bots · "+d.Viewer.CommunityName, d.Viewer) {
+		<section class="webhooks"
+			data-signals="{con_id:'', con_name:'', con_avatar:'', con_channels:'', con_caps:'send', con_mentions:false, con_error:'', con_new_secret:'', con_new_stream:'', con_new_send:''}">
+			<header class="wh-head">
+				<h1>Chat bots</h1>
+				<p class="muted">
+					Connect an external worker — a custom chat app, a bot, an e-shop widget —
+					over a signed realtime stream. It joins channels and acts as a regular
+					member, and can be granted moderation powers. Reads via a signed SSE URL;
+					writes are signed with the secret below.
+				</p>
+			</header>
+
+			@connectorReveal()
+
+			<div class="wh-callout wh-callout-error" data-show="$con_error !== ''">
+				<span class="wh-callout-icon">⚠</span>
+				<span class="wh-callout-body" data-text="$con_error"></span>
+				<button type="button" class="ghost" data-on:click="$con_error=''">Dismiss</button>
+			</div>
+
+			@connectorForm(d)
+
+			@ConnectorsContent(d)
+		</section>
+	}
+}
+
+// connectorReveal shows the freshly minted secret + URLs once (create / rotate).
+// The secret is the only sensitive value and is never re-rendered into the list.
+templ connectorReveal() {
+	<div class="wh-callout wh-callout-ok cb-reveal" data-show="$con_new_secret !== ''">
+		<span class="wh-callout-icon">🔑</span>
+		<div class="wh-callout-body">
+			<strong>Connector credentials</strong>
+			<p class="muted">Copy the secret now — it won't be shown again. The worker signs every send with it.</p>
+			<dl class="cb-creds">
+				<dt>Secret</dt>
+				<dd>
+					<code class="wh-url" data-text="$con_new_secret"></code>
+					<button type="button" class="ghost" data-on:click="navigator.clipboard.writeText($con_new_secret); $toast_text='Secret copied'">Copy</button>
+				</dd>
+				<dt>Stream URL</dt>
+				<dd>
+					<code class="wh-url" data-text="$con_new_stream"></code>
+					<button type="button" class="ghost" data-on:click="navigator.clipboard.writeText($con_new_stream); $toast_text='Stream URL copied'">Copy</button>
+				</dd>
+				<dt>Send URL</dt>
+				<dd>
+					<code class="wh-url" data-text="$con_new_send"></code>
+					<button type="button" class="ghost" data-on:click="navigator.clipboard.writeText($con_new_send); $toast_text='Send URL copied'">Copy</button>
+				</dd>
+			</dl>
+			@connectorHowTo()
+		</div>
+		<div class="wh-callout-actions">
+			<button type="button" class="ghost" data-on:click="$con_new_secret=''; $con_new_stream=''; $con_new_send=''">Dismiss</button>
+		</div>
+	</div>
+}
+
+// connectorHowTo is a static, copy-paste quickstart so an integrator can connect
+// without leaving the page. Placeholders, not interpolated values.
+templ connectorHowTo() {
+	<details class="cb-help">
+		<summary>How to connect</summary>
+		<p class="muted">Open the stream (it stays open and pushes JSON message events):</p>
+		<pre class="cb-snippet"><code>{ connectorStreamSnippet }</code></pre>
+		<p class="muted">Send a message — sign the raw body with the secret:</p>
+		<pre class="cb-snippet"><code>{ connectorSendSnippet }</code></pre>
+	</details>
+}
+
+// Snippet bodies live in Go strings (not templ text) so the shell braces in
+// `awk '{print $2}'` aren't parsed as templ expressions (the `{` literal gotcha).
+const connectorStreamSnippet = `curl -N "$STREAM_URL"`
+
+const connectorSendSnippet = `BODY='{"channel":"general","body":"hello"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
+curl -X POST "$SEND_URL" -H "X-Signature: sha256=$SIG" -d "$BODY"`
+
+templ connectorForm(d ConnectorsPageData) {
+	<form class="card wh-form"
+		data-on:submit__prevent={ "$con_id ? @post('/c/" + d.Slug + "/admin/connectors/update') : @post('/c/" + d.Slug + "/admin/connectors')" }>
+		<div class="wh-form-head">
+			<h2 data-text="$con_id ? 'Edit chat bot' : 'New chat bot'">New chat bot</h2>
+			<p class="muted">It joins as a member with the name below and the powers you grant.</p>
+		</div>
+
+		<div class="wh-grid">
+			<label class="wh-field">
+				<span class="wh-label">Name <span class="muted">shown in chat &amp; roster</span></span>
+				<input type="text" required placeholder="e.g. Acme Support" data-bind="con_name"/>
+			</label>
+			<label class="wh-field">
+				<span class="wh-label">Avatar URL <span class="muted">optional</span></span>
+				<input type="url" placeholder="https://…/avatar.png" data-bind="con_avatar"/>
+			</label>
+		</div>
+
+		<div class="wh-field">
+			<span class="wh-label">Channels <span class="muted">none ticked = all channels</span></span>
+			if len(d.Channels) == 0 {
+				<p class="muted">No channels yet.</p>
+			} else {
+				<div class="cb-checks">
+					for _, c := range d.Channels {
+						<label class="cb-check">
+							<input type="checkbox" value={ c.ID }
+								data-attr:checked="$con_channels.split(',').includes(el.value)"
+								data-on:change={ connectorToggleJS("con_channels") }/>
+							<span>#{ c.Name }</span>
+						</label>
+					}
+				</div>
+			}
+		</div>
+
+		<div class="wh-field">
+			<span class="wh-label">Permissions <span class="muted">what this bot may do</span></span>
+			<div class="cb-caps">
+				for _, c := range d.Capabilities {
+					<label class="cb-cap">
+						<input type="checkbox" value={ c.Key }
+							data-attr:checked="$con_caps.split(',').includes(el.value)"
+							data-on:change={ connectorToggleJS("con_caps") }/>
+						<span class="cb-cap-text">
+							<span class="cb-cap-label">{ c.Label }</span>
+							<span class="cb-cap-desc muted">{ c.Desc }</span>
+						</span>
+					</label>
+				}
+			</div>
+		</div>
+
+		<label class="cb-check cb-mentions">
+			<input type="checkbox" data-bind="con_mentions"/>
+			<span>Only stream messages that <strong>&#64;mention</strong> this bot</span>
+		</label>
+
+		<div class="wh-form-actions">
+			<button class="primary" type="submit" data-text="$con_id ? 'Save changes' : 'Create chat bot'">Create chat bot</button>
+			<button type="button" class="ghost" data-show="$con_id !== ''"
+				data-on:click="$con_id='';$con_name='';$con_avatar='';$con_channels='';$con_caps='send';$con_mentions=false">Cancel edit</button>
+		</div>
+	</form>
+}
+
+// ConnectorsContent is the morph target (stable id) holding the connector table.
+// Patched after every create / update / toggle / rotate / delete.
+templ ConnectorsContent(d ConnectorsPageData) {
+	<div id="connectors-root" class="wh-tables">
+		<div class="card wh-panel">
+			<div class="wh-panel-head">
+				<h2>Connectors</h2>
+				<span class="wh-count">{ strconv.Itoa(len(d.Connectors)) }</span>
+			</div>
+			if len(d.Connectors) == 0 {
+				<p class="wh-empty">No chat bots yet. Create one above to get a stream URL and secret.</p>
+			} else {
+				<div class="wh-table-wrap">
+					<table class="wh-table">
+						<thead>
+							<tr><th>Name</th><th>Channels</th><th>Permissions</th><th>Last seen</th><th></th></tr>
+						</thead>
+						<tbody>
+							for _, r := range d.Connectors {
+								@connectorRow(r, d.Slug)
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</div>
+	</div>
+}
+
+templ connectorRow(r ConnectorRowView, slug string) {
+	<tr class={ rowClass(r.Enabled) }>
+		<td class="wh-name">
+			<span>{ r.Name }</span>
+			@enabledTag(r.Enabled)
+			if r.MentionsOnly {
+				<span class="wh-tag">&#64;mentions only</span>
+			}
+		</td>
+		<td>{ r.ChannelLabel }</td>
+		<td>
+			<div class="cb-chips">
+				for _, c := range r.Capabilities {
+					<span class="wh-chip">{ c }</span>
+				}
+			</div>
+		</td>
+		<td>@connectorHealth(r)</td>
+		<td class="wh-actions">
+			<button type="button" class="ghost"
+				data-id={ r.ID } data-name={ r.Name } data-avatar={ r.AvatarURL }
+				data-channels={ joinCSV(r.ChannelIDs) } data-caps={ joinCSV(r.Capabilities) }
+				data-mentions={ connectorBoolAttr(r.MentionsOnly) }
+				data-on:click="$con_id=el.dataset.id;$con_name=el.dataset.name;$con_avatar=el.dataset.avatar;$con_channels=el.dataset.channels;$con_caps=el.dataset.caps;$con_mentions=el.dataset.mentions==='1';window.scrollTo({top:0,behavior:'smooth'})">Edit</button>
+			<button type="button" class="ghost" data-con-url={ r.StreamURL }
+				data-on:click="navigator.clipboard.writeText(el.dataset.conUrl); $toast_text='Stream URL copied'">Copy stream</button>
+			<button type="button" class="ghost" data-con-url={ r.SendURL }
+				data-on:click="navigator.clipboard.writeText(el.dataset.conUrl); $toast_text='Send URL copied'">Copy send</button>
+			@connectorToggleBtn(r, slug)
+			<button class="ghost" data-on:click={ "@post('/c/" + slug + "/admin/connectors/rotate?id=" + r.ID + "')" }>Rotate</button>
+			<button class="ghost danger" data-on:click={ "if(confirm('Delete this chat bot and its member? Its past messages stay as a deleted member.')){@post('/c/" + slug + "/admin/connectors/delete?id=" + r.ID + "')}" }>Delete</button>
+		</td>
+	</tr>
+}
+
+templ connectorToggleBtn(r ConnectorRowView, slug string) {
+	if r.Enabled {
+		<button class="ghost" data-on:click={ "@post('/c/" + slug + "/admin/connectors/toggle?id=" + r.ID + "&enabled=0')" }>Disable</button>
+	} else {
+		<button class="ghost" data-on:click={ "@post('/c/" + slug + "/admin/connectors/toggle?id=" + r.ID + "&enabled=1')" }>Enable</button>
+	}
+}
+
+templ connectorHealth(r ConnectorRowView) {
+	if r.LastStatus == "" {
+		<span class="wh-health"><span class="wh-dot wh-dot-none"></span>never</span>
+	} else {
+		<span class="wh-health">
+			<span class={ "wh-dot wh-dot-" + healthTone(r.LastStatus) }></span>
+			{ r.LastStatus } · { r.LastAt }
+		</span>
+	}
+}
+
+// connectorToggleJS adds/removes the checkbox's value from a comma-separated
+// signal (con_channels or con_caps) as the admin ticks boxes — the array
+// workaround for Datastar's flat signal bag (§6.7).
+func connectorToggleJS(signal string) string {
+	return "$" + signal + " = el.checked " +
+		"? ($" + signal + " ? $" + signal + " + ',' + el.value : el.value) " +
+		": $" + signal + ".split(',').filter(function(x){return x && x !== el.value}).join(',')"
+}
+
+// joinCSV joins ids into the comma-separated form the edit-seed data attributes
+// carry (read back into a signal via el.dataset, dodging the jsString quote
+// gotcha).
+func joinCSV(ids []string) string {
+	out := ""
+	for i, s := range ids {
+		if i > 0 {
+			out += ","
+		}
+		out += s
+	}
+	return out
+}
+
+func connectorBoolAttr(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}

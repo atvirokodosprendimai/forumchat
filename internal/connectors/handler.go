@@ -156,9 +156,9 @@ type deleteReq struct {
 	MessageID string `json:"message_id"`
 }
 
-// PostDelete soft-deletes a chat message (CapDelete). The message is hidden from
-// everyone (§6.3a). Best-effort fan-out is the seam's responsibility.
-func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
+// PostDeleteMessage soft-deletes a chat message (CapDelete). The message is
+// hidden from everyone (§6.3a). Best-effort fan-out is the seam's responsibility.
+func (h *Handler) PostDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	conn, body, ok := h.authed(w, r)
 	if !ok {
 		return

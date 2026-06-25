@@ -196,6 +196,14 @@ type Config struct {
 	WebhooksEnabled  bool  `env:"WEBHOOKS_ENABLED" envDefault:"false"`
 	WebhooksMaxBytes int64 `env:"WEBHOOKS_MAX_BYTES" envDefault:"1048576"` // 1 MiB
 
+	// ConnectorsEnabled toggles per-community "external chat bot" connectors:
+	// a long-lived signed JSON SSE stream + a body-HMAC-signed send/action API,
+	// each backed by a synthetic member that acts as a human. Off by default:
+	// the public /bots/* routes aren't mounted and the admin page is hidden.
+	// ConnectorsMaxBytes caps the send/action request body.
+	ConnectorsEnabled  bool  `env:"CONNECTORS_ENABLED" envDefault:"false"`
+	ConnectorsMaxBytes int64 `env:"CONNECTORS_MAX_BYTES" envDefault:"65536"` // 64 KiB
+
 	MailboxEnabled       bool          `env:"MAILBOX_ENABLED" envDefault:"false"`
 	MailboxHost          string        `env:"MAILBOX_HOST" envDefault:""`
 	MailboxPort          int           `env:"MAILBOX_PORT" envDefault:"993"`

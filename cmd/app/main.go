@@ -39,6 +39,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/chatagents"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
+	"github.com/atvirokodosprendimai/forumchat/internal/connectors"
 	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
 	"github.com/atvirokodosprendimai/forumchat/internal/dataexport"
 	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
@@ -1354,6 +1355,94 @@ func run() error {
 	}
 	webtempl.WebhooksEnabled = cfg.WebhooksEnabled
 
+	// ----- Connectors (external chat bots — signed SSE stream + send API) ---
+	var connectorsHandler *connectors.Handler
+	if cfg.ConnectorsEnabled {
+		connRepo := connectors.NewRepo(db)
+		// svc (auth.Service) is the MemberFactory: each connector is backed by a
+		// real synthetic member so it acts as a human (spec-connectors).
+		connSvc := connectors.NewService(connRepo, svc, chatRepo)
+		connectorsHandler = &connectors.Handler{
+			Repo:      connRepo,
+			Svc:       connSvc,
+			Chat:      chatSvc,
+			ChatRepo:  chatRepo,
+			Bus:       chatBus,
+			NewMsgBus: chatNewMsgBus,
+			NATS:      nc,
+			BaseURL:   cfg.BaseURL,
+			MaxBytes:  cfg.ConnectorsMaxBytes,
+			Log:       log,
+		}
+		// Resolve a streamed message's upload ids into fetchable attachments — a
+		// shared-signed, session-less URL + metadata (reuses the uploads store,
+		// closure-wired so connectors doesn't import uploads).
+		connectorsHandler.ResolveAttachments = func(ctx context.Context, uploadIDs []string) []connectors.EventAttachment {
+			out := make([]connectors.EventAttachment, 0, len(uploadIDs))
+			for _, id := range uploadIDs {
+				u, err := uploadStore.Get(ctx, id)
+				if err != nil {
+					continue
+				}
+				out = append(out, connectors.EventAttachment{
+					URL:  cfg.BaseURL + uploadStore.SignedURL(id, "", 24*time.Hour),
+					MIME: u.MIME,
+					Name: u.Filename,
+				})
+			}
+			return out
+		}
+		// Moderation seams (granted per-connector via capabilities). Each does its
+		// own fan-out so the handler stays thin; all reject cross-tenant targets.
+		connectorsHandler.DeleteMessage = func(ctx context.Context, communityID, messageID, _ string) error {
+			m, err := chatRepo.ByID(ctx, messageID) // ByID never returns a deleted/foreign-deleted row
+			if err != nil {
+				return err
+			}
+			if m.CommunityID != communityID {
+				return fmt.Errorf("message not in this community")
+			}
+			if err := chatRepo.SoftDelete(ctx, messageID); err != nil {
+				return err
+			}
+			chatBus.Broadcast(m.ChannelID)
+			if nc != nil && nc.IsConnected() {
+				_ = nc.Publish(natsx.ChatSubject(communityID), []byte(m.ChannelID))
+			}
+			return nil
+		}
+		connectorsHandler.BanMember = func(ctx context.Context, communityID, targetUserID string, hours int) error {
+			m, err := aRepo.MembershipFor(ctx, targetUserID, communityID)
+			if err != nil {
+				return err
+			}
+			// A connector must not be able to ban an admin/owner — moderation
+			// powers reach members and mods only.
+			if m.Role.AtLeast(auth.RoleAdmin) {
+				return fmt.Errorf("cannot ban an admin or owner")
+			}
+			var until time.Time
+			if hours <= 0 {
+				until = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC) // permanent
+			} else {
+				until = time.Now().Add(time.Duration(hours) * time.Hour)
+			}
+			return aRepo.UpdateBan(ctx, m.ID, &until)
+		}
+		connectorsHandler.RenameChannel = func(ctx context.Context, communityID, channelID, name string) error {
+			if _, err := chatSvc.RenameChannel(ctx, communityID, channelID, name); err != nil {
+				return err // refuses #general (chat.ErrDefaultChannel) etc.
+			}
+			// Empty channel id on the wire = structural change → switchers re-render.
+			chatBus.Broadcast("")
+			if nc != nil && nc.IsConnected() {
+				_ = nc.Publish(natsx.ChatSubject(communityID), []byte(""))
+			}
+			return nil
+		}
+	}
+	webtempl.ConnectorsEnabled = cfg.ConnectorsEnabled
+
 	// Wire the projects list for the chat extract-to-project modal.
 	// Closure to avoid an import cycle (chat package can't depend on
 	// projects). Empty slice when projects feature is disabled.
@@ -1588,6 +1677,21 @@ func run() error {
 		r.Group(func(r chi.Router) {
 			r.Use(httprate.LimitByIP(60, time.Minute))
 			r.Post("/hooks/{token}", webhooksHandler.PostInbound)
+		})
+	}
+
+	// Public connector endpoints — no session/CSRF; the signed URL (stream) and
+	// the X-Signature body HMAC (send/actions) are the credentials, like the
+	// guest lobby + /hooks routes. The long-lived stream and the write API share
+	// one per-IP limiter; the handler caps the body size.
+	if cfg.ConnectorsEnabled && connectorsHandler != nil {
+		r.Group(func(r chi.Router) {
+			r.Use(httprate.LimitByIP(120, time.Minute))
+			r.Get("/bots/{id}/stream", connectorsHandler.GetStream)
+			r.Post("/bots/{id}/send", connectorsHandler.PostSend)
+			r.Post("/bots/{id}/delete", connectorsHandler.PostDeleteMessage)
+			r.Post("/bots/{id}/ban", connectorsHandler.PostBan)
+			r.Post("/bots/{id}/rename", connectorsHandler.PostRename)
 		})
 	}
 
@@ -2005,6 +2109,14 @@ func run() error {
 				r.Post("/admin/webhooks/toggle", webhooksHandler.PostToggle)
 				r.Post("/admin/webhooks/rotate", webhooksHandler.PostRotate)
 				r.Post("/admin/webhooks/delete", webhooksHandler.PostDelete)
+			}
+			if cfg.ConnectorsEnabled && connectorsHandler != nil {
+				r.Get("/admin/connectors", connectorsHandler.GetAdmin)
+				r.Post("/admin/connectors", connectorsHandler.PostCreate)
+				r.Post("/admin/connectors/update", connectorsHandler.PostUpdate)
+				r.Post("/admin/connectors/toggle", connectorsHandler.PostToggle)
+				r.Post("/admin/connectors/rotate", connectorsHandler.PostRotate)
+				r.Post("/admin/connectors/delete", connectorsHandler.PostDelete)
 			}
 			if cfg.AIEnabled {
 				r.Get("/admin/ai", agentHandler.GetAgents)
