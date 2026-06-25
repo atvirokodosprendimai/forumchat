@@ -32,6 +32,13 @@ type RateGate interface {
 	Check(ctx context.Context, communityID, userID string, isSuperAdmin bool) agentlimit.Decision
 }
 
+// ChannelReplier streams an agent's reply as an in-channel bubble. Satisfied by
+// *ChannelRunner; an interface so the dispatch decision logic (bot-to-bot
+// gating, self-exclusion, the 15s cooldown) is testable without a live model.
+type ChannelReplier interface {
+	Generate(communityID, channelID, slug string, a agent.Agent)
+}
+
 // PolicyFunc reports a community's channel-agent switches: bots is the /bots
 // master (do bound agents answer channel messages at all) and autochat is the
 // /autochat switch (may agents trigger EACH OTHER, bot-to-bot). nil Policy →
@@ -78,7 +85,7 @@ type Dispatcher struct {
 	Agents       AgentSource
 	CreateThread CreateThreadFunc
 	Runner       *ThreadRunner  // forum-thread streamer (human triggers)
-	Channel      *ChannelRunner // in-channel streamer (both human + bot); nil disables in-channel replies
+	Channel      ChannelReplier // in-channel streamer (both human + bot); nil disables in-channel replies
 	Gate         RateGate       // optional; nil disables human rate limiting
 	Policy       PolicyFunc     // optional; nil → bots on, autochat off
 	Log          *slog.Logger

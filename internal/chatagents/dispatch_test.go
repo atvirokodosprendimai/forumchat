@@ -133,6 +133,122 @@ func TestDispatch_LoopGuardSkipsBotKind(t *testing.T) {
 	}
 }
 
+// fakeChannel records in-channel reply generations for the bot-to-bot tests.
+type fakeChannel struct {
+	calls  int
+	agents []string
+}
+
+func (f *fakeChannel) Generate(_, _, _ string, a agent.Agent) {
+	f.calls++
+	f.agents = append(f.agents, a.ID)
+}
+
+// botTrigger is a Kind==KindBot trigger authored by agent authorID — the shape
+// the ChannelRunner.OnReply hand-off produces for bot-to-bot.
+func botTrigger(body, authorID string) chatagents.Trigger {
+	return chatagents.Trigger{
+		CommunityID: "c1", Slug: "s", ChannelID: "ch1",
+		Body: body, Kind: chat.KindBot, AuthorAgentID: authorID,
+	}
+}
+
+// twoAgents returns two TriggerModeAll agents so either can answer the other.
+func twoAgents() []agent.Agent {
+	return []agent.Agent{
+		{ID: "a1", Name: "alpha", TriggerMode: agent.TriggerModeAll, TriggerPrefix: "."},
+		{ID: "a2", Name: "beta", TriggerMode: agent.TriggerModeAll, TriggerPrefix: "."},
+	}
+}
+
+func TestDispatch_BotToBot_OffByDefault(t *testing.T) {
+	// Policy nil → autochat off: a bot message triggers no one, gate untouched.
+	gate := &stubGate{decision: agentlimit.Decision{Allowed: true}}
+	created := 0
+	d := newDispatcher(t, twoAgents(), gate, &created, nil)
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	d.Dispatch(context.Background(), botTrigger("hi alpha", "a2"))
+
+	if fc.calls != 0 {
+		t.Fatalf("autochat off: in-channel generate called %d times, want 0", fc.calls)
+	}
+	if gate.calls != 0 || created != 0 {
+		t.Fatalf("autochat off must be inert: gate=%d created=%d", gate.calls, created)
+	}
+}
+
+func TestDispatch_BotToBot_ExcludesSelfAndStreamsOthers(t *testing.T) {
+	created := 0
+	d := newDispatcher(t, twoAgents(), &stubGate{}, &created, nil)
+	d.Policy = func(context.Context, string) (bool, bool) { return true, true } // autochat on
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	// a2 speaks → only a1 should answer (a2 never answers itself), in-channel,
+	// and NO forum thread is opened for a bot turn.
+	d.Dispatch(context.Background(), botTrigger("anyone there?", "a2"))
+
+	if fc.calls != 1 || len(fc.agents) != 1 || fc.agents[0] != "a1" {
+		t.Fatalf("want exactly a1 to reply in-channel, got calls=%d agents=%v", fc.calls, fc.agents)
+	}
+	if created != 0 {
+		t.Fatalf("bot-to-bot must NOT open a forum thread, created=%d", created)
+	}
+}
+
+func TestDispatch_BotToBot_CooldownPerAgent(t *testing.T) {
+	created := 0
+	d := newDispatcher(t, twoAgents(), &stubGate{}, &created, nil)
+	d.Policy = func(context.Context, string) (bool, bool) { return true, true }
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	// Two bot messages from a2 in quick succession: a1 replies once, then is
+	// cooling down (BotReplyCooldown) so the second is dropped.
+	d.Dispatch(context.Background(), botTrigger("ping", "a2"))
+	d.Dispatch(context.Background(), botTrigger("ping again", "a2"))
+
+	if fc.calls != 1 {
+		t.Fatalf("per-agent 15s cooldown: want 1 reply, got %d", fc.calls)
+	}
+}
+
+func TestDispatch_BotsMasterOff_Silences(t *testing.T) {
+	gate := &stubGate{decision: agentlimit.Decision{Allowed: true}}
+	created := 0
+	d := newDispatcher(t, []agent.Agent{allAgent()}, gate, &created, nil)
+	d.Policy = func(context.Context, string) (bool, bool) { return false, false } // /bots 0
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	res := d.Dispatch(context.Background(), userTrigger("@nick hi", false))
+
+	if fc.calls != 0 || created != 0 || gate.calls != 0 || res.RateLimited {
+		t.Fatalf("/bots 0 must silence everything: ch=%d created=%d gate=%d limited=%v",
+			fc.calls, created, gate.calls, res.RateLimited)
+	}
+}
+
+func TestDispatch_HumanTrigger_BothSurfaces(t *testing.T) {
+	// A human trigger opens a forum thread AND streams an in-channel bubble.
+	created := 0
+	d := newDispatcher(t, []agent.Agent{allAgent()}, &stubGate{decision: agentlimit.Decision{Allowed: true}}, &created, nil)
+	d.Policy = func(context.Context, string) (bool, bool) { return true, false }
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	d.Dispatch(context.Background(), userTrigger("@nick hi", false))
+
+	if created != 1 {
+		t.Fatalf("human trigger should open one forum thread, created=%d", created)
+	}
+	if fc.calls != 1 {
+		t.Fatalf("human trigger should also stream one in-channel reply, calls=%d", fc.calls)
+	}
+}
+
 func TestDispatch_SuperAdminFlagPassedThrough(t *testing.T) {
 	gate := &stubGate{bySuper: true} // allows only when isSuperAdmin
 	created := 0
