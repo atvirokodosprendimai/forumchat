@@ -331,8 +331,16 @@ func (r *Repo) Insert(ctx context.Context, m Message) error {
 	// #general. Resolve the default channel when ChannelID is empty so
 	// those callers don't all need to look it up. The hot user-send path
 	// always sets ChannelID explicitly and skips this query.
+	//
+	// EnsureDefaultChannel (not DefaultChannel) so this SELF-HEALS: a
+	// community that somehow has no #general — created before the provision
+	// seed seam existed, or via a BootstrapOrFetch path the boot sweep didn't
+	// cover (e.g. the support inbox) — gets one created on its first system
+	// message instead of the digest worker failing forever with
+	// "resolve default channel: sql: no rows in result set". Idempotent and
+	// off the hot path.
 	if m.ChannelID == "" {
-		ch, err := r.DefaultChannel(ctx, m.CommunityID)
+		ch, err := r.EnsureDefaultChannel(ctx, m.CommunityID)
 		if err != nil {
 			return fmt.Errorf("resolve default channel: %w", err)
 		}

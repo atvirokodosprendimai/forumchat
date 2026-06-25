@@ -1189,7 +1189,11 @@ non-archived channel — **no membership table**, just a `channel_id` column.
   archived channels appear live everywhere. Bridge callers
   (forum/projects/rooms/admin) broadcast `""`; system messages land in
   `#general` via the `Repo.Insert` default-channel fallback (so those callers
-  needed zero changes).
+  needed zero changes). That fallback uses `EnsureDefaultChannel`, not
+  `DefaultChannel`, so it **self-heals** a community that has no `#general` (a
+  pre-provision-seam or `BootstrapOrFetch`-bypass community the boot sweep never
+  seeded, e.g. the support inbox) instead of the digest worker failing forever
+  with `resolve default channel: sql: no rows in result set`.
 - **Switching channels is a full nav** (`<a href>` per pill), not an SPA
   morph — deliberate deviation from the spec's "single persistent stream":
   simpler, fully correct, keeps free cross-channel dots; cost is one stream

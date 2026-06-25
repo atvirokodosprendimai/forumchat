@@ -2,6 +2,7 @@ package chat_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -42,6 +43,48 @@ func chanTestEnv(t *testing.T) (*chat.Repo, *chat.Service, string, string) {
 		t.Fatalf("default channel: %v", err)
 	}
 	return repo, chat.NewService(repo), c.ID, u.ID
+}
+
+// A community with NO #general (legacy / a BootstrapOrFetch path the boot sweep
+// never seeded) must not break system writers: an Insert with an empty ChannelID
+// — the digest / bridge path — self-heals by creating #general instead of
+// failing with "resolve default channel: sql: no rows in result set".
+func TestInsert_SelfHealsMissingDefaultChannel(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := sqlite.Migrate(ctx, db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// Community created AFTER migration backfill and WITHOUT a seeded channel.
+	c, err := community.NewRepo(db).BootstrapOrFetch(ctx, "bare", "Bare")
+	if err != nil {
+		t.Fatalf("community: %v", err)
+	}
+	repo := chat.NewRepo(db)
+	if _, err := repo.DefaultChannel(ctx, c.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("precondition: want no default channel, got err=%v", err)
+	}
+
+	// The digest/bridge shape: a system message with no ChannelID.
+	msg := chat.Message{
+		ID: uuid.NewString(), CommunityID: c.ID, Kind: chat.KindSystem,
+		BodyMarkdown: "daily digest", BodyHTML: "daily digest", CreatedAt: time.Now(),
+	}
+	if err := repo.Insert(ctx, msg); err != nil {
+		t.Fatalf("system insert must self-heal a missing default channel, got: %v", err)
+	}
+	ch, err := repo.DefaultChannel(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("#general should exist after the self-healing insert: %v", err)
+	}
+	if ch.Slug != "general" {
+		t.Fatalf("want #general, got %q", ch.Slug)
+	}
 }
 
 func TestCreateChannel_SlugCapReserved(t *testing.T) {
