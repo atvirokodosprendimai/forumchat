@@ -247,3 +247,4 @@
 - 2026-06-25 `723f4bb` docs(connectors): note Codex-reviewed catch-up bounds in spec friction
 - 2026-06-25 `5f19264` docs(plan): mark connector catch-up plan completed + progress log
 - 2026-06-25 `b2e1a82` docs(changelog): connector catch-up entries
+- 2026-06-25 `6a117d6` docs(changelog): connector catch-up trailing entry
