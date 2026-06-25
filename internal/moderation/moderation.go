@@ -45,6 +45,9 @@ type Verdict struct {
 	Categories []string
 	TokensIn   int
 	TokensOut  int
+	// Raw is the model's unparsed reply, kept for debugging (the CLI `moderate`
+	// command prints it). Audit ignores it.
+	Raw string
 }
 
 // Auditor classifies messages and records flags. The zero value is not usable;
@@ -108,6 +111,16 @@ func (a *Auditor) Audit(communityID, channelID, messageID, authorID, body string
 			TokensOut:   v.TokensOut,
 			Estimated:   v.TokensIn == 0 && v.TokensOut == 0,
 		})
+		// Log every verdict so operators can confirm the classifier is running
+		// and see what it decided (flagged at Info, clean at Debug — set
+		// LOG_LEVEL=debug to see the clean ones too).
+		if a.log != nil {
+			if v.Flagged {
+				a.log.Info("moderation: flagged", "community", communityID, "message", messageID, "author", authorID, "categories", v.Categories, "model", a.model)
+			} else {
+				a.log.Debug("moderation: clean", "community", communityID, "message", messageID, "model", a.model)
+			}
+		}
 		if !v.Flagged || a.repo == nil {
 			return
 		}
@@ -153,6 +166,7 @@ func (a *Auditor) Classify(ctx context.Context, text string) (Verdict, error) {
 		return Verdict{}, err
 	}
 	v := parseVerdict(b.String())
+	v.Raw = strings.TrimSpace(b.String())
 	if res != nil {
 		v.TokensIn = res.Usage.PromptTokens
 		v.TokensOut = res.Usage.CompletionTokens

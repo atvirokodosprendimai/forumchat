@@ -92,4 +92,21 @@ func TestRepoInsert(t *testing.T) {
 	if n != 1 || cats != "S3,S12" {
 		t.Fatalf("got n=%d cats=%q, want 1 / S3,S12", n, cats)
 	}
+
+	// Recent joins the community (and author when present) without exposing any
+	// message body.
+	got, err := r.Recent(ctx, 10)
+	if err != nil {
+		t.Fatalf("recent: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("recent len = %d, want 1", len(got))
+	}
+	row := got[0]
+	if row.CommunitySlug != "c" || row.Categories != "S3,S12" || row.MessageID != "m1" {
+		t.Fatalf("recent row wrong: %+v", row)
+	}
+	if row.AuthorEmail != "" {
+		t.Fatalf("author should be empty (no author_id set), got %q", row.AuthorEmail)
+	}
 }

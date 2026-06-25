@@ -12,6 +12,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/config"
 	"github.com/atvirokodosprendimai/forumchat/internal/mailbox"
+	"github.com/atvirokodosprendimai/forumchat/internal/moderation"
 	"github.com/atvirokodosprendimai/forumchat/internal/projects"
 	"github.com/atvirokodosprendimai/forumchat/internal/provision"
 	"github.com/atvirokodosprendimai/forumchat/internal/rag"
@@ -56,6 +57,10 @@ usage:
   forumchat-cli reindex [slug|all]          re-queue community content for RAG embedding (default all). The
                                             running server's worker drains it. For a clean rebuild / backend
                                             switch: stop server, delete RAG_STORE_PATH, reindex, start server.
+  forumchat-cli moderate <text...>          run the safety classifier on <text> and print the verdict
+                                            (Yes/No + categories + raw reply). Uses MODERATION_OLLAMA_URL +
+                                            MODERATION_MODEL — the exact path the chat send uses. Debug tool;
+                                            records nothing.
 `)
 }
 
@@ -541,6 +546,43 @@ func run() error {
 			return err
 		}
 		fmt.Printf("queued reindex for all communities — %d jobs pending\n", n)
+	case "moderate":
+		// Debug tool: classify arbitrary text through the SAME pipeline the chat
+		// send uses (our /api/chat request at temperature 0 + our verdict parser),
+		// so a mismatch with a bare `ollama run`/`curl` points at our code, not the
+		// model. Records nothing — purely a verdict probe.
+		if len(os.Args) < 3 {
+			return errors.New("usage: moderate <text...>")
+		}
+		if !cfg.ModerationEnabled() {
+			return errors.New("moderation is off — set MODERATION_OLLAMA_URL and MODERATION_MODEL")
+		}
+		text := strings.Join(os.Args[2:], " ")
+		auditor := moderation.NewAuditor(
+			cfg.ModerationOllamaURL, cfg.ModerationModel,
+			time.Duration(cfg.ModerationTimeoutMS)*time.Millisecond,
+			nil, nil, log, // no repo/usage — Classify needs neither
+		)
+		v, err := auditor.Classify(ctx, text)
+		if err != nil {
+			return fmt.Errorf("classify (is %s reachable, model %q pulled?): %w", cfg.ModerationOllamaURL, cfg.ModerationModel, err)
+		}
+		flagged := "NO  (safe)"
+		if v.Flagged {
+			flagged = "YES (flagged)"
+		}
+		fmt.Printf("model:      %s\n", cfg.ModerationModel)
+		fmt.Printf("endpoint:   %s\n", cfg.ModerationOllamaURL)
+		fmt.Printf("raw reply:  %q\n", v.Raw)
+		fmt.Printf("flagged:    %s\n", flagged)
+		if len(v.Categories) > 0 {
+			labels := make([]string, len(v.Categories))
+			for i, c := range v.Categories {
+				labels[i] = c + " (" + moderation.CategoryLabel(c) + ")"
+			}
+			fmt.Printf("categories: %s\n", strings.Join(labels, ", "))
+		}
+		fmt.Printf("tokens:     in=%d out=%d\n", v.TokensIn, v.TokensOut)
 	default:
 		usage()
 		return fmt.Errorf("unknown command: %s", os.Args[1])
