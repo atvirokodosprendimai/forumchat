@@ -73,8 +73,16 @@ type loaderSpec struct {
 }
 
 var loaders = map[string]loaderSpec{
+	// Chat: human sends (kind='user') plus FINISHED agent replies
+	// (kind='bot' AND gen_status='done'). A bot bubble is public channel
+	// content like any other message, so it belongs in the index — but only
+	// once streaming completes: a 'generating'/'interrupted' row holds a
+	// partial answer, and the final done-UPDATE re-fires the outbox trigger so
+	// the completed body lands on the next worker tick. (gen_status is '' for
+	// real user messages, hence the kind split rather than a blanket check.)
 	KindChat: {query: `SELECT community_id, body_md, created_at FROM chat_messages
-		WHERE id = ? AND kind = 'user' AND deleted_at IS NULL`},
+		WHERE id = ? AND deleted_at IS NULL
+		  AND (kind = 'user' OR (kind = 'bot' AND gen_status = 'done'))`},
 	KindThread: {hasTitle: true, query: `SELECT community_id, subject, body_md, created_at FROM threads
 		WHERE id = ? AND deleted_at IS NULL`},
 	KindPost: {query: `SELECT t.community_id, p.body_md, p.created_at
@@ -143,7 +151,8 @@ func (r *Repo) LoadDoc(ctx context.Context, kind, refID string) (Doc, bool, erro
 // trigger already queued the same row.
 var enqueueAll = []string{
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
-		SELECT 'chat', id, 'upsert', ? FROM chat_messages WHERE kind='user' AND deleted_at IS NULL
+		SELECT 'chat', id, 'upsert', ? FROM chat_messages
+		WHERE deleted_at IS NULL AND (kind='user' OR (kind='bot' AND gen_status='done'))
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'thread', id, 'upsert', ? FROM threads WHERE deleted_at IS NULL
@@ -194,7 +203,8 @@ func (r *Repo) EnqueueAll(ctx context.Context) (int, error) {
 // takes (enqueued_at, community_id).
 var enqueueCommunity = []string{
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
-		SELECT 'chat', id, 'upsert', ? FROM chat_messages WHERE kind='user' AND deleted_at IS NULL AND community_id = ?
+		SELECT 'chat', id, 'upsert', ? FROM chat_messages
+		WHERE deleted_at IS NULL AND community_id = ? AND (kind='user' OR (kind='bot' AND gen_status='done'))
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'thread', id, 'upsert', ? FROM threads WHERE deleted_at IS NULL AND community_id = ?

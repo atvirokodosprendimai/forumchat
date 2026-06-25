@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -258,6 +259,77 @@ func TestPasteIndexingGating(t *testing.T) {
 	if got := store.countRef(KindPaste, pid); got != 0 {
 		t.Fatalf("after delete: want 0 chunks, got %d", got)
 	}
+}
+
+func TestChatBotIndexingGating(t *testing.T) {
+	svc, repo, store, exec := newTestSvc(t)
+	cid, uid, chid := "c1", "u1", "ch1"
+	seedCommunityUser(exec, cid, uid)
+	now := time.Now().Unix()
+	exec(`INSERT INTO chat_channels(id, community_id, slug, name, is_default, created_at)
+		VALUES(?,?,?,?,?,?)`, chid, cid, "general", "general", 1, now)
+
+	// A human message indexes immediately (the baseline that always worked).
+	exec(`INSERT INTO chat_messages(id, community_id, channel_id, kind, body_md, body_html, gen_status, created_at)
+		VALUES(?,?,?,?,?,?,?,?)`, "m-user", cid, chid, "user", "human question about widgets", "", "", now)
+
+	// A bot bubble mid-stream (gen_status='generating') holds a PARTIAL answer
+	// and must NOT be indexed yet — exactly the bug: it used to never appear.
+	exec(`INSERT INTO chat_messages(id, community_id, channel_id, kind, body_md, body_html, gen_status, bot_name, created_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`, "m-bot", cid, chid, "bot", "", "", "generating", "Helper", now)
+	drain(t, repo, svc)
+	if got := store.countRef(KindChat, "m-user"); got != 1 {
+		t.Fatalf("human chat message must index, got %d chunks", got)
+	}
+	if got := store.countRef(KindChat, "m-bot"); got != 0 {
+		t.Fatalf("streaming bot bubble must NOT be indexed, got %d chunks", got)
+	}
+
+	// The final UpdateBotBody flips gen_status='done' with the completed body —
+	// the AU trigger re-enqueues and the loader now resolves it.
+	exec(`UPDATE chat_messages SET body_md = ?, gen_status = 'done' WHERE id = ?`,
+		"the bot explains zebra migration in detail", "m-bot")
+	drain(t, repo, svc)
+	if got := store.countRef(KindChat, "m-bot"); got != 1 {
+		t.Fatalf("finished bot reply must be indexed, got %d chunks", got)
+	}
+	// The bot reply is now searchable. (The fake embedder ranks by text length,
+	// so we assert presence, not order.)
+	hits, err := svc.Search(context.Background(), cid, "zebra migration", 5)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if !slices.ContainsFunc(hits, func(h Hit) bool { return h.RefID == "m-bot" }) {
+		t.Fatalf("search must surface the bot reply, got %#v", hits)
+	}
+	// The FTS index (migration 00071's synchronous AU trigger, not the outbox)
+	// must hold the done bot row too — both arms of fused search now include it.
+	if got := ftsCount(t, repo, "m-bot"); got != 1 {
+		t.Fatalf("done bot reply must be in search_fts, got %d rows", got)
+	}
+
+	// Interrupted streams stay out (partial/garbage), even after a re-enqueue —
+	// in BOTH indexes.
+	exec(`UPDATE chat_messages SET gen_status = 'interrupted' WHERE id = ?`, "m-bot")
+	drain(t, repo, svc)
+	if got := store.countRef(KindChat, "m-bot"); got != 0 {
+		t.Fatalf("interrupted bot reply must be dropped from vectors, got %d chunks", got)
+	}
+	if got := ftsCount(t, repo, "m-bot"); got != 0 {
+		t.Fatalf("interrupted bot reply must be dropped from search_fts, got %d rows", got)
+	}
+}
+
+// ftsCount reports how many search_fts rows reference a chat message — used to
+// assert the FTS trigger half of bot-chat indexing (migration 00071).
+func ftsCount(t *testing.T, repo *Repo, refID string) int {
+	t.Helper()
+	var n int
+	if err := repo.DB.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM search_fts WHERE kind = 'chat' AND ref_id = ?`, refID).Scan(&n); err != nil {
+		t.Fatalf("fts count: %v", err)
+	}
+	return n
 }
 
 func TestReindexCommunity(t *testing.T) {
