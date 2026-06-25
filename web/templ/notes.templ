@@ -386,7 +386,12 @@ templ NoteAccessPanel(d NoteAccessData) {
 			</div>
 		} else if d.CanEdit && !d.CanManage {
 			<p class="note-access-granted muted">🖉 You've been granted edit rights on this note — open the editor above to collaborate.</p>
-		} else if d.IsAuthed && d.IsPublic {
+		} else if !d.CanEdit && d.IsAuthed && d.IsPublic {
+			// The request affordance is for members who CANNOT already edit. An
+			// editor (author/mod/super, or a granted collaborator) must never see
+			// it — otherwise an owner with no pending requests falls through the
+			// (empty) manage branch into here and is offered to request rights on
+			// their own note (which the server then rejects as ErrAlreadyEditor).
 			if d.MyStatus == "pending" {
 				<p class="note-access-pending">⏳ Edit access requested — an editor will review it.</p>
 			} else {
