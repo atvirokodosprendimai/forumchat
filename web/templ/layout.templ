@@ -575,11 +575,16 @@ templ Layout(title string, v Viewer) {
 			// morph target, so opening it never disturbs chat/agent streams. The
 			// "👁 Preview" button on an HTML code block (render.DownloadableCode) or
 			// the agent SourceTools reads the raw source into the FE-only $_html_src
-			// signal, then flips $_html_open. srcdoc is bound declaratively to those
-			// signals (mirrors the YouTube lightbox's data-attr:src) so there is no
-			// imperative-set ↔ reactive-clear race: it shows the source while open
-			// and blanks to '' on close, stopping any script/audio. sandbox WITHOUT
-			// allow-same-origin keeps the previewed HTML isolated from the app origin.
+			// signal, then flips $_html_open. The source is bound declaratively to a
+			// `data:` URL on src — EXACTLY mirroring the working YouTube lightbox's
+			// data-attr:src — not srcdoc: an iframe whose srcdoc is mutated while its
+			// ancestor is display:none (the data-show state) does NOT reliably
+			// re-parse when un-hidden in some browsers, leaving a blank white frame;
+			// a navigable src loads on un-hide every time. Still purely reactive, so
+			// no imperative-set ↔ reactive-clear race; it loads the source while open
+			// and clears to '' (about:blank) on close, stopping any script/audio.
+			// sandbox WITHOUT allow-same-origin keeps the data: document on an opaque
+			// origin, isolated from the app.
 			<div class="html-lightbox" data-cloak data-show="$_html_open"
 				data-on:click="$_html_open=false">
 				<div class="html-lightbox-inner" data-on:click="evt.stopPropagation()">
@@ -590,7 +595,7 @@ templ Layout(title string, v Viewer) {
 					</div>
 					<iframe id="fc-html-frame" class="html-lightbox-frame" title="HTML preview"
 						sandbox="allow-scripts allow-modals allow-popups allow-forms"
-						data-attr:srcdoc="$_html_open ? $_html_src : ''"></iframe>
+						data-attr:src="$_html_open ? ('data:text/html;charset=utf-8,'+encodeURIComponent($_html_src)) : ''"></iframe>
 				</div>
 			</div>
 			<footer class="site-footer">

@@ -27,9 +27,9 @@ window.fcDownloadCode = function (btn) {
 // fcCodeBlockText returns the raw source text of the fenced code block a Preview
 // button belongs to. The caller assigns it into the FE-only $_html_src signal and
 // flips $_html_open in the same Datastar expression; the global preview iframe
-// binds its srcdoc to those signals (web/templ/layout.templ), so there is no
-// imperative srcdoc write here — that hybrid raced the iframe's reactive clear and
-// could leave the overlay open over a blank frame.
+// binds its src to a data: URL built from those signals (web/templ/layout.templ),
+// so there is no imperative iframe write here — an earlier imperative-set hybrid
+// raced the reactive clear and could leave the overlay open over a blank frame.
 window.fcCodeBlockText = function (btn) {
   const fig = btn.closest('.codeblock');
   const code = fig && fig.querySelector('pre code');
@@ -57,8 +57,8 @@ window.fcToggleSource = function (btn) {
 };
 
 // fcSourceText is exposed so the Preview button can assign the raw source into the
-// FE-only $_html_src signal (see fcCodeBlockText for why we no longer set srcdoc
-// imperatively).
+// FE-only $_html_src signal (see fcCodeBlockText for why the iframe is driven by a
+// reactive data: URL on src, not an imperative write).
 window.fcSourceText = fcSourceText;
 
 window.fcDownloadSource = function (btn, filename) {
