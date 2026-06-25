@@ -1186,10 +1186,23 @@ trigger it opens the thread *and* calls `ChannelRunner.Generate`.
   reply still costs a fresh model generation, so the cooldown + gate bound spend.
 - **Admin slash commands** in `chat.PostSend` → `tryAgentCommand` (admin/super
   only): `/bots 1|0` (master `agents_chat_enabled`), `/autochat 1|0`
-  (`agents_autochat_enabled`), `/kill` (= `/autochat 0`). Never stored; posts a
-  transparency system line + `webtempl.ChatCmdNotice` for non-admin/usage. Backed
-  by `community.Repo.SetAgents{Chat,Autochat}Enabled`; `Dispatcher.Policy` reads
-  the two flags (fail-open master, fail-closed autochat).
+  (`agents_autochat_enabled`), `/kill` (= `/autochat 0`), and `/surface
+  channel|thread|both` (`agents_reply_surface`, migration **00072**). Never
+  stored; posts a transparency system line + `webtempl.ChatCmdNotice` for
+  non-admin/usage. Each branch resolves to an `apply` func + `sysMsg` and shares
+  one admin-gate + `finishAgentCommand` tail. Backed by
+  `community.Repo.SetAgents{Chat,Autochat}Enabled` / `SetAgentsReplySurface`;
+  `Dispatcher.Policy` reads the two booleans (fail-open master, fail-closed
+  autochat), `Dispatcher.Surface` reads the surface.
+- **Reply surface (`/surface`, migration 00072)**: a HUMAN trigger answers on the
+  community's `agents_reply_surface` — `both` (forum thread + in-channel bubble,
+  the default and historical behaviour), `channel` (bubble only, no thread), or
+  `thread` (thread + chat announce, no bubble). `Dispatcher.Surface` (nil → both)
+  gates the human branch in `Dispatch`; an unknown/empty value degrades to `both`
+  so a misconfig never silences agents. Bot-to-bot turns are **always**
+  channel-only regardless of the surface. Surface constants live in `chatagents`
+  (`SurfaceChannel`/`Thread`/`Both`); `chat.parseSurface` validates the command
+  arg with literals (chat can't import chatagents — cycle).
 - **`ai_agents.chat_as_human`** (the admin checkbox "appear as a regular member"):
   denormalised onto each message as `chat_messages.bot_as_human`; the bubble then
   routes through the **member** render (initial dot + name, no "AI" badge, but

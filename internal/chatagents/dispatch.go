@@ -19,6 +19,16 @@ import (
 // use the per-user/community agentlimit budget instead.
 const BotReplyCooldown = 15 * time.Second
 
+// Bot reply surfaces — where a triggered agent answers, stored per community
+// (communities.agents_reply_surface) and resolved via Dispatcher.Surface. An
+// unrecognised value is treated as SurfaceBoth so a bad config degrades to the
+// historical behaviour rather than silencing agents.
+const (
+	SurfaceChannel = "channel" // in-channel kind='bot' bubble only, no thread
+	SurfaceThread  = "thread"  // forum thread (+ chat announce) only, no bubble
+	SurfaceBoth    = "both"    // forum thread AND in-channel bubble (default)
+)
+
 // AgentSource supplies the chat-participating agents bound to a channel.
 // Satisfied by *agent.Repo.
 type AgentSource interface {
@@ -77,10 +87,11 @@ type Trigger struct {
 }
 
 // Dispatcher routes a freshly-sent chat message to the agents it triggers. A
-// human send opens a forum thread (the formal, resumable answer) AND streams an
-// in-channel bubble; a bot's own reply (when /autochat is on) re-enters here and
-// streams an in-channel bubble only — keeping bot-to-bot banter in the channel,
-// not spawning a thread per turn.
+// human send answers on the community's chosen surface (Surface): a forum thread
+// (the formal, resumable answer), an in-channel bubble, or both (default). A
+// bot's own reply (when /autochat is on) re-enters here and streams an
+// in-channel bubble only — keeping bot-to-bot banter in the channel, never
+// spawning a thread per turn regardless of Surface.
 type Dispatcher struct {
 	Agents       AgentSource
 	CreateThread CreateThreadFunc
@@ -88,7 +99,13 @@ type Dispatcher struct {
 	Channel      ChannelReplier // in-channel streamer (both human + bot); nil disables in-channel replies
 	Gate         RateGate       // optional; nil disables human rate limiting
 	Policy       PolicyFunc     // optional; nil → bots on, autochat off
-	Log          *slog.Logger
+	// Surface reports a community's bot reply surface (SurfaceChannel /
+	// SurfaceThread / SurfaceBoth) for a HUMAN trigger. nil → SurfaceBoth,
+	// preserving the historical both-surfaces behaviour (and keeping the
+	// forum-thread unit tests, which set no Surface, unchanged). Bot-to-bot
+	// turns are always channel-only regardless of this setting.
+	Surface func(ctx context.Context, communityID string) string
+	Log     *slog.Logger
 
 	// Cooldown overrides BotReplyCooldown (tests set it small). 0 → the const.
 	Cooldown time.Duration
@@ -178,8 +195,9 @@ func (d *Dispatcher) firePacedReply(communityID, slug, channelID string, a agent
 // Dispatch is the load-bearing entry, called after a message persists and fans
 // out. The loop guard lives here: a system/webhook message NEVER triggers an
 // agent, and a bot message triggers others only when /autochat is on (and never
-// itself). For each matching enabled agent bound to the channel it streams an
-// in-channel reply — plus, for a human trigger, opens a forum thread.
+// itself). For each matching enabled agent bound to the channel it answers on
+// the community's chosen surface: an in-channel reply, a forum thread, or both
+// for a human trigger (bot-to-bot turns are always in-channel only).
 func (d *Dispatcher) Dispatch(ctx context.Context, t Trigger) DispatchResult {
 	// Per-community switches. nil Policy keeps the historical defaults.
 	bots, autochat := true, false
@@ -247,11 +265,20 @@ func (d *Dispatcher) Dispatch(ctx context.Context, t Trigger) DispatchResult {
 		}
 	}
 
+	// Resolve where the agents answer for this community. An unknown/empty value
+	// degrades to SurfaceBoth — a misconfiguration must never silence agents.
+	surface := SurfaceBoth
+	if d.Surface != nil {
+		if s := d.Surface(ctx, t.CommunityID); s == SurfaceChannel || s == SurfaceThread {
+			surface = s
+		}
+	}
+
 	for _, a := range matched {
-		// Forum thread — human triggers only (the formal answer, tool trace, and
-		// resumable archive). A thread-create failure is logged but does NOT
-		// suppress the in-channel reply below.
-		if d.CreateThread != nil {
+		// Forum thread — when the surface is "thread" or "both" (the formal
+		// answer, tool trace, and resumable archive). A thread-create failure is
+		// logged but does NOT suppress the in-channel reply below.
+		if surface != SurfaceChannel && d.CreateThread != nil {
 			if threadID, err := d.CreateThread(ctx, t.CommunityID, t.Slug, t.AuthorID, a.ID, a.Name, t.Body); err != nil {
 				if d.Log != nil {
 					d.Log.Warn("chatagents: create agent thread", "agent", a.ID, "err", err)
@@ -260,8 +287,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, t Trigger) DispatchResult {
 				d.Runner.Generate(t.CommunityID, threadID, a)
 			}
 		}
-		// In-channel streaming bubble.
-		if d.Channel != nil {
+		// In-channel streaming bubble — when the surface is "channel" or "both".
+		if surface != SurfaceThread && d.Channel != nil {
 			d.Channel.Generate(t.CommunityID, t.ChannelID, t.Slug, a)
 		}
 	}

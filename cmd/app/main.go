@@ -952,6 +952,16 @@ func run() error {
 			}
 			return c.AgentsChatEnabled, c.AgentsAutochatEnabled
 		}
+		// Per-community reply surface behind the /surface slash command: where a
+		// HUMAN trigger answers (channel / thread / both). On a read error fall
+		// back to "both", which the dispatcher treats as the historical behaviour.
+		dispatcher.Surface = func(ctx context.Context, communityID string) string {
+			c, err := cRepo.ByID(ctx, communityID)
+			if err != nil {
+				return chatagents.SurfaceBoth
+			}
+			return c.AgentsReplySurface
+		}
 		// Bot-to-bot: a finished in-channel reply re-enters dispatch as a KindBot
 		// trigger. The /autochat gate, self-exclusion and per-agent 15s cooldown
 		// inside Dispatch fully bound the loop; an admin halts it with /autochat 0.
@@ -964,6 +974,7 @@ func run() error {
 		// Admin /bots, /autochat and /kill flip the community switches.
 		chatHandler.SetAgentsChatEnabled = cRepo.SetAgentsChatEnabled
 		chatHandler.SetAgentsAutochatEnabled = cRepo.SetAgentsAutochatEnabled
+		chatHandler.SetAgentsReplySurface = cRepo.SetAgentsReplySurface
 		chatHandler.Dispatch = func(ctx context.Context, t chat.AgentTrigger) chat.DispatchResult {
 			res := dispatcher.Dispatch(ctx, chatagents.Trigger{
 				CommunityID: t.CommunityID, Slug: t.Slug, ChannelID: t.ChannelID,

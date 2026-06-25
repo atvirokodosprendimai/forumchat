@@ -290,6 +290,60 @@ func TestDispatch_HumanTrigger_BothSurfaces(t *testing.T) {
 	}
 }
 
+func TestDispatch_Surface_ChannelOnly(t *testing.T) {
+	// Surface "channel" → in-channel bubble only, NO forum thread.
+	created := 0
+	d := newDispatcher(t, []agent.Agent{allAgent()}, &stubGate{decision: agentlimit.Decision{Allowed: true}}, &created, nil)
+	d.Policy = func(context.Context, string) (bool, bool) { return true, false }
+	d.Surface = func(context.Context, string) string { return chatagents.SurfaceChannel }
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	d.Dispatch(context.Background(), userTrigger("@nick hi", false))
+
+	if created != 0 {
+		t.Fatalf("channel-only surface must NOT open a forum thread, created=%d", created)
+	}
+	if fc.calls != 1 {
+		t.Fatalf("channel-only surface must stream one in-channel reply, calls=%d", fc.calls)
+	}
+}
+
+func TestDispatch_Surface_ThreadOnly(t *testing.T) {
+	// Surface "thread" → forum thread only, NO in-channel bubble.
+	created := 0
+	d := newDispatcher(t, []agent.Agent{allAgent()}, &stubGate{decision: agentlimit.Decision{Allowed: true}}, &created, nil)
+	d.Policy = func(context.Context, string) (bool, bool) { return true, false }
+	d.Surface = func(context.Context, string) string { return chatagents.SurfaceThread }
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	d.Dispatch(context.Background(), userTrigger("@nick hi", false))
+
+	if created != 1 {
+		t.Fatalf("thread-only surface must open one forum thread, created=%d", created)
+	}
+	if fc.calls != 0 {
+		t.Fatalf("thread-only surface must NOT stream an in-channel reply, calls=%d", fc.calls)
+	}
+}
+
+func TestDispatch_Surface_UnknownDefaultsBoth(t *testing.T) {
+	// A bad/empty surface value degrades to "both" — a misconfig never silences.
+	created := 0
+	d := newDispatcher(t, []agent.Agent{allAgent()}, &stubGate{decision: agentlimit.Decision{Allowed: true}}, &created, nil)
+	d.Policy = func(context.Context, string) (bool, bool) { return true, false }
+	d.Surface = func(context.Context, string) string { return "garbage" }
+	fc := &fakeChannel{}
+	d.Channel = fc
+
+	d.Dispatch(context.Background(), userTrigger("@nick hi", false))
+
+	if created != 1 || fc.calls != 1 {
+		t.Fatalf("unknown surface must fall back to both, created=%d calls=%d", created, fc.calls)
+	}
+}
+
 func TestDispatch_SuperAdminFlagPassedThrough(t *testing.T) {
 	gate := &stubGate{bySuper: true} // allows only when isSuperAdmin
 	created := 0

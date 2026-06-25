@@ -31,6 +31,13 @@ type Community struct {
 	// BySlug / ByID.
 	AgentsChatEnabled     bool
 	AgentsAutochatEnabled bool
+
+	// AgentsReplySurface chooses WHERE a triggered agent answers:
+	// "both" (forum thread + in-channel bubble, the default), "channel"
+	// (in-channel only) or "thread" (forum thread only). Admin-toggled via the
+	// /surface slash command. Only populated by BySlug / ByID. An unknown value
+	// is treated as "both" downstream (see internal/chatagents).
+	AgentsReplySurface string
 }
 
 type Repo struct {
@@ -51,9 +58,10 @@ func (r *Repo) BySlug(ctx context.Context, slug string) (Community, error) {
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT id, slug, name, COALESCE(is_public,0), created_at,
 		       COALESCE(agent_rate_per_user_min,0), COALESCE(agent_rate_per_community_min,0),
-		       COALESCE(agents_chat_enabled,1), COALESCE(agents_autochat_enabled,0)
+		       COALESCE(agents_chat_enabled,1), COALESCE(agents_autochat_enabled,0),
+		       COALESCE(agents_reply_surface,'both')
 		FROM communities WHERE slug = ?`, slug).
-		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin, &chatOn, &autochatOn)
+		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin, &chatOn, &autochatOn, &c.AgentsReplySurface)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Community{}, sql.ErrNoRows
 	}
@@ -78,9 +86,10 @@ func (r *Repo) ByID(ctx context.Context, id string) (Community, error) {
 	err := r.DB.QueryRowContext(ctx, `
 		SELECT id, slug, name, COALESCE(is_public,0), created_at,
 		       COALESCE(agent_rate_per_user_min,0), COALESCE(agent_rate_per_community_min,0),
-		       COALESCE(agents_chat_enabled,1), COALESCE(agents_autochat_enabled,0)
+		       COALESCE(agents_chat_enabled,1), COALESCE(agents_autochat_enabled,0),
+		       COALESCE(agents_reply_surface,'both')
 		FROM communities WHERE id = ?`, id).
-		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin, &chatOn, &autochatOn)
+		Scan(&c.ID, &c.Slug, &c.Name, &isPublic, &created, &c.AgentRatePerUserMin, &c.AgentRatePerCommunityMin, &chatOn, &autochatOn, &c.AgentsReplySurface)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Community{}, sql.ErrNoRows
 	}
@@ -123,6 +132,15 @@ func (r *Repo) SetAgentsChatEnabled(ctx context.Context, id string, on bool) err
 func (r *Repo) SetAgentsAutochatEnabled(ctx context.Context, id string, on bool) error {
 	_, err := r.DB.ExecContext(ctx,
 		`UPDATE communities SET agents_autochat_enabled = ? WHERE id = ?`, boolToInt(on), id)
+	return err
+}
+
+// SetAgentsReplySurface sets where triggered agents answer ("both" | "channel"
+// | "thread"). Backs the admin /surface slash command. The caller validates the
+// value; an unknown one still degrades to "both" at dispatch time.
+func (r *Repo) SetAgentsReplySurface(ctx context.Context, id, surface string) error {
+	_, err := r.DB.ExecContext(ctx,
+		`UPDATE communities SET agents_reply_surface = ? WHERE id = ?`, surface, id)
 	return err
 }
 

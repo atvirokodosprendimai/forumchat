@@ -128,6 +128,11 @@ type Handler struct {
 	// ordinary text and posted normally).
 	SetAgentsChatEnabled     func(ctx context.Context, communityID string, on bool) error
 	SetAgentsAutochatEnabled func(ctx context.Context, communityID string, on bool) error
+	// SetAgentsReplySurface backs the admin /surface slash command — it sets
+	// where triggered agents answer ("channel" | "thread" | "both"). Wired in
+	// main.go to community.Repo; nil when AI is disabled (the command is then
+	// treated as ordinary text).
+	SetAgentsReplySurface func(ctx context.Context, communityID, surface string) error
 	// Roster, when set, is pinged after a block/unblock so the presence
 	// sidebar re-renders the viewer's data-blocked markers. Satisfied by
 	// *presence.Tracker.Bump.
@@ -292,28 +297,79 @@ func agentCommandSystemMsg(which string, on bool, who string) string {
 	return "🛑 Bot-to-bot chat **stopped** by " + who + "."
 }
 
+// parseSurface reads the argument after /surface into the canonical reply-surface
+// value ("channel" | "thread" | "both"). A few natural synonyms are accepted;
+// ok=false on a missing or unrecognised argument so the caller can show usage.
+// The canonical strings match internal/chatagents.Surface* (kept as literals to
+// avoid an import cycle: chatagents imports chat, not the reverse).
+func parseSurface(body string) (surface string, ok bool) {
+	arg := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(body)), "/surface"))
+	switch arg {
+	case "channel", "chat", "c":
+		return "channel", true
+	case "thread", "forum", "t":
+		return "thread", true
+	case "both", "all", "b":
+		return "both", true
+	default:
+		return "", false
+	}
+}
+
+// agentSurfaceSystemMsg is the markdown system line posted when an admin changes
+// where triggered agents answer, so everyone in the channel sees the change.
+func agentSurfaceSystemMsg(surface, who string) string {
+	switch surface {
+	case "channel":
+		return "🤖 Agents now reply **in the channel only** (no forum thread) — set by " + who + "."
+	case "thread":
+		return "🤖 Agents now reply **in a forum thread only** (no in-channel bubble) — set by " + who + "."
+	default: // both
+		return "🤖 Agents now reply in **both a forum thread and the channel** — set by " + who + "."
+	}
+}
+
 // tryAgentCommand handles the admin channel-agent slash commands (/bots,
-// /autochat, /kill). It returns false when body is none of them (the caller
-// continues to a normal send); otherwise it OWNS the SSE response: it clears the
-// composer, gates on admin, flips the community switch, posts a transparency
-// system line, and re-renders the channel. A non-admin or a missing/garbage
-// argument gets an ephemeral notice instead.
+// /autochat, /kill, /surface). It returns false when body is none of them (the
+// caller continues to a normal send); otherwise it OWNS the SSE response: it
+// clears the composer, gates on admin, applies the community switch, posts a
+// transparency system line, and re-renders the channel. A non-admin or a
+// missing/garbage argument gets an ephemeral notice instead.
+//
+// Each command resolves to an apply func (the DB write) plus a sysMsg
+// (transparency line) when its argument parses; when it doesn't, usage holds the
+// hint to show. This keeps the boolean (/bots, /autochat) and tri-state
+// (/surface) commands on one shared admin-gate + finish path.
 func (h *Handler) tryAgentCommand(w http.ResponseWriter, r *http.Request, sse *datastar.ServerSentEventGenerator, id auth.Identity, ch Channel, body string) bool {
+	who := id.Membership.ShownName()
 	var (
-		which string // "bots" | "autochat"
-		want  bool   // desired on/off
-		argOK bool    // argument parsed
+		apply  func(ctx context.Context, communityID string) error
+		sysMsg string // posted on success
+		usage  string // shown when the argument fails to parse (apply stays nil)
 	)
 	switch {
 	case h.SetAgentsChatEnabled != nil && isSlashCommand(body, "bots"):
-		which = "bots"
-		want, argOK = parseOnOff(body, "bots")
+		usage = "Usage: /bots 1  (on)  or  /bots 0  (off)"
+		if on, ok := parseOnOff(body, "bots"); ok {
+			apply = func(ctx context.Context, cid string) error { return h.SetAgentsChatEnabled(ctx, cid, on) }
+			sysMsg = agentCommandSystemMsg("bots", on, who)
+		}
 	case h.SetAgentsAutochatEnabled != nil && isSlashCommand(body, "autochat"):
-		which = "autochat"
-		want, argOK = parseOnOff(body, "autochat")
+		usage = "Usage: /autochat 1  (on)  or  /autochat 0  (off)"
+		if on, ok := parseOnOff(body, "autochat"); ok {
+			apply = func(ctx context.Context, cid string) error { return h.SetAgentsAutochatEnabled(ctx, cid, on) }
+			sysMsg = agentCommandSystemMsg("autochat", on, who)
+		}
 	case h.SetAgentsAutochatEnabled != nil && isSlashCommand(body, "kill"):
 		// Panic button: /kill always means "stop bot-to-bot now" (no argument).
-		which, want, argOK = "autochat", false, true
+		apply = func(ctx context.Context, cid string) error { return h.SetAgentsAutochatEnabled(ctx, cid, false) }
+		sysMsg = agentCommandSystemMsg("autochat", false, who)
+	case h.SetAgentsReplySurface != nil && isSlashCommand(body, "surface"):
+		usage = "Usage: /surface channel | thread | both"
+		if surface, ok := parseSurface(body); ok {
+			apply = func(ctx context.Context, cid string) error { return h.SetAgentsReplySurface(ctx, cid, surface) }
+			sysMsg = agentSurfaceSystemMsg(surface, who)
+		}
 	default:
 		return false
 	}
@@ -325,34 +381,33 @@ func (h *Handler) tryAgentCommand(w http.ResponseWriter, r *http.Request, sse *d
 		_ = sse.PatchElementTempl(webtempl.ChatCmdNotice("chat-agent-notice", "🔒", "Only admins can change agent settings."))
 		return true
 	}
-	if !argOK {
-		_ = sse.PatchElementTempl(webtempl.ChatCmdNotice("chat-agent-notice", "ℹ️", "Usage: /"+which+" 1  (on)  or  /"+which+" 0  (off)"))
+	if apply == nil { // recognised command, unrecognised/missing argument
+		_ = sse.PatchElementTempl(webtempl.ChatCmdNotice("chat-agent-notice", "ℹ️", usage))
 		return true
 	}
 
 	cid := h.cid(r.Context())
-	var err error
-	if which == "bots" {
-		err = h.SetAgentsChatEnabled(r.Context(), cid, want)
-	} else {
-		err = h.SetAgentsAutochatEnabled(r.Context(), cid, want)
-	}
-	if err != nil {
-		h.Log.Error("agent command", "cmd", which, "err", err)
+	if err := apply(r.Context(), cid); err != nil {
+		h.Log.Error("agent command", "body", body, "err", err)
 		_ = sse.PatchElementTempl(webtempl.ChatCmdNotice("chat-agent-notice", "⚠️", "Couldn't update the setting — try again."))
 		return true
 	}
+	h.finishAgentCommand(r, sse, id, ch, sysMsg)
+	return true
+}
 
-	// Transparency: post a system line everyone sees, then re-render the channel
-	// for the actor (the others' open streams refetch on the broadcast).
-	if _, e := h.Svc.PostSystemMarkdown(r.Context(), cid, ch.ID, agentCommandSystemMsg(which, want, id.Membership.ShownName())); e != nil {
+// finishAgentCommand posts the transparency system line for an admin
+// channel-agent change and re-renders the channel for the actor (other open
+// streams refetch on the broadcast). Shared by every tryAgentCommand branch.
+func (h *Handler) finishAgentCommand(r *http.Request, sse *datastar.ServerSentEventGenerator, id auth.Identity, ch Channel, sysMsg string) {
+	cid := h.cid(r.Context())
+	if _, e := h.Svc.PostSystemMarkdown(r.Context(), cid, ch.ID, sysMsg); e != nil {
 		h.Log.Warn("agent command system msg", "err", e)
 	}
 	h.broadcastNewMsg(r.Context(), ch.ID)
 	if views, e := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); e == nil {
 		_ = fatMorph(sse, views, id.Membership.Role.AtLeast(auth.RoleMod), id.User.ID, id.Membership.ShownName(), h.cslug(r.Context()), ch.Slug)
 	}
-	return true
 }
 
 // loadRecentFor returns the latest N views for channelID, attaches the
