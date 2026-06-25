@@ -1,6 +1,10 @@
-// Package moderation runs an automated safety classifier (Llama Guard via
-// Ollama) over user chat messages and records a privacy-preserving AUDIT of any
-// policy hit. It exists to make abuse detectable WITHOUT reading tenant content:
+// Package moderation runs an automated safety classifier (Llama Guard or
+// ShieldGemma, via Ollama) over user chat messages and records a
+// privacy-preserving AUDIT of any policy hit. The model is configurable
+// (MODERATION_MODEL): Llama Guard is English-centric, while ShieldGemma is
+// Gemma-2 based and handles many languages incl. Lithuanian — parseVerdict
+// understands both output dialects (safe/unsafe+codes and Yes/No).
+// It exists to make abuse detectable WITHOUT reading tenant content:
 // it stores only a reference (community, message, author) plus the policy
 // CATEGORY codes and the model — never the message body. That is what keeps the
 // SaaS privacy wall intact (the platform operator cannot read a community's
@@ -104,7 +108,7 @@ func (a *Auditor) Audit(communityID, channelID, messageID, authorID, body string
 			TokensOut:   v.TokensOut,
 			Estimated:   v.TokensIn == 0 && v.TokensOut == 0,
 		})
-		if !v.Flagged {
+		if !v.Flagged || a.repo == nil {
 			return
 		}
 		if err := a.repo.Insert(ctx, Flag{
@@ -120,20 +124,25 @@ func (a *Auditor) Audit(communityID, channelID, messageID, authorID, body string
 	}()
 }
 
-// Classify runs one non-streamed Llama Guard turn against the configured Ollama
+// Classify runs one non-streamed classifier turn against the configured Ollama
 // model and parses the verdict. The text is the LAST (and only) user turn; the
-// model's own chat template wraps it in the Llama Guard policy prompt, so no
-// system prompt is needed. Exported so it is unit-testable against a live model;
-// the parser is tested purely.
+// model's own chat template wraps it in its safety-policy prompt (Llama Guard or
+// ShieldGemma), so no system prompt is needed here. Exported so it is
+// unit-testable against a live model; the parser is tested purely.
 func (a *Auditor) Classify(ctx context.Context, text string) (Verdict, error) {
 	text = strings.TrimSpace(text)
 	if len(text) > maxClassifyChars {
 		text = text[:maxClassifyChars]
 	}
 	o := agent.NewOllama(a.baseURL)
-	// Classify the RAW text — unlike translate we do NOT strip hidden/bidi chars,
-	// because evasion via those characters is itself a signal the classifier
-	// should see.
+	// Temperature 0 = greedy decoding. A classifier MUST be deterministic: with
+	// Ollama's default sampling the same message flips between verdicts run-to-run
+	// (observed: "how to get Drugs?" returning "Yes" then blank then "Yes"). A
+	// blank reply fail-opens (a missed violation), so non-determinism here is a
+	// correctness bug, not just noise. We send the RAW text — no lowercasing
+	// (casing was a red herring; the variance was sampling) and no hidden/bidi
+	// stripping, since evasion via those chars is itself a signal to classify.
+	o.Options = map[string]any{"temperature": 0}
 	msgs := []agent.ChatMessage{{Role: "user", Content: text}}
 	var b strings.Builder
 	res, err := o.Stream(ctx, a.model, msgs, nil, func(d string) error {
@@ -143,7 +152,7 @@ func (a *Auditor) Classify(ctx context.Context, text string) (Verdict, error) {
 	if err != nil {
 		return Verdict{}, err
 	}
-	v := parseGuardVerdict(b.String())
+	v := parseVerdict(b.String())
 	if res != nil {
 		v.TokensIn = res.Usage.PromptTokens
 		v.TokensOut = res.Usage.CompletionTokens
@@ -154,29 +163,61 @@ func (a *Auditor) Classify(ctx context.Context, text string) (Verdict, error) {
 // guardCodeRE matches a Llama Guard hazard code (S1..S14).
 var guardCodeRE = regexp.MustCompile(`(?i)\bS([0-9]{1,2})\b`)
 
-// parseGuardVerdict reads a Llama Guard reply. The format is a first line of
-// "safe" or "unsafe"; when unsafe, a following line lists comma-separated
-// category codes. We tolerate whitespace/casing and pick the codes out by
-// regex so minor template variations across model builds still parse. A reply
-// that doesn't clearly say "unsafe" is treated as safe (fail-open: the audit
-// must not invent flags from a garbled reply).
-func parseGuardVerdict(s string) Verdict {
-	low := strings.ToLower(s)
-	if !strings.Contains(low, "unsafe") {
+// firstWordRE captures the verdict word at the START of a reply (after optional
+// leading whitespace only). Anchored on purpose: both supported models LEAD
+// with their verdict, so a letter-run found mid-reply ("0.97 unsafe") is not a
+// verdict and must fall through to fail-open, not flag.
+var firstWordRE = regexp.MustCompile(`^\s*([A-Za-z]+)`)
+
+// parseVerdict reads a safety classifier reply, model-agnostically. Two output
+// dialects are supported, distinguished by the leading verdict word:
+//
+//   - Llama Guard: "safe" / "unsafe" (and, when unsafe, category codes on a
+//     following line). English-centric — weak on other languages.
+//   - ShieldGemma: "Yes" (violates policy) / "No" (safe). Gemma-2 based, so it
+//     handles many languages incl. Lithuanian — it carries no S-codes, so a
+//     ShieldGemma flag records no categories.
+//
+// A reply that doesn't lead with a recognised verdict is treated as SAFE
+// (fail-open: the audit must not invent flags from a garbled reply).
+func parseVerdict(s string) Verdict {
+	switch firstWord(s) {
+	case "unsafe": // Llama Guard violation — pick out the S-codes
+		return Verdict{Flagged: true, Categories: parseCodes(s)}
+	case "yes": // ShieldGemma violation — no category taxonomy
+		return Verdict{Flagged: true}
+	case "safe", "no": // Llama Guard safe / ShieldGemma safe
+		return Verdict{Flagged: false}
+	default:
 		return Verdict{Flagged: false}
 	}
+}
+
+// firstWord returns the leading verdict word of s, lowercased ("" if the reply
+// doesn't begin with a letter run). Lowercasing the model OUTPUT is what lets a
+// ShieldGemma "Yes" or a Llama Guard "UNSAFE" match regardless of casing.
+func firstWord(s string) string {
+	m := firstWordRE.FindStringSubmatch(s)
+	if m == nil {
+		return ""
+	}
+	return strings.ToLower(m[1])
+}
+
+// parseCodes extracts the distinct Llama Guard hazard codes from a reply,
+// upper-cased, in first-seen order.
+func parseCodes(s string) []string {
 	seen := make(map[string]struct{})
 	var cats []string
 	for _, m := range guardCodeRE.FindAllStringSubmatch(s, -1) {
-		code := "S" + m[1]
-		key := strings.ToUpper(code)
+		key := strings.ToUpper("S" + m[1])
 		if _, dup := seen[key]; dup {
 			continue
 		}
 		seen[key] = struct{}{}
 		cats = append(cats, key)
 	}
-	return Verdict{Flagged: true, Categories: cats}
+	return cats
 }
 
 // categoryLabels maps Llama Guard 3 hazard codes to human labels (MLCommons

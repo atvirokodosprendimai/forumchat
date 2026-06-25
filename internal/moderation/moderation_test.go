@@ -9,25 +9,38 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 )
 
-func TestParseGuardVerdict(t *testing.T) {
+func TestParseVerdict(t *testing.T) {
 	cases := []struct {
 		name     string
 		reply    string
 		flagged  bool
 		wantCats []string
 	}{
-		{"safe", "safe", false, nil},
-		{"safe with trailing newline", "safe\n", false, nil},
-		{"unsafe single category", "unsafe\nS12", true, []string{"S12"}},
-		{"unsafe multi category", "unsafe\nS3,S12", true, []string{"S3", "S12"}},
-		{"unsafe spaced", "unsafe\n S3, S12 ", true, []string{"S3", "S12"}},
-		{"unsafe dedupe", "unsafe\nS12,S12", true, []string{"S12"}},
+		// Llama Guard dialect: safe / unsafe + S-codes.
+		{"llamaguard safe", "safe", false, nil},
+		{"llamaguard safe newline", "safe\n", false, nil},
+		{"llamaguard unsafe single", "unsafe\nS12", true, []string{"S12"}},
+		{"llamaguard unsafe multi", "unsafe\nS3,S12", true, []string{"S3", "S12"}},
+		{"llamaguard unsafe spaced", "unsafe\n S3, S12 ", true, []string{"S3", "S12"}},
+		{"llamaguard unsafe dedupe", "unsafe\nS12,S12", true, []string{"S12"}},
+		{"llamaguard uppercase", "UNSAFE\ns4", true, []string{"S4"}},
+		// ShieldGemma dialect: Yes / No, no categories. Multilingual.
+		{"shieldgemma yes", "Yes", true, nil},
+		{"shieldgemma yes punct", "Yes.", true, nil},
+		{"shieldgemma no", "No", false, nil},
+		{"shieldgemma yes lowercase", "yes\n", true, nil},
+		// Leading whitespace/newline before the verdict still parses.
+		{"leading newline unsafe", "\nunsafe\nS3", true, []string{"S3"}},
+		{"leading space yes", "  Yes", true, nil},
+		// Fail-open on anything without a recognised leading verdict.
 		{"garbled stays safe", "I cannot help with that", false, nil},
-		{"uppercase normalized", "UNSAFE\ns4", true, []string{"S4"}},
+		{"probability number stays safe", "0.97", false, nil},
+		// A verdict word mid-reply is NOT a verdict — must fail open, not flag.
+		{"mid-reply unsafe stays safe", "0.97 unsafe", false, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			v := parseGuardVerdict(c.reply)
+			v := parseVerdict(c.reply)
 			if v.Flagged != c.flagged {
 				t.Fatalf("flagged = %v, want %v (reply=%q)", v.Flagged, c.flagged, c.reply)
 			}

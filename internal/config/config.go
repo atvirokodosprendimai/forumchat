@@ -254,8 +254,12 @@ type Config struct {
 	TranslateModel   string `env:"TRANSLATE_MODEL" envDefault:""`
 
 	// Moderation (Phase B: automated safety classifier). When a model is set,
-	// every USER chat message is classified by a Llama Guard model on Ollama
-	// (e.g. llama-guard3:1b) and any policy hit is recorded as a metadata-only
+	// every USER chat message is classified by a safety model on Ollama and any
+	// policy hit is recorded as a metadata-only audit. Two model dialects are
+	// understood: Llama Guard (e.g. llama-guard3:1b — English-centric, emits
+	// safe/unsafe + S-codes) and ShieldGemma (e.g. shieldgemma:2b — Gemma-2
+	// based, multilingual incl. Lithuanian, emits Yes/No). Pick the model that
+	// fits your community's languages. Any policy hit is recorded as a metadata-only
 	// AUDIT — community + message + author + category codes, NEVER the body —
 	// feeding the super-admin Red flags panel. This keeps the SaaS privacy wall
 	// intact: an automated scanner flags, the operator sees only counts +
