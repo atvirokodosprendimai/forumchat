@@ -221,3 +221,7 @@
 - 2026-06-25 `945241f` docs(changelog): auto-append agent prompt-injection hardening entries
 - 2026-06-25 `6043804` docs(changelog): auto-append hardening changelog entry
 - 2026-06-25 `6e1a047` chore: untrack local mempalace/chroma tooling state
+- 2026-06-25 `9ca7dda` fix(rag): index finished bot chat replies in search
+- 2026-06-25 `ec44fd6` feat(chatagents): per-community bot reply surface (/surface)
+- 2026-06-25 `3160ef8` fix(chat): jump instantly to newest message, no smooth scroll
+- 2026-06-25 `efa73da` feat(auth): self-serve "leave community" on the profile page
