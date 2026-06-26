@@ -1845,16 +1845,27 @@ func (h *Handler) PostReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad report", http.StatusBadRequest)
 		return
 	}
+	// ref is an optional opaque context tag identifying WHAT was reported
+	// (e.g. "chat:<msgID>" when the member used a message's ⋮ menu rather
+	// than the roster). It's display-only context for the /admin queue —
+	// never a lookup key — so we just store it after trimming + capping the
+	// length to keep a stray client value from bloating the row.
+	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
+	if len(ref) > 120 {
+		ref = ref[:120]
+	}
 	if h.AuthRepo == nil {
 		http.Error(w, "reporting unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if err := h.AuthRepo.CreateUserReport(r.Context(), uuid.NewString(), id.User.ID, target, h.cid(r.Context()), reason, ""); err != nil {
+	if err := h.AuthRepo.CreateUserReport(r.Context(), uuid.NewString(), id.User.ID, target, h.cid(r.Context()), reason, ref); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	sse := render.NewSSE(w, r)
-	_ = sse.PatchSignals([]byte(`{"report_reason":"","_ctx_report_open":false,"_pm_toast_text":"Thanks — moderators have been notified","_pm_toast_href":""}`))
+	// Clear the report form + the FE-only _report_ref (so the next report
+	// doesn't inherit a stale message tag) and confirm via the global toast.
+	_ = sse.PatchSignals([]byte(`{"report_reason":"","_report_ref":"","_ctx_report_open":false,"_pm_toast_text":"Thanks — moderators have been notified","_pm_toast_href":""}`))
 }
 
 // MentionLimit caps how many suggestions the @mention popup shows. 7 was

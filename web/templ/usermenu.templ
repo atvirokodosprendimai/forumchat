@@ -59,7 +59,7 @@ templ UserContextMenu(slug, currentUserID string, isAdmin bool) {
 			</button>
 			<button class="ucm-item" role="menuitem"
 				data-show={ "$_ctx_user_id !== '" + currentUserID + "'" }
-				data-on:click="$report_reason=''; $_ctx_report_open=true; $_ctx_open=false">
+				data-on:click="$report_reason=''; $_report_ref=''; $_ctx_report_open=true; $_ctx_open=false">
 				<span class="ucm-icon">⚠</span><span class="ucm-label">Report to moderators</span>
 			</button>
 			if isAdmin {
@@ -144,6 +144,10 @@ templ ReportDialog(slug string) {
 				<button class="link" data-on:click="$_ctx_report_open=false">✕</button>
 			</header>
 			<div class="modal-body">
+				// When opened from a message's ⋮ menu, $_report_ref carries
+				// "chat:<id>" — surface a small note so the reporter knows the
+				// report is tied to that specific message, not the whole person.
+				<p class="muted report-scope" data-show="$_report_ref !== ''">⚑ Reporting a specific chat message.</p>
 				<label class="form-row">
 					<span>What's the problem?</span>
 					<textarea data-bind="report_reason" rows="3" placeholder="Briefly describe the issue for the moderators"></textarea>
@@ -151,7 +155,10 @@ templ ReportDialog(slug string) {
 			</div>
 			<footer class="modal-foot">
 				<button class="btn ghost" data-on:click="$_ctx_report_open=false">Cancel</button>
-				<button class="btn" data-on:click={ "@post('/c/" + slug + "/report?user=' + $_ctx_user_id)" }
+				// _report_ref is a FE-only signal (underscore = not sent in the
+				// body) — it's interpolated into the URL so PostReport reads it as
+				// the `ref` query param. Empty for a roster report.
+				<button class="btn" data-on:click={ "@post('/c/" + slug + "/report?user=' + $_ctx_user_id + ($_report_ref ? '&ref=' + encodeURIComponent($_report_ref) : ''))" }
 					data-attr:disabled="$report_reason.trim() === '' ? true : null">Send report</button>
 			</footer>
 		</div>

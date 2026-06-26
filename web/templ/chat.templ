@@ -744,6 +744,20 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 							<span class="mi-icon">→</span><span class="mi-label">Promote to thread</span>
 						</button>
 					}
+					// Moderation cluster — separated from the productivity actions
+					// above. Report is offered on anyone else's message (reuses the
+					// roster ReportDialog, tagging the report with this message via
+					// $_report_ref); Delete stays mod-only. The separator only
+					// renders when at least one of the two will.
+					if (m.AuthorID != "" && m.AuthorID != currentUserID) || isMod {
+						<div class="msg-menu-sep" role="separator" aria-hidden="true"></div>
+					}
+					if m.AuthorID != "" && m.AuthorID != currentUserID {
+						<button class="msg-menu-item" role="menuitem"
+							data-on:click={ "$_ctx_user_id='" + m.AuthorID + "'; $_ctx_name='" + jsString(m.AuthorName) + "'; $_report_ref='chat:" + m.ID + "'; $report_reason=''; $_ctx_report_open=true; el.closest('details').open=false" }>
+							<span class="mi-icon">⚑</span><span class="mi-label">Report</span>
+						</button>
+					}
 					if isMod {
 						<button class="msg-menu-item danger" role="menuitem"
 							data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>

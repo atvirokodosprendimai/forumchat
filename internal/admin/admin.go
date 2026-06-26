@@ -842,6 +842,9 @@ func reportsToAdminReports(rows []auth.UserReport) []webtempl.AdminReport {
 			ReportedName: rep.ReportedName,
 			Reason:       rep.Reason,
 			When:         rep.CreatedAt.Local().Format("15:04 Jan 2"),
+			// context_ref is "chat:<msgID>" when the report came from a
+			// message's ⋮ menu; flag it so the queue shows the ⚑ chip.
+			OnMessage: strings.HasPrefix(rep.ContextRef, "chat:"),
 		})
 	}
 	return out

@@ -34,6 +34,10 @@ type AdminReport struct {
 	ReportedName string
 	Reason       string
 	When         string
+	// OnMessage is true when the report was filed against a specific chat
+	// message (context_ref carries a "chat:" tag) rather than the person in
+	// general, so the queue can flag it for the moderator.
+	OnMessage bool
 }
 
 type AdminPageData struct {
@@ -218,6 +222,9 @@ templ AdminReports(slug string, rows []AdminReport) {
 			for _, rep := range rows {
 				<li>
 					<strong>{ rep.ReportedName }</strong>
+					if rep.OnMessage {
+						<span class="wh-chip report-chip">⚑ chat message</span>
+					}
 					<span class="muted">reported by { rep.ReporterName } · { rep.When }</span>
 					<div class="report-reason">{ rep.Reason }</div>
 					<div style="margin-top:.4rem">

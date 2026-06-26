@@ -249,14 +249,18 @@ button.link:hover, .link-button:hover {
   box-shadow: -7px 0 0 currentColor, 7px 0 0 currentColor;
 }
 
-/* Desktop dropdown */
+/* Desktop dropdown.
+   Compact / flat, matching the admin connectors aesthetic (.wh-actions ghost
+   buttons at .82rem): tight rows, de-emphasised muted glyphs that only take the
+   accent on hover, a hairline group separator. The old menu used 40px rows with
+   1rem accent icons and bled a lot of vertical space for ~8 items. */
 .msg-menu-list {
-  position: absolute; top: calc(100% + .35rem); right: 0; z-index: 6;
-  min-width: 10rem; max-width: 14rem;
-  display: flex; flex-direction: column; gap: .1rem;
-  padding: .35rem;
+  position: absolute; top: calc(100% + .3rem); right: 0; z-index: 6;
+  min-width: 8.5rem; max-width: 13rem;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: .25rem;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); box-shadow: var(--shadow);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow);
   /* Safety net: a tall menu (mod variant) on a short viewport scrolls rather
      than spilling past the .messages scroll container in either direction. */
   max-height: 60vh; overflow-y: auto;
@@ -266,24 +270,29 @@ button.link:hover, .link-button:hover {
    .messages scroller for the menu to fit below — without this the lower items
    were clipped off-screen. Mobile (.msg-menu-list is a fixed bottom sheet)
    overrides position in the @media block below, so this is desktop-only. */
-.msg-menu.flip-up .msg-menu-list { top: auto; bottom: calc(100% + .35rem); }
+.msg-menu.flip-up .msg-menu-list { top: auto; bottom: calc(100% + .3rem); }
 .msg-menu-handle { display: none; }
+/* Hairline divider between the productivity actions and the moderation cluster
+   (Report / Delete). Inert in the mobile grid below (set to display:none). */
+.msg-menu-sep { height: 1px; margin: .2rem .15rem; background: var(--border-subtle); }
 .msg-menu-item {
   background: transparent; color: var(--fg); border: none;
-  text-align: left; padding: .6rem .7rem; border-radius: var(--radius-sm);
-  font-weight: 500; font-size: .95rem; text-decoration: none;
+  text-align: left; padding: .34rem .5rem; border-radius: var(--radius-sm);
+  font-weight: 500; font-size: .82rem; line-height: 1.25; text-decoration: none;
   display: flex; align-items: center; gap: .55rem;
-  cursor: pointer; width: 100%; min-height: 40px;
+  cursor: pointer; width: 100%; min-height: 0;
 }
 .msg-menu-item .mi-icon {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 1.4rem; height: 1.4rem; flex: 0 0 1.4rem;
-  font-size: 1rem; color: var(--accent);
+  width: 1rem; height: 1rem; flex: 0 0 1rem;
+  font-size: .85rem; color: var(--fg-muted);
+  transition: color .12s;
 }
 .msg-menu-item .mi-label { flex: 1; }
 .msg-menu-item:hover, .msg-menu-item:focus-visible {
   background: var(--surface-alt); text-decoration: none; outline: none;
 }
+.msg-menu-item:hover .mi-icon, .msg-menu-item:focus-visible .mi-icon { color: var(--accent); }
 /* A danger menu item is a `<button class="msg-menu-item danger">`, so it also
    matches `button.danger` (filled red bg + white text). That rule's bg wins
    over `.msg-menu-item`'s transparent base, while this rule's red color wins on
@@ -360,6 +369,8 @@ button.link:hover, .link-button:hover {
   .msg-menu-item.danger { background: color-mix(in srgb, var(--danger) 10%, var(--surface-alt)); }
   .msg-menu-item.danger .mi-icon { background: var(--surface); color: var(--danger); }
   .msg-menu-item:active { transform: scale(.96); transition: transform .08s; }
+  /* The desktop group divider is meaningless in the 3-col tile grid. */
+  .msg-menu-sep { display: none; }
 
   /* lock background scroll while a sheet is open */
   body:has(.msg-menu[open]) { overflow: hidden; }
@@ -4814,6 +4825,16 @@ hr {
   background: var(--surface-alt); border-radius: var(--radius-sm);
   font-size: .9rem; white-space: pre-wrap;
 }
+/* Queue chip marking a report that targets a specific chat message (reuses the
+   connectors .wh-chip pill, tinted with the danger hue so it reads as a flag). */
+.report-chip {
+  margin-left: .4rem; vertical-align: middle;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+/* In-modal note shown when reporting a single message rather than the person. */
+.report-scope { margin: 0 0 .5rem; font-size: .85rem; color: var(--danger); }
 
 /* Platform super-admin dashboard (/superadmin) */
 .data-table { width: 100%; border-collapse: collapse; margin-top: .5rem; font-size: .9rem; }

@@ -129,7 +129,7 @@ func UserContextMenu(slug, currentUserID string, isAdmin bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\" data-on:click=\"$report_reason=''; $_ctx_report_open=true; $_ctx_open=false\"><span class=\"ucm-icon\">⚠</span><span class=\"ucm-label\">Report to moderators</span></button> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\" data-on:click=\"$report_reason=''; $_report_ref=''; $_ctx_report_open=true; $_ctx_open=false\"><span class=\"ucm-icon\">⚠</span><span class=\"ucm-label\">Report to moderators</span></button> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -354,14 +354,14 @@ func ReportDialog(slug string) templ.Component {
 			templ_7745c5c3_Var19 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<div class=\"modal-overlay\" data-cloak data-show=\"$_ctx_report_open\" data-on:click=\"if(evt.target===el){$_ctx_report_open=false}\"><div class=\"modal\" data-on:click=\"evt.stopPropagation()\"><header class=\"modal-head\"><strong>Report <span data-text=\"$_ctx_name\"></span></strong> <button class=\"link\" data-on:click=\"$_ctx_report_open=false\">✕</button></header><div class=\"modal-body\"><label class=\"form-row\"><span>What's the problem?</span> <textarea data-bind=\"report_reason\" rows=\"3\" placeholder=\"Briefly describe the issue for the moderators\"></textarea></label></div><footer class=\"modal-foot\"><button class=\"btn ghost\" data-on:click=\"$_ctx_report_open=false\">Cancel</button> <button class=\"btn\" data-on:click=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<div class=\"modal-overlay\" data-cloak data-show=\"$_ctx_report_open\" data-on:click=\"if(evt.target===el){$_ctx_report_open=false}\"><div class=\"modal\" data-on:click=\"evt.stopPropagation()\"><header class=\"modal-head\"><strong>Report <span data-text=\"$_ctx_name\"></span></strong> <button class=\"link\" data-on:click=\"$_ctx_report_open=false\">✕</button></header><div class=\"modal-body\"><p class=\"muted report-scope\" data-show=\"$_report_ref !== ''\">⚑ Reporting a specific chat message.</p><label class=\"form-row\"><span>What's the problem?</span> <textarea data-bind=\"report_reason\" rows=\"3\" placeholder=\"Briefly describe the issue for the moderators\"></textarea></label></div><footer class=\"modal-foot\"><button class=\"btn ghost\" data-on:click=\"$_ctx_report_open=false\">Cancel</button><button class=\"btn\" data-on:click=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var20 string
-		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/report?user=' + $_ctx_user_id)")
+		templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/report?user=' + $_ctx_user_id + ($_report_ref ? '&ref=' + encodeURIComponent($_report_ref) : ''))")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 154, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 161, Col: 162}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 		if templ_7745c5c3_Err != nil {
@@ -407,7 +407,7 @@ func BanDialog(slug string) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.ResolveAttributeValue("@post('/c/" + slug + "/admin/ban?id=' + $_ctx_membership_id); $_ctx_ban_open=false")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 184, Col: 124}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templ/usermenu.templ`, Line: 191, Col: 124}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var22)
 		if templ_7745c5c3_Err != nil {
