@@ -376,7 +376,15 @@ const InitialSignals = `{
 	"ch_topic":"",
 	"_ch_create_open":false,
 	"_ch_edit_open":false,
-	"_ch_edit_id":"",
+	// ch_edit_id is NOT _-prefixed on purpose: datastar strips _-prefixed
+	// signals from @post/@get payloads, so an FE-only id would never reach the
+	// rename/topic/archive/delete handlers (they'd get ChannelID == "" and fail
+	// with sql.ErrNoRows). The dialog's open/closed flags stay _-prefixed since
+	// the server never needs them; only the id must travel.
+	"ch_edit_id":"",
+	// _ch_edit_is_default gates the edit dialog down to topic-only when the
+	// channel is #general (rename/archive/delete are server-rejected for it).
+	"_ch_edit_is_default":false,
 	"_issues_pending":0,
 	"sa_open_uid":"",
 	"sa_mid":"",

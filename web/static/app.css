@@ -470,11 +470,24 @@ button.link:hover, .link-button:hover {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--accent); margin-left: 0.15rem; flex: 0 0 auto;
 }
+/* Per-channel settings ⚙. The old rule (opacity .45, .8rem, no box) was
+   invisible in a horizontally-scrolling pill row — users couldn't find the way
+   to rename/set-topic/delete. Now a real icon-button: always visible, with a
+   proper hit area, a hover surface that reads as clickable, and a keyboard
+   focus ring. Strengthens on pill hover/active and on direct hover/focus. */
 .chan-gear {
-  background: none; border: none; cursor: pointer; padding: 0 0.45rem 0 0.1rem;
-  font-size: 0.8rem; opacity: 0.45; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.65rem; height: 1.65rem; margin-right: 0.12rem; flex: 0 0 auto;
+  background: none; border: none; border-radius: var(--radius-pill);
+  color: inherit; cursor: pointer; line-height: 1; font-size: 0.92rem;
+  opacity: 0.55;
+  transition: opacity var(--t-fast) var(--ease-out), background var(--t-fast) var(--ease-out);
 }
-.chan-gear:hover { opacity: 0.9; }
+.chan-pill:hover .chan-gear,
+.chan-pill.active .chan-gear { opacity: 0.8; }
+.chan-gear:hover,
+.chan-gear:focus-visible { opacity: 1; background: var(--surface-2); }
+.chan-gear:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 1px; }
 .chan-add {
   background: none; border: 1px dashed var(--border-strong);
   color: var(--muted); border-radius: var(--radius-pill);
@@ -509,6 +522,9 @@ button.link:hover, .link-button:hover {
   .chan-pill { width: 100%; }
   .chan-link { flex: 1 1 auto; padding: 0.5rem 0.7rem; }
   .chan-add { width: 100%; justify-content: center; margin-top: 0.15rem; }
+  /* Touch has no hover — the gear must be plainly visible and a full 44px
+     tap target at the right edge of each full-width channel row. */
+  .chan-gear { min-width: 2.75rem; height: 2.75rem; margin-right: 0.2rem; opacity: 0.75; font-size: 1.05rem; }
 }
 
 .chat-topic { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.85rem; }

@@ -249,9 +249,19 @@ templ ChannelSwitcher(slug string, channels []ChannelView, activeID string, canM
 							<span class="chan-dot" data-show={ "$chat_unread['" + c.ID + "']" } aria-label="unread messages"></span>
 						}
 					</a>
-					if canManage && !c.IsDefault {
-						<button type="button" class="chan-gear" aria-label="Channel settings"
-							data-on:click={ "el.dispatchEvent(new CustomEvent('fc:chan-edit',{bubbles:true,detail:{id:'" + c.ID + "',name:'" + jsString(c.Name) + "',topic:'" + jsString(c.Topic) + "'}}))" }>⚙</button>
+					// The ⚙ shows for EVERY channel a mod/admin can manage, including
+					// #general: the default channel can't be renamed/archived/deleted
+					// but its topic IS editable (chat.Service.SetTopic allows it), so it
+					// still needs a way in. isDefault rides the event so the dialog can
+					// collapse to topic-only. jsString escapes ' so names/topics with an
+					// apostrophe can't break (or inject into) the dispatch expression.
+					if canManage {
+						{{ isDef := "false" }}
+						if c.IsDefault {
+							{{ isDef = "true" }}
+						}
+						<button type="button" class="chan-gear" aria-label={ "Settings for #" + c.Name }
+							data-on:click={ "el.dispatchEvent(new CustomEvent('fc:chan-edit',{bubbles:true,detail:{id:'" + c.ID + "',name:'" + jsString(c.Name) + "',topic:'" + jsString(c.Topic) + "',isDefault:" + isDef + "}}))" }>⚙</button>
 					}
 				</span>
 			}
@@ -281,7 +291,7 @@ func activeChannelName(channels []ChannelView, activeID string) string {
 // One window-level consumer listens for the fc:chan-edit custom event
 // dispatched by each ⚙ button and opens the edit form pre-filled.
 templ ChannelManageDialog(slug string) {
-	<div data-on:fc:chan-edit__window="$_ch_edit_id=evt.detail.id; $ch_name=evt.detail.name; $ch_topic=evt.detail.topic; $_ch_create_open=false; $_ch_edit_open=true"></div>
+	<div data-on:fc:chan-edit__window="$ch_edit_id=evt.detail.id; $ch_name=evt.detail.name; $ch_topic=evt.detail.topic; $_ch_edit_is_default=evt.detail.isDefault; $_ch_create_open=false; $_ch_edit_open=true"></div>
 	// Create
 	<div class="modal-backdrop" data-cloak data-show="$_ch_create_open" data-on:click="$_ch_create_open=false">
 		<div class="modal-card" data-on:click="evt.stopPropagation()">
@@ -301,11 +311,16 @@ templ ChannelManageDialog(slug string) {
 			</div>
 		</div>
 	</div>
-	// Edit (rename / topic / archive / delete)
+	// Edit (rename / topic / archive / delete). The default channel (#general)
+	// collapses to topic-only: rename/archive/delete are server-rejected for it
+	// (ErrDefaultChannel), so $_ch_edit_is_default hides those affordances rather
+	// than offering buttons that only ever error. Close lives in the top action
+	// row so it's reachable in both modes.
 	<div class="modal-backdrop" data-cloak data-show="$_ch_edit_open" data-on:click="$_ch_edit_open=false">
 		<div class="modal-card" data-on:click="evt.stopPropagation()">
-			<h3>Channel settings</h3>
-			<label class="field">
+			<h3 data-text="$_ch_edit_is_default ? 'Default channel settings' : 'Channel settings'">Channel settings</h3>
+			<p class="muted" data-show="$_ch_edit_is_default" style="display:none">This is the default channel — only its topic can be changed.</p>
+			<label class="field" data-show="!$_ch_edit_is_default">
 				<span>Name</span>
 				<input type="text" data-bind="ch_name" maxlength="60"/>
 			</label>
@@ -315,14 +330,18 @@ templ ChannelManageDialog(slug string) {
 			</label>
 			<div id="chan-error" class="form-error" aria-live="polite"></div>
 			<div class="modal-actions">
-				<button data-on:click={ "@post('/c/" + slug + "/chat/channels/rename')" }>Save name</button>
-				<button class="ghost" data-on:click={ "@post('/c/" + slug + "/chat/channels/topic')" }>Save topic</button>
+				<button data-show="!$_ch_edit_is_default" data-on:click={ "@post('/c/" + slug + "/chat/channels/rename')" }>Save name</button>
+				// Secondary (ghost) when "Save name" is the primary; promoted to the
+				// primary filled button in topic-only mode so there's always exactly
+				// one primary CTA.
+				<button data-class:ghost="!$_ch_edit_is_default" data-on:click={ "@post('/c/" + slug + "/chat/channels/topic')" }>Save topic</button>
+				<button class="ghost" data-on:click="$_ch_edit_open=false">Close</button>
 			</div>
-			<hr/>
-			<div class="modal-actions">
+			// Destructive actions, kept in their own row and hidden for #general.
+			<hr data-show="!$_ch_edit_is_default" style="display:none"/>
+			<div class="modal-actions" data-show="!$_ch_edit_is_default" style="display:none">
 				<button class="ghost" data-on:click={ "@post('/c/" + slug + "/chat/channels/archive')" }>Archive</button>
 				<button class="danger" data-on:click={ "if(confirm('Delete this channel and all its messages? This cannot be undone.')){@post('/c/" + slug + "/chat/channels/delete')}" }>Delete</button>
-				<button class="ghost" data-on:click="$_ch_edit_open=false">Close</button>
 			</div>
 		</div>
 	</div>

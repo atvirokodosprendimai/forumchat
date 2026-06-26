@@ -920,7 +920,10 @@ func (h *Handler) GetChatRedirect(w http.ResponseWriter, r *http.Request) {
 // channelFormSignals carries the create / edit dialog fields plus the
 // actor's current active channel (for the switcher highlight on re-render).
 type channelFormSignals struct {
-	ChannelID string `json:"_ch_edit_id"`
+	// ch_edit_id (no _ prefix) — datastar drops _-prefixed signals from the
+	// request payload, so the edit dialog's target channel id must use a plain
+	// signal name or it never arrives and every edit hits sql.ErrNoRows.
+	ChannelID string `json:"ch_edit_id"`
 	Name      string `json:"ch_name"`
 	Topic     string `json:"ch_topic"`
 	ActiveID  string `json:"active_channel"`
