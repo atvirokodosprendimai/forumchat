@@ -1841,24 +1841,36 @@ func (h *Handler) PostReport(w http.ResponseWriter, r *http.Request) {
 	}
 	target := r.URL.Query().Get("user")
 	reason := strings.TrimSpace(in.Reason)
-	if target == "" || target == id.User.ID || reason == "" {
-		http.Error(w, "bad report", http.StatusBadRequest)
-		return
-	}
-	// ref is an optional opaque context tag identifying WHAT was reported
-	// (e.g. "chat:<msgID>" when the member used a message's ⋮ menu rather
-	// than the roster). It's display-only context for the /admin queue —
-	// never a lookup key — so we just store it after trimming + capping the
-	// length to keep a stray client value from bloating the row.
+	// ref is an optional context tag identifying WHAT was reported: "chat:<msgID>"
+	// when the member used a message's ⋮ menu rather than the roster. Trim + cap
+	// the length so a stray client value can't bloat the row.
 	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
 	if len(ref) > 120 {
 		ref = ref[:120]
+	}
+	cid := h.cid(r.Context())
+	// When the report is tied to a specific chat message, derive the reported
+	// user from the message itself instead of trusting the client-supplied
+	// `user` param. Otherwise a crafted request could pin a real message onto a
+	// report against an unrelated member, misleading the moderation queue. ByID
+	// already filters soft-deleted rows; we additionally scope to this community.
+	if msgID, ok := strings.CutPrefix(ref, "chat:"); ok {
+		msg, err := h.Repo.ByID(r.Context(), msgID)
+		if err != nil || msg.CommunityID != cid || msg.AuthorID == nil || *msg.AuthorID == "" {
+			http.Error(w, "bad report", http.StatusBadRequest)
+			return
+		}
+		target = *msg.AuthorID
+	}
+	if target == "" || target == id.User.ID || reason == "" {
+		http.Error(w, "bad report", http.StatusBadRequest)
+		return
 	}
 	if h.AuthRepo == nil {
 		http.Error(w, "reporting unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if err := h.AuthRepo.CreateUserReport(r.Context(), uuid.NewString(), id.User.ID, target, h.cid(r.Context()), reason, ref); err != nil {
+	if err := h.AuthRepo.CreateUserReport(r.Context(), uuid.NewString(), id.User.ID, target, cid, reason, ref); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

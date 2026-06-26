@@ -256,3 +256,4 @@
 - 2026-06-25 `593da3e` feat(auth): optional age self-attestation gate on registration
 - 2026-06-25 `9e24f78` docs(agegate): record scope cut to single REGISTER_MIN_AGE + verification
 - 2026-06-26 `5df4abe` feat(chat): report message from the ⋮ menu + compact connectors-style dropdown
+- 2026-06-26 `b710355` fix(css): report-chip danger tint was a dead rule (.wh-chip won on source order)
