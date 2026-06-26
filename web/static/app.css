@@ -4826,8 +4826,10 @@ hr {
   font-size: .9rem; white-space: pre-wrap;
 }
 /* Queue chip marking a report that targets a specific chat message (reuses the
-   connectors .wh-chip pill, tinted with the danger hue so it reads as a flag). */
-.report-chip {
+   connectors .wh-chip pill, tinted with the danger hue so it reads as a flag).
+   Compound selector (.wh-chip.report-chip) so it wins over .wh-chip's own color
+   regardless of source order — .wh-chip is defined later in this file. */
+.wh-chip.report-chip {
   margin-left: .4rem; vertical-align: middle;
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
