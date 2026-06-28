@@ -131,10 +131,17 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 	// read another community's media by guessing the id. Guests are scoped by
 	// their project-share session; the no-session path required a valid
 	// shared signature above. MemberOf nil keeps the legacy behaviour (tests).
-	if id, ok := auth.FromContext(r.Context()); ok && !id.GodMode() && h.MemberOf != nil {
-		if !h.MemberOf(r.Context(), id.User.ID, u.CommunityID) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
+	if id, ok := auth.FromContext(r.Context()); ok && !id.GodMode() {
+		// Fail closed (FIX1 M28): an authenticated, non-god viewer must be a
+		// member of the upload's community. The owner may always read their own
+		// file. When MemberOf isn't wired we can't verify membership, so we deny
+		// everyone but the owner rather than fall back to the old permissive
+		// "any authed user reads any community's media" behaviour.
+		if id.User.ID != u.OwnerID {
+			if h.MemberOf == nil || !h.MemberOf(r.Context(), id.User.ID, u.CommunityID) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
 		}
 	}
 	w.Header().Set("Content-Type", u.MIME)
