@@ -385,12 +385,6 @@ func (r *Repo) GetPost(ctx context.Context, id string) (Post, error) {
 	return p, nil
 }
 
-func (r *Repo) UpdatePost(ctx context.Context, id, md, html string) error {
-	_, err := r.DB.ExecContext(ctx, `UPDATE posts SET body_md = ?, body_html = ?, updated_at = ? WHERE id = ?`,
-		md, html, time.Now().Unix(), id)
-	return err
-}
-
 // AgentBotUserID is the sentinel user that owns every agent reply post's
 // NOT-NULL author_id FK (migration 00044). The real identity is the post's
 // agent_id / bot_name columns.
@@ -531,10 +525,6 @@ func (s *Service) CreatePost(ctx context.Context, in CreatePostInput) (Post, err
 		return Post{}, err
 	}
 	return p, nil
-}
-
-func (s *Service) CanEditOrDeleteOwn(p Post, now time.Time) bool {
-	return now.Sub(p.CreatedAt) <= s.EditGrace
 }
 
 // CreateWebhookThread opens a forum thread on behalf of an inbound webhook

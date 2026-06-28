@@ -37,6 +37,11 @@ const ChatSendPerMinute = 60
 // SSE + NATS + RAG-outbox work, so they get a tighter budget than plain sends.
 const ChatActionPerMinute = 20
 
+// ChatSelfDeleteGrace is how long after posting an author may delete their own
+// chat message without a moderator (FIX1 M8) — enough to pull back something
+// sent in error, short enough that history stays stable.
+const ChatSelfDeleteGrace = 5 * time.Minute
+
 type Handler struct {
 	Svc  *Service
 	Repo *Repo
@@ -1795,8 +1800,8 @@ func (h *Handler) GetEventsStream(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
-	if !ok || !id.Membership.Role.AtLeast(auth.RoleMod) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
 	msgID := r.URL.Query().Get("id")
@@ -1804,9 +1809,9 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
-	// Resolve the message's own channel (the one the mod is viewing) so
-	// the re-render + broadcast target it — delete is a community-level
-	// route with no {channel} in the URL.
+	// Resolve the message's own channel (the one being viewed) so the re-render +
+	// broadcast target it — delete is a community-level route with no {channel}
+	// in the URL.
 	msg, err := h.Repo.ByID(r.Context(), msgID)
 	if err != nil {
 		http.Error(w, "message not found", http.StatusNotFound)
@@ -1817,6 +1822,17 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	// of community A can't soft-delete community B's chat by id.
 	if msg.CommunityID != h.cid(r.Context()) {
 		http.NotFound(w, r)
+		return
+	}
+	// A mod/admin may delete any message; the author may delete their OWN recent
+	// message within the grace window (FIX1 M8) so they can pull back something
+	// sensitive without waiting on a moderator. Restricted to KindUser — bot/
+	// webhook/system messages are never self-deletable.
+	isMod := id.Membership.Role.AtLeast(auth.RoleMod)
+	isOwnRecent := msg.Kind == KindUser && msg.AuthorID != nil && *msg.AuthorID == id.User.ID &&
+		time.Since(msg.CreatedAt) <= ChatSelfDeleteGrace
+	if !isMod && !isOwnRecent {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 	if err := h.Repo.SoftDelete(r.Context(), msgID); err != nil {
@@ -2085,6 +2101,10 @@ func toMsgView(m Message) webtempl.MsgView {
 // view-model carries everything the templ needs.
 func (h *Handler) toMsgViewWith(m Message, viewerID, slug string) webtempl.MsgView {
 	v := toMsgView(m)
+	// Per-viewer: surface a Delete affordance to the author within the grace
+	// window (FIX1 M8). Mods get Delete via the isMod templ branch already.
+	v.CanSelfDelete = m.Kind == KindUser && m.AuthorID != nil && *m.AuthorID == viewerID &&
+		time.Since(m.CreatedAt) <= ChatSelfDeleteGrace
 	if len(m.Attachments) > 0 && h.Uploads != nil {
 		out := make([]webtempl.AttachmentView, 0, len(m.Attachments))
 		for _, a := range m.Attachments {

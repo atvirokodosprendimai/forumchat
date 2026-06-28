@@ -61,6 +61,10 @@ type MsgView struct {
 	Forwarded        *ForwardView // "Forwarded from #channel" attribution
 	PromotedThreadID string
 	TitleSnippet     string // single-line title derived from body for todo/bookmark dialogs
+	// CanSelfDelete is true when THIS viewer authored the message and is still
+	// within the self-delete grace window (FIX1 M8) — surfaces the Delete item to
+	// a non-mod author. Computed per-viewer in toMsgViewWith.
+	CanSelfDelete bool
 	// ReadBy is the read-receipt list rendered under this message.
 	// Server-side attached only to the viewer's MOST RECENT own user
 	// message so the DOM stays small. Empty for everyone else.
@@ -673,7 +677,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 						data-on:click={ todoClickJS("chat:"+m.ID, m.TitleSnippet) + "; el.closest('details').open=false" }>
 						<span class="mi-icon">☑</span><span class="mi-label">To-do</span>
 					</button>
-					if isMod {
+					if isMod || m.CanSelfDelete {
 						<button class="msg-menu-item danger" role="menuitem"
 							data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>
 							<span class="mi-icon">✕</span><span class="mi-label">Delete</span>
@@ -758,7 +762,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 							<span class="mi-icon">⚑</span><span class="mi-label">Report</span>
 						</button>
 					}
-					if isMod {
+					if isMod || m.CanSelfDelete {
 						<button class="msg-menu-item danger" role="menuitem"
 							data-on:click={ "@post('/c/" + slug + "/chat/delete?id=" + m.ID + "')" }>
 							<span class="mi-icon">✕</span><span class="mi-label">Delete</span>
