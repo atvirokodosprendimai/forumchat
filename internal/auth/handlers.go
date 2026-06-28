@@ -557,8 +557,13 @@ func (h *Handler) PostPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	sse := render.NewSSE(w, r)
+	// fail renders an error fragment via a fresh SSE. It's lazy (creates the SSE
+	// itself) so the success path can mutate the session and commit its cookie
+	// BEFORE opening the SSE — datastar's NewSSE flush bypasses scs's Set-Cookie
+	// hook (§4.4), so RenewToken's new token would otherwise never reach the
+	// browser and the user would be logged out by their own password change.
 	fail := func(msg string) {
+		sse := render.NewSSE(w, r)
 		_ = sse.PatchElementTempl(webtempl.PasswordStatusFragment(msg, false))
 	}
 
@@ -595,6 +600,13 @@ func (h *Handler) PostPassword(w http.ResponseWriter, r *http.Request) {
 		fail("Could not update password")
 		return
 	}
+	// Rotate the session token on password change (FIX1 M4) — a session-fixation
+	// defense that also re-mints the current device's cookie. commitSession must
+	// run BEFORE NewSSE so the new Set-Cookie survives datastar's flush (§4.4).
+	_ = h.Sessions.RenewToken(r.Context())
+	commitSession(h.Sessions, w, r)
+
+	sse := render.NewSSE(w, r)
 	// The card flips to "has a password" — a freshly-set OAuth password now needs
 	// the current one for the next change. Re-render the whole card so the
 	// current-password field appears and the inputs clear.
