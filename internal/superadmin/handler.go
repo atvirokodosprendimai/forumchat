@@ -842,19 +842,15 @@ func (h *Handler) PostCommunityRemove(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No such membership"))
 		return
 	}
-	if m.Role.AtLeast(auth.RoleAdmin) {
-		count, err := h.AuthRepo.CountAdmins(r.Context(), m.CommunityID)
-		if err != nil {
-			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "count admins: "+err.Error()))
-			return
-		}
-		if count <= 1 {
-			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Refused — this is the community's last privileged member. Promote another admin/owner first."))
-			return
-		}
-	}
-	if err := h.AuthRepo.RejectMembership(r.Context(), mid); err != nil {
+	// Atomic last-admin guard (FIX1 M2) — same race fix as the per-community
+	// admin path: refuse and delete in one statement instead of CountAdmins→Reject.
+	deleted, err := h.AuthRepo.DeleteMembershipIfNotLastAdmin(r.Context(), mid, m.CommunityID)
+	if err != nil {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Remove failed: "+err.Error()))
+		return
+	}
+	if !deleted {
+		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Refused — this is the community's last privileged member. Promote another admin/owner first."))
 		return
 	}
 	h.audit(r, "super-admin removed user from community", "membership_id", mid, "community_id", m.CommunityID, "user_id", m.UserID)

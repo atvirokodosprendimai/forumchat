@@ -288,16 +288,30 @@ func (r *Repo) ConsumeInvite(ctx context.Context, tx *sql.Tx, code, userID strin
 	if ic.Exhausted() {
 		return InviteCode{}, ErrInviteExhausted
 	}
-	// First use also stamps used_by / used_at; subsequent uses just bump count.
-	if !usedBy.Valid {
-		_, err = tx.ExecContext(ctx, `
-			UPDATE invite_codes SET used_by = ?, used_at = ?, uses_count = uses_count + 1 WHERE code = ?`,
-			userID, time.Now().Unix(), code)
-	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE invite_codes SET uses_count = uses_count + 1 WHERE code = ?`, code)
-	}
+	// Atomic consume (FIX1 M3): the WHERE guard re-checks expiry + remaining uses
+	// at UPDATE time and RowsAffected confirms exactly one consume won, so two
+	// consumers of a single-use invite can't both pass the read-side Exhausted()
+	// check above and both increment. COALESCE stamps used_by/used_at only on the
+	// first use; subsequent uses just bump the count.
+	now := time.Now().Unix()
+	res, err := tx.ExecContext(ctx, `
+		UPDATE invite_codes
+		SET used_by = COALESCE(used_by, ?), used_at = COALESCE(used_at, ?), uses_count = uses_count + 1
+		WHERE code = ? AND expires_at > ? AND (max_uses IS NULL OR uses_count < max_uses)`,
+		userID, now, code, now)
 	if err != nil {
 		return InviteCode{}, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return InviteCode{}, err
+	}
+	if n == 0 {
+		// Lost the race (or expired between read and write).
+		if time.Now().After(ic.ExpiresAt) {
+			return InviteCode{}, ErrInviteInvalid
+		}
+		return InviteCode{}, ErrInviteExhausted
 	}
 	ic.UsesCount++
 	return ic, nil

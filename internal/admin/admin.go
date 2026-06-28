@@ -377,26 +377,26 @@ func (h *Handler) PostRemoveMember(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cannot remove yourself", http.StatusBadRequest)
 		return
 	}
-	if m.Role.AtLeast(auth.RoleAdmin) {
-		count, err := h.Repo.CountAdmins(r.Context(), h.cid(r))
-		if err != nil {
-			http.Error(w, "count admins: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if count <= 1 {
-			http.Error(w, "cannot remove the last admin", http.StatusBadRequest)
-			return
-		}
+	// Remove the membership atomically with the last-admin guard (FIX1 M1): the
+	// old CountAdmins→RejectMembership pair was a TOCTOU — two concurrent
+	// removals of the last two admins could both pass the count and both delete,
+	// orphaning the community. DeleteMembershipIfNotLastAdmin refuses in the same
+	// statement. Run it BEFORE content cleanup so a refused removal does nothing
+	// destructive.
+	deleted, err := h.Repo.DeleteMembershipIfNotLastAdmin(r.Context(), membershipID, h.cid(r))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "cannot remove the last admin", http.StatusBadRequest)
+		return
 	}
 	opts := auth.CleanupOptions{Chat: in.CleanupChat, Threads: in.CleanupThreads, Posts: in.CleanupPosts}
 	if opts.Chat || opts.Threads || opts.Posts {
 		if err := h.Repo.CleanupUserContent(r.Context(), m.UserID, h.cid(r), opts); err != nil {
 			h.Log.Error("cleanup on remove", "err", err)
 		}
-	}
-	if err := h.Repo.RejectMembership(r.Context(), membershipID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
 	if opts.Chat && h.Chat != nil {
 		h.Chat.Bus.Broadcast("")
