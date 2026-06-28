@@ -322,6 +322,16 @@ type Config struct {
 
 func (c Config) IsProd() bool { return strings.EqualFold(c.Env, "prod") }
 
+// insecureSecret reports whether a secret still carries one of the well-known
+// placeholder tokens shipped in the dev defaults / example files. Rejected in
+// production so a copied-verbatim example can never become a real signing key.
+func insecureSecret(k string) bool {
+	k = strings.ToLower(k)
+	return strings.Contains(k, "dev-only") ||
+		strings.Contains(k, "change-me") ||
+		strings.Contains(k, "changeme")
+}
+
 // ModerationEnabled reports whether the automated safety classifier (Phase B)
 // is configured: both an Ollama URL and a model must be set. With the model
 // empty the feature is fully inert — no classification, no audit, no compute.
@@ -364,11 +374,31 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("parse env: %w", err)
 	}
 	if cfg.IsProd() {
-		if cfg.SessionKey == "" || strings.Contains(cfg.SessionKey, "dev-only") {
-			return Config{}, fmt.Errorf("SESSION_KEY must be set in production")
+		// Reject both the "dev-only…" code defaults AND the "change-me…"
+		// placeholders shipped in compose.yml.example/.env.example — an operator
+		// copying an example file verbatim would otherwise boot with a
+		// publicly-known signing key (FIX1 C6/C7: forgeable sessions / signed
+		// upload URLs).
+		if cfg.SessionKey == "" || insecureSecret(cfg.SessionKey) {
+			return Config{}, fmt.Errorf("SESSION_KEY must be set to a real secret in production (dev/example placeholder rejected)")
 		}
-		if strings.Contains(cfg.UploadsSignKey, "dev-only") {
-			return Config{}, fmt.Errorf("UPLOADS_SIGN_KEY must be set in production")
+		if cfg.UploadsSignKey == "" || insecureSecret(cfg.UploadsSignKey) {
+			return Config{}, fmt.Errorf("UPLOADS_SIGN_KEY must be set to a real secret in production (dev/example placeholder rejected)")
+		}
+		// AUTO_VERIFY_EMAIL skips verification and signs registrants straight in;
+		// in production that is open, unverified registration — refuse to boot
+		// with it on (FIX1 M23). Meant for short demo windows only.
+		if cfg.AutoVerifyEmail {
+			return Config{}, fmt.Errorf("AUTO_VERIFY_EMAIL must not be enabled in production")
+		}
+		// Fail closed on opportunistic STARTTLS: a network attacker can strip the
+		// STARTTLS advertisement and downgrade `auto` to plaintext, leaking
+		// password-reset / verification tokens (FIX1 M22). Promote auto (and the
+		// empty default) to starttls, which errors when the server does not
+		// advertise STARTTLS. Operators with a trusted plaintext local relay must
+		// opt in explicitly with SMTP_TLS=none.
+		if m := strings.ToLower(strings.TrimSpace(cfg.SMTPTLS)); m == "" || m == "auto" {
+			cfg.SMTPTLS = "starttls"
 		}
 	}
 	// SaaS mode reshapes a few globals so the single-tenant path stays the
