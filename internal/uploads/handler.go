@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/scs/v2"
@@ -137,17 +139,36 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", u.MIME)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
-	// Preserve the user-supplied filename for inline-rendered kinds AND
-	// download-chip kinds. The browser inlines image/video/audio/pdf
-	// regardless of disposition — for application/* and unknown kinds
-	// the browser triggers a download with the right name instead of
-	// "<sha>.bin".
-	if u.Filename != "" {
-		w.Header().Set("Content-Disposition", `inline; filename="`+u.Filename+`"`)
+	// Stop the browser from MIME-sniffing the body into something executable
+	// (FIX1 H1). Combined with the upload-time denylist (C2/C3) this means even
+	// a pre-fix text/html row already on disk can't run JS from our origin.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// Only the genuinely inline-renderable media families are served inline;
+	// everything else (application/*, unknown) is forced to a download so a
+	// hostile payload can't render in the forumchat origin (FIX1 C2/H2).
+	disp := "attachment"
+	switch mimeFamily(baseMIME(u.MIME)) {
+	case "image", "video", "audio":
+		disp = "inline"
 	}
+	w.Header().Set("Content-Disposition", contentDisposition(disp, u.Filename))
 	if err := h.Store.Serve(w, r, u); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 	}
+}
+
+// contentDisposition builds a safe Content-Disposition header value. The stored
+// filename is user-supplied; sanitiseFilename strips control bytes and path
+// separators but NOT the double-quote, so the legacy quoted form has `\` and `"`
+// escaped to stop a crafted filename from closing the quoted-string and
+// injecting disposition parameters (FIX1 L5). A filename* (RFC 5987) variant
+// carries the UTF-8 name for modern browsers. Empty filename → bare type.
+func contentDisposition(dispType, filename string) string {
+	if filename == "" {
+		return dispType
+	}
+	quoted := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(filename)
+	return fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`, dispType, quoted, url.PathEscape(filename))
 }
 
 // hasValidSharedSig reports whether the request carries a valid, unexpired

@@ -71,17 +71,68 @@ var denyMIME = map[string]struct{}{
 	"application/x-php":           {},
 	"application/x-httpd-php":     {},
 	"application/x-bat":           {},
+	// Active-content / markup that the browser would execute from our
+	// origin if served inline. These are the stored-XSS vector (FIX1 C2/C3):
+	// http.DetectContentType returns text/html for <html>/<script> payloads,
+	// and SVG/XHTML/XML can carry inline <script>. Denying them at write time
+	// is the real fix; the nosniff + attachment-disposition headers in GetFile
+	// are belt-and-braces for any pre-fix rows already on disk.
+	"text/html":             {},
+	"application/xhtml+xml": {},
+	"image/svg+xml":         {},
+	"text/xml":              {},
+	"application/xml":       {},
 }
 
-// isAllowedMIME returns true when the MIME (lower-cased) is not on
-// the denylist. Empty MIMEs default to true and let the sniffer + DB
-// owner take the call — Save() always sniffs and re-checks.
+// baseMIME lower-cases a MIME and strips any `; charset=…` parameter so the
+// denylist lookup is exact. http.DetectContentType returns values like
+// "text/html; charset=utf-8" / "text/xml; charset=utf-8"; without stripping
+// the parameter a literal map lookup on the full string would miss them.
+func baseMIME(mime string) string {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	if i := strings.IndexByte(mime, ';'); i >= 0 {
+		mime = strings.TrimSpace(mime[:i])
+	}
+	return mime
+}
+
+// isAllowedMIME returns true when the MIME (base type, parameter-stripped) is
+// not on the denylist. Empty MIMEs default to true and let the sniffer + DB
+// owner take the call — Save()/SaveAttachment() always sniff and re-check.
 func isAllowedMIME(mime string) bool {
-	if mime == "" {
+	base := baseMIME(mime)
+	if base == "" {
 		return true
 	}
-	_, denied := denyMIME[strings.ToLower(mime)]
+	_, denied := denyMIME[base]
 	return !denied
+}
+
+// resolveMIME is the single chokepoint both Save and SaveAttachment funnel a
+// new upload's type through. It decides the MIME to persist and reports whether
+// it survives the executable/active-content denylist, closing FIX1 C2/C3 (and
+// a latent hole where an EXE/HTML body declared as application/pdf kept the
+// benign declared type because the families matched).
+//
+// The sniffed signature is authoritative for rejection: if the leading bytes
+// sniff to a denied type (PE/ELF/Mach-O/shebang, or text/html for markup),
+// no client-declared type can launder it past the denylist. Otherwise the
+// declared type wins only when it agrees with the sniff family (or the sniff is
+// the generic octet-stream), so a browser's application/octet-stream upload of
+// a real PDF/MP4 still keeps its declared type.
+func resolveMIME(declared string, head []byte) (string, bool) {
+	sniffed := sniffMIME(head)
+	if !isAllowedMIME(sniffed) {
+		return sniffed, false
+	}
+	d := strings.ToLower(strings.TrimSpace(declared))
+	final := sniffed
+	if d != "" && d != "application/octet-stream" {
+		if sniffed == "application/octet-stream" || mimeFamily(d) == mimeFamily(sniffed) {
+			final = d
+		}
+	}
+	return final, isAllowedMIME(final)
 }
 
 // sniffMIME is a thin wrapper over http.DetectContentType that also
@@ -240,19 +291,8 @@ func (s *Store) Save(ctx context.Context, ownerID, communityID, mime, filename s
 	if _, err := io.Copy(sniffBuf, headLimit); err != nil && !errors.Is(err, io.EOF) {
 		return Upload{}, fmt.Errorf("sniff: %w", err)
 	}
-	sniffed := sniffMIME(sniffBuf.Bytes())
-	declared := strings.ToLower(strings.TrimSpace(mime))
-	// Prefer the sniff unless the declared MIME matches the
-	// sniff-family (e.g. both image/* or both video/*). This lets a
-	// generic application/octet-stream from a browser pick up a
-	// real PDF / MP4 / etc.
-	finalMIME := sniffed
-	if declared != "" && declared != "application/octet-stream" {
-		if sniffed == "application/octet-stream" || mimeFamily(declared) == mimeFamily(sniffed) {
-			finalMIME = declared
-		}
-	}
-	if !isAllowedMIME(finalMIME) {
+	finalMIME, ok := resolveMIME(mime, sniffBuf.Bytes())
+	if !ok {
 		return Upload{}, ErrBadMIME
 	}
 
@@ -586,14 +626,6 @@ func (s *Store) SaveDataURL(ctx context.Context, ownerID, communityID, dataURL s
 // on-disk extension; the persisted MIME is honored when streaming back
 // so the browser gets the right Content-Type.
 func (s *Store) SaveAttachment(ctx context.Context, ownerID, communityID, mime, filename string, r io.Reader) (Upload, error) {
-	ext := filepath.Ext(filename)
-	if ext == "" {
-		if e, ok := allowedMIME[mime]; ok {
-			ext = e
-		} else {
-			ext = ".bin"
-		}
-	}
 	tmp, err := os.CreateTemp(s.Dir, "att-*.tmp")
 	if err != nil {
 		if err := os.MkdirAll(s.Dir, 0o755); err != nil {
@@ -608,13 +640,45 @@ func (s *Store) SaveAttachment(ctx context.Context, ownerID, communityID, mime, 
 	defer tmp.Close()
 
 	h := sha256.New()
+	// Buffer the leading 512 bytes for the MIME sniff while streaming to disk —
+	// the same pattern as Save. SaveAttachment previously trusted the
+	// caller-declared MIME verbatim and ran no denylist check (FIX1 C3), so an
+	// executable or HTML payload labelled application/pdf was persisted and
+	// served inline. resolveMIME now sniffs + denylists here too.
+	sniffBuf := &bytes.Buffer{}
+	if _, err := io.Copy(sniffBuf, io.LimitReader(r, 512)); err != nil && !errors.Is(err, io.EOF) {
+		return Upload{}, fmt.Errorf("sniff: %w", err)
+	}
+	finalMIME, ok := resolveMIME(mime, sniffBuf.Bytes())
+	if !ok {
+		return Upload{}, ErrBadMIME
+	}
+
 	mw := io.MultiWriter(tmp, h)
-	n, err := io.CopyN(mw, r, s.MaxSize+1)
+	if _, err := mw.Write(sniffBuf.Bytes()); err != nil {
+		return Upload{}, fmt.Errorf("write sniff: %w", err)
+	}
+	headBytes := int64(sniffBuf.Len())
+	remaining := s.MaxSize + 1 - headBytes
+	if remaining < 0 {
+		remaining = 0
+	}
+	tail, err := io.CopyN(mw, r, remaining)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return Upload{}, fmt.Errorf("copy: %w", err)
 	}
+	n := headBytes + tail
 	if n > s.MaxSize {
 		return Upload{}, ErrTooLarge
+	}
+
+	ext := filepath.Ext(filename)
+	if ext == "" {
+		if e, ok := allowedMIME[finalMIME]; ok {
+			ext = e
+		} else {
+			ext = ".bin"
+		}
 	}
 	digest := hex.EncodeToString(h.Sum(nil))
 	rel := filepath.Join(digest[:2], digest+ext)
@@ -629,7 +693,7 @@ func (s *Store) SaveAttachment(ctx context.Context, ownerID, communityID, mime, 
 	cleanName := sanitiseFilename(filename)
 	u := Upload{
 		ID: uuid.NewString(), OwnerID: ownerID, CommunityID: communityID,
-		SHA256: digest, MIME: mime, Size: n, RelPath: rel,
+		SHA256: digest, MIME: finalMIME, Size: n, RelPath: rel,
 		Filename: cleanName, CreatedAt: time.Now(), StoreKey: storeKey,
 	}
 	if _, err := s.DB.ExecContext(ctx, `
