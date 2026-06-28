@@ -603,8 +603,13 @@ func (h *Handler) PostPassword(w http.ResponseWriter, r *http.Request) {
 	// Rotate the session token on password change (FIX1 M4) — a session-fixation
 	// defense that also re-mints the current device's cookie. commitSession must
 	// run BEFORE NewSSE so the new Set-Cookie survives datastar's flush (§4.4).
-	_ = h.Sessions.RenewToken(r.Context())
-	commitSession(h.Sessions, w, r)
+	// Guarded on Sessions: in production it's always wired behind LoadAndSave;
+	// the nil guard keeps direct-handler unit tests (no scs context) from
+	// panicking inside RenewToken.
+	if h.Sessions != nil {
+		_ = h.Sessions.RenewToken(r.Context())
+		commitSession(h.Sessions, w, r)
+	}
 
 	sse := render.NewSSE(w, r)
 	// The card flips to "has a password" — a freshly-set OAuth password now needs
