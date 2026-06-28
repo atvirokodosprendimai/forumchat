@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
@@ -56,6 +57,32 @@ type Handler struct {
 	// conversation, a forum thread, etc.) so it can be expanded into the model
 	// prompt. Wired in main.go. Returns ok=false when not resolvable.
 	ResolveRef func(ctx context.Context, communityID, kind, id string) (title, content string, ok bool)
+
+	// Gate rate-limits agent generations per user + per community (FIX1 C5).
+	// Without it a member could hammer /agent/new + /send + /regenerate into
+	// unbounded concurrent generations (operator token spend on platform
+	// compute, BYO-Ollama DoS otherwise). Nil = unlimited. Shared with the
+	// chat-agent dispatcher so a member's pane + in-chat triggers draw on one
+	// budget.
+	Gate *agentlimit.Gate
+}
+
+// allowGen applies the agent generation rate limit. It returns true when the
+// caller may start a generation; on denial it patches the rate notice into the
+// #agent-notice slot and returns false. A nil Gate means unlimited.
+func (h *Handler) allowGen(ctx context.Context, sse *datastar.ServerSentEventGenerator) bool {
+	if h.Gate == nil {
+		return true
+	}
+	id, ok := auth.FromContext(ctx)
+	if !ok {
+		return false
+	}
+	if dec := h.Gate.Check(ctx, h.cid(ctx), id.User.ID, id.IsSuperAdmin); !dec.Allowed {
+		_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("agent-notice", dec.RetryAfter))
+		return false
+	}
+	return true
 }
 
 func (h *Handler) cid(ctx context.Context) string {
@@ -387,6 +414,11 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.AgentNotice("No AI agent is enabled yet."))
 		return
 	}
+	// Rate-limit before creating the thread so a denied request leaves no empty
+	// thread behind (FIX1 C5).
+	if !h.allowGen(r.Context(), sse) {
+		return
+	}
 	t, err := h.Svc.CreateThread(r.Context(), h.cid(r.Context()), id.User.ID, a, in.Visibility)
 	if err != nil {
 		h.Log.Error("agent: create thread", "err", err)
@@ -482,6 +514,9 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.Runner.IsRunning(t.ID) {
 		_ = sse.PatchElementTempl(webtempl.AgentNotice("Still answering the previous message — hang on."))
+		return
+	}
+	if !h.allowGen(r.Context(), sse) { // FIX1 C5 per-user/community generation cap
 		return
 	}
 
@@ -660,6 +695,9 @@ func (h *Handler) PostRegenerate(w http.ResponseWriter, r *http.Request) {
 	sse := render.NewSSE(w, r)
 	a, err := h.threadAgent(r.Context(), t)
 	if err != nil || !a.Enabled || h.Runner.IsRunning(t.ID) {
+		return
+	}
+	if !h.allowGen(r.Context(), sse) { // FIX1 C5 per-user/community generation cap
 		return
 	}
 	local, unsubscribe := h.Bus.Subscribe(t.ID)

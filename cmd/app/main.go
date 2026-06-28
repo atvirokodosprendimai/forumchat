@@ -990,6 +990,9 @@ func run() error {
 			}
 			return agentlimit.Limits{PerUserMin: c.AgentRatePerUserMin, PerCommunityMin: c.AgentRatePerCommunityMin}, nil
 		})
+		// Same gate guards the agent pane's send/new/regenerate (FIX1 C5) so the
+		// pane + in-chat triggers share one per-user/community budget.
+		agentHandler.Gate = agentGate
 		dispatcher := chatagents.NewDispatcher(agentRepo, forumHandler.CreateAgentThread, threadRunner, agentGate, log)
 		// In-channel streaming: a triggered agent ALSO answers as a kind='bot'
 		// bubble right in the channel (alongside the forum thread). Same tools +
@@ -1566,6 +1569,17 @@ func run() error {
 			defer cancel()
 
 			fail := func(msg string) chat.SummaryResult { return chat.SummaryResult{Err: msg} }
+
+			// /summary runs a synchronous platform-compute turn; gate it on the
+			// same per-user/community budget as the agent pane (FIX1 H15) so it
+			// can't be hammered for unbounded generations.
+			if gate := agentHandler.Gate; gate != nil {
+				if id, ok := auth.FromContext(ctx); ok {
+					if dec := gate.Check(ctx, communityID, requesterID, id.IsSuperAdmin); !dec.Allowed {
+						return fail(fmt.Sprintf("You're using AI summaries too fast — try again in %ds.", int(dec.RetryAfter.Seconds())+1))
+					}
+				}
+			}
 
 			agents, _ := agentRepo.ListEnabledAgents(ctx, communityID)
 			if len(agents) == 0 {
