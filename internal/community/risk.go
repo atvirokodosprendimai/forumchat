@@ -183,14 +183,29 @@ func ScoreRisk(s RiskSignals) RiskAssessment {
 	//    the reason here stays code-free so this package needn't know the
 	//    taxonomy.
 	if s.Flagged24h > 0 {
-		if s.Flagged24h >= 10 || s.FlaggedAuthors24h >= 3 {
-			// Confirmed policy-violating content at volume or spread across
-			// several accounts is coordinated abuse — pin it to "high"
-			// regardless of the other heuristics.
+		// Fraction of 24h traffic that was flagged — so a small flagged burst
+		// can't pin a busy community (FIX1 N4). Guard div-by-zero.
+		flaggedRatio := 0.0
+		if s.Messages24h > 0 {
+			flaggedRatio = float64(s.Flagged24h) / float64(s.Messages24h)
+		}
+		switch {
+		case s.FlaggedAuthors24h >= 3 && flaggedRatio >= 0.2:
+			// Genuinely coordinated abuse: flagged content spread across several
+			// accounts AND a significant share of traffic. ONLY this pins "high".
+			// A single attacker (FlaggedAuthors24h==1) can no longer force the
+			// floor by spamming flagged messages, and three sockpuppets can't pin
+			// a busy channel where their flags are a tiny fraction of traffic.
 			score += 45
 			floor = 70
+			reasons = append(reasons, fmt.Sprintf("%d messages auto-flagged by the safety classifier from %d authors in 24h (coordinated)", s.Flagged24h, s.FlaggedAuthors24h))
+		case s.Flagged24h >= 10 || s.FlaggedAuthors24h >= 3:
+			// Strong but not-clearly-coordinated: scale the score WITHOUT flooring,
+			// so it can combine with the other heuristics to reach high organically
+			// but a lone actor can't dictate the band.
+			score += 35
 			reasons = append(reasons, fmt.Sprintf("%d messages auto-flagged by the safety classifier from %d author(s) in 24h", s.Flagged24h, s.FlaggedAuthors24h))
-		} else {
+		default:
 			score += 25
 			reasons = append(reasons, fmt.Sprintf("%d message(s) auto-flagged by the safety classifier from %d author(s) in 24h", s.Flagged24h, s.FlaggedAuthors24h))
 		}
