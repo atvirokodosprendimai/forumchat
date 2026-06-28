@@ -217,6 +217,31 @@ func verifyGitHubSignature(secret string, body []byte, header string) bool {
 	return hmac.Equal(want, mac.Sum(nil))
 }
 
+// verifyGenericSignature compares the X-Signature header against an HMAC-SHA256
+// of body keyed by secret, in constant time (FIX1 H4). The header may be a bare
+// hex digest or "sha256=<hex>", matching what most senders emit.
+func verifyGenericSignature(secret string, body []byte, header string) bool {
+	header = strings.TrimSpace(strings.TrimPrefix(header, "sha256="))
+	want, err := hex.DecodeString(header)
+	if err != nil || len(want) == 0 {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	return hmac.Equal(want, mac.Sum(nil))
+}
+
+// verifyInboundSignature gates a signed inbound webhook: github uses its
+// X-Hub-Signature-256 header; every other provider uses a generic X-Signature
+// HMAC. Only called when a secret is configured (FIX1 H4) — an unsigned webhook
+// is authenticated by its URL token alone, as before.
+func verifyInboundSignature(wh Webhook, body []byte, hdr http.Header) bool {
+	if wh.Provider == "github" {
+		return verifyGitHubSignature(wh.Secret, body, hdr.Get("X-Hub-Signature-256"))
+	}
+	return verifyGenericSignature(wh.Secret, body, hdr.Get("X-Signature"))
+}
+
 func mdLink(text, href string) string {
 	if href == "" {
 		return text

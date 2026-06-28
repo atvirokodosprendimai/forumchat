@@ -202,6 +202,12 @@ type Config struct {
 	// WebhooksMaxBytes caps inbound payload size.
 	WebhooksEnabled  bool  `env:"WEBHOOKS_ENABLED" envDefault:"false"`
 	WebhooksMaxBytes int64 `env:"WEBHOOKS_MAX_BYTES" envDefault:"1048576"` // 1 MiB
+	// WebhooksAllowInternalTargets opts a (trusted, single-tenant) self-host
+	// deployment back into relaying outbound webhooks to internal / RFC1918 /
+	// metadata addresses. Default false → the SSRF guard runs in ALL modes
+	// (FIX1 H3), so a community admin can't point an outbound relay at
+	// 169.254.169.254 or the private network. SaaS always guards regardless.
+	WebhooksAllowInternalTargets bool `env:"WEBHOOKS_ALLOW_INTERNAL_TARGETS" envDefault:"false"`
 
 	// ConnectorsEnabled toggles per-community "external chat bot" connectors:
 	// a long-lived signed JSON SSE stream + a body-HMAC-signed send/action API,

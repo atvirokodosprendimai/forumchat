@@ -1343,7 +1343,12 @@ func run() error {
 		whRepo := webhooks.NewRepo(db)
 		whRepo.Box = secrets // FIX1 M19: seal webhook HMAC secrets at rest
 		whSvc := webhooks.NewService(whRepo)
-		whSvc.BlockOutbound = cfg.SAAS // SSRF guard on tenant-supplied target URLs
+		// SSRF guard on admin-supplied target URLs. Runs in ALL modes by default
+		// (FIX1 H3) — a self-host community admin is not necessarily the operator,
+		// so an outbound relay must not reach metadata/RFC1918. A trusted
+		// single-tenant self-host can opt back in with WEBHOOKS_ALLOW_INTERNAL_TARGETS.
+		guardOutbound := cfg.SAAS || !cfg.WebhooksAllowInternalTargets
+		whSvc.BlockOutbound = guardOutbound
 		webhooksHandler = &webhooks.Handler{
 			Repo:          whRepo,
 			Svc:           whSvc,
@@ -1360,9 +1365,10 @@ func run() error {
 		}
 		relay := webhooks.NewRelay(whRepo, log)
 		relay.Debug = debugRec
-		if cfg.SAAS {
-			// Untrusted tenant targets: reject internal/metadata addresses at
-			// dial time (rebinding-safe) and re-validate every redirect hop.
+		if guardOutbound {
+			// Untrusted targets: reject internal/metadata addresses at dial time
+			// (rebinding-safe) and re-validate every redirect hop. Now also wired in
+			// self-host (FIX1 H3) unless WEBHOOKS_ALLOW_INTERNAL_TARGETS is set.
 			relay.Client = netguard.GuardedClient(10 * time.Second)
 		}
 		// Resolve a message's upload IDs into fetchable outbound attachments:

@@ -1,6 +1,7 @@
 package webhooks
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -82,11 +83,14 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Media ingest: a generic webhook may POST multipart/form-data (a `text`
-	// field plus one or more `file` parts) to post images/files into the
-	// channel. Handled here (the adapter only sees JSON bytes).
-	if wh.Provider == "generic" && h.Uploads != nil &&
-		strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+	isMultipart := wh.Provider == "generic" && h.Uploads != nil &&
+		strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data")
+
+	// Unsigned generic multipart media ingest: stream as before — the URL token
+	// is the only credential (no secret configured). When a secret IS set we fall
+	// through to the buffered, signature-verified path so the multipart branch
+	// can no longer skip the sig check (FIX1 H4).
+	if isMultipart && wh.Secret == "" {
 		h.postInboundMultipart(w, r, wh)
 		return
 	}
@@ -94,6 +98,11 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 	max := h.MaxBytes
 	if max <= 0 {
 		max = 1 << 20
+	}
+	// A signed multipart body carries media, so it can exceed the small JSON cap;
+	// read up to the upload cap in that case so the buffered re-feed isn't truncated.
+	if isMultipart && h.Uploads.MaxSize > max {
+		max = h.Uploads.MaxSize
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, max))
 	if err != nil {
@@ -113,11 +122,22 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if wh.Secret != "" && wh.Provider == "github" {
-		if !verifyGitHubSignature(wh.Secret, body, r.Header.Get("X-Hub-Signature-256")) {
+	// FIX1 H4: when a secret is configured, require a valid signature for EVERY
+	// provider (github via X-Hub-Signature-256, others via X-Signature) BEFORE any
+	// processing — this now also covers the multipart media branch, which used to
+	// dispatch before the (github-only) check.
+	if wh.Secret != "" {
+		if !verifyInboundSignature(wh, body, r.Header) {
 			http.Error(w, "bad signature", http.StatusUnauthorized)
 			return
 		}
+	}
+
+	// Signed multipart: re-feed the buffered, now-verified body to the media handler.
+	if isMultipart {
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		h.postInboundMultipart(w, r, wh)
+		return
 	}
 
 	rendered, err := adapterFor(wh.Provider).Parse(r.Header, body)
