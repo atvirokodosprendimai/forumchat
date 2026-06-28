@@ -37,7 +37,10 @@ func (m *meteredProvider) Name() string { return m.inner.Name() }
 
 func (m *meteredProvider) Stream(ctx context.Context, model string, msgs []ChatMessage, tools []ToolDef, onDelta func(string) error) (*StreamResult, error) {
 	res, err := m.inner.Stream(ctx, model, msgs, tools, onDelta)
-	if res != nil {
+	switch {
+	case res != nil:
+		// Real provider usage — recorded even on a mid-stream error, since the
+		// operator paid for whatever was consumed before it failed.
 		m.rec.Record(ctx, aiusage.Event{
 			CommunityID: m.communityID,
 			Feature:     aiusage.FeatureAgent,
@@ -45,6 +48,23 @@ func (m *meteredProvider) Stream(ctx context.Context, model string, msgs []ChatM
 			Model:       model,
 			TokensIn:    res.Usage.PromptTokens,
 			TokensOut:   res.Usage.CompletionTokens,
+		})
+	case err != nil:
+		// FIX1 M13: the turn errored before returning any usage, but the prompt
+		// was still sent to the model and billed by the operator's provider.
+		// Record an ESTIMATED input-token row so the ledger doesn't undercount a
+		// failed-but-charged request.
+		in := 0
+		for _, msg := range msgs {
+			in += aiusage.EstimateTokens(msg.Content)
+		}
+		m.rec.Record(ctx, aiusage.Event{
+			CommunityID: m.communityID,
+			Feature:     aiusage.FeatureAgent,
+			UserID:      m.userID,
+			Model:       model,
+			TokensIn:    in,
+			Estimated:   true,
 		})
 	}
 	return res, err
