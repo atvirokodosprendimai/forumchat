@@ -1341,6 +1341,7 @@ func run() error {
 	var webhooksHandler *webhooks.Handler
 	if cfg.WebhooksEnabled {
 		whRepo := webhooks.NewRepo(db)
+		whRepo.Box = secrets // FIX1 M19: seal webhook HMAC secrets at rest
 		whSvc := webhooks.NewService(whRepo)
 		whSvc.BlockOutbound = cfg.SAAS // SSRF guard on tenant-supplied target URLs
 		webhooksHandler = &webhooks.Handler{
@@ -1420,6 +1421,7 @@ func run() error {
 	var connectorsHandler *connectors.Handler
 	if cfg.ConnectorsEnabled {
 		connRepo := connectors.NewRepo(db)
+		connRepo.Box = secrets // FIX1 M20: seal connector HMAC secrets at rest
 		// svc (auth.Service) is the MemberFactory: each connector is backed by a
 		// real synthetic member so it acts as a human (spec-connectors).
 		connSvc := connectors.NewService(connRepo, svc, chatRepo)

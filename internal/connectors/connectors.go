@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/secretbox"
 )
 
 // ErrNotFound is returned when no connector matches a lookup.
@@ -131,11 +133,35 @@ func splitCapabilities(csv string) []string {
 	return strings.Split(csv, ",")
 }
 
-// Repo is the SQL boundary for connectors. Stateless; all state is in *sql.DB.
-type Repo struct{ DB *sql.DB }
+// Repo is the SQL boundary for connectors. Box (optional) seals/opens the
+// per-connector HMAC Secret at rest (FIX1 M20); nil (tests) stores bare.
+type Repo struct {
+	DB  *sql.DB
+	Box *secretbox.Box
+}
 
 // NewRepo returns a Repo bound to db.
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
+
+// openSecret decrypts a stored connector secret (FIX1 M20). Open accepts bare
+// legacy plaintext, so pre-seal rows keep working; nil Box is a no-op.
+func (r *Repo) openSecret(c *Connector) {
+	if r.Box == nil {
+		return
+	}
+	if sec, err := r.Box.Open(c.Secret); err == nil {
+		c.Secret = sec
+	}
+}
+
+// sealSecret encrypts a connector secret for storage (FIX1 M20). nil Box returns
+// the input unchanged.
+func (r *Repo) sealSecret(secret string) (string, error) {
+	if r.Box == nil {
+		return secret, nil
+	}
+	return r.Box.Seal(secret)
+}
 
 const selectCols = `id, community_id, user_id, name, avatar_url, secret, capabilities,
 	mentions_only, enabled, COALESCE(created_by, ''), created_at, last_seen_at, last_status, cursor_at`
@@ -181,6 +207,7 @@ func (r *Repo) ByID(ctx context.Context, id string) (Connector, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return Connector{}, ErrNotFound
 	}
+	r.openSecret(&c)
 	return c, err
 }
 
@@ -194,6 +221,7 @@ func (r *Repo) byIDInCommunity(ctx context.Context, communityID, id string) (Con
 	if errors.Is(err, sql.ErrNoRows) {
 		return Connector{}, ErrNotFound
 	}
+	r.openSecret(&c)
 	return c, err
 }
 
@@ -211,6 +239,7 @@ func (r *Repo) ListForCommunity(ctx context.Context, communityID string) ([]Conn
 		if err != nil {
 			return nil, err
 		}
+		r.openSecret(&c)
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -219,11 +248,15 @@ func (r *Repo) ListForCommunity(ctx context.Context, communityID string) ([]Conn
 // Create inserts a connector row. The synthetic member (user_id) must already
 // exist — the service provisions it first so the FK holds.
 func (r *Repo) Create(ctx context.Context, c Connector) error {
-	_, err := r.DB.ExecContext(ctx, `
+	secret, err := r.sealSecret(c.Secret) // FIX1 M20: seal HMAC secret at rest
+	if err != nil {
+		return err
+	}
+	_, err = r.DB.ExecContext(ctx, `
 		INSERT INTO connectors (id, community_id, user_id, name, avatar_url, secret, capabilities,
 			mentions_only, enabled, created_by, created_at, last_status)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')`,
-		c.ID, c.CommunityID, c.UserID, c.Name, c.AvatarURL, c.Secret, joinCapabilities(c.Capabilities),
+		c.ID, c.CommunityID, c.UserID, c.Name, c.AvatarURL, secret, joinCapabilities(c.Capabilities),
 		boolToInt(c.MentionsOnly), boolToInt(c.Enabled), nullable(c.CreatedBy), c.CreatedAt.Unix())
 	return err
 }
@@ -257,9 +290,13 @@ func (r *Repo) SetMeta(ctx context.Context, communityID, id, name, avatar string
 // RotateSecret replaces a connector's HMAC secret, invalidating the old stream
 // URL and every prior body signature at once.
 func (r *Repo) RotateSecret(ctx context.Context, communityID, id, secret string) error {
-	_, err := r.DB.ExecContext(ctx,
+	sealed, err := r.sealSecret(secret) // FIX1 M20: seal HMAC secret at rest
+	if err != nil {
+		return err
+	}
+	_, err = r.DB.ExecContext(ctx,
 		`UPDATE connectors SET secret = ? WHERE id = ? AND community_id = ?`,
-		secret, id, communityID)
+		sealed, id, communityID)
 	return err
 }
 

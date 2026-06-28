@@ -10,6 +10,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/atvirokodosprendimai/forumchat/internal/secretbox"
 )
 
 // Direction values for a webhook row.
@@ -41,7 +43,12 @@ type Webhook struct {
 }
 
 // Repo is the SQL boundary for webhooks. Stateless; all state is in *sql.DB.
-type Repo struct{ DB *sql.DB }
+// Box (optional) seals/opens the HMAC signing Secret at rest (FIX1 M19). When
+// nil (tests), secrets are stored bare as before; the production wiring sets it.
+type Repo struct {
+	DB  *sql.DB
+	Box *secretbox.Box
+}
 
 // NewRepo returns a Repo bound to db.
 func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
@@ -50,7 +57,7 @@ const selectCols = `id, community_id, direction, provider, name, avatar_url,
 	COALESCE(channel_id, ''), token, secret, target_url, enabled,
 	COALESCE(created_by, ''), created_at, last_at, last_status`
 
-func scanWebhook(s interface{ Scan(...any) error }) (Webhook, error) {
+func (r *Repo) scanWebhook(s interface{ Scan(...any) error }) (Webhook, error) {
 	var w Webhook
 	var enabled int
 	var created int64
@@ -59,6 +66,13 @@ func scanWebhook(s interface{ Scan(...any) error }) (Webhook, error) {
 		&w.ChannelID, &w.Token, &w.Secret, &w.TargetURL, &enabled,
 		&w.CreatedBy, &created, &lastAt, &w.LastStatus); err != nil {
 		return Webhook{}, err
+	}
+	// Decrypt the at-rest HMAC secret (FIX1 M19). Open accepts bare legacy
+	// plaintext too, so pre-seal rows keep working.
+	if r.Box != nil {
+		if sec, err := r.Box.Open(w.Secret); err == nil {
+			w.Secret = sec
+		}
 	}
 	w.Enabled = enabled != 0
 	w.CreatedAt = time.Unix(created, 0)
@@ -76,7 +90,7 @@ func (r *Repo) InboundByToken(ctx context.Context, token string) (Webhook, error
 	}
 	row := r.DB.QueryRowContext(ctx, `SELECT `+selectCols+`
 		FROM webhooks WHERE token = ? AND direction = 'in' AND enabled = 1`, token)
-	w, err := scanWebhook(row)
+	w, err := r.scanWebhook(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Webhook{}, ErrNotFound
 	}
@@ -94,7 +108,7 @@ func (r *Repo) ListForCommunity(ctx context.Context, communityID string) ([]Webh
 	defer rows.Close()
 	var out []Webhook
 	for rows.Next() {
-		w, err := scanWebhook(rows)
+		w, err := r.scanWebhook(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +130,7 @@ func (r *Repo) OutboundForChannel(ctx context.Context, communityID, channelID st
 	defer rows.Close()
 	var out []Webhook
 	for rows.Next() {
-		w, err := scanWebhook(rows)
+		w, err := r.scanWebhook(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -127,12 +141,23 @@ func (r *Repo) OutboundForChannel(ctx context.Context, communityID, channelID st
 
 // Create inserts a webhook. channel_id "" is stored as NULL.
 func (r *Repo) Create(ctx context.Context, w Webhook) error {
+	// Seal the HMAC signing secret at rest (FIX1 M19). Token stays plaintext —
+	// it's the inbound lookup key (WHERE token = ?), not a stored credential to
+	// hide. nil Box (tests) stores bare.
+	secret := w.Secret
+	if r.Box != nil {
+		sealed, err := r.Box.Seal(w.Secret)
+		if err != nil {
+			return err
+		}
+		secret = sealed
+	}
 	_, err := r.DB.ExecContext(ctx, `
 		INSERT INTO webhooks (id, community_id, direction, provider, name, avatar_url,
 			channel_id, token, secret, target_url, enabled, created_by, created_at, last_status)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')`,
 		w.ID, w.CommunityID, w.Direction, w.Provider, w.Name, w.AvatarURL,
-		nullable(w.ChannelID), w.Token, w.Secret, w.TargetURL, boolToInt(w.Enabled),
+		nullable(w.ChannelID), w.Token, secret, w.TargetURL, boolToInt(w.Enabled),
 		nullable(w.CreatedBy), w.CreatedAt.Unix())
 	return err
 }
