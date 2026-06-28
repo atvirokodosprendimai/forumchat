@@ -291,3 +291,4 @@
 - 2026-06-28 `21d7e38` fix(connectors): gate read-stream on membership + log secret-open failure (review F1,F6)
 - 2026-06-28 `320e3ab` fix(sse): close M5 cap gaps for streams registered inside handler route methods (review F2)
 - 2026-06-28 `90ce7d0` fix(moderation): randomize classifier fence delimiter to stop fence-break injection (review F4)
+- 2026-06-28 `e7a841e` docs(changelog): code-review follow-up fixes
