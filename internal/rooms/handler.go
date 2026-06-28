@@ -64,6 +64,10 @@ type Handler struct {
 	// valid invite cookie) can't be used as an unbounded chat-injection /
 	// fan-out vector (FIX1 H8).
 	Flood *agentlimit.Limiter
+	// StreamMW, when set, wraps the long-lived room SSE route (registered here,
+	// not in main.go) with the per-user concurrent-stream cap (FIX1 M5). Nil = no
+	// cap.
+	StreamMW func(http.Handler) http.Handler
 }
 
 // RoomChatPerMinute caps room chat messages per identity per minute (FIX1 H8).
@@ -91,7 +95,11 @@ func (h *Handler) MemberRoutes(r chi.Router) {
 // the LoadCommunity middleware — caller() resolves identity itself.
 func (h *Handler) OpenRoutes(r chi.Router) {
 	r.Get("/{id}", h.GetRoom)
-	r.Get("/{id}/stream", h.GetStream)
+	streamRouter := r
+	if h.StreamMW != nil { // FIX1 M5: cap the long-lived room SSE per user
+		streamRouter = r.With(h.StreamMW)
+	}
+	streamRouter.Get("/{id}/stream", h.GetStream)
 	r.Post("/{id}/signal/send", h.PostSignal)
 	r.Post("/{id}/join", h.PostJoin)
 	r.Post("/{id}/leave", h.PostLeave)

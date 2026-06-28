@@ -33,6 +33,19 @@ type Handler struct {
 	// Flood rate-limits DM creation + replies per sender (FIX1 H9). The
 	// send-token is a CSRF/liveness gate, not a flood control. Nil = unlimited.
 	Flood *agentlimit.Limiter
+	// StreamMW, when set, wraps the long-lived DM SSE routes with the per-user
+	// concurrent-stream cap (FIX1 M5). These streams are registered here (not in
+	// main.go) and /messages/stream opens on every authed page, so they would
+	// otherwise escape the cap. Nil = no cap (tests).
+	StreamMW func(http.Handler) http.Handler
+}
+
+// withStream applies StreamMW to a stream route handler (nil-safe).
+func (h *Handler) withStream(r chi.Router) chi.Router {
+	if h.StreamMW == nil {
+		return r
+	}
+	return r.With(h.StreamMW)
 }
 
 // PMSendPerMinute caps DM requests + replies per sender per minute (FIX1 H9).
@@ -66,10 +79,10 @@ func (h *Handler) Routes(r chi.Router) {
 	tok := h.SendToken.Require()
 	r.Get("/messages", h.GetInbox)
 	r.Get("/messages/badge", h.GetBadge)
-	r.Get("/messages/stream", h.GetStream)
+	h.withStream(r).Get("/messages/stream", h.GetStream)
 	r.With(tok).Post("/messages/new", h.PostNew)
 	r.Get("/messages/{id}", h.GetThread)
-	r.Get("/messages/{id}/stream", h.GetThreadStream)
+	h.withStream(r).Get("/messages/{id}/stream", h.GetThreadStream)
 	r.With(tok).Post("/messages/{id}/send", h.PostSend)
 	r.Post("/messages/{id}/accept", h.PostAccept)
 	r.Post("/messages/{id}/decline", h.PostDecline)
