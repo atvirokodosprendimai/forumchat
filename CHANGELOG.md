@@ -287,3 +287,7 @@
 - 2026-06-28 `b9d7988` fix(uploads): rate-limit no-session shared-URL fetch (M16); document M17/M18 deferrals
 - 2026-06-28 `61f473f` fix(uploads,webhooks): Codex review follow-ups (C2 svg inline, H4 multipart cap)
 - 2026-06-28 `978454a` docs(changelog): FIX1 security remediation entries
+- 2026-06-28 `2de8451` docs(changelog): FIX1 remediation changelog entry
+- 2026-06-28 `21d7e38` fix(connectors): gate read-stream on membership + log secret-open failure (review F1,F6)
+- 2026-06-28 `320e3ab` fix(sse): close M5 cap gaps for streams registered inside handler route methods (review F2)
+- 2026-06-28 `90ce7d0` fix(moderation): randomize classifier fence delimiter to stop fence-break injection (review F4)
