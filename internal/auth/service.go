@@ -25,6 +25,13 @@ type Service struct {
 	CommunityID string
 	// OpenRegistration allows Register to proceed without an invite code.
 	OpenRegistration bool
+	// RegisterMinAge mirrors config.RegisterMinAge. When > 0 a self-service
+	// signup requires an age confirmation. OAuth providers expose no trusted age
+	// claim, so when this is set UpsertOAuthUser refuses to CREATE a brand-new
+	// account (FIX1 N1) — otherwise a minor who can't tick the box on the
+	// password form could enrol via "Continue with Google/GitHub". Linking an
+	// existing account / returning sign-in is unaffected.
+	RegisterMinAge int
 	// OpenRegistrationAutoApprove stamps approved_at at verify time so new
 	// members skip the pending queue. Applies to open AND invite-based signups.
 	OpenRegistrationAutoApprove bool
@@ -655,6 +662,13 @@ func (s *Service) UpsertOAuthUser(ctx context.Context, in OAuthInput) (LoginResu
 	// 3. Brand-new email — only self-onboard when open registration is on.
 	if !s.OpenRegistration {
 		return LoginResult{}, ErrOAuthNoAccount
+	}
+	// The age gate is honesty-based on the password form; OAuth carries no
+	// trustworthy age claim, so when the gate is enabled we refuse to create a
+	// new account through OAuth at all (FIX1 N1). Existing-account linking and
+	// returning sign-in (branches 1 & 2) already happened above.
+	if s.RegisterMinAge > 0 {
+		return LoginResult{}, ErrOAuthAgeGate
 	}
 	userID := uuid.NewString()
 	tx, err := s.Repo.DB.BeginTx(ctx, nil)

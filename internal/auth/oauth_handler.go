@@ -65,6 +65,8 @@ func (h *Handler) finishOAuthLogin(w http.ResponseWriter, r *http.Request, provi
 			msg = "No account is registered for that email. Ask an admin for an invite, then sign in with " + label + " once you're a member."
 		case errors.Is(err, ErrOAuthEmailUnverified):
 			msg = "An account already exists for that email, but " + label + " didn't verify you own it. Please sign in with your password instead."
+		case errors.Is(err, ErrOAuthAgeGate):
+			msg = "New accounts can't be created with " + label + " on this site. Please register with the form, where you can confirm your age."
 		case errors.Is(err, ErrBanned):
 			msg = "Your account is disabled."
 		default:

@@ -187,6 +187,7 @@ func run() error {
 		OpenRegistration:            cfg.OpenRegistration,
 		OpenRegistrationAutoApprove: cfg.OpenRegistrationAutoApprove,
 		AutoVerifyEmail:             cfg.AutoVerifyEmail,
+		RegisterMinAge:              cfg.RegisterMinAge, // FIX1 N1: gate OAuth signup too
 	}
 	// Honour a community's "open" join policy on the registration path too, so a
 	// member who signs up into an open community skips the approval queue exactly

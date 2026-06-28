@@ -19,4 +19,5 @@ var (
 	ErrOAuthNoEmail         = errors.New("oauth account shared no email")
 	ErrOAuthNoAccount       = errors.New("no account registered for this email")
 	ErrOAuthEmailUnverified = errors.New("oauth email not verified by provider; cannot auto-link")
+	ErrOAuthAgeGate         = errors.New("oauth signup blocked: age gate enabled and provider supplies no age claim")
 )
