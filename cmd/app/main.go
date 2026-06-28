@@ -888,10 +888,24 @@ func run() error {
 		// conversation; forum threads → opening post + replies. (Project kinds
 		// fall back to a title marker in the handler.)
 		agentHandler.ResolveRef = func(ctx context.Context, communityID, kind, id string) (string, string, bool) {
+			// The requesting member is on the context (auth.Loader). ResolveRef
+			// injects the referenced content straight into the prompt, so it must
+			// re-validate read access — the autocomplete (GetRefSearch) filters
+			// private rows but a member can hand-craft a $-ref to any id.
+			reqUserID := ""
+			if rid, ok := auth.FromContext(ctx); ok {
+				reqUserID = rid.User.ID
+			}
 			switch kind {
 			case "agent":
 				th, err := agentRepo.ThreadByID(ctx, id)
 				if err != nil || th.CommunityID != communityID {
+					return "", "", false
+				}
+				// FIX1 C4: ThreadByID has no visibility filter, so without this a
+				// member could $-resolve another user's PRIVATE agent thread and
+				// have its whole conversation injected into their own prompt.
+				if th.Visibility != agent.VisibilityShared && th.UserID != reqUserID {
 					return "", "", false
 				}
 				msgs, _ := agentRepo.Messages(ctx, id)
@@ -910,6 +924,12 @@ func run() error {
 			case "forum":
 				th, err := forumRepo.GetThread(ctx, id)
 				if err != nil || th.CommunityID != communityID {
+					return "", "", false
+				}
+				// FIX1 H14: GetThread has no deleted_at filter, so a member could
+				// $-reference a deleted thread id and pull its opening-post content
+				// back into a prompt. Skip soft-deleted threads.
+				if th.IsDeleted() {
 					return "", "", false
 				}
 				var b strings.Builder
