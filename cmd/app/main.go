@@ -259,6 +259,7 @@ func run() error {
 	r := chi.NewRouter()
 	r.Use(httpx.Recover(log))
 	r.Use(httpx.RequestLogger(log))
+	r.Use(securityHeaders(cfg.IsProd()))
 	r.Use(newCompressor().Handler)
 	r.Use(htmlContentType)
 	r.Use(sessions.LoadAndSave)
@@ -2614,13 +2615,17 @@ func run() error {
 		r.Post("/explore/{slug}/request", exploreHandler.PostRequestJoin)
 	})
 
-	r.Get("/_debug/clock", func(w http.ResponseWriter, req *http.Request) {
-		_ = webtempl.DebugClock().Render(req.Context(), w)
-	})
-
-	r.Get("/_debug/clock/stream", func(w http.ResponseWriter, req *http.Request) {
-		clockStream(w, req, nc, log)
-	})
+	// Debug tooling is dev-only: an unauthenticated open SSE stream + a
+	// "the clock works" confirmation must never be reachable in production
+	// (FIX1 H16). Mount the routes only when ENV is not prod.
+	if !cfg.IsProd() {
+		r.Get("/_debug/clock", func(w http.ResponseWriter, req *http.Request) {
+			_ = webtempl.DebugClock().Render(req.Context(), w)
+		})
+		r.Get("/_debug/clock/stream", func(w http.ResponseWriter, req *http.Request) {
+			clockStream(w, req, nc, log)
+		})
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -2660,6 +2665,51 @@ func htmlContentType(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// securityHeaders stamps the standard browser hardening headers on every
+// response (FIX1 H17 — the app previously shipped none, leaving no XSS
+// containment layer and clickjacking on every form).
+//
+// The CSP is deliberately permissive on script/style: datastar evaluates its
+// data-* expressions through the Function constructor ('unsafe-eval') and the
+// app inlines its stylesheet + uses inline <script> bootstraps
+// ('unsafe-inline'). It still buys real containment — object-src 'none'
+// (no plugins), base-uri/form-action 'self' (no base-tag hijack or form
+// exfiltration), frame-ancestors 'self' (clickjacking), and an explicit
+// allowlist of script/frame origins (only the datastar CDN, YouTube-nocookie
+// embeds, and the sandboxed data: HTML-preview iframe). It can be tightened to
+// nonces later. HSTS is emitted only in production (it is meaningless, and
+// risky on a bare http dev box, off TLS).
+func securityHeaders(prod bool) func(http.Handler) http.Handler {
+	const csp = "default-src 'self'; " +
+		"base-uri 'self'; " +
+		"object-src 'none'; " +
+		"form-action 'self'; " +
+		"frame-ancestors 'self'; " +
+		"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob: https:; " +
+		"media-src 'self' blob: data:; " +
+		"font-src 'self' data:; " +
+		"connect-src 'self'; " +
+		"frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com data:"
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := w.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("X-Frame-Options", "SAMEORIGIN")
+			h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			// Rooms use getUserMedia/screen-share, so camera/microphone/
+			// display-capture stay self-allowed; deny the rest.
+			h.Set("Permissions-Policy", "camera=(self), microphone=(self), display-capture=(self), geolocation=(), interest-cohort=()")
+			h.Set("Content-Security-Policy", csp)
+			if prod {
+				h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // immutableStatic stamps a long-lived immutable Cache-Control on static asset

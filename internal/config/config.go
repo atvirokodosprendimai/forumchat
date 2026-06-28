@@ -320,7 +320,14 @@ type Config struct {
 	VAPIDKeysFile string `env:"VAPID_KEYS_FILE" envDefault:"./data/vapid.json"`
 }
 
-func (c Config) IsProd() bool { return strings.EqualFold(c.Env, "prod") }
+// IsProd reports whether this is a production deployment. It matches both "prod"
+// and "production" (FIX1 H18: the old literal-"prod" check left ENV=production
+// with insecure cookies / lax prod guards). Drives the Secure cookie flag, the
+// secret-strength guards, and the security-header HSTS.
+func (c Config) IsProd() bool {
+	e := strings.ToLower(strings.TrimSpace(c.Env))
+	return e == "prod" || e == "production"
+}
 
 // insecureSecret reports whether a secret still carries one of the well-known
 // placeholder tokens shipped in the dev defaults / example files. Rejected in
@@ -390,6 +397,14 @@ func Load() (Config, error) {
 		// with it on (FIX1 M23). Meant for short demo windows only.
 		if cfg.AutoVerifyEmail {
 			return Config{}, fmt.Errorf("AUTO_VERIFY_EMAIL must not be enabled in production")
+		}
+		// The app terminates plain HTTP and relies on a TLS-terminating proxy in
+		// front (no in-app TLS). A http:// BaseURL in production means cookies and
+		// OAuth redirects are issued for a cleartext origin — refuse to boot
+		// (FIX1 H18). Operators must front the app with HTTPS and set BASE_URL
+		// accordingly.
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(cfg.BaseURL)), "http://") {
+			return Config{}, fmt.Errorf("BASE_URL must be https:// in production (terminate TLS at a proxy)")
 		}
 		// Fail closed on opportunistic STARTTLS: a network attacker can strip the
 		// STARTTLS advertisement and downgrade `auto` to plaintext, leaking
