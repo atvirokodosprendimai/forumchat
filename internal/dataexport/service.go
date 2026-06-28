@@ -32,8 +32,19 @@ func (s *Service) Request(ctx context.Context, communityID, requestedBy string) 
 	return s.Repo.Request(ctx, communityID, requestedBy)
 }
 
-// ZipPath is the absolute path of an export's artifact.
-func (s *Service) ZipPath(e Export) string { return filepath.Join(s.Dir, e.RelPath) }
+// ZipPath is the absolute path of an export's artifact, or "" when the stored
+// RelPath would escape the export directory. RelPath is read from the DB
+// (written by Build as "<uuid>.zip"); validating containment here (FIX1 M21) is
+// defense-in-depth so a corrupted or hostile rel_path like "../../etc/passwd"
+// can never be handed to http.ServeFile. The caller treats "" as not-found.
+func (s *Service) ZipPath(e Export) string {
+	full := filepath.Join(s.Dir, e.RelPath) // Join cleans, resolving any ".."
+	dir := filepath.Clean(s.Dir)
+	if full != dir && !strings.HasPrefix(full, dir+string(os.PathSeparator)) {
+		return ""
+	}
+	return full
+}
 
 // Build assembles the ZIP for a building export, then marks it ready (or failed).
 // It is idempotent enough to retry: a stale .part file is overwritten. The

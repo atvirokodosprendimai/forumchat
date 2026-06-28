@@ -125,10 +125,15 @@ func (h *Handler) PostDownload(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	zipPath := h.Svc.ZipPath(e)
+	if zipPath == "" { // RelPath escaped Dir (FIX1 M21) — refuse rather than serve
+		http.NotFound(w, r)
+		return
+	}
 	name := fmt.Sprintf("export-%s.zip", e.CommunityID)
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename="+name)
-	http.ServeFile(w, r, h.Svc.ZipPath(e))
+	http.ServeFile(w, r, zipPath)
 }
 
 // validDownload loads an export and reports whether (id, token) is a live,

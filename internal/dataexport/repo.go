@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -65,8 +66,20 @@ func NewRepo(db *sql.DB) *Repo { return &Repo{DB: db} }
 // already pending or building. The returned Export has its id set; the worker
 // fills in token/path/expiry on completion.
 func (r *Repo) Request(ctx context.Context, communityID, requestedBy string) (Export, error) {
+	// Wrap the active-export check + insert in a transaction so they are atomic
+	// against a concurrent request (FIX1 N6): with the single-writer pool the tx
+	// holds the connection across both statements, closing the same-process
+	// TOCTOU. The partial unique index (migration 00078) is the cross-process
+	// backstop — a racing insert that slips past the count hits the constraint,
+	// which we map back to ErrInProgress.
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Export{}, err
+	}
+	defer tx.Rollback()
+
 	var n int
-	if err := r.DB.QueryRowContext(ctx,
+	if err := tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM community_exports WHERE community_id = ? AND status IN (?, ?)`,
 		communityID, StatusPending, StatusBuilding).Scan(&n); err != nil {
 		return Export{}, err
@@ -82,13 +95,29 @@ func (r *Repo) Request(ctx context.Context, communityID, requestedBy string) (Ex
 		RequestedAt: time.Now(),
 		CreatedAt:   time.Now(),
 	}
-	if _, err := r.DB.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO community_exports (id, community_id, requested_by, status, requested_at, created_at)
 		VALUES (?, ?, NULLIF(?, ''), ?, ?, ?)`,
 		e.ID, e.CommunityID, e.RequestedBy, e.Status, e.RequestedAt.Unix(), e.CreatedAt.Unix()); err != nil {
+		if isUniqueViolation(err) {
+			return Export{}, ErrInProgress
+		}
+		return Export{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		if isUniqueViolation(err) {
+			return Export{}, ErrInProgress
+		}
 		return Export{}, err
 	}
 	return e, nil
+}
+
+// isUniqueViolation reports whether err is a SQLite UNIQUE-constraint failure
+// (modernc surfaces it in the message). Used to map a lost one-active-export race
+// onto ErrInProgress.
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 const exportCols = `id, community_id, COALESCE(requested_by,''), status, token, rel_path, size_bytes, error, requested_at, ready_at, expires_at, created_at`
