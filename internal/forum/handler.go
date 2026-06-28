@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
@@ -61,11 +62,36 @@ type Handler struct {
 	// passed (the latter for rate limiting); forum stays agent-free. Runs
 	// synchronously so a throttled reply can surface a notice; generation
 	// detaches inside the runner. A bot post never fires it (loop guard).
-	OnAgentReply  func(ctx context.Context, communityID, threadID, agentID, userID string, isSuperAdmin bool) AgentReplyResult
+	OnAgentReply func(ctx context.Context, communityID, threadID, agentID, userID string, isSuperAdmin bool) AgentReplyResult
+	// Flood rate-limits thread + reply creation per member (FIX1 H7). Each one
+	// fans out to SSE + NATS + push + outbound webhooks, so it needs a cap.
+	// Nil = unlimited. Shared with the other send surfaces.
+	Flood         *agentlimit.Limiter
 	CommunityID   string
 	CommunityName string
 	BaseURL       string
 	Log           *slog.Logger
+}
+
+// ForumPostPerMinute caps new threads + replies per member per minute (FIX1 H7).
+const ForumPostPerMinute = 30
+
+// floodReject applies the per-user forum flood budget. On denial it opens an SSE,
+// patches a retry message into the given error-fragment slot, and returns true
+// so the caller returns. Super-admins and a nil limiter never trip it. The SSE
+// is opened only on denial, so a caller creating its own SSE on the allow path
+// won't double-flush.
+func (h *Handler) floodReject(w http.ResponseWriter, r *http.Request, id auth.Identity, slot string) bool {
+	if id.IsSuperAdmin || h.Flood == nil {
+		return false
+	}
+	ok, retry := h.Flood.AllowRecord("forumpost:"+h.cid(r.Context())+":"+id.User.ID, ForumPostPerMinute)
+	if ok {
+		return false
+	}
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.ErrorFragment(slot, fmt.Sprintf("You're posting too fast — try again in %ds.", int(retry.Seconds())+1)))
+	return true
 }
 
 // AgentReplyResult reports whether an agent-thread reply was rate-limited, so
@@ -296,6 +322,9 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	if h.floodReject(w, r, id, "thread-error") {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in newThreadSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
@@ -508,6 +537,9 @@ func (h *Handler) PostReply(w http.ResponseWriter, r *http.Request) {
 	threadID := chi.URLParam(r, "id")
 	t, ok := h.threadInCommunity(w, r, threadID)
 	if !ok {
+		return
+	}
+	if h.floodReject(w, r, id, "reply-error") {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)

@@ -32,6 +32,11 @@ const RecentLimit = 100
 // far below a scripted flood.
 const ChatSendPerMinute = 60
 
+// ChatActionPerMinute caps the secondary fan-out write surfaces — forward,
+// search-publish, summary-publish, report (FIX1 H6/N7). They each spray
+// SSE + NATS + RAG-outbox work, so they get a tighter budget than plain sends.
+const ChatActionPerMinute = 20
+
 type Handler struct {
 	Svc  *Service
 	Repo *Repo
@@ -673,9 +678,31 @@ func (h *Handler) broadcastNewMsg(ctx context.Context, channelID string) {
 // `search_idx` signal selects one result (>=0) or all of them (<0); the search
 // is re-run server-side from the `search_q` signal so the message links are
 // authoritative, not client-supplied.
+// floodReject applies the per-user flood budget for a secondary chat write
+// surface (key prefix `surface`). When the budget is exhausted it opens an SSE,
+// patches the rate notice into #chat-agent-notice, and returns true so the
+// caller can return immediately. Super-admins and a nil limiter never trip it.
+// It opens the SSE only on the denial path, so a caller that creates its own SSE
+// on the allow path won't double-flush.
+func (h *Handler) floodReject(w http.ResponseWriter, r *http.Request, id auth.Identity, surface string) bool {
+	if id.IsSuperAdmin || h.Flood == nil {
+		return false
+	}
+	ok, retry := h.Flood.AllowRecord(surface+":"+h.cid(r.Context())+":"+id.User.ID, ChatActionPerMinute)
+	if ok {
+		return false
+	}
+	sse := render.NewSSE(w, r)
+	_ = sse.PatchElementTempl(webtempl.AgentRateLimitNotice("chat-agent-notice", retry))
+	return true
+}
+
 func (h *Handler) PostSearchPublish(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok || h.Search == nil {
+		return
+	}
+	if h.floodReject(w, r, id, "chatsearchpub") {
 		return
 	}
 	var in struct {
@@ -737,6 +764,9 @@ func (h *Handler) PostSearchPublish(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PostSummaryPublish(w http.ResponseWriter, r *http.Request) {
 	id, ok := auth.FromContext(r.Context())
 	if !ok || h.PublishSummary == nil {
+		return
+	}
+	if h.floodReject(w, r, id, "chatsummarypub") {
 		return
 	}
 	var in struct {
@@ -1373,6 +1403,9 @@ func (h *Handler) PostForward(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	if h.floodReject(w, r, id, "chatforward") {
+		return
+	}
 	var in forwardSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -1834,6 +1867,9 @@ func (h *Handler) PostReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	if h.floodReject(w, r, id, "chatreport") {
+		return
+	}
 	var in reportSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
@@ -1870,13 +1906,16 @@ func (h *Handler) PostReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reporting unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if err := h.AuthRepo.CreateUserReport(r.Context(), uuid.NewString(), id.User.ID, target, cid, reason, ref); err != nil {
+	if _, err := h.AuthRepo.CreateUserReport(r.Context(), uuid.NewString(), id.User.ID, target, cid, reason, ref); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	sse := render.NewSSE(w, r)
 	// Clear the report form + the FE-only _report_ref (so the next report
-	// doesn't inherit a stale message tag) and confirm via the global toast.
+	// doesn't inherit a stale message tag) and confirm via the global toast. The
+	// toast is shown whether or not this was a duplicate (a dedup no-op still
+	// means "moderators have been notified") so a reporter gets no signal about
+	// whether a prior report exists.
 	_ = sse.PatchSignals([]byte(`{"report_reason":"","_report_ref":"","_ctx_report_open":false,"_pm_toast_text":"Thanks — moderators have been notified","_pm_toast_href":""}`))
 }
 

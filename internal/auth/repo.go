@@ -1098,13 +1098,23 @@ type UserReport struct {
 	CreatedAt      time.Time
 }
 
-// CreateUserReport files a report. Caller supplies the id (uuid).
-func (r *Repo) CreateUserReport(ctx context.Context, id, reporterID, reportedUserID, communityID, reason, contextRef string) error {
-	_, err := r.DB.ExecContext(ctx, `
+// CreateUserReport files a report. Caller supplies the id (uuid). It is
+// idempotent per (reporter, reported_user, community, context_ref) while a
+// matching report is still open: a duplicate is a no-op so a reporter can't
+// flood the mod queue with identical rows (FIX1 N7). Returns inserted=false when
+// an open report already covered this exact target/context.
+func (r *Repo) CreateUserReport(ctx context.Context, id, reporterID, reportedUserID, communityID, reason, contextRef string) (inserted bool, err error) {
+	res, err := r.DB.ExecContext(ctx, `
 		INSERT INTO user_reports (id, reporter_id, reported_user_id, community_id, reason, context_ref, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'open', ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, 'open', ?)
+		ON CONFLICT (reporter_id, reported_user_id, community_id, context_ref)
+			WHERE status = 'open' DO NOTHING`,
 		id, reporterID, reportedUserID, communityID, reason, contextRef, time.Now().Unix())
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // ListOpenReports returns open reports for the community, newest first,

@@ -15,8 +15,12 @@ func TestUserReports_RoundTrip(t *testing.T) {
 	reporter := registerVerified(t, svc, communityID, "gil@example.com")
 	reported := registerVerified(t, svc, communityID, "hal@example.com")
 
-	if err := repo.CreateUserReport(ctx, "rep-1", reporter, reported, communityID, "spamming the channel", ""); err != nil {
-		t.Fatalf("create report: %v", err)
+	if ins, err := repo.CreateUserReport(ctx, "rep-1", reporter, reported, communityID, "spamming the channel", ""); err != nil || !ins {
+		t.Fatalf("create report: ins=%v err=%v", ins, err)
+	}
+	// A second identical open report is deduped to a no-op (FIX1 N7).
+	if ins, err := repo.CreateUserReport(ctx, "rep-2", reporter, reported, communityID, "again", ""); err != nil || ins {
+		t.Fatalf("duplicate report should be a no-op: ins=%v err=%v", ins, err)
 	}
 
 	open, err := repo.ListOpenReports(ctx, communityID)

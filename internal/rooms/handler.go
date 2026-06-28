@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httprate"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
@@ -108,7 +109,10 @@ func (h *Handler) OpenRoutes(r chi.Router) {
 // context — the token resolves to a room which resolves to a community.
 func (h *Handler) PublicRoutes(r chi.Router) {
 	r.Get("/rooms/invite/{token}", h.GetInviteLanding)
-	r.Post("/rooms/invite/{token}/join", h.PostInviteJoin)
+	// Per-IP rate limit on guest join: JoinGuest mints a fresh uuid guest
+	// identity per call, so an unthrottled valid token could be scripted to
+	// flood pending/member state (FIX1 M27).
+	r.With(httprate.LimitByIP(20, time.Minute)).Post("/rooms/invite/{token}/join", h.PostInviteJoin)
 }
 
 // roomIDParam returns the {id} URL param percent-DECODED. Chi v5 keeps

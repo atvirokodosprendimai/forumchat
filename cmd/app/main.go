@@ -42,8 +42,8 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/connectors"
 	"github.com/atvirokodosprendimai/forumchat/internal/dashboard"
 	"github.com/atvirokodosprendimai/forumchat/internal/dataexport"
-	"github.com/atvirokodosprendimai/forumchat/internal/devdocs"
 	"github.com/atvirokodosprendimai/forumchat/internal/debuglog"
+	"github.com/atvirokodosprendimai/forumchat/internal/devdocs"
 	"github.com/atvirokodosprendimai/forumchat/internal/explore"
 	"github.com/atvirokodosprendimai/forumchat/internal/forum"
 	"github.com/atvirokodosprendimai/forumchat/internal/history"
@@ -495,6 +495,7 @@ func run() error {
 	forumHandler := &forum.Handler{
 		Svc:           forumSvc,
 		Repo:          forumRepo,
+		Flood:         floodLimiter,
 		Chat:          chatSvc,
 		ChatRepo:      chatRepo,
 		ChatBus:       chatBus,
@@ -1748,6 +1749,7 @@ func run() error {
 			SessionSecret: cfg.SessionKey,
 			PushNotify:    pushNotifyFn,
 			Log:           log,
+			Flood:         floodLimiter,
 		}
 		webtempl.GuestAccessEnabled = true
 		// Public guest-side routes — token-authed, no community membership.
@@ -1817,7 +1819,8 @@ func run() error {
 		r.Get("/pending", authHandler.GetPending)
 		r.Get("/profile", authHandler.GetProfile)
 		r.Post("/profile", authHandler.PostProfile)
-		r.Post("/profile/password", authHandler.PostPassword)
+		// Rate-limit password changes (FIX1 M25) — a sensitive account action.
+		r.With(httprate.LimitByIP(10, time.Minute)).Post("/profile/password", authHandler.PostPassword)
 		r.Post("/profile/delete/start", authHandler.PostDeleteStart)
 		r.Post("/profile/leave", authHandler.PostLeaveCommunity)
 		// Personal worklog timer + journal — global (no community scope),
@@ -1943,6 +1946,7 @@ func run() error {
 		Sessions:  sessions,
 		Log:       log,
 		SendToken: sendSigner, // /messages/stream patches the token to clients
+		Flood:     floodLimiter,
 	}
 
 	// Cross-domain connector seams (CapPromote/CapBookmark/CapTodo/CapDM). Wired
@@ -2280,6 +2284,7 @@ func run() error {
 		// Per-community admin area.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole(auth.RoleAdmin))
+			r.Use(httprate.LimitByIP(60, time.Minute)) // FIX1 M25: cap admin actions
 			r.Get("/admin", adminHandler.GetIndex)
 			r.Post("/admin/approve", adminHandler.PostApprove)
 			r.Post("/admin/reject", adminHandler.PostReject)
@@ -2358,6 +2363,9 @@ func run() error {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireRole(auth.RoleAdmin))
+		// Community creation is quota-bounded but still a heavy write; rate-limit
+		// it per IP (FIX1 M25).
+		r.Use(httprate.LimitByIP(20, time.Minute))
 		r.Post("/admin/create-community", adminHandler.PostCreateCommunity)
 	})
 
@@ -2576,6 +2584,7 @@ func run() error {
 	if supportHandler != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth)
+			r.Use(httprate.LimitByIP(20, time.Minute)) // FIX1 M25: cap report-issue
 			r.Get("/report-issue", supportHandler.GetReport)
 			r.Post("/report-issue", supportHandler.PostReport)
 			r.Get("/report-issue/{iid}", supportHandler.GetReportDetail)
@@ -2617,6 +2626,7 @@ func run() error {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Use(auth.RequireSuperAdmin)
+		r.Use(httprate.LimitByIP(60, time.Minute)) // FIX1 M25: cap super-admin actions
 		r.Get("/superadmin", superHandler.GetIndex)
 		if cfg.SAAS {
 			// No god-mode all-communities feed in SaaS — the super-admin uses the

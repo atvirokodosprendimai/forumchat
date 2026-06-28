@@ -13,6 +13,7 @@ import (
 	"github.com/nats-io/nats.go"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
 	"github.com/atvirokodosprendimai/forumchat/internal/natsx"
@@ -48,7 +49,15 @@ type Handler struct {
 	SessionSecret string
 	PushNotify    PushNotifier
 	Log           *slog.Logger
+	// Flood rate-limits lobby messages, host + guest (FIX1 H10). A guest is
+	// authed only by a signed cookie, so the guest send path especially needs a
+	// cap. Nil = unlimited.
+	Flood *agentlimit.Limiter
 }
+
+// LobbySendPerMinute caps lobby messages per host / per lobby-guest per minute
+// (FIX1 H10).
+const LobbySendPerMinute = 40
 
 // ---- host-side helpers ----------------------------------------------------
 
@@ -227,6 +236,12 @@ func (h *Handler) PostHostSend(w http.ResponseWriter, r *http.Request) {
 	if err != nil || l.CommunityID != h.cid(r.Context()) {
 		http.NotFound(w, r)
 		return
+	}
+	if h.Flood != nil {
+		if ok, _ := h.Flood.AllowRecord("lobbyhost:"+id.User.ID, LobbySendPerMinute); !ok {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in hostSendSignals
@@ -466,6 +481,12 @@ func (h *Handler) PostGuestSend(w http.ResponseWriter, r *http.Request) {
 	if !ok || cookieLobbyID != l.ID {
 		http.Error(w, "join required", http.StatusUnauthorized)
 		return
+	}
+	if h.Flood != nil {
+		if ok, _ := h.Flood.AllowRecord("lobbyguest:"+l.ID, LobbySendPerMinute); !ok {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 	var in guestSendSignals

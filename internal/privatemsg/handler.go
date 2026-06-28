@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	datastar "github.com/starfederation/datastar-go/datastar"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/render"
 	"github.com/atvirokodosprendimai/forumchat/internal/sendtoken"
@@ -29,6 +30,22 @@ type Handler struct {
 	// /messages/stream (on connect + every keep-alive tick) so member-write
 	// POSTs can carry a fresh, stream-only liveness token. nil = disabled.
 	SendToken *sendtoken.Signer
+	// Flood rate-limits DM creation + replies per sender (FIX1 H9). The
+	// send-token is a CSRF/liveness gate, not a flood control. Nil = unlimited.
+	Flood *agentlimit.Limiter
+}
+
+// PMSendPerMinute caps DM requests + replies per sender per minute (FIX1 H9).
+const PMSendPerMinute = 30
+
+// floodOK reports whether userID is under the DM flood budget (and records the
+// send). A nil limiter is unlimited.
+func (h *Handler) floodOK(userID string) bool {
+	if h.Flood == nil {
+		return true
+	}
+	ok, _ := h.Flood.AllowRecord("pmsend:"+userID, PMSendPerMinute)
+	return ok
 }
 
 // sendTokenPatch builds the {"send_token":"…"} signal payload. The token is
@@ -192,6 +209,10 @@ func (h *Handler) PostNew(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
 	}
+	if !h.floodOK(u.UserID) {
+		http.Error(w, "slow down", http.StatusTooManyRequests)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	var in newSignals
 	if err := datastar.ReadSignals(r, &in); err != nil {
@@ -251,6 +272,10 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 	u, ok := h.viewer(r)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
+		return
+	}
+	if !h.floodOK(u.UserID) {
+		http.Error(w, "slow down", http.StatusTooManyRequests)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
