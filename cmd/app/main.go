@@ -66,6 +66,7 @@ import (
 	"github.com/atvirokodosprendimai/forumchat/internal/rooms"
 	"github.com/atvirokodosprendimai/forumchat/internal/search"
 	"github.com/atvirokodosprendimai/forumchat/internal/secretbox"
+	"github.com/atvirokodosprendimai/forumchat/internal/sselimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/sendtoken"
 	"github.com/atvirokodosprendimai/forumchat/internal/storage/sqlite"
 	"github.com/atvirokodosprendimai/forumchat/internal/superadmin"
@@ -454,6 +455,11 @@ func run() error {
 	// collide — this is the single rate-limit primitive the FIX1 H6-H10/M27/N7
 	// findings are closed with, instead of one limiter per handler.
 	floodLimiter := agentlimit.New()
+	// Per-user concurrent SSE cap (FIX1 M5). 20 covers many tabs/pages open at
+	// once (chat + forum + presence + agent …) while stopping a scripted client
+	// from opening thousands. Guests (no auth user) aren't capped here — their
+	// streams are bounded by invite tokens / signed URLs.
+	streamLim := sselimit.New(20)
 	chatHandler := &chat.Handler{
 		Svc:       chatSvc,
 		Repo:      chatRepo,
@@ -1810,7 +1816,7 @@ func run() error {
 	if cfg.ConnectorsEnabled && connectorsHandler != nil {
 		r.Group(func(r chi.Router) {
 			r.Use(httprate.LimitByIP(120, time.Minute))
-			r.Get("/bots/{id}/stream", connectorsHandler.GetStream)
+			r.With(streamLimit(streamLim)).Get("/bots/{id}/stream", connectorsHandler.GetStream)
 			// Each signed action maps 1:1 to a capability (internal/connectors
 			// Cap*). The route name == the capability token so the surface is
 			// self-describing; the handler gates on conn.Can(<cap>) + the seam.
@@ -2150,7 +2156,7 @@ func run() error {
 		r.Post("/chat/upload", chatHandler.PostUpload)
 		r.Get("/chat/mention", chatHandler.GetMentionSearch)
 		r.Get("/chat/translate", chatHandler.GetTranslate)
-		r.Get("/chat/events", chatHandler.GetEventsStream)
+		r.With(streamLimit(streamLim)).Get("/chat/events", chatHandler.GetEventsStream)
 		r.Post("/chat/extract", projectsHandler.PostExtractFromChat)
 		r.Post("/chat/forward", chatHandler.PostForward)
 		// Channel management (mod create/rename/topic/archive; admin delete
@@ -2162,7 +2168,7 @@ func run() error {
 		r.Post("/chat/channels/delete", chatHandler.PostDeleteChannel)
 		// Per-channel surfaces.
 		r.Get("/chat/{channel}", chatHandler.GetPage)
-		r.Get("/chat/{channel}/stream", chatHandler.GetStream)
+		r.With(streamLimit(streamLim)).Get("/chat/{channel}/stream", chatHandler.GetStream)
 		r.With(sendSigner.Require()).Post("/chat/{channel}/send", chatHandler.PostSend)
 		r.Post("/chat/{channel}/search/publish", chatHandler.PostSearchPublish)
 		r.Post("/chat/{channel}/summary/publish", chatHandler.PostSummaryPublish)
@@ -2225,7 +2231,7 @@ func run() error {
 				r.Post("/agent/new", agentHandler.PostNew)
 				r.Get("/agent/refs", agentHandler.GetRefSearch)
 				r.Get("/agent/{thread}", agentHandler.GetPage)
-				r.Get("/agent/{thread}/stream", agentHandler.GetStream)
+				r.With(streamLimit(streamLim)).Get("/agent/{thread}/stream", agentHandler.GetStream)
 				r.Post("/agent/{thread}/send", agentHandler.PostSend)
 				r.Post("/agent/{thread}/agent", agentHandler.PostSetAgent)
 				r.Post("/agent/{thread}/stop", agentHandler.PostStop)
@@ -2235,7 +2241,7 @@ func run() error {
 			})
 		}
 
-		r.Get("/presence/stream", presenceHandler.GetStream)
+		r.With(streamLimit(streamLim)).Get("/presence/stream", presenceHandler.GetStream)
 
 		r.Post("/uploads", uploadHandler.PostUpload)
 
@@ -2243,7 +2249,7 @@ func run() error {
 		r.Get("/forum/new", forumHandler.GetNew)
 		r.With(sendSigner.Require()).Post("/forum/new", forumHandler.PostNew)
 		r.Get("/forum/{id}", forumHandler.GetThread)
-		r.Get("/forum/{id}/stream", forumHandler.GetThreadStream)
+		r.With(streamLimit(streamLim)).Get("/forum/{id}/stream", forumHandler.GetThreadStream)
 		r.With(sendSigner.Require()).Post("/forum/{id}/reply", forumHandler.PostReply)
 		r.Post("/forum/{id}/delete", forumHandler.PostDeleteThread)
 		r.Post("/forum/{id}/resolve", forumHandler.PostResolve)
@@ -2299,7 +2305,7 @@ func run() error {
 				r.Get("/lobbies", lobbiesHandler.GetIndex)
 				r.Post("/lobbies/new", lobbiesHandler.PostNew)
 				r.Get("/lobbies/{id}", lobbiesHandler.GetHostView)
-				r.Get("/lobbies/{id}/stream", lobbiesHandler.GetHostStream)
+				r.With(streamLimit(streamLim)).Get("/lobbies/{id}/stream", lobbiesHandler.GetHostStream)
 				r.Post("/lobbies/{id}/send", lobbiesHandler.PostHostSend)
 				r.Post("/lobbies/{id}/close", lobbiesHandler.PostClose)
 				r.Post("/lobbies/{id}/archive", lobbiesHandler.PostArchive)
@@ -2380,7 +2386,7 @@ func run() error {
 				r.Post("/settings/delete", adminHandler.PostDeleteCommunity)
 				// Owner-initiated data export: live status card (SSE) + request.
 				// The download itself is a public token-gated route (see below).
-				r.Get("/settings/export/stream", exportHandler.GetStream)
+				r.With(streamLimit(streamLim)).Get("/settings/export/stream", exportHandler.GetStream)
 				r.Post("/settings/export", exportHandler.PostRequest)
 			})
 		}
@@ -2470,7 +2476,7 @@ func run() error {
 				r.Use(auth.RequireApproved)
 				r.Get("/", projectsHandler.GetIndex)
 				r.Post("/", projectsHandler.PostCreate)
-				r.Get("/{id}/stream", projectsHandler.GetStream)
+				r.With(streamLimit(streamLim)).Get("/{id}/stream", projectsHandler.GetStream)
 				r.Get("/{id}/attachment/{aid}/download", projectsHandler.GetAttachmentDownload)
 				r.Post("/{id}/archive", projectsHandler.PostArchive)
 				r.Post("/{id}/unarchive", projectsHandler.PostUnarchive)
@@ -2595,7 +2601,7 @@ func run() error {
 			r.Use(auth.RequireSuperAdmin) // /inbox is the company-owner surface
 			r.Get("/inbox", mailboxHandler.GetGlobalInbox)
 			r.Get("/inbox/more", mailboxHandler.GetMore)
-			r.Get("/inbox/stream", mailboxHandler.GetStream)
+			r.With(streamLimit(streamLim)).Get("/inbox/stream", mailboxHandler.GetStream)
 			r.Post("/inbox/attach-sender", mailboxHandler.PostAttachSender)
 			r.Post("/inbox/attachments/{id}/move", mailboxHandler.PostMoveAttachment)
 			r.Post("/inbox/search", mailboxHandler.PostSearch)
@@ -2604,7 +2610,7 @@ func run() error {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Get("/issues", projectsHandler.GetGlobalIssues)
-		r.Get("/issues/stream", projectsHandler.GetGlobalIssuesStream)
+		r.With(streamLimit(streamLim)).Get("/issues/stream", projectsHandler.GetGlobalIssuesStream)
 	})
 
 	// Hidden support inbox — any signed-in user files a report; reads back
@@ -2642,7 +2648,7 @@ func run() error {
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth)
 			r.Get("/chats", memberChatInbox.GetPage)
-			r.Get("/chats/stream", memberChatInbox.GetStream)
+			r.With(streamLimit(streamLim)).Get("/chats/stream", memberChatInbox.GetStream)
 		})
 	}
 
@@ -2665,7 +2671,7 @@ func run() error {
 			})
 		} else {
 			r.Get("/superadmin/chat", godChatInbox.GetPage)
-			r.Get("/superadmin/chat/stream", godChatInbox.GetStream)
+			r.With(streamLimit(streamLim)).Get("/superadmin/chat/stream", godChatInbox.GetStream)
 		}
 		r.Get("/superadmin/debug", superHandler.GetDebug)
 		r.Post("/superadmin/debug/toggle", superHandler.PostDebugToggle)
@@ -2745,6 +2751,29 @@ func htmlContentType(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// streamLimit caps concurrent SSE streams per authenticated user (FIX1 M5). It
+// acquires a slot for the duration of the handler — an SSE handler blocks until
+// the client disconnects, so the slot is held for the life of the stream and
+// released when ServeHTTP returns. Over the per-user cap it returns 429 instead
+// of opening the stream. Anonymous/guest requests (no auth user) pass through.
+func streamLimit(lim *sselimit.Limiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			uid := ""
+			if id, ok := auth.FromContext(r.Context()); ok {
+				uid = id.User.ID
+			}
+			release, ok := lim.Acquire(uid)
+			if !ok {
+				http.Error(w, "too many open streams", http.StatusTooManyRequests)
+				return
+			}
+			defer release()
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // securityHeaders stamps the standard browser hardening headers on every
