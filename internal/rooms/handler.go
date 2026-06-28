@@ -400,7 +400,12 @@ func (h *Handler) pushRoomFragments(ctx context.Context, sse *datastar.ServerSen
 	h.pushParticipants(ctx, sse, slug, rm.ID, viewer)
 	h.pushChat(ctx, sse, rm.ID, viewer)
 	h.pushAdminPanel(ctx, sse, rm, viewer, slug, scheme, host)
-	_ = sse.PatchSignals([]byte(`{"_rooms_room_name":"` + jsQuote(rm.Name) + `"}`))
+	// FIX1 H11: marshal the room name with encoding/json rather than the
+	// non-standard hand-rolled escaper, so a name containing any JSON-special
+	// byte can never break out of the signal value.
+	if b, err := json.Marshal(map[string]string{"_rooms_room_name": rm.Name}); err == nil {
+		_ = sse.PatchSignals(b)
+	}
 }
 
 func (h *Handler) pushParticipants(ctx context.Context, sse *datastar.ServerSentEventGenerator, slug, roomID string, viewer Identity) {
@@ -485,28 +490,6 @@ func publicSchemeHost(r *http.Request) (string, string) {
 	return scheme, host
 }
 
-// jsQuote escapes a string for inclusion inside a JSON double-quoted value.
-// Only the four characters that break JSON parsing get escaped — anything
-// safe enough to render in HTML body text is safe here.
-func jsQuote(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch r {
-		case '\\', '"':
-			b.WriteRune('\\')
-			b.WriteRune(r)
-		case '\n':
-			b.WriteString("\\n")
-		case '\r':
-			b.WriteString("\\r")
-		case '\t':
-			b.WriteString("\\t")
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
 
 func (h *Handler) pushChat(ctx context.Context, sse *datastar.ServerSentEventGenerator, roomID string, viewer Identity) {
 	msgs, err := h.Repo.ListChat(ctx, roomID, 200)
