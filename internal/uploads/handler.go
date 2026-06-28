@@ -163,12 +163,16 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 	// (FIX1 H1). Combined with the upload-time denylist (C2/C3) this means even
 	// a pre-fix text/html row already on disk can't run JS from our origin.
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	// Only the genuinely inline-renderable media families are served inline;
-	// everything else (application/*, unknown) is forced to a download so a
-	// hostile payload can't render in the forumchat origin (FIX1 C2/H2).
+	// Inline ONLY an explicit allowlist of known-safe media types; everything
+	// else is forced to a download. A family check (image/*) is unsafe because
+	// image/svg+xml is in the image family but carries inline <script> — a legacy
+	// row stored before the denylist would still XSS if inlined (Codex caught
+	// this). The list mirrors the safe-extension map (FIX1 C2/H2).
 	disp := "attachment"
-	switch mimeFamily(baseMIME(u.MIME)) {
-	case "image", "video", "audio":
+	switch baseMIME(u.MIME) {
+	case "image/jpeg", "image/png", "image/gif", "image/webp",
+		"video/mp4", "video/webm", "video/quicktime",
+		"audio/mpeg", "audio/mp4", "audio/wav", "audio/ogg":
 		disp = "inline"
 	}
 	w.Header().Set("Content-Disposition", contentDisposition(disp, u.Filename))

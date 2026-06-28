@@ -196,6 +196,11 @@ func (h *Handler) postInboundMultipart(w http.ResponseWriter, r *http.Request, w
 	if max <= 0 {
 		max = 1 << 20
 	}
+	// Hard total-body cap (Codex follow-up to FIX1 H4): ParseMultipartForm's
+	// argument is only the in-memory spill threshold — without this an unbounded
+	// multipart body could spill arbitrarily to disk. 1 MiB headroom over the
+	// media cap covers form fields + multipart boundaries.
+	r.Body = http.MaxBytesReader(w, r.Body, max+1<<20)
 	if err := r.ParseMultipartForm(max + 1024); err != nil {
 		http.Error(w, "bad multipart: "+err.Error(), http.StatusBadRequest)
 		return
