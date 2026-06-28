@@ -286,3 +286,4 @@
 - 2026-06-28 `9ee4715` fix(sse): cap concurrent SSE streams per user (M5)
 - 2026-06-28 `b9d7988` fix(uploads): rate-limit no-session shared-URL fetch (M16); document M17/M18 deferrals
 - 2026-06-28 `61f473f` fix(uploads,webhooks): Codex review follow-ups (C2 svg inline, H4 multipart cap)
+- 2026-06-28 `978454a` docs(changelog): FIX1 security remediation entries
