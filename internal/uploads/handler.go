@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,6 +33,12 @@ type Handler struct {
 	// logged-in user can't read another tenant's media by guessing the id.
 	// Optional: nil keeps the legacy permissive behaviour (tests).
 	MemberOf func(ctx context.Context, userID, communityID string) bool
+	// NoSessionFetchOK rate-limits the session-LESS shared-signed fetch path per
+	// client (FIX1 M16): a leaked shared URL is a reusable bearer until it
+	// expires (24h) with no revocation, so cap how fast one client can pull
+	// through that path. Returns false when the caller is over the limit. nil =
+	// no limit (the session path is unaffected either way).
+	NoSessionFetchOK func(clientIP string) bool
 }
 
 // Project guest session keys — kept in sync with internal/projects/guest.go.
@@ -108,6 +115,12 @@ func (h *Handler) GetFile(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "auth required", http.StatusUnauthorized)
 			return
 		}
+		// Throttle the no-session bearer-URL path per client (FIX1 M16) so a
+		// leaked shared URL can't be hammered.
+		if h.NoSessionFetchOK != nil && !h.NoSessionFetchOK(clientIP(r)) {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
 	} else if sig := r.URL.Query().Get("sig"); sig != "" {
 		// Authed viewer: HMAC verification is best-effort defense-in-depth
 		// (the session gate above is the real access control). Stale/legacy
@@ -176,6 +189,16 @@ func contentDisposition(dispType, filename string) string {
 	}
 	quoted := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(filename)
 	return fmt.Sprintf(`%s; filename="%s"; filename*=UTF-8''%s`, dispType, quoted, url.PathEscape(filename))
+}
+
+// clientIP extracts the request's source IP (host part of RemoteAddr), used to
+// key the no-session fetch rate limit. Falls back to the raw RemoteAddr when it
+// has no port.
+func clientIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 // hasValidSharedSig reports whether the request carries a valid, unexpired

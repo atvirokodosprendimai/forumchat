@@ -460,6 +460,13 @@ func run() error {
 	// from opening thousands. Guests (no auth user) aren't capped here — their
 	// streams are bounded by invite tokens / signed URLs.
 	streamLim := sselimit.New(20)
+	// FIX1 M16: rate-limit the session-less shared-upload fetch path per client IP
+	// (a leaked shared URL is a 24h reusable bearer with no revocation). 120/min
+	// is generous for a webhook receiver pulling a few images, tight for scraping.
+	uploadHandler.NoSessionFetchOK = func(ip string) bool {
+		ok, _ := floodLimiter.AllowRecord("sharedupload:"+ip, 120)
+		return ok
+	}
 	chatHandler := &chat.Handler{
 		Svc:       chatSvc,
 		Repo:      chatRepo,
