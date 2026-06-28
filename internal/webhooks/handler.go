@@ -100,9 +100,11 @@ func (h *Handler) PostInbound(w http.ResponseWriter, r *http.Request) {
 		max = 1 << 20
 	}
 	// A signed multipart body carries media, so it can exceed the small JSON cap;
-	// read up to the upload cap in that case so the buffered re-feed isn't truncated.
-	if isMultipart && h.Uploads.MaxSize > max {
-		max = h.Uploads.MaxSize
+	// read up to the upload cap PLUS the same 1 MiB envelope headroom the parser
+	// uses (postInboundMultipart), so a legit near-cap signed upload isn't
+	// truncated here before it reaches the signature check (code-review follow-up).
+	if isMultipart && h.Uploads.MaxSize+1<<20 > max {
+		max = h.Uploads.MaxSize + 1<<20
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, max))
 	if err != nil {
