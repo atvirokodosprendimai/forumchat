@@ -32,7 +32,14 @@ func TestEffectiveAccess(t *testing.T) {
 		want    AccessLevel
 	}{
 		{"legacy open: member writes", open, memberID(auth.RoleMember), "", false, AccessReadWrite},
-		{"legacy open: guest reads", open, guest, "", false, AccessReadOnly},
+		// FIX1 M11: a guest's write tracks the project member default (the
+		// RequireWrite blanket guest pass-through was removed). Legacy-open lets
+		// members write, so a token-admitted guest writes too — no inversion.
+		{"legacy open: guest writes (tracks member default)", open, guest, "", false, AccessReadWrite},
+		{"community write default: guest writes", community(AccessWrite), guest, "", false, AccessReadWrite},
+		// The inversion fix: on a read-only project a guest is read-only, NOT
+		// able to out-write a read-only member.
+		{"community read default: guest read-only (no inversion)", community(AccessRead), guest, "", false, AccessReadOnly},
 
 		{"perms: guest still reads (token-admitted)", restricted, guest, "", false, AccessReadOnly},
 

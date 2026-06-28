@@ -1443,8 +1443,15 @@ func (h *Handler) viewerAccess(r *http.Request, pid string) AccessLevel {
 	if err != nil {
 		return AccessNone
 	}
-	id, _ := auth.FromContext(r.Context())
-	caller := Identity{UserID: id.User.ID, Role: id.Membership.Role}
+	// FIX1 M14: use the guest-aware identity builder, not raw auth.FromContext —
+	// a share-link guest has no auth user, so the old code resolved it to an
+	// empty member identity and EffectiveAccess returned AccessNone, closing the
+	// guest's SSE stream on the first event. callerIdentity returns the guest
+	// Identity so EffectiveAccess admits it.
+	caller, ok := h.callerIdentity(r)
+	if !ok {
+		return AccessNone
+	}
 	grant, grantOK := h.Repo.MemberAccessFor(r.Context(), pid, caller.UserID)
 	return EffectiveAccess(p, caller, grant, grantOK)
 }
@@ -1570,7 +1577,7 @@ func (h *Handler) callerAccessTo(ctx context.Context, caller Identity, p Project
 // a restricted project stays invisible even on a write attempt.
 func (h *Handler) RequireWrite(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		caller, _, access, ok := h.projectAccess(w, r)
+		_, _, access, ok := h.projectAccess(w, r)
 		if !ok {
 			return
 		}
@@ -1578,7 +1585,11 @@ func (h *Handler) RequireWrite(next http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if access.CanWrite() || caller.IsGuest() {
+		// FIX1 M11: gate guest writes on EffectiveAccess like everyone else (a
+		// guest's access now tracks the project member default), instead of the
+		// old blanket guest pass-through that let a guest write to a read-only
+		// project a member couldn't.
+		if access.CanWrite() {
 			next.ServeHTTP(w, r)
 			return
 		}

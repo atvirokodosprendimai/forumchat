@@ -23,10 +23,15 @@ func (l AccessLevel) CanWrite() bool { return l >= AccessReadWrite }
 // both the read gate (loadProjectData) and the write gate (RequireWrite),
 // so the rules live in exactly one pure, table-tested place.
 func EffectiveAccess(p Project, caller Identity, grant string, grantOK bool) AccessLevel {
-	// Share-link guests are admitted to exactly this project by token, so
-	// they read regardless of the perms model. Write affordances are hidden
-	// for guests separately (the IsGuestViewer templ gate).
+	// Share-link guests are admitted to exactly this project by token, so they
+	// read regardless of the perms model. Their WRITE capability tracks the
+	// project's member default so a guest never out-ranks a read-only member
+	// (FIX1 M11 privilege inversion): a legacy-open project or one whose
+	// MemberAccess is write lets guests write; anything else is read-only.
 	if caller.IsGuest() {
+		if !p.NeedsPerms || p.MemberAccess == AccessWrite {
+			return AccessReadWrite
+		}
 		return AccessReadOnly
 	}
 	// Legacy open project: every approved member reads + writes, byte-for-

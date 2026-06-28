@@ -261,8 +261,12 @@ func (h *Handler) PostCloseAllIssues(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// FIX1 M12: bulk-close every issue is a project-management action; gate it
+	// on RoleAdmin to match the per-issue edit gate (issueEditable = author OR
+	// admin). The old RoleMod let a mod who can't edit a single issue wipe an
+	// entire project's issue list.
 	id, ok := h.callerIdentity(r)
-	if !ok || !id.Role.AtLeast(auth.RoleMod) {
+	if !ok || !id.Role.AtLeast(auth.RoleAdmin) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
