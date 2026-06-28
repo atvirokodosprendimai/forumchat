@@ -1441,6 +1441,7 @@ func run() error {
 	if cfg.ConnectorsEnabled {
 		connRepo := connectors.NewRepo(db)
 		connRepo.Box = secrets // FIX1 M20: seal connector HMAC secrets at rest
+		connRepo.Log = log     // surface a secret-open failure (key rotation/mismatch)
 		// svc (auth.Service) is the MemberFactory: each connector is backed by a
 		// real synthetic member so it acts as a human (spec-connectors).
 		connSvc := connectors.NewService(connRepo, svc, chatRepo)
@@ -1989,6 +1990,7 @@ func run() error {
 		Log:       log,
 		SendToken: sendSigner, // /messages/stream patches the token to clients
 		Flood:     floodLimiter,
+		StreamMW:  streamLimit(streamLim), // FIX1 M5: cap DM streams (registered in pm.Routes)
 	}
 
 	// Cross-domain connector seams (CapPromote/CapBookmark/CapTodo/CapDM). Wired
@@ -2099,6 +2101,7 @@ func run() error {
 		IceServers: buildIceServers(cfg),
 		ForceRelay: cfg.ForceRelay,
 		Flood:      floodLimiter,
+		StreamMW:   streamLimit(streamLim), // FIX1 M5: cap room SSE (registered in rooms.OpenRoutes)
 	}
 	// Seed the bootstrap community's 8 rooms on boot. Other communities
 	// get lazy-seeded on first GET /c/{slug}/rooms.
@@ -2201,7 +2204,7 @@ func run() error {
 		r.Post("/notes/{id}/save", notesHandler.PostSave)
 		r.Post("/notes/{id}/preview", notesHandler.PostPreview)
 		// Collaborative editing: per-note diff-sync stream + merge endpoint.
-		r.Get("/notes/{id}/collab", notesHandler.GetCollab)
+		r.With(streamLimit(streamLim)).Get("/notes/{id}/collab", notesHandler.GetCollab) // FIX1 M5: cap collab SSE
 		r.Post("/notes/{id}/sync", notesHandler.PostSync)
 		r.Post("/notes/{id}/share", notesHandler.PostShare)
 		r.Post("/notes/{id}/delete", notesHandler.PostDelete)

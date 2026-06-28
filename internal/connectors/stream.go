@@ -119,6 +119,14 @@ func (h *Handler) GetStream(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	// FIX1 N2 (code-review follow-up): the read feed must obey the same
+	// membership gate as the signed POST actions in authed() — otherwise an
+	// admin who removes/bans the bot's synthetic member stops its writes but it
+	// keeps reading every channel here. Same 404 (no oracle) as a bad signature.
+	if h.MemberActive != nil && !h.MemberActive(r.Context(), conn.CommunityID, conn.UserID) {
+		http.NotFound(w, r)
+		return
+	}
 
 	// Resolve the subscribed channel set (empty allowlist = all non-archived).
 	subs, err := h.subscribedChannels(r.Context(), conn)

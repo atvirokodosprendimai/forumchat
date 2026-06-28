@@ -15,6 +15,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -134,10 +135,13 @@ func splitCapabilities(csv string) []string {
 }
 
 // Repo is the SQL boundary for connectors. Box (optional) seals/opens the
-// per-connector HMAC Secret at rest (FIX1 M20); nil (tests) stores bare.
+// per-connector HMAC Secret at rest (FIX1 M20); nil (tests) stores bare. Log
+// (optional) surfaces a secret-open failure so a key rotation/mismatch that
+// silently breaks a connector's HMAC auth is at least diagnosable.
 type Repo struct {
 	DB  *sql.DB
 	Box *secretbox.Box
+	Log *slog.Logger
 }
 
 // NewRepo returns a Repo bound to db.
@@ -149,9 +153,17 @@ func (r *Repo) openSecret(c *Connector) {
 	if r.Box == nil {
 		return
 	}
-	if sec, err := r.Box.Open(c.Secret); err == nil {
-		c.Secret = sec
+	sec, err := r.Box.Open(c.Secret)
+	if err != nil {
+		// Fail closed (HMAC auth will reject), but make the cause visible — a
+		// SECRETS_KEY rotation/mismatch would otherwise break the connector
+		// silently (code-review follow-up to M20).
+		if r.Log != nil {
+			r.Log.Warn("connectors: open secret failed", "connector", c.ID, "err", err)
+		}
+		return
 	}
+	c.Secret = sec
 }
 
 // sealSecret encrypts a connector secret for storage (FIX1 M20). nil Box returns
