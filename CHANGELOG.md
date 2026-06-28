@@ -293,3 +293,4 @@
 - 2026-06-28 `90ce7d0` fix(moderation): randomize classifier fence delimiter to stop fence-break injection (review F4)
 - 2026-06-28 `e7a841e` docs(changelog): code-review follow-up fixes
 - 2026-06-28 `798ed4d` docs(changelog): code-review follow-up entries
+- 2026-06-28 `c4ed04e` feat(mcpx): add weather + current_datetime internal agent tools
