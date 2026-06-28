@@ -36,13 +36,18 @@ type Service struct {
 	Blocks BlockChecker
 }
 
-// blockedFrom reports whether otherUser has blocked sender (so sender may not
-// message them). Fails closed on a lookup error.
+// blockedFrom reports whether a DM between sender and otherUser is blocked in
+// EITHER direction (FIX1 M7): the recipient blocked the sender (sender may not
+// message them) OR the sender blocked the recipient (a user who blocked someone
+// shouldn't keep DMing them). Fails closed on a lookup error.
 func (s *Service) blockedFrom(ctx context.Context, sender, otherUser string) (bool, error) {
 	if s.Blocks == nil {
 		return false, nil
 	}
-	return s.Blocks.IsBlocked(ctx, otherUser, sender)
+	if blocked, err := s.Blocks.IsBlocked(ctx, otherUser, sender); err != nil || blocked {
+		return blocked, err
+	}
+	return s.Blocks.IsBlocked(ctx, sender, otherUser)
 }
 
 // CreateRequest persists a brand-new pending DM thread plus its first message.

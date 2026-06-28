@@ -451,6 +451,25 @@ func (h *Handler) loadRecentFor(ctx context.Context, channelID, currentUserID st
 	return views, nil
 }
 
+// dropBlockers removes from candidates any user who has blocked senderID, so a
+// muted sender's pushes never reach the people who muted them (FIX1 M6). Nil
+// AuthRepo → returns candidates unchanged. A lookup error keeps the candidate
+// (fail-open on notifications is acceptable; the block still hides messages
+// in-app via blockedSet).
+func (h *Handler) dropBlockers(ctx context.Context, candidates []string, senderID string) []string {
+	if h.AuthRepo == nil || len(candidates) == 0 {
+		return candidates
+	}
+	out := candidates[:0]
+	for _, uid := range candidates {
+		if blocked, err := h.AuthRepo.IsBlocked(ctx, uid, senderID); err == nil && blocked {
+			continue // uid blocked the sender → no push
+		}
+		out = append(out, uid)
+	}
+	return out
+}
+
 // blockedSet returns the set of user_ids the viewer has muted in this
 // community. Empty/nil when no AuthRepo or no blocks.
 func (h *Handler) blockedSet(ctx context.Context, currentUserID string) map[string]bool {
@@ -1350,6 +1369,10 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 				ids, err := h.AuthRepo.UserIDsByDisplayName(ctx, cid, mentions)
 				if err == nil && len(ids) > 0 {
 					ids = filterOut(ids, senderID)
+					// Don't ping someone who has muted the sender (FIX1 M6): a
+					// block is a mute, so the blocker must not get a mention push
+					// from the blocked user.
+					ids = h.dropBlockers(ctx, ids, senderID)
 					for _, uid := range ids {
 						mentioned[uid] = struct{}{}
 					}
@@ -1377,6 +1400,9 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 				}
 				rest = append(rest, uid)
 			}
+			// Same mute rule for the broadcast ping (FIX1 M6) — the chat_new
+			// title is attributed to the sender, so a blocker shouldn't get it.
+			rest = h.dropBlockers(ctx, rest, senderID)
 			if len(rest) == 0 {
 				return
 			}
