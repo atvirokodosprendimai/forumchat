@@ -447,6 +447,12 @@ func run() error {
 	chatSvc := chat.NewService(chatRepo)
 	chatBus := chat.NewBus()
 	chatNewMsgBus := chat.NewBus()
+	// One shared per-process flood limiter for every human send path (chat,
+	// rooms, forum, DMs, lobbies, connectors). It is keyed by an
+	// arbitrary string, so each surface uses its own prefix and they never
+	// collide — this is the single rate-limit primitive the FIX1 H6-H10/M27/N7
+	// findings are closed with, instead of one limiter per handler.
+	floodLimiter := agentlimit.New()
 	chatHandler := &chat.Handler{
 		Svc:       chatSvc,
 		Repo:      chatRepo,
@@ -455,7 +461,7 @@ func run() error {
 		NewMsgBus: chatNewMsgBus,
 		Uploads:   uploadStore,
 		AuthRepo:  aRepo,
-		Flood:     agentlimit.New(), // per-user chat flood control
+		Flood:     floodLimiter, // per-user chat flood control
 
 		BaseURL:       cfg.BaseURL,
 		CommunityID:   bootCommunity.ID,
@@ -2012,6 +2018,7 @@ func run() error {
 		Mailer:     mailer,
 		IceServers: buildIceServers(cfg),
 		ForceRelay: cfg.ForceRelay,
+		Flood:      floodLimiter,
 	}
 	// Seed the bootstrap community's 8 rooms on boot. Other communities
 	// get lazy-seeded on first GET /c/{slug}/rooms.

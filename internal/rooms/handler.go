@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/atvirokodosprendimai/forumchat/internal/agentlimit"
 	"github.com/atvirokodosprendimai/forumchat/internal/auth"
 	"github.com/atvirokodosprendimai/forumchat/internal/chat"
 	"github.com/atvirokodosprendimai/forumchat/internal/community"
@@ -56,7 +57,16 @@ type Handler struct {
 	// nil the email-invite endpoint returns 503 — the rest of the rooms
 	// feature works without it.
 	Mailer auth.Mailer
+
+	// Flood is the shared per-process flood limiter (optional). When set,
+	// PostChat is rate-limited per identity so a room (including a guest with a
+	// valid invite cookie) can't be used as an unbounded chat-injection /
+	// fan-out vector (FIX1 H8).
+	Flood *agentlimit.Limiter
 }
+
+// RoomChatPerMinute caps room chat messages per identity per minute (FIX1 H8).
+const RoomChatPerMinute = 40
 
 // ICEServer matches the WebRTC dictionary shape.
 type ICEServer struct {
@@ -668,10 +678,25 @@ func (h *Handler) PostRename(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) PostChat(w http.ResponseWriter, r *http.Request) {
 	roomID := roomIDParam(r)
+	// Tenant boundary: the OpenRoutes group has no RequireMember, so without
+	// this an authed user from community A could POST to community B's room and
+	// inject chat into another tenant (FIX1 C1). Room ids are "<cid>:room-NN",
+	// so the prefix check is the same one the other interaction handlers use.
+	if !h.roomCommunityOK(r, roomID) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
 	id, ok := h.caller(r, roomID)
 	if !ok {
 		http.Error(w, "auth required", http.StatusUnauthorized)
 		return
+	}
+	// Flood control per identity (auth user or invite guest) — FIX1 H8.
+	if h.Flood != nil {
+		if ok, _ := h.Flood.AllowRecord("roomchat:"+roomID+":"+id.Key(), RoomChatPerMinute); !ok {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	var in targetSignals
