@@ -1843,7 +1843,10 @@ func (h *Handler) PostDelete(w http.ResponseWriter, r *http.Request) {
 	sse := render.NewSSE(w, r)
 	if ch, cerr := h.Repo.ChannelByID(r.Context(), msg.ChannelID); cerr == nil {
 		if views, lerr := h.loadRecentFor(r.Context(), ch.ID, id.User.ID); lerr == nil {
-			_ = fatMorph(sse, views, true, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
+			// Pass the actor's real mod status, not a hardcoded true — a non-mod
+			// author reaching this via self-delete must not get their #messages
+			// re-rendered with mod-only affordances (code-review follow-up to M8).
+			_ = fatMorph(sse, views, isMod, id.User.ID, id.Membership.DisplayName, h.cslug(r.Context()), ch.Slug)
 		}
 	}
 	h.broadcast(r.Context(), msg.ChannelID)
