@@ -77,7 +77,10 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			msg, err := h.ChatRepo.ByID(r.Context(), srcID)
-			if err != nil {
+			// Scope the source to the viewer's community (FIX1 M10): ByID/GetPost
+			// look up by raw id, so without this a member could snapshot another
+			// tenant's chat message via a crafted todo_open_source.
+			if err != nil || msg.CommunityID != c.ID {
 				return
 			}
 			t.SourceKind = SourceChat
@@ -89,6 +92,12 @@ func (h *Handler) PostCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			p, err := h.Forum.GetPost(r.Context(), srcID)
 			if err != nil {
+				return
+			}
+			// A forum post carries no community id; resolve it via its thread and
+			// confirm it belongs to the viewer's community (FIX1 M10).
+			th, err := h.Forum.GetThread(r.Context(), p.ThreadID)
+			if err != nil || th.CommunityID != c.ID {
 				return
 			}
 			t.SourceKind = SourceForumPost
