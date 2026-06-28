@@ -1435,6 +1435,19 @@ func run() error {
 			MaxBytes:  cfg.ConnectorsMaxBytes,
 			Log:       log,
 		}
+		// FIX1 N2: every signed connector action refuses once its synthetic member
+		// is removed/banned (connector HMAC auth bypasses auth.Loader's ban check).
+		connectorsHandler.MemberActive = func(ctx context.Context, communityID, userID string) bool {
+			m, err := aRepo.MembershipFor(ctx, userID, communityID)
+			if err != nil {
+				return false
+			}
+			return m.IsApproved() && !m.IsBanned(time.Now())
+		}
+		// FIX1 N5: classify connector posts (KindUser) with the same auditor as
+		// human chat sends. chatHandler.Moderate is nil when moderation is off, so
+		// the connector seam stays a no-op in that case too.
+		connectorsHandler.Moderate = chatHandler.Moderate
 		// Resolve a streamed message's upload ids into fetchable attachments — a
 		// shared-signed, session-less URL + metadata (reuses the uploads store,
 		// closure-wired so connectors doesn't import uploads).

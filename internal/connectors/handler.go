@@ -36,6 +36,22 @@ type Handler struct {
 	// attachments (shared-signed URL + metadata). nil → events omit attachments.
 	ResolveAttachments func(ctx context.Context, uploadIDs []string) []EventAttachment
 
+	// MemberActive reports whether the connector's synthetic member is still an
+	// active, unbanned member of its community. Checked on EVERY signed action in
+	// authed() (FIX1 N2): connector HMAC auth is session-less, so auth.Loader's
+	// ban check never runs for it — without this an admin who removes/bans the
+	// bot's member (the natural "disable this bot" action) only stops DMs while
+	// the bot keeps posting, forwarding, BANNING members, deleting and renaming.
+	// nil → not enforced (the per-action seams still apply).
+	MemberActive func(ctx context.Context, communityID, userID string) bool
+
+	// Moderate, if set, runs the safety classifier over a connector-posted
+	// message (FIX1 N5). Connector posts are KindUser and so are indistinguishable
+	// from human posts downstream, yet they skipped chat.Handler.PostSend's
+	// Moderate hook entirely. Wired to the same auditor as chat. nil → no
+	// classification.
+	Moderate func(communityID, channelID, messageID, authorID, body string)
+
 	// Presence, if set, marks the connector's member online while a stream is
 	// attached and returns a cleanup run on disconnect. The wiring (main.go) is
 	// responsible for KEEPING the member fresh for the life of the stream — the
@@ -100,6 +116,14 @@ func (h *Handler) authed(w http.ResponseWriter, r *http.Request) (Connector, []b
 		// Generic message — never reveal whether the id or the signature was the
 		// problem beyond the status code.
 		http.Error(w, "bad signature", http.StatusUnauthorized)
+		return Connector{}, nil, false
+	}
+	// Refuse every signed action once the synthetic member is no longer an
+	// active, unbanned member of the community (FIX1 N2). This is the single
+	// chokepoint all signed endpoints (do() + this) pass through, so removing or
+	// banning the bot's member neutralises it fully — not just its DMs.
+	if h.MemberActive != nil && !h.MemberActive(r.Context(), conn.CommunityID, conn.UserID) {
+		http.Error(w, "connector member is not active", http.StatusForbidden)
 		return Connector{}, nil, false
 	}
 	return conn, body, true
@@ -222,6 +246,11 @@ func (h *Handler) PostSend(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
+		// Classify the connector post like a human chat send (FIX1 N5) — it is
+		// KindUser and otherwise skips the moderation hook entirely.
+		if h.Moderate != nil {
+			h.Moderate(conn.CommunityID, ch.ID, msg.ID, conn.UserID, in.Body)
+		}
 		h.fanout(conn.CommunityID, ch.ID)
 		return map[string]string{"id": msg.ID, "channel": ch.Slug}, nil
 	})
@@ -260,6 +289,11 @@ func (h *Handler) PostForward(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			return nil, err
+		}
+		// The forwarder note is connector-authored KindUser text — classify it
+		// (FIX1 N5) like a normal send.
+		if h.Moderate != nil {
+			h.Moderate(conn.CommunityID, target.ID, msg.ID, conn.UserID, in.Note)
 		}
 		h.fanout(conn.CommunityID, target.ID)
 		return map[string]string{"id": msg.ID, "channel": target.Slug}, nil
