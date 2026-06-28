@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/atvirokodosprendimai/forumchat/internal/agent"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -187,6 +188,33 @@ func (m *Manager) internalSession(ctx context.Context, communityID string) (*mcp
 			return textResult(formatIssueDetail(d)), nil, nil
 		})
 	}
+
+	// Utility tools (utility.go). Unlike the tools above they read no tenant data
+	// and take no community id, so they are always registered — there is nothing
+	// to gate and nothing to leak. Expected failures (bad timezone, unknown
+	// place, upstream hiccup) come back as plain text so the model can relay them,
+	// matching the "not found" convention used by get_issue above.
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "current_datetime",
+		Description: "Get the current date and time, optionally in a given IANA timezone (defaults to UTC). Use it to ground anything time-relative — \"today\", \"this week\", deadlines, age — instead of guessing the date.",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, in datetimeInput) (*mcp.CallToolResult, any, error) {
+		out, err := formatDateTime(time.Now(), in.Timezone)
+		if err != nil {
+			return textResult(err.Error()), nil, nil
+		}
+		return textResult(out), nil, nil
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "weather",
+		Description: "Get current weather conditions for a place by name (city/town). Returns conditions, temperature, feels-like, humidity and wind. Use it whenever the user asks about weather rather than guessing.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in weatherInput) (*mcp.CallToolResult, any, error) {
+		out, err := fetchWeather(ctx, in.Location)
+		if err != nil {
+			return textResult("Weather lookup failed: " + err.Error()), nil, nil
+		}
+		return textResult(out), nil, nil
+	})
 
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	ss, err := srv.Connect(ctx, serverTransport, nil)
