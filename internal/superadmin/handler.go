@@ -808,6 +808,21 @@ func (h *Handler) PostCommunityBan(w http.ResponseWriter, r *http.Request) {
 		_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "No such membership"))
 		return
 	}
+	// Don't let a ban orphan a community by removing its last admin/owner from
+	// circulation (FIX1 L2) — a banned member can't administer it. Same guard as
+	// remove; impact is limited (a super-admin can recover via /superadmin) but
+	// the warning prevents the easy mistake.
+	if m.Role.AtLeast(auth.RoleAdmin) {
+		count, err := h.AuthRepo.CountAdmins(r.Context(), m.CommunityID)
+		if err != nil {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "count admins: "+err.Error()))
+			return
+		}
+		if count <= 1 {
+			_ = sse.PatchElementTempl(webtempl.ErrorFragment("sa-result", "Refused — this is the community's last privileged member. Promote another admin/owner first."))
+			return
+		}
+	}
 	var until time.Time
 	if in.BanHours <= 0 {
 		until = time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)

@@ -203,6 +203,14 @@ func (h *Handler) PostRegister(w http.ResponseWriter, r *http.Request) {
 	res, err := h.Svc.Register(r.Context(), RegisterInput{Email: email, Password: in.Password, InviteCode: invite})
 	if err != nil {
 		sse := render.NewSSE(w, r)
+		// Don't leak whether an email is already registered (FIX1 L3): a taken
+		// email gets the SAME "check your email" terminal page as a fresh signup,
+		// so registration can't be used to enumerate accounts (the login + magic
+		// flows are already non-revealing).
+		if errors.Is(err, ErrEmailTaken) {
+			_ = sse.PatchElementTempl(webtempl.RegisterDoneFragment(email))
+			return
+		}
 		msg := registerErrMsg(err)
 		if msg == "" {
 			h.Log.Error("register failed", "err", err)

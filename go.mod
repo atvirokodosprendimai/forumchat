@@ -14,7 +14,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/httprate v0.15.0
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/sessions v1.1.1
+	github.com/gorilla/sessions v1.2.2
 	github.com/jaytaylor/html2text v0.0.0-20260303211410-1a4bdc82ecec
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.18.6
@@ -68,7 +68,7 @@ require (
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/gorilla/mux v1.6.2 // indirect
-	github.com/gorilla/securecookie v1.1.1 // indirect
+	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.9.2 // indirect

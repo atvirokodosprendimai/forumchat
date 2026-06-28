@@ -317,10 +317,11 @@ type RegisterAsAdminResult struct {
 // admin membership in the supplied community so the operator can sign
 // in immediately and start issuing invites.
 //
-// The caller MUST guard this with a `users == 0` check first; this
-// function re-checks inside the same transaction to close the race
-// window but only by best effort — sqlite locking is enough for a
-// single-process deployment.
+// The caller SHOULD guard this with a `users == 0` check first for a clean
+// error, but correctness no longer relies on it: the insert is guarded by
+// `WHERE NOT EXISTS (SELECT 1 FROM users)` inside the transaction and verified
+// via RowsAffected (FIX1 L1), so a second concurrent bootstrap inserts nothing
+// and is refused.
 func (s *Service) RegisterAsAdmin(ctx context.Context, in RegisterAsAdminInput, communityID string) (RegisterAsAdminResult, error) {
 	hash, err := HashPassword(in.Password)
 	if err != nil {
@@ -342,15 +343,21 @@ func (s *Service) RegisterAsAdmin(ctx context.Context, in RegisterAsAdminInput, 
 
 	userID := uuid.NewString()
 	now := time.Now().Unix()
-	if _, err := tx.ExecContext(ctx, `
+	// Hard bootstrap guard (FIX1 L1): only insert when the users table is still
+	// empty, atomically. A racing second bootstrap inserts 0 rows → refused.
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO users (id, email, password_hash, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)`,
 		userID, normEmail(in.Email), hash, string(StatusActive), now, now,
-	); err != nil {
+	)
+	if err != nil {
 		if isUniqueViolation(err) {
 			return RegisterAsAdminResult{}, ErrEmailTaken
 		}
 		return RegisterAsAdminResult{}, fmt.Errorf("insert user: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return RegisterAsAdminResult{}, ErrInviteInvalid // already bootstrapped
 	}
 
 	displayName := strings.TrimSpace(in.DisplayName)

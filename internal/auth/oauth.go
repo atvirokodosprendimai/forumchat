@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"net/http"
+
 	"github.com/gorilla/sessions"
 	"github.com/markbates/goth"
 	"github.com/markbates/goth/gothic"
@@ -79,6 +81,10 @@ func SetupOAuth(cfg OAuthConfig) []OAuthProvider {
 	store.Options.Path = "/"
 	store.Options.HttpOnly = true
 	store.Options.Secure = cfg.Secure
+	// Set SameSite explicitly (FIX1 L4). Lax allows the top-level GET redirect
+	// back from the provider to carry the state-nonce cookie (Strict would drop
+	// it on the cross-site return), while still blocking it on cross-site POSTs.
+	store.Options.SameSite = http.SameSiteLaxMode
 	gothic.Store = store
 
 	return enabled

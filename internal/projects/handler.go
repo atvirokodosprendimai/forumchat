@@ -1150,14 +1150,18 @@ func (h *Handler) PostCommentDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// sanitizeFilename drops the four chars that break a quoted
-// Content-Disposition value, keeping everything else (Unicode is fine
-// inside RFC 6266 quoted-string for modern browsers).
+// sanitizeFilename strips everything that could break a quoted
+// Content-Disposition value or smuggle a path component: the quote/backslash,
+// ALL C0/C1 control bytes (not just CR/LF — FIX1 L6), DEL, and the path
+// separators. Printable Unicode is otherwise fine inside an RFC 6266
+// quoted-string for modern browsers.
 func sanitizeFilename(s string) string {
 	out := make([]rune, 0, len(s))
 	for _, r := range s {
-		switch r {
-		case '"', '\\', '\r', '\n':
+		switch {
+		case r < 0x20 || r == 0x7f: // C0 controls + DEL
+			continue
+		case r == '"' || r == '\\' || r == '/':
 			continue
 		default:
 			out = append(out, r)
