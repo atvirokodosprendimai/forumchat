@@ -771,10 +771,15 @@ func run() error {
 				if limit <= 0 || limit > 200 {
 					limit = 50
 				}
+				// FIX1 H13: a tools-enabled agent's generation is detached and a
+				// shared thread has many readers, so only expose community-visible
+				// projects' issues — never a restricted project's (needs_perms=1 AND
+				// visibility='restricted'). Matches the RAG loader gate (H12).
 				rows, err := db.QueryContext(ctx, `
 					SELECT i.id, i.title, i.status, p.title
 					FROM project_issues i JOIN projects p ON p.id = i.project_id
 					WHERE p.community_id = ? AND p.archived_at IS NULL
+					  AND (p.needs_perms = 0 OR p.visibility = 'community')
 					ORDER BY i.updated_at DESC LIMIT ?`, communityID, limit)
 				if err != nil {
 					return nil
@@ -791,10 +796,12 @@ func run() error {
 			}
 			mcpMgr.GetIssue = func(ctx context.Context, communityID, id string) (mcpx.IssueDetail, bool) {
 				var d mcpx.IssueDetail
+				// FIX1 H13: gate to community-visible projects (see ListIssues).
 				err := db.QueryRowContext(ctx, `
 					SELECT i.title, i.body_md, i.status, p.title
 					FROM project_issues i JOIN projects p ON p.id = i.project_id
-					WHERE i.id = ? AND p.community_id = ?`, id, communityID).
+					WHERE i.id = ? AND p.community_id = ?
+					  AND (p.needs_perms = 0 OR p.visibility = 'community')`, id, communityID).
 					Scan(&d.Title, &d.Body, &d.Status, &d.Project)
 				if err != nil {
 					return mcpx.IssueDetail{}, false

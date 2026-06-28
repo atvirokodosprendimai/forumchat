@@ -88,24 +88,31 @@ var loaders = map[string]loaderSpec{
 	KindPost: {query: `SELECT t.community_id, p.body_md, p.created_at
 		FROM posts p JOIN threads t ON t.id = p.thread_id
 		WHERE p.id = ? AND p.deleted_at IS NULL`},
+	// Project-derived content (issues, comments, discussions, replies, the
+	// project itself) is only community-public when the project is community-
+	// visible. A restricted project (needs_perms=1 AND visibility='restricted')
+	// is hidden from general members, so its content must never enter the
+	// community-wide vector index (FIX1 H12). These loaders are the
+	// authorization boundary — a row that no longer qualifies returns ok=false
+	// and the worker deletes any vectors it had.
 	KindIssue: {hasTitle: true, query: `SELECT pr.community_id, i.title, i.body_md, i.created_at
 		FROM project_issues i JOIN projects pr ON pr.id = i.project_id
-		WHERE i.id = ?`},
+		WHERE i.id = ? AND (pr.needs_perms = 0 OR pr.visibility = 'community')`},
 	KindIssueComment: {query: `SELECT pr.community_id, c.body_md, c.created_at
 		FROM project_issue_comments c
 		JOIN project_issues i ON i.id = c.issue_id
 		JOIN projects pr ON pr.id = i.project_id
-		WHERE c.id = ? AND c.deleted_at IS NULL`},
+		WHERE c.id = ? AND c.deleted_at IS NULL AND (pr.needs_perms = 0 OR pr.visibility = 'community')`},
 	KindDiscussion: {hasTitle: true, query: `SELECT pr.community_id, d.subject, d.body_md, d.created_at
 		FROM project_discussion_threads d JOIN projects pr ON pr.id = d.project_id
-		WHERE d.id = ? AND d.deleted_at IS NULL`},
+		WHERE d.id = ? AND d.deleted_at IS NULL AND (pr.needs_perms = 0 OR pr.visibility = 'community')`},
 	KindDiscussionReply: {query: `SELECT pr.community_id, rp.body_md, rp.created_at
 		FROM project_discussion_replies rp
 		JOIN project_discussion_threads d ON d.id = rp.thread_id
 		JOIN projects pr ON pr.id = d.project_id
-		WHERE rp.id = ? AND rp.deleted_at IS NULL`},
+		WHERE rp.id = ? AND rp.deleted_at IS NULL AND (pr.needs_perms = 0 OR pr.visibility = 'community')`},
 	KindProject: {hasTitle: true, query: `SELECT community_id, title, description_md, created_at FROM projects
-		WHERE id = ? AND archived_at IS NULL`},
+		WHERE id = ? AND archived_at IS NULL AND (needs_perms = 0 OR visibility = 'community')`},
 	// AI assistant turns: only completed turns in SHARED threads are
 	// community-public. Private threads are creator-only and must never enter
 	// the community-wide index.
@@ -160,20 +167,29 @@ var enqueueAll = []string{
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'post', id, 'upsert', ? FROM posts WHERE deleted_at IS NULL
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
+	// Project-derived kinds: only enqueue rows from community-visible projects
+	// (FIX1 H12) — matches the loader gate so a reindex doesn't re-add a
+	// restricted project's content.
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
-		SELECT 'issue', id, 'upsert', ? FROM project_issues WHERE true
+		SELECT 'issue', i.id, 'upsert', ? FROM project_issues i JOIN projects pr ON pr.id = i.project_id
+		WHERE (pr.needs_perms = 0 OR pr.visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
-		SELECT 'issue_comment', id, 'upsert', ? FROM project_issue_comments WHERE deleted_at IS NULL
+		SELECT 'issue_comment', c.id, 'upsert', ? FROM project_issue_comments c
+		JOIN project_issues i ON i.id = c.issue_id JOIN projects pr ON pr.id = i.project_id
+		WHERE c.deleted_at IS NULL AND (pr.needs_perms = 0 OR pr.visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
-		SELECT 'discussion', id, 'upsert', ? FROM project_discussion_threads WHERE deleted_at IS NULL
+		SELECT 'discussion', d.id, 'upsert', ? FROM project_discussion_threads d JOIN projects pr ON pr.id = d.project_id
+		WHERE d.deleted_at IS NULL AND (pr.needs_perms = 0 OR pr.visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
-		SELECT 'discussion_reply', id, 'upsert', ? FROM project_discussion_replies WHERE deleted_at IS NULL
+		SELECT 'discussion_reply', rp.id, 'upsert', ? FROM project_discussion_replies rp
+		JOIN project_discussion_threads d ON d.id = rp.thread_id JOIN projects pr ON pr.id = d.project_id
+		WHERE rp.deleted_at IS NULL AND (pr.needs_perms = 0 OR pr.visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
-		SELECT 'project', id, 'upsert', ? FROM projects WHERE archived_at IS NULL
+		SELECT 'project', id, 'upsert', ? FROM projects WHERE archived_at IS NULL AND (needs_perms = 0 OR visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'ai', m.id, 'upsert', ? FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id
@@ -215,24 +231,24 @@ var enqueueCommunity = []string{
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'issue', i.id, 'upsert', ? FROM project_issues i JOIN projects pr ON pr.id = i.project_id
-		WHERE pr.community_id = ?
+		WHERE pr.community_id = ? AND (pr.needs_perms = 0 OR pr.visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'issue_comment', c.id, 'upsert', ? FROM project_issue_comments c
 		JOIN project_issues i ON i.id = c.issue_id JOIN projects pr ON pr.id = i.project_id
-		WHERE c.deleted_at IS NULL AND pr.community_id = ?
+		WHERE c.deleted_at IS NULL AND pr.community_id = ? AND (pr.needs_perms = 0 OR pr.visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'discussion', d.id, 'upsert', ? FROM project_discussion_threads d JOIN projects pr ON pr.id = d.project_id
-		WHERE d.deleted_at IS NULL AND pr.community_id = ?
+		WHERE d.deleted_at IS NULL AND pr.community_id = ? AND (pr.needs_perms = 0 OR pr.visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'discussion_reply', rp.id, 'upsert', ? FROM project_discussion_replies rp
 		JOIN project_discussion_threads d ON d.id = rp.thread_id JOIN projects pr ON pr.id = d.project_id
-		WHERE rp.deleted_at IS NULL AND pr.community_id = ?
+		WHERE rp.deleted_at IS NULL AND pr.community_id = ? AND (pr.needs_perms = 0 OR pr.visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
-		SELECT 'project', id, 'upsert', ? FROM projects WHERE archived_at IS NULL AND community_id = ?
+		SELECT 'project', id, 'upsert', ? FROM projects WHERE archived_at IS NULL AND community_id = ? AND (needs_perms = 0 OR visibility = 'community')
 		ON CONFLICT(kind, ref_id) DO UPDATE SET op='upsert', enqueued_at=excluded.enqueued_at`,
 	`INSERT INTO embed_outbox(kind, ref_id, op, enqueued_at)
 		SELECT 'ai', m.id, 'upsert', ? FROM ai_messages m JOIN ai_threads t ON t.id = m.thread_id
