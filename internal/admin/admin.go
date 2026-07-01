@@ -131,6 +131,34 @@ func (h *Handler) membershipInCommunity(w http.ResponseWriter, r *http.Request, 
 	return m, true
 }
 
+// canModerateTarget is the ONE hierarchy gate for member-moderation actions
+// (ban, remove from community, role change, display alias): the actor must
+// STRICTLY outrank the target and can never act on themselves. Equal rank is
+// refused — an admin can't ban a fellow admin, and nothing below owner touches
+// the owner (the privilege inversion that let an admin remove the owner).
+// A self-host god-mode operator bypasses the rank compare (their synthesized
+// membership may not outrank a real owner) but still can't self-moderate.
+// Writes the error response and returns false when the action is refused.
+func (h *Handler) canModerateTarget(w http.ResponseWriter, r *http.Request, target auth.Membership) bool {
+	id, ok := auth.FromContext(r.Context())
+	if !ok {
+		http.Error(w, "auth required", http.StatusUnauthorized)
+		return false
+	}
+	if id.User.ID == target.UserID {
+		http.Error(w, "cannot moderate yourself", http.StatusBadRequest)
+		return false
+	}
+	if id.GodMode() {
+		return true
+	}
+	if !id.Membership.Role.Outranks(target.Role) {
+		http.Error(w, "cannot moderate a member of equal or higher role", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
 func (h *Handler) viewer(r *http.Request) webtempl.Viewer {
 	v := webtempl.Viewer{CommunityName: h.cname(r), CommunitySlug: h.cslug(r)}
 	if id, ok := auth.FromContext(r.Context()); ok {
@@ -189,11 +217,14 @@ func (h *Handler) GetIndex(w http.ResponseWriter, r *http.Request) {
 		ratePerUser = c.AgentRatePerUserMin
 		ratePerCommunity = c.AgentRatePerCommunityMin
 	}
+	// The acting admin's identity drives per-row CanModerate (hierarchy-gated
+	// ban/remove/alias affordances). Zero Identity on a miss = no affordances.
+	viewerID, _ := auth.FromContext(r.Context())
 	data := webtempl.AdminPageData{
 		Viewer:                   h.viewer(r),
 		IsPublic:                 isPublic,
-		Pending:                  memberRowsToAdminMembers(pending, now),
-		Members:                  memberRowsToAdminMembers(members, now),
+		Pending:                  memberRowsToAdminMembers(viewerID, pending, now),
+		Members:                  memberRowsToAdminMembers(viewerID, members, now),
 		Invites:                  invitesToAdminInvites(invites),
 		Reports:                  reportsToAdminReports(reports),
 		AgentRatePerUserMin:      ratePerUser,
@@ -312,15 +343,11 @@ func (h *Handler) PostBan(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Same guards PostRemoveMember already has: an admin can't lock
-	// themselves out, and can't ban a fellow admin/owner through this path
-	// (which would orphan the community's privileged access).
-	if vid, ok := auth.FromContext(r.Context()); ok && vid.User.ID == m.UserID {
-		http.Error(w, "cannot ban yourself", http.StatusBadRequest)
-		return
-	}
-	if m.Role.AtLeast(auth.RoleAdmin) {
-		http.Error(w, "cannot ban an admin or owner here", http.StatusBadRequest)
+	// Hierarchy gate: no self-ban, and the actor must strictly outrank the
+	// target — an admin bans mods/members, only the owner bans an admin, and
+	// nobody bans the owner. (Banning keeps the membership row, so this can't
+	// orphan the community's privileged access.)
+	if !h.canModerateTarget(w, r, m) {
 		return
 	}
 	var until time.Time
@@ -373,8 +400,11 @@ func (h *Handler) PostRemoveMember(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if id, ok := auth.FromContext(r.Context()); ok && id.User.ID == m.UserID {
-		http.Error(w, "cannot remove yourself", http.StatusBadRequest)
+	// Hierarchy gate (F1 fix): removal previously only blocked self-removal, so
+	// an ADMIN could remove the OWNER whenever another admin/owner remained —
+	// the last-admin guard below protects against orphaning, not inversion.
+	// Now the actor must strictly outrank the target.
+	if !h.canModerateTarget(w, r, m) {
 		return
 	}
 	// Remove the membership atomically with the last-admin guard (FIX1 M1): the
@@ -411,7 +441,14 @@ func (h *Handler) PostUnban(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
-	if _, ok := h.membershipInCommunity(w, r, id); !ok {
+	m, ok := h.membershipInCommunity(w, r, id)
+	if !ok {
+		return
+	}
+	// Hierarchy gate (Codex review): unban is restorative, but it must carry
+	// the same strict-outrank rule as ban — otherwise an admin could reverse
+	// the owner's moderation decision on a peer they can't themselves ban.
+	if !h.canModerateTarget(w, r, m) {
 		return
 	}
 	if err := h.Repo.UpdateBan(r.Context(), id, nil); err != nil {
@@ -477,11 +514,15 @@ func (h *Handler) PostInviteRevoke(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) refreshAdminLists(w http.ResponseWriter, r *http.Request) {
 	sse := render.NewSSE(w, r)
 	now := time.Now()
+	// Re-renders go back to the SAME acting admin, so per-row CanModerate is
+	// recomputed against their identity — a demote/promote in this response
+	// immediately shows/hides the row's moderation forms.
+	viewerID, _ := auth.FromContext(r.Context())
 	if pending, err := h.Repo.ListPendingMemberships(r.Context(), h.cid(r)); err == nil {
-		_ = sse.PatchElementTempl(webtempl.AdminPending(h.cslug(r), memberRowsToAdminMembers(pending, now)))
+		_ = sse.PatchElementTempl(webtempl.AdminPending(h.cslug(r), memberRowsToAdminMembers(viewerID, pending, now)))
 	}
 	if members, err := h.Repo.ListMembers(r.Context(), h.cid(r)); err == nil {
-		_ = sse.PatchElementTempl(webtempl.AdminMembers(h.cslug(r), memberRowsToAdminMembers(members, now)))
+		_ = sse.PatchElementTempl(webtempl.AdminMembers(h.cslug(r), memberRowsToAdminMembers(viewerID, members, now)))
 	}
 	if reports, err := h.Repo.ListOpenReports(r.Context(), h.cid(r)); err == nil {
 		_ = sse.PatchElementTempl(webtempl.AdminReports(h.cslug(r), reportsToAdminReports(reports)))
@@ -514,8 +555,8 @@ func (h *Handler) bumpRoster(r *http.Request) {
 // PostSetRole promotes a member to moderator or demotes a moderator back
 // to member. Reached from the chat roster's right-click menu (admin-only
 // route). role + target id arrive as query params. Guards: can't change
-// your own role, can't touch an admin's role through this path (admins
-// are managed via the CLI / explicit flows).
+// your own role, and the actor must strictly outrank the target
+// (canModerateTarget). Promotion to admin/owner stays CLI / explicit flows.
 func (h *Handler) PostSetRole(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	role := auth.Role(r.URL.Query().Get("role"))
@@ -527,16 +568,24 @@ func (h *Handler) PostSetRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if vid, ok := auth.FromContext(r.Context()); ok && vid.User.ID == m.UserID {
-		http.Error(w, "cannot change your own role", http.StatusBadRequest)
+	// Hierarchy gate: no self-change, and the actor must strictly outrank the
+	// target. An owner may now demote a rogue admin to member/moderator here;
+	// an admin still can't touch a fellow admin or the owner. Promotion TO
+	// admin/owner stays out of this path (CLI / explicit flows only).
+	if !h.canModerateTarget(w, r, m) {
 		return
 	}
-	if m.Role.AtLeast(auth.RoleAdmin) {
-		http.Error(w, "cannot change an admin's or owner's role here", http.StatusBadRequest)
-		return
-	}
-	if err := h.Repo.UpdateMembershipRole(r.Context(), id, role); err != nil {
+	// This path only sets member|moderator (a downgrade for a privileged
+	// target), so route through the atomic last-admin guard: demoting the
+	// community's only admin/owner (reachable by a god-mode operator — an
+	// owner can't demote themselves or a peer) must not orphan it.
+	changed, err := h.Repo.UpdateMembershipRoleIfNotLastAdmin(r.Context(), id, h.cid(r), role)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !changed {
+		http.Error(w, "cannot demote the last admin", http.StatusBadRequest)
 		return
 	}
 	h.bumpRoster(r)
@@ -564,7 +613,14 @@ func (h *Handler) PostSetNick(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad signals: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if _, ok := h.membershipInCommunity(w, r, id); !ok {
+	m, ok := h.membershipInCommunity(w, r, id)
+	if !ok {
+		return
+	}
+	// Hierarchy gate: renaming how a member appears to everyone is a
+	// moderation power too — an admin must not alias a fellow admin or the
+	// owner (impersonation/griefing vector). Same strict-outrank rule as ban.
+	if !h.canModerateTarget(w, r, m) {
 		return
 	}
 	nick := strings.TrimSpace(in.AdminNick)
@@ -811,9 +867,16 @@ func (h *Handler) sendCommunityWelcomeEmail(ctx context.Context, to, communityNa
 	return h.Mail.Send(ctx, to, subject, body)
 }
 
-func memberRowsToAdminMembers(rows []auth.MemberRow, now time.Time) []webtempl.AdminMember {
+// memberRowsToAdminMembers maps member rows to the admin-page view model.
+// viewer is the acting admin's identity (zero Identity = no moderation
+// affordances): CanModerate mirrors the canModerateTarget endpoint gate —
+// strict outrank, never self, god-mode bypass — so the UI only offers
+// ban/remove/alias where the server would accept them.
+func memberRowsToAdminMembers(viewer auth.Identity, rows []auth.MemberRow, now time.Time) []webtempl.AdminMember {
 	out := make([]webtempl.AdminMember, 0, len(rows))
 	for _, r := range rows {
+		canMod := viewer.User.ID != "" && viewer.User.ID != r.UserID &&
+			(viewer.GodMode() || viewer.Membership.Role.Outranks(r.Role))
 		am := webtempl.AdminMember{
 			MembershipID: r.ID,
 			UserID:       r.UserID,
@@ -827,6 +890,7 @@ func memberRowsToAdminMembers(rows []auth.MemberRow, now time.Time) []webtempl.A
 			IsApproved:   r.IsApproved(),
 			CreatedAt:    r.CreatedAt,
 			JoinReason:   r.JoinReason,
+			CanModerate:  canMod,
 		}
 		out = append(out, am)
 	}

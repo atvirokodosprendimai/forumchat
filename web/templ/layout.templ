@@ -76,6 +76,23 @@ func RoleIsAdmin(role string) bool { return role == "admin" || role == "owner" }
 // RoleIsMod reports moderator-or-above power (moderator, admin, owner).
 func RoleIsMod(role string) bool { return role == "moderator" || RoleIsAdmin(role) }
 
+// RoleRank mirrors auth's member<moderator<admin<owner ordering on the leaf
+// side (web/templ can't import internal/auth — AGENTS §4.13). UI-only: gates
+// which moderation affordances render; the server re-checks with
+// auth.Role.Outranks on every endpoint. Unknown roles rank 0.
+func RoleRank(role string) int {
+	switch role {
+	case "owner":
+		return 3
+	case "admin":
+		return 2
+	case "moderator":
+		return 1
+	default:
+		return 0
+	}
+}
+
 // TopNavCommunity is one entry in the top-bar community switcher — the
 // communities the viewer can enter in one click. web/templ is a leaf package
 // (§4.13), so the handler side builds these and stashes them on ctx under
@@ -407,6 +424,7 @@ const InitialSignals = `{
 	"_ctx_membership_id":"",
 	"_ctx_name":"",
 	"_ctx_role":"",
+	"_ctx_rank":0,
 	"_ctx_online":false,
 	"_ctx_banned":false,
 	"_ctx_blocked":false,

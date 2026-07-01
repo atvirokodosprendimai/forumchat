@@ -526,6 +526,40 @@ func (r *Repo) UpdateMembershipRole(ctx context.Context, membershipID string, ro
 	return err
 }
 
+// UpdateMembershipRoleIfNotLastAdmin downgrades a membership's role but
+// refuses to strip the community's LAST admin/owner of privilege — the
+// role-change twin of DeleteMembershipIfNotLastAdmin, and atomic for the same
+// reason (a separate count-then-update would race two concurrent demotions
+// into an orphaned community). A non-privileged target always updates; a
+// privileged one only when another admin/owner remains. Returns false when
+// the guard blocked the change. Only needed for downgrades below admin —
+// callers setting admin/owner can use the unguarded UpdateMembershipRole.
+func (r *Repo) UpdateMembershipRoleIfNotLastAdmin(ctx context.Context, membershipID, communityID string, role Role) (bool, error) {
+	res, err := r.DB.ExecContext(ctx, `
+		UPDATE memberships SET role = ?
+		WHERE id = ?
+		  AND (
+		    role NOT IN (?, ?)
+		    OR EXISTS (
+		      SELECT 1 FROM memberships peer
+		      WHERE peer.community_id = ?
+		        AND peer.role IN (?, ?)
+		        AND peer.id != ?
+		    )
+		  )`,
+		string(role), membershipID,
+		string(RoleAdmin), string(RoleOwner),
+		communityID, string(RoleAdmin), string(RoleOwner), membershipID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (r *Repo) UpdateBan(ctx context.Context, membershipID string, until *time.Time) error {
 	var v sql.NullInt64
 	if until != nil {

@@ -29,6 +29,37 @@ func TestRoleRank(t *testing.T) {
 	}
 }
 
+// TestRoleOutranks pins the strict hierarchy rule moderation guards depend on:
+// an actor may only ban/remove/demote/alias a target it STRICTLY outranks.
+// Equal rank never qualifies — that's what stops admin-vs-admin (and the
+// reported moderator-vs-owner) privilege inversions.
+func TestRoleOutranks(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		actor, target auth.Role
+		want          bool
+	}{
+		{auth.RoleOwner, auth.RoleAdmin, true},
+		{auth.RoleOwner, auth.RoleMod, true},
+		{auth.RoleOwner, auth.RoleMember, true},
+		{auth.RoleOwner, auth.RoleOwner, false}, // co-owners can't touch each other
+		{auth.RoleAdmin, auth.RoleOwner, false}, // the F1 bug: admin removed owner
+		{auth.RoleAdmin, auth.RoleAdmin, false},
+		{auth.RoleAdmin, auth.RoleMod, true},
+		{auth.RoleAdmin, auth.RoleMember, true},
+		{auth.RoleMod, auth.RoleOwner, false}, // the reported bug shape
+		{auth.RoleMod, auth.RoleAdmin, false},
+		{auth.RoleMod, auth.RoleMod, false},
+		{auth.RoleMod, auth.RoleMember, true},
+		{auth.Role("garbage"), auth.RoleMember, false}, // unknown role never gains power
+	}
+	for _, c := range cases {
+		if got := c.actor.Outranks(c.target); got != c.want {
+			t.Errorf("%s.Outranks(%s) = %v, want %v", c.actor, c.target, got, c.want)
+		}
+	}
+}
+
 // TestOwnerKeepsAdminScopedSurfaces guards the audit fix: migration 00055
 // promotes the sole admin to owner, so AdminCommunityIDs / OldestCommunityAdminID
 // must count owner or the promoted owner silently loses /inbox, mailbox and

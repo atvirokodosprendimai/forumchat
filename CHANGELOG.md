@@ -295,3 +295,4 @@
 - 2026-06-28 `798ed4d` docs(changelog): code-review follow-up entries
 - 2026-06-28 `c4ed04e` feat(mcpx): add weather + current_datetime internal agent tools
 - 2026-06-28 `d850d63` docs(changelog): mcpx weather + datetime tools
+- 2026-06-28 `5c5efee` docs(changelog): sync mcpx changelog entry

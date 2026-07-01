@@ -209,7 +209,15 @@ templ ChatPage(d ChatPageData) {
 		@TodoDialog(d.Viewer.CommunitySlug)
 		@MessagesComposeDialog(d.Viewer.CommunitySlug)
 		@ForwardDialog(d.Viewer.CommunitySlug, d.ActiveSlug, d.Channels)
-		@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, RoleIsAdmin(d.Viewer.Role) || IsSuperAdmin(ctx))
+		// viewerRank drives the menu's hierarchy gating: moderation items only
+	// render for targets the viewer strictly outranks. A self-host god-mode
+	// super-admin outranks everyone (rank 4); in SaaS the operator's power is
+	// their real membership role, mirroring auth.Identity.GodMode.
+	{{ viewerRank := RoleRank(d.Viewer.Role) }}
+	{{ if IsSuperAdmin(ctx) && !SaaSEnabled {
+		viewerRank = 4
+	} }}
+	@UserContextMenu(d.Viewer.CommunitySlug, d.CurrentUserID, RoleIsAdmin(d.Viewer.Role) || IsSuperAdmin(ctx), viewerRank)
 		if d.IsMod {
 			@ExtractDialog(d.Viewer.CommunitySlug, d.Projects)
 		}

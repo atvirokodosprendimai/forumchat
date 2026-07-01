@@ -26,6 +26,11 @@ type AdminMember struct {
 	IsApproved  bool
 	CreatedAt   time.Time
 	JoinReason  string // "why do you want to join?" note, shown in the pending queue
+	// CanModerate is true when the VIEWING admin strictly outranks this row's
+	// member (and it isn't the viewer themselves) — the server-side hierarchy
+	// gate mirrored into the UI so ban/remove/alias forms only render where
+	// the endpoint would accept them (no silent 403s).
+	CanModerate bool
 }
 
 type AdminReport struct {
@@ -273,15 +278,21 @@ templ AdminMembers(slug string, rows []AdminMember) {
 					if m.IsBanned {
 						<span class="error"> · BANNED</span>
 					}
-					<div style="margin-top:.4rem" class="primary-nav">
-						@NickForm(slug, m)
-						if !m.IsBanned {
-							@BanForm(slug, m.MembershipID)
-						} else {
-							<button data-on:click={ "@post('/c/" + slug + "/admin/unban?id=" + m.MembershipID + "')" }>Unban</button>
-						}
-						@RemoveForm(slug, m.MembershipID)
-					</div>
+					// Moderation forms render only where the endpoints would accept
+					// the action: viewer strictly outranks the row and it isn't the
+					// viewer themselves (AdminMember.CanModerate). Peers, the owner
+					// and your own row show no ban/remove/alias affordances.
+					if m.CanModerate {
+						<div style="margin-top:.4rem" class="primary-nav">
+							@NickForm(slug, m)
+							if !m.IsBanned {
+								@BanForm(slug, m.MembershipID)
+							} else {
+								<button data-on:click={ "@post('/c/" + slug + "/admin/unban?id=" + m.MembershipID + "')" }>Unban</button>
+							}
+							@RemoveForm(slug, m.MembershipID)
+						</div>
+					}
 				</li>
 			}
 		</ul>

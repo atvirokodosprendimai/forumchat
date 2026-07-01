@@ -36,10 +36,28 @@ const (
 	RoleOwner Role = "owner"
 )
 
+// roleRank orders the community roles for hierarchy checks. Unknown roles
+// rank 0 (member) so a corrupted/legacy value never grants extra power.
+var roleRank = map[Role]int{RoleMember: 0, RoleMod: 1, RoleAdmin: 2, RoleOwner: 3}
+
+// AtLeast reports whether r holds at least min's power (r >= min).
 func (r Role) AtLeast(min Role) bool {
-	rank := map[Role]int{RoleMember: 0, RoleMod: 1, RoleAdmin: 2, RoleOwner: 3}
-	return rank[r] >= rank[min]
+	return roleRank[r] >= roleRank[min]
 }
+
+// Outranks reports whether r STRICTLY outranks other (r > other). Moderation
+// actions against another member (ban, remove, demote, alias) require the
+// actor to outrank the target — equal rank is not enough, so an admin can
+// never ban a fellow admin or the owner, and nobody below owner touches the
+// owner. This is the one hierarchy rule; don't re-derive it per handler.
+func (r Role) Outranks(other Role) bool {
+	return roleRank[r] > roleRank[other]
+}
+
+// RoleRank exposes a role's numeric rank for UI gating (templates compare the
+// viewer's rank against a target's). Server-side authz must use AtLeast /
+// Outranks, never raw ranks.
+func RoleRank(r Role) int { return roleRank[r] }
 
 type User struct {
 	ID           string
