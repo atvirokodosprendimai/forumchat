@@ -6403,6 +6403,76 @@ body:has(.chat-layout) .site-footer { display: none; }
   }
 }
 
+/* ---- Day separators: centered hairline + floating date pill. Rendered
+   server-side between local-day boundaries (chat.templ DaySeparator), so
+   in-bubble stamps can be time-only. ---- */
+.day-sep {
+  display: flex; align-items: center; gap: .75rem;
+  align-self: stretch;
+  margin: .9rem 0 .45rem;
+  color: var(--fg-subtle);
+}
+.day-sep::before, .day-sep::after {
+  content: ""; flex: 1 1 auto; height: 1px;
+  background: var(--border-subtle);
+}
+.day-sep-label {
+  flex: 0 0 auto;
+  font-size: .7rem; font-weight: 600; letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: .18rem .7rem;
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-xs);
+}
+/* Time-only stamps: tabular digits so grouped messages' times align in a
+   column instead of wobbling with proportional figures. */
+.msg-time { font-variant-numeric: tabular-nums; cursor: default; }
+
+/* ---- Empty channel state ---- */
+.chat-empty {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .35rem; padding: 2.5rem 1rem; text-align: center;
+  color: var(--fg-muted);
+}
+.chat-empty-icon { color: var(--fg-subtle); margin-bottom: .35rem; }
+.chat-empty-title { margin: 0; font-weight: 600; font-size: 1.02rem; color: var(--fg); }
+.chat-empty-hint { margin: 0; font-size: .88rem; max-width: 34ch; }
+
+/* ---- Jump-to-latest pill: sticky to the scroller's bottom edge while the
+   viewer reads history; hidden (display:none via data-show) at the bottom.
+   .has-new flips it to a filled accent "New messages" call-out when a
+   fat-morph lands below the viewer's position. ---- */
+.chat-jump {
+  position: sticky; bottom: .4rem; align-self: center;
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .45rem .95rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--fg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  font-size: .82rem; font-weight: 600; line-height: 1;
+  z-index: 4; cursor: pointer;
+}
+.chat-jump:hover {
+  background: var(--accent-soft); color: var(--accent-strong);
+  border-color: var(--accent-ring);
+}
+.chat-jump.has-new { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.chat-jump.has-new:hover { background: var(--accent-hover); color: var(--accent-fg); }
+
+/* ---- Bubble meta: keep author + time on one line. The name yields with an
+   ellipsis on narrow screens instead of wrapping and pushing the timestamp
+   onto its own row. ---- */
+.chat-layout .bubble .meta { flex-wrap: nowrap; min-width: 0; }
+.chat-layout .bubble .meta > strong {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-layout .bubble .meta .msg-time { flex: 0 0 auto; }
+
 /* ============================================================
    Shared page chrome — one header + toolbar skeleton for every
    community page (forum, projects, todos, bookmarks, search,

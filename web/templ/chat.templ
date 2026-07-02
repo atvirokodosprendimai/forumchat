@@ -388,11 +388,15 @@ templ ChatComposer(slug, channelSlug string) {
 			<button type="button" class="btn ghost icon-btn" aria-label="New note" title="New note — shareable markdown, longer than a chat line"
 				data-on:click={ "@post('/c/" + slug + "/notes/new?channel=" + channelSlug + "')" }>📝</button>
 			@EmojiButton(".composer-text")
+			// Placeholder is short + contextual ("Message #general") — the long
+			// capability hint clipped inside the one-row textarea on phones; the
+			// full hint lives in title for pointer users instead.
 			<textarea
 				class="composer-text"
 				data-bind="body"
 				rows="1"
-				placeholder="Message — markdown, paste, drop, @mention"
+				placeholder={ "Message #" + channelSlug }
+				title="Markdown, paste or drop files, @mention members"
 				autocomplete="off"
 				data-on:input__debounce.150ms={ "el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; if(window.fcTranslateDetect(el) && $_translate_capable){$_translate_open=true; $_translate_loading=true; $_mention_open=false; @get('/c/" + slug + "/chat/translate')} else if(window.fcMentionDetect(el)){$_mention_open=true; $_translate_open=false; $_translate_loading=false; @get('/c/" + slug + "/chat/mention')} else {$_mention_open=false; $_translate_open=false; $_translate_loading=false}" }
 				data-on:blur="setTimeout(()=>{$_mention_open=false; $_translate_open=false; $_translate_loading=false},150)"
@@ -564,15 +568,102 @@ func groupClass(g MsgGroup) string {
 // "promote to thread" button only on the viewer's own messages (mods get it
 // regardless via isMod). viewerName drives @mention "ping me" highlighting.
 templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerName, slug, channelSlug string) {
+	{{ groups := groupMessages(reverseMessages(messages), currentUserID) }}
 	<div id="messages" class="messages"
 		data-current-user-id={ currentUserID }
 		data-community-slug={ slug }
-		data-channel-slug={ channelSlug }>
-		for _, g := range groupMessages(reverseMessages(messages), currentUserID) {
+		data-channel-slug={ channelSlug }
+		data-on:scroll__debounce.100ms="window._fcChatAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120; $_chat_at_bottom = window._fcChatAtBottom; if($_chat_at_bottom){$_chat_new_below = false}">
+		if len(groups) == 0 {
+			@ChatEmpty()
+		}
+		// Day separators are computed in this walk (not in groupMessages) so
+		// the run-length grouping stays a pure (author, kind) concern; a group
+		// never spans a day boundary in practice because the divider compares
+		// each group's FIRST message against the previous group's day.
+		{{ prevDay := "" }}
+		for _, g := range groups {
+			{{ day := g.Messages[0].CreatedAt.Local().Format("2006-01-02") }}
+			if day != prevDay {
+				@DaySeparator(dayLabel(g.Messages[0].CreatedAt))
+				{{ prevDay = day }}
+			}
 			@MessageGroup(g, isMod, currentUserID, viewerName, slug)
 		}
+		@ChatJumpPill()
 		@ChatScrollAnchor()
 	</div>
+}
+
+// ChatJumpPill is the "↓ Latest / New messages" pill that floats at the
+// bottom edge of the #messages scroller while the viewer reads history.
+// position:sticky inside the scroller keeps it pinned without any overlay
+// math; data-show hides it entirely while the viewer sits at the bottom,
+// so it costs no space at rest. It lives INSIDE #messages (before the
+// scroll anchor) so it survives every fat-morph with its state intact —
+// visibility is signal-driven, and signals live outside the DOM.
+templ ChatJumpPill() {
+	<button type="button" class="chat-jump" data-cloak
+		data-show="!$_chat_at_bottom"
+		data-class:has-new="$_chat_new_below"
+		data-on:fc:chat-new-below__window="$_chat_new_below = true"
+		data-on:click="$_chat_new_below = false; el.closest('.messages')?.scrollTo({top: 1e9, behavior: 'smooth'})">
+		<span data-text="$_chat_new_below ? 'New messages' : 'Latest'">Latest</span>
+		<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+	</button>
+}
+
+// DaySeparator is the centered day divider rendered between message groups
+// whose messages fall on different local days. With it in place, in-bubble
+// timestamps can drop the date and show time only (MsgTime).
+templ DaySeparator(label string) {
+	<div class="day-sep" role="separator" aria-label={ label }>
+		<span class="day-sep-label">{ label }</span>
+	</div>
+}
+
+// ChatEmpty is the friendly zero-messages state for a fresh channel. It is
+// part of #messages, so the first fat-morph after a send replaces it with
+// the real feed automatically — no separate clearing logic needed.
+templ ChatEmpty() {
+	<div class="chat-empty">
+		<div class="chat-empty-icon" aria-hidden="true">
+			<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+		</div>
+		<p class="chat-empty-title">No messages yet</p>
+		<p class="chat-empty-hint">Be the first to say hello — markdown, @mentions and file drops all work here.</p>
+	</div>
+}
+
+// dayLabel names a day divider the way a person scans history: relative
+// for the last two days, weekday + date within the current year, and an
+// explicit year beyond that. Computed at render time — every fat-morph
+// re-renders the feed, so "Today" can never go stale while the page lives.
+func dayLabel(t time.Time) string {
+	now := time.Now().Local()
+	lt := t.Local()
+	switch lt.Format("2006-01-02") {
+	case now.Format("2006-01-02"):
+		return "Today"
+	case now.AddDate(0, 0, -1).Format("2006-01-02"):
+		return "Yesterday"
+	}
+	if lt.Year() == now.Year() {
+		return lt.Format("Monday, Jan 2")
+	}
+	return lt.Format("Jan 2, 2006")
+}
+
+// chatTimeTitle is the hover / assistive full form behind a time-only stamp.
+func chatTimeTitle(t time.Time) string {
+	return t.Local().Format("Monday, Jan 2, 2006 · 15:04")
+}
+
+// MsgTime renders an in-bubble timestamp as a semantic <time>. The visible
+// text is time-only because day context lives in the DaySeparator dividers;
+// the full date stays reachable on hover and machine-readable in datetime.
+templ MsgTime(t time.Time) {
+	<time class="muted msg-time" datetime={ t.Local().Format(time.RFC3339) } title={ chatTimeTitle(t) }>{ t.Local().Format("15:04") }</time>
 }
 
 // ChatScrollAnchor sits as the LAST child of #messages. Initial page
@@ -582,8 +673,17 @@ templ MessagesContainer(messages []MsgView, isMod bool, currentUserID, viewerNam
 // containing scroll ancestor (#messages) and brings the anchor's
 // bottom edge to the viewport bottom — which is exactly the chat's
 // bottom because the anchor is the last child.
+//
+// Reading-position guard: auto-scroll only when the viewer is already at
+// (or near) the bottom. window._fcChatAtBottom is maintained by the
+// #messages scroll listener; a window global (not a signal or dataset)
+// because this runs as plain JS inside data-init and #messages' dataset
+// is wiped on every outer-morph. Undefined (first load) counts as "at
+// bottom" so the initial render still lands on the newest message. When
+// the viewer is up in history we dispatch fc:chat-new-below instead —
+// the jump pill listens and flips to "New messages".
 templ ChatScrollAnchor() {
-	<div id="chat-scroll-anchor" data-init="el.scrollIntoView({block:'end'})"></div>
+	<div id="chat-scroll-anchor" data-init="if(window._fcChatAtBottom !== false){el.scrollIntoView({block:'end'})}else{window.dispatchEvent(new CustomEvent('fc:chat-new-below'))}"></div>
 }
 
 // chatChannelSignals builds the data-signals JSON that seeds the active
@@ -601,6 +701,9 @@ func chatChannelSignals(d ChatPageData) string {
 	} else {
 		b.WriteString("false")
 	}
+	// Jump-pill state (FE-only, never sent to the backend): the viewer
+	// starts at the bottom with nothing unread below the fold.
+	b.WriteString(`,"_chat_at_bottom":true,"_chat_new_below":false`)
 	b.WriteString(`,"chat_unread":{`)
 	first := true
 	for id, on := range d.Unread {
@@ -654,7 +757,9 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 	// deleted/placeholder branch here; don't re-introduce one.
 	<article class={ msgClass(m) } id={ "msg-" + m.ID } data-id={ m.ID }>
 		if m.Kind == MsgKindThreadAnnounce {
-			<div class="muted">{ fmtTime(m.CreatedAt) }</div>
+			<div class="muted">
+				@MsgTime(m.CreatedAt)
+			</div>
 			@templ.Raw(render.RichHTML(m.BodyHTML))
 		} else if (m.Kind == MsgKindWebhook || m.Kind == MsgKindBot) && !m.AsHuman {
 			<header class="meta">
@@ -671,7 +776,7 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 				} else {
 					<span class="bot-tag">bot</span>
 				}
-				<span class="muted">{ fmtTime(m.CreatedAt) }</span>
+				@MsgTime(m.CreatedAt)
 			</header>
 			<details class="msg-menu" data-on:toggle="window.fcMenuFlip(el)">
 				<summary aria-label="Actions"><span class="msg-menu-dot"></span></summary>
@@ -711,13 +816,19 @@ templ MessageView(m MsgView, isMod bool, currentUserID, viewerName, slug string,
 		} else {
 			if showMeta {
 				<header class="meta">
-					if m.AuthorID != currentUserID {
-						<span class="author-dot"
-							style={ "background:" + bubbleColor(m) }
-							title={ m.AuthorName }>{ mentionInitial(m.AuthorName) }</span>
+					// Authorless rows (kind=system digests, scrubbed accounts) have
+					// no name to key an identity dot — mentionColor("") is red and
+					// mentionInitial("") is "?", which reads as an error badge. Show
+					// just the timestamp for those instead of a red "?" identity.
+					if m.AuthorName != "" {
+						if m.AuthorID != currentUserID {
+							<span class="author-dot"
+								style={ "background:" + bubbleColor(m) }
+								title={ m.AuthorName }>{ mentionInitial(m.AuthorName) }</span>
+						}
+						<strong>{ m.AuthorName }</strong>
 					}
-					<strong>{ m.AuthorName }</strong>
-					<span class="muted">{ fmtTime(m.CreatedAt) }</span>
+					@MsgTime(m.CreatedAt)
 				</header>
 			}
 			<details class="msg-menu" data-on:toggle="window.fcMenuFlip(el)">
