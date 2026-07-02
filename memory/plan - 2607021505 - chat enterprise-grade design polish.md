@@ -1,5 +1,5 @@
 ---
-status: active
+status: completed
 created: 2026-07-02
 ---
 
@@ -75,7 +75,35 @@ fully on every event, so server-side day grouping is safe).
 ## Progress Log
 
 - 2026-07-02 15:05 — plan created from Playwright review of live UI.
+- 2026-07-02 15:20 — all phases shipped in commit 7c69907 (one edit session,
+  one focused commit instead of per-phase):
+  - Day separators (`DaySeparator` + `dayLabel`, walk in `MessagesContainer`)
+    + time-only `MsgTime` (`<time>` with tabular-nums, full date on hover).
+    `fmtTime` untouched — it's shared with admin/forum/lobbies.
+  - **Root cause of the red "?" found**: `MsgKindSystem` digests fall through
+    to the USER render branch (only ThreadAnnounce had the minimal branch), so
+    `mentionColor("")`→red + `mentionInitial("")`→"?" rendered an error-looking
+    dot. Fixed by gating the identity dot + name on non-empty AuthorName —
+    branch kept, so mods keep the ⋮ delete on system messages.
+  - **Reading-position guard**: `ChatScrollAnchor`'s data-init now checks
+    `window._fcChatAtBottom` (window global — #messages' dataset is wiped on
+    every outer-morph, signals unreachable from plain JS) and dispatches
+    `fc:chat-new-below` instead of scrolling when the viewer reads history.
+  - Jump pill `ChatJumpPill`: `position:sticky; bottom` INSIDE #messages —
+    survives fat-morphs, zero overlay math, hidden via data-show at rest.
+    Flips to accent "New messages" on the custom event.
+  - Empty state `ChatEmpty` inside #messages (first morph replaces it).
+  - Composer placeholder → "Message #<channel>" (fixes mobile 2-line clip,
+    the open rec from the Jun-24 session); meta names ellipsize.
+  - Verified with 2-session Playwright: reader drift 0 on incoming send,
+    pill flips + click lands at bottom, sender still auto-scrolls; empty
+    channel + mobile 390px shots reviewed.
+  - Pre-existing unrelated failure: `internal/agent TestInternalMCPSearchTool`
+    broken by mcpx weather/datetime tools (c4ed04e) — expects exactly one
+    tool, now three register. Not touched here.
 
 ## Adjustments
 
-_(none yet)_
+- 2026-07-02 — phases 1–3 landed as one commit: the edits interleave in the
+  same two files (chat.templ + app.css) and split commits would not build
+  independently (`make gen` regenerates one chat_templ.go).
