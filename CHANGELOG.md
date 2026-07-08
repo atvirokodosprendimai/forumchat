@@ -300,3 +300,5 @@
 - 2026-07-02 `7c69907` feat(chat): enterprise design pass — day separators, reading-position guard, jump pill, empty state
 - 2026-07-02 `6263d6d` docs(plan): chat design polish — progress log, completed
 - 2026-07-02 `b8b020b` docs(changelog): sync chat design polish entries
+- 2026-07-02 `8454f2c` docs(changelog): sync auto-appended entry
+- 2026-07-08 `46f4311` fix(chat): composer no longer clipped off-screen on mobile
