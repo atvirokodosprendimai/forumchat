@@ -303,3 +303,4 @@
 - 2026-07-02 `8454f2c` docs(changelog): sync auto-appended entry
 - 2026-07-08 `46f4311` fix(chat): composer no longer clipped off-screen on mobile
 - 2026-07-08 `1fb23cb` docs(changelog): sync auto-appended entries
+- 2026-07-08 `821aea9` docs(changelog): sync auto-appended entry
