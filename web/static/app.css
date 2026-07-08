@@ -86,9 +86,25 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 /* App shell: viewport-locked column with internal-scrolling main.
-   No browser scrollbar, header + footer always visible. */
-html, body { height: 100%; overflow: hidden; }
-body { display: flex; flex-direction: column; min-height: 100dvh; height: 100dvh; }
+   No browser scrollbar, header + footer always visible.
+
+   html and body MUST share the SAME height unit. The old code split them —
+   html:100% vs body:100dvh — which is invisible in desktop/devtools (there
+   the two resolve equal) but breaks on real phones: html's 100% resolves to
+   the large/layout viewport (and is the fallback when dvh is unsupported),
+   while body's 100dvh is the smaller dynamic viewport. body then overflows
+   html, and since the root is overflow:hidden that overflow — the composer,
+   pinned at the flex column's bottom — is clipped off the bottom edge with no
+   scroll to recover it. That is the "mobile chat input off-screen" bug.
+
+   Fix: size html AND body to the same dynamic viewport. dvh tracks the
+   CURRENT visible viewport (it shrinks as the URL/tool bars show), so the
+   clip box (html) always equals the content column (body) and both always
+   equal what the user can actually see — the composer can never be clipped.
+   The leading 100vh line is the fallback for browsers without dvh; because
+   html and body take it together they still stay equal there. */
+html, body { height: 100vh; height: 100dvh; overflow: hidden; }
+body { display: flex; flex-direction: column; }
 img, video { max-width: 100%; height: auto; }
 
 a { color: var(--accent); text-decoration: none; transition: color var(--t-fast) var(--ease-out); }
