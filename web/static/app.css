@@ -627,7 +627,15 @@ label.icon-btn {
   align-self: stretch;
 }
 .presence h3 { flex: 0 0 auto; }
-.presence > div, .presence ul { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+/* The panel's own content area is the scroller. `> ul` is deliberately a
+   CHILD selector, not a descendant one: RosterPanel nests its grouped
+   <ul class="roster"> lists inside #presence-list, and a descendant match
+   turned each of those into a scroll container that never has scrollable
+   overflow (block, auto height => it grows to fit its rows). Paired with
+   overscroll-behavior: contain, that dead container swallowed the wheel
+   instead of chaining it to #presence-list, so the member rail could not
+   be scrolled at all once the roster outgrew the viewport. */
+.presence > div, .presence > ul { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .presence ul { list-style: none; padding: 0; margin: 0; }
 .presence li { padding: .25rem 0; display: flex; align-items: center; gap: .4rem; }
 .presence li::before {
